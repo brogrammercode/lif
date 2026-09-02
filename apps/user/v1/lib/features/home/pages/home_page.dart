@@ -8,6 +8,7 @@ import 'package:latlong2/latlong.dart' hide Path;
 import 'package:geolocator/geolocator.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:user/features/home/constants/home.constant.dart';
+import 'package:user/features/drawer/pages/drawer_page.dart';
 import '../../../core/network/dio_client.dart';
 
 class HomePage extends StatefulWidget {
@@ -21,6 +22,7 @@ enum SearchField { none, from, to }
 
 class _HomePageState extends State<HomePage>
     with SingleTickerProviderStateMixin {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   LatLng _fromLocation = HomeConstants.DEFAULT_LOCATION;
   LatLng? _toLocation;
 
@@ -390,7 +392,9 @@ class _HomePageState extends State<HomePage>
         statusBarBrightness: Brightness.light,
       ),
       child: Scaffold(
+        key: _scaffoldKey,
         backgroundColor: Colors.white,
+        drawer: const DrawerPage(),
         body: Stack(
           children: [
             // Layer 0: Map View (Greyscale with top/bottom fade)
@@ -608,13 +612,18 @@ class _HomePageState extends State<HomePage>
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           // Profile Button
-          _buildGlassButton(
-            child: ClipOval(
-              child: Image.network(
-                HomeConstants.PROFILE_IMAGE_URL,
-                width: 44,
-                height: 44,
-                fit: BoxFit.cover,
+          GestureDetector(
+            onTap: () {
+              _scaffoldKey.currentState?.openDrawer();
+            },
+            child: _buildGlassButton(
+              child: ClipOval(
+                child: Image.network(
+                  HomeConstants.PROFILE_IMAGE_URL,
+                  width: 44,
+                  height: 44,
+                  fit: BoxFit.cover,
+                ),
               ),
             ),
           ),
