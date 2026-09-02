@@ -44,6 +44,12 @@ class _HomePageState extends State<HomePage>
   double? _routeDuration;
   TimeOfDay? _selectedRideTime;
 
+  bool _isSelectingVehicle = false;
+  int? _selectedVehicleIndex = 0;
+  bool _isSearchingDriver = false;
+  bool _isDriverFound = false;
+  bool _isProgrammaticTextChange = false;
+
   Timer? _debounce;
   List<dynamic> _suggestions = [];
   bool _isFetchingSuggestions = false;
@@ -134,6 +140,7 @@ class _HomePageState extends State<HomePage>
   }
 
   void _onSearchChanged() {
+    if (_isProgrammaticTextChange) return;
     if (_activeField == SearchField.none) return;
     final text = _activeField == SearchField.from
         ? _fromController.text
@@ -196,6 +203,8 @@ class _HomePageState extends State<HomePage>
       if (response.statusCode == 200 && mounted) {
         final displayName = response.data['display_name'] ?? '';
         final shortName = displayName.split(',').first;
+
+        _isProgrammaticTextChange = true;
         setState(() {
           if (targetField == SearchField.from) {
             _fromController.text = shortName;
@@ -203,6 +212,7 @@ class _HomePageState extends State<HomePage>
             _toController.text = shortName;
           }
         });
+        Future.microtask(() => _isProgrammaticTextChange = false);
       }
     } catch (e) {
       // ignore
@@ -407,7 +417,10 @@ class _HomePageState extends State<HomePage>
                   onPositionChanged: (MapCamera position, bool hasGesture) {
                     if (hasGesture && _activeField != SearchField.none) {
                       if (!_isMapDragging) {
-                        setState(() => _isMapDragging = true);
+                        setState(() {
+                          _isMapDragging = true;
+                          _suggestions = [];
+                        });
                       }
                       if (_debounce?.isActive ?? false) _debounce!.cancel();
                       _debounce = Timer(const Duration(milliseconds: 500), () {
@@ -459,18 +472,28 @@ class _HomePageState extends State<HomePage>
                       if (_activeField != SearchField.from)
                         Marker(
                           point: _fromLocation,
-                          width: 44,
-                          height: 48,
+                          width: 250,
+                          height: 120,
                           alignment: Alignment.topCenter,
-                          child: _buildMarkerWidget(isGreen: false),
+                          child: _buildMarkerWidget(
+                            isGreen: false,
+                            label: _fromController.text.isNotEmpty
+                                ? _fromController.text
+                                : "Current Location",
+                          ),
                         ),
                       if (_toLocation != null && _activeField != SearchField.to)
                         Marker(
                           point: _toLocation!,
-                          width: 44,
-                          height: 48,
+                          width: 250,
+                          height: 120,
                           alignment: Alignment.topCenter,
-                          child: _buildMarkerWidget(isGreen: true),
+                          child: _buildMarkerWidget(
+                            isGreen: true,
+                            label: _toController.text.isNotEmpty
+                                ? _toController.text
+                                : "Destination",
+                          ),
                         ),
                     ],
                   ),
@@ -531,11 +554,11 @@ class _HomePageState extends State<HomePage>
             // Layer L: Loading Layout (Animated Fade Out for background)
             Positioned.fill(
               child: IgnorePointer(
-                ignoring: !_isLoading,
+                ignoring: !(_isLoading || _isSearchingDriver),
                 child: AnimatedOpacity(
                   duration: const Duration(milliseconds: 1000),
                   curve: Curves.easeInOut,
-                  opacity: _isLoading ? 1.0 : 0.0,
+                  opacity: (_isLoading || _isSearchingDriver) ? 1.0 : 0.0,
                   child: Container(
                     decoration: BoxDecoration(
                       gradient: RadialGradient(
@@ -546,9 +569,8 @@ class _HomePageState extends State<HomePage>
                           Colors.white.withValues(alpha: 0.0),
                           Colors.white.withValues(alpha: 0.6),
                           Colors.white,
-                          Colors.white,
                         ],
-                        stops: const [0.1, 0.4, 0.7, 1.0],
+                        stops: const [0.0, 0.4, 1.0],
                       ),
                     ),
                   ),
@@ -562,11 +584,11 @@ class _HomePageState extends State<HomePage>
               left: 0,
               right: 0,
               child: IgnorePointer(
-                ignoring: !_isLoading,
+                ignoring: !(_isLoading || _isSearchingDriver),
                 child: AnimatedOpacity(
                   duration: const Duration(milliseconds: 800),
                   curve: Curves.easeInOut,
-                  opacity: _isLoading ? 1.0 : 0.0,
+                  opacity: (_isLoading || _isSearchingDriver) ? 1.0 : 0.0,
                   child: _buildTopHeader(context),
                 ),
               ),
@@ -643,12 +665,39 @@ class _HomePageState extends State<HomePage>
     );
   }
 
-  Widget _buildMarkerWidget({required bool isGreen}) {
+  Widget _buildMarkerWidget({required bool isGreen, String? label}) {
     return Transform.translate(
-      offset: const Offset(0, -24),
+      offset: const Offset(0, -32),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (label != null) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black12,
+                    blurRadius: 6,
+                    offset: Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.black,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(height: 6),
+          ],
           Container(
             width: 28,
             height: 28,
@@ -705,11 +754,17 @@ class _HomePageState extends State<HomePage>
     return Column(
       children: [
         Center(child: const SizedBox(height: 50)),
-        const Icon(Iconsax.car, size: 30, color: Colors.black87),
+        Icon(
+          _isSearchingDriver ? Icons.search : Icons.motorcycle,
+          size: 30,
+          color: Colors.black87,
+        ),
         const SizedBox(height: 12),
-        const Text(
-          HomeConstants.TEXT_LOCATING_YOU,
-          style: TextStyle(
+        Text(
+          _isSearchingDriver
+              ? "Searching for drivers..."
+              : HomeConstants.TEXT_LOCATING_YOU,
+          style: const TextStyle(
             color: Colors.black,
             fontSize: 24,
             fontWeight: FontWeight.w700,
@@ -732,6 +787,34 @@ class _HomePageState extends State<HomePage>
       }
     }
 
+    final km = (_routeDistance ?? 0) / 1000;
+    final vehicles = [
+      {
+        'name': 'Basic Bike',
+        'capacity': 1,
+        'time': '3 min',
+        'price': 20 + (km * 8),
+        'image':
+            'https://images.unsplash.com/photo-1558981420-8ceaa10c9c30?auto=format&fit=crop&w=200&q=80',
+      },
+      {
+        'name': 'Premium',
+        'capacity': 1,
+        'time': '5 min',
+        'price': 30 + (km * 12),
+        'image':
+            'https://images.unsplash.com/photo-1558981285-6f0c94958bb6?auto=format&fit=crop&w=200&q=80',
+      },
+      {
+        'name': 'Electric',
+        'capacity': 1,
+        'time': '2 min',
+        'price': 15 + (km * 6),
+        'image':
+            'https://images.unsplash.com/photo-1558980394-0a37c36b69b5?auto=format&fit=crop&w=200&q=80',
+      },
+    ];
+
     return Positioned(
       bottom: MediaQuery.paddingOf(context).bottom + 10,
       left: 16,
@@ -745,215 +828,624 @@ class _HomePageState extends State<HomePage>
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
               child: Container(
-                padding: const EdgeInsets.all(24),
+                padding: _isDriverFound
+                    ? EdgeInsets.zero
+                    : const EdgeInsets.all(24),
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.25),
+                  color: _isDriverFound
+                      ? Colors.white
+                      : Colors.black.withValues(alpha: 0.25),
                   borderRadius: BorderRadius.circular(28),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.3),
-                    width: 1.5,
-                  ),
+                  border: _isDriverFound
+                      ? null
+                      : Border.all(
+                          color: Colors.white.withValues(alpha: 0.3),
+                          width: 1.5,
+                        ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Persistent Title Section
-                    if (!isSearching) ...[
-                      Text(
-                        titleText,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      GestureDetector(
-                        onTap: _selectRideTime,
-                        child: Row(
+                    if (_isDriverFound) ...[
+                      // Driver Found Profile
+                      Container(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Text(
-                              _selectedRideTime != null
-                                  ? _selectedRideTime!.format(context)
-                                  : HomeConstants.TEXT_NOW,
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.8),
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
+                            const Center(
+                              child: Text(
+                                "Driver will arrive in ~4 min.",
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
-                            const SizedBox(width: 4),
-                            Icon(
-                              Iconsax.arrow_down_1,
-                              color: Colors.white.withValues(alpha: 0.8),
-                              size: 18,
+                            const SizedBox(height: 20),
+                            Row(
+                              children: [
+                                Column(
+                                  children: [
+                                    ClipOval(
+                                      child: Image.network(
+                                        'https://images.unsplash.com/photo-1599566150163-29194dcaad36?auto=format&fit=crop&w=100&q=80',
+                                        width: 60,
+                                        height: 60,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    const Text(
+                                      "Kairatbek",
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    Row(
+                                      children: const [
+                                        Icon(
+                                          Icons.star,
+                                          color: Colors.greenAccent,
+                                          size: 16,
+                                        ),
+                                        SizedBox(width: 4),
+                                        Text(
+                                          "5.0",
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                                const Spacer(),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    const Text(
+                                      "Grey Honda Activa",
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.greenAccent.shade200,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: const Text(
+                                        "08KG1152",
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                Column(
+                                  children: [
+                                    Icon(
+                                      Icons.verified_user_outlined,
+                                      color: Colors.grey.shade400,
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      "Safe",
+                                      style: TextStyle(
+                                        color: Colors.grey.shade500,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Container(
+                                  width: 1,
+                                  height: 30,
+                                  color: Colors.grey.shade300,
+                                ),
+                                Column(
+                                  children: [
+                                    Icon(
+                                      Icons.motorcycle,
+                                      color: Colors.grey.shade400,
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      "Economy",
+                                      style: TextStyle(
+                                        color: Colors.grey.shade500,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Container(
+                                  width: 1,
+                                  height: 30,
+                                  color: Colors.grey.shade300,
+                                ),
+                                Column(
+                                  children: [
+                                    Icon(
+                                      Icons.password,
+                                      color: Colors.grey.shade400,
+                                    ),
+                                    const SizedBox(height: 4),
+                                    const Text(
+                                      "OTP: 1254",
+                                      style: TextStyle(
+                                        color: Colors.black,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 20),
+                            Container(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              decoration: BoxDecoration(
+                                color: Colors.black87,
+                                borderRadius: BorderRadius.circular(15),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: const [
+                                  Text(
+                                    "Contact driver",
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  SizedBox(width: 8),
+                                  Icon(
+                                    Icons.phone_outlined,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 24),
-                    ],
+                    ] else ...[
+                      if (_isSelectingVehicle) ...[
+                        SizedBox(
+                          height: 220,
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: vehicles.length,
+                            separatorBuilder: (context, index) =>
+                                const SizedBox(width: 12),
+                            itemBuilder: (context, index) {
+                              final vehicle = vehicles[index];
+                              final isSelected = _selectedVehicleIndex == index;
 
-                    // Suggestions List (shows above text fields)
-                    if (isSearching && _suggestions.isNotEmpty)
+                              final cardContent = Container(
+                                width: 140,
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: isSelected
+                                      ? Colors.white
+                                      : Colors.white.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(15),
+                                  border: isSelected
+                                      ? Border.all(
+                                          color: Colors.white,
+                                          width: 2,
+                                        )
+                                      : Border.all(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.3,
+                                          ),
+                                        ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(10),
+                                      child: Image.network(
+                                        vehicle['image'] as String,
+                                        height: 70,
+                                        width: double.infinity,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      vehicle['name'] as String,
+                                      style: TextStyle(
+                                        color: isSelected
+                                            ? Colors.black
+                                            : Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Icon(
+                                              Icons.person,
+                                              size: 12,
+                                              color: isSelected
+                                                  ? Colors.black54
+                                                  : Colors.white70,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              '${vehicle['capacity']}',
+                                              style: TextStyle(
+                                                color: isSelected
+                                                    ? Colors.black54
+                                                    : Colors.white70,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        Text(
+                                          vehicle['time'] as String,
+                                          style: TextStyle(
+                                            color: isSelected
+                                                ? Colors.black54
+                                                : Colors.white70,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const Spacer(),
+                                    Text(
+                                      '₹${(vehicle['price'] as double).toStringAsFixed(0)}',
+                                      style: TextStyle(
+                                        color: isSelected
+                                            ? Colors.black
+                                            : Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 18,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+
+                              return GestureDetector(
+                                onTap: () => setState(
+                                  () => _selectedVehicleIndex = index,
+                                ),
+                                child: isSelected
+                                    ? Container(
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(
+                                            15,
+                                          ),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.black.withValues(
+                                                alpha: 0.2,
+                                              ),
+                                              blurRadius: 10,
+                                              offset: const Offset(0, 5),
+                                            ),
+                                          ],
+                                        ),
+                                        clipBehavior: Clip.antiAlias,
+                                        child: Column(
+                                          children: [
+                                            Expanded(child: cardContent),
+                                            GestureDetector(
+                                              onTap: () {
+                                                setState(() {
+                                                  _isSelectingVehicle = false;
+                                                  _isSearchingDriver = true;
+                                                });
+                                                Future.delayed(
+                                                  const Duration(seconds: 3),
+                                                  () {
+                                                    if (mounted) {
+                                                      setState(() {
+                                                        _isSearchingDriver =
+                                                            false;
+                                                        _isDriverFound = true;
+                                                      });
+                                                    }
+                                                  },
+                                                );
+                                              },
+                                              child: Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      vertical: 12,
+                                                    ),
+                                                width: 140,
+                                                color: Colors.yellow.shade600,
+                                                alignment: Alignment.center,
+                                                child: const Text(
+                                                  "Book Now",
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 14,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      )
+                                    : Align(
+                                        alignment: Alignment.topCenter,
+                                        child: SizedBox(
+                                          height: 170,
+                                          child: cardContent,
+                                        ),
+                                      ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                      // Persistent Title Section
+                      if (!isSearching && !_isSelectingVehicle) ...[
+                        Text(
+                          titleText,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        GestureDetector(
+                          onTap: _selectRideTime,
+                          child: Row(
+                            children: [
+                              Text(
+                                _selectedRideTime != null
+                                    ? _selectedRideTime!.format(context)
+                                    : HomeConstants.TEXT_NOW,
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.8),
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(
+                                Iconsax.arrow_down_1,
+                                color: Colors.white.withValues(alpha: 0.8),
+                                size: 18,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+
+                      if (showBothFields && !_isSelectingVehicle)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _activeField = SearchField.none;
+                                _hasExpandedSearch = false;
+                                _suggestions = [];
+                                FocusScope.of(context).unfocus();
+                              });
+                            },
+                            child: Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.all(8),
+                              decoration: const BoxDecoration(
+                                color: Colors.white,
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black12,
+                                    blurRadius: 4,
+                                    offset: Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: const Icon(
+                                Icons.keyboard_arrow_down,
+                                size: 24,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ),
+                        ),
+
+                      // Suggestions List (shows above text fields)
+                      if (isSearching && _suggestions.isNotEmpty)
+                        Container(
+                          constraints: const BoxConstraints(maxHeight: 180),
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(15),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.1),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            padding: const EdgeInsets.all(8),
+                            itemCount: _suggestions.length,
+                            separatorBuilder: (context, index) =>
+                                const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final item = _suggestions[index];
+                              return ListTile(
+                                leading: Icon(
+                                  Iconsax.location,
+                                  color: Colors.grey.shade400,
+                                ),
+                                title: Text(
+                                  item['display_name'] ?? '',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                                onTap: () => _onSuggestionSelected(item),
+                              );
+                            },
+                          ),
+                        ),
+
+                      // Search Box Area
                       Container(
-                        constraints: const BoxConstraints(maxHeight: 180),
-                        margin: const EdgeInsets.only(bottom: 12),
                         decoration: BoxDecoration(
-                          color: Colors.white,
                           borderRadius: BorderRadius.circular(15),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.1),
+                              color: Colors.black.withValues(alpha: 0.05),
                               blurRadius: 10,
                               offset: const Offset(0, 4),
                             ),
                           ],
                         ),
-                        child: ListView.separated(
-                          shrinkWrap: true,
-                          padding: const EdgeInsets.all(8),
-                          itemCount: _suggestions.length,
-                          separatorBuilder: (context, index) =>
-                              const Divider(height: 1),
-                          itemBuilder: (context, index) {
-                            final item = _suggestions[index];
-                            return ListTile(
-                              leading: Icon(
-                                Iconsax.location,
-                                color: Colors.grey.shade400,
+                        clipBehavior: Clip.antiAlias,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
                               ),
-                              title: Text(
-                                item['display_name'] ?? '',
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.black87,
-                                ),
-                              ),
-                              onTap: () => _onSuggestionSelected(item),
-                            );
-                          },
-                        ),
-                      ),
-
-                    // Search Box Area
-                    Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(15),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.05),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
-                            ),
-                            color: Colors.white,
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      // From Field
-                                      _buildSearchField(
-                                        label: "From",
-                                        controller: _fromController,
-                                        focusNode: _fromFocus,
-                                        field: SearchField.from,
-                                        isSearching: isSearching,
-                                        isCollapsed: !showBothFields,
-                                      ),
-
-                                      if (showBothFields) ...[
-                                        const Padding(
-                                          padding: EdgeInsets.symmetric(
-                                            vertical: 4.0,
-                                          ),
-                                          child: Divider(
-                                            height: 1,
-                                            color: Colors.black12,
-                                          ),
-                                        ),
-                                        // To Field
+                              color: Colors.white,
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        // From Field
                                         _buildSearchField(
-                                          label: "To",
-                                          controller: _toController,
-                                          focusNode: _toFocus,
-                                          field: SearchField.to,
+                                          label: "From",
+                                          controller: _fromController,
+                                          focusNode: _fromFocus,
+                                          field: SearchField.from,
                                           isSearching: isSearching,
                                           isCollapsed: !showBothFields,
                                         ),
+
+                                        if (showBothFields) ...[
+                                          const Padding(
+                                            padding: EdgeInsets.symmetric(
+                                              vertical: 4.0,
+                                            ),
+                                            child: Divider(
+                                              height: 1,
+                                              color: Colors.black12,
+                                            ),
+                                          ),
+                                          // To Field
+                                          _buildSearchField(
+                                            label: "To",
+                                            controller: _toController,
+                                            focusNode: _toFocus,
+                                            field: SearchField.to,
+                                            isSearching: isSearching,
+                                            isCollapsed: !showBothFields,
+                                          ),
+                                        ],
                                       ],
+                                    ),
+                                  ),
+                                  if (_isFetchingSuggestions)
+                                    const SizedBox(
+                                      width: 24,
+                                      height: 24,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.5,
+                                      ),
+                                    )
+                                  else if (!showBothFields)
+                                    Icon(
+                                      Iconsax.search_normal,
+                                      color: Colors.grey.shade400,
+                                      size: 20,
+                                    ),
+                                ],
+                              ),
+                            ),
+                            if (!isSearching && _routeDistance != null)
+                              GestureDetector(
+                                onTap: () {
+                                  // Handle continue
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 8,
+                                  ),
+                                  color: Colors.yellow.shade600,
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(
+                                        Icons.motorcycle,
+                                        color: Colors.black,
+                                        size: 15,
+                                      ),
+                                      const SizedBox(width: 20),
+                                      const Text(
+                                        "Continue to select ride vehicle",
+                                        style: TextStyle(
+                                          color: Colors.black,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
-                                if (_isFetchingSuggestions)
-                                  const SizedBox(
-                                    width: 24,
-                                    height: 24,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2.5,
-                                    ),
-                                  )
-                                else if (!showBothFields)
-                                  Icon(
-                                    Iconsax.search_normal,
-                                    color: Colors.grey.shade400,
-                                    size: 20,
-                                  ),
-                              ],
-                            ),
-                          ),
-                          if (!isSearching && _routeDistance != null)
-                            GestureDetector(
-                              onTap: () {
-                                // Handle continue
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 8,
-                                ),
-                                color: Colors.yellow.shade600,
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Icon(
-                                      Iconsax.car5,
-                                      color: Colors.black,
-                                      size: 15,
-                                    ),
-                                    const SizedBox(width: 20),
-                                    const Text(
-                                      "Continue to select ride vehicle",
-                                      style: TextStyle(
-                                        color: Colors.black,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ],
-                                ),
                               ),
-                            ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
