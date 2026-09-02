@@ -1,3 +1,4 @@
+import 'package:iconsax/iconsax.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:user/core/color.dart';
@@ -37,10 +38,10 @@ class _RidePageState extends State<RidePage> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         _buildIconButton(
-                          Icons.chevron_left_rounded,
+                          Iconsax.arrow_left,
                           () => Navigator.pop(context),
                         ),
-                        _buildIconButton(Icons.notifications_none_rounded, () {}),
+                        _buildIconButton(Iconsax.notification, () {}),
                       ],
                     ),
                   ),
@@ -101,7 +102,7 @@ class _RidePageState extends State<RidePage> {
       ),
       alignment: Alignment.center,
       child: Icon(
-        Icons.my_location_rounded,
+        Iconsax.gps,
         color: AppColors.pureWhite,
         size: 22.w,
       ),
@@ -229,7 +230,7 @@ class _RidePageState extends State<RidePage> {
     return Stack(
       alignment: Alignment.center,
       children: [
-        Icon(Icons.location_on_rounded, color: const Color(0xFF2563EB), size: 34.w),
+        Icon(Iconsax.location, color: const Color(0xFF2563EB), size: 34.w),
         Positioned(
           top: 10.h,
           child: Container(
@@ -262,7 +263,7 @@ class _RidePageState extends State<RidePage> {
       ),
       alignment: Alignment.center,
       child: Icon(
-        Icons.directions_car_rounded,
+        Iconsax.car,
         color: AppColors.pureWhite,
         size: 24.w,
       ),
@@ -326,7 +327,7 @@ class _RidePageState extends State<RidePage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildSheetHeader(
-          icon: Icons.search_rounded,
+          icon: Iconsax.search_normal,
           title: 'Finding you a nearby driver',
           subtitle: 'We are connecting you with the nearest available driver.',
         ),
@@ -448,7 +449,7 @@ class _RidePageState extends State<RidePage> {
               ),
             ),
             SizedBox(width: 12.w),
-            _buildSquareAction(Icons.chat_bubble_outline_rounded),
+            _buildSquareAction(Iconsax.message),
           ],
         ),
         SizedBox(height: 20.h),
@@ -575,7 +576,7 @@ class _RidePageState extends State<RidePage> {
           CircleAvatar(
             radius: 22.r,
             backgroundColor: AppColors.borderGrey,
-            child: Icon(Icons.person_rounded, color: AppColors.textSecondary, size: 24.w),
+            child: Icon(Iconsax.profile_circle, color: AppColors.textSecondary, size: 24.w),
           ),
           SizedBox(width: 12.w),
           Expanded(
@@ -597,7 +598,7 @@ class _RidePageState extends State<RidePage> {
                       ),
                     ),
                     SizedBox(width: 8.w),
-                    Icon(Icons.star_rounded, size: 15.w, color: Colors.orange),
+                    Icon(Iconsax.star1, size: 15.w, color: Colors.orange),
                     SizedBox(width: 2.w),
                     Text(
                       '5.0',
@@ -625,7 +626,7 @@ class _RidePageState extends State<RidePage> {
           ),
           if (showCallButton) ...[
             SizedBox(width: 10.w),
-            _buildSquareAction(Icons.call_outlined),
+            _buildSquareAction(Iconsax.call),
           ],
         ],
       ),
@@ -694,7 +695,7 @@ class _RidePageState extends State<RidePage> {
         Column(
           children: [
             Icon(
-              Icons.location_on_rounded,
+              Iconsax.location,
               size: 20.w,
               color: isActive ? const Color(0xFF2563EB) : AppColors.textTertiary,
             ),
@@ -811,7 +812,7 @@ class _RidePageState extends State<RidePage> {
               Row(
                 children: [
                   _buildIconButton(
-                    Icons.chevron_left_rounded,
+                    Iconsax.arrow_left,
                     () => Navigator.pop(context),
                   ),
                   Expanded(
@@ -839,7 +840,7 @@ class _RidePageState extends State<RidePage> {
                 ),
                 alignment: Alignment.center,
                 child: Icon(
-                  Icons.directions_car_rounded,
+                  Iconsax.car,
                   size: 64.w,
                   color: AppColors.textPrimary,
                 ),
@@ -892,7 +893,7 @@ class _RidePageState extends State<RidePage> {
                   (index) => Padding(
                     padding: EdgeInsets.symmetric(horizontal: 3.w),
                     child: Icon(
-                      Icons.star_rounded,
+                      Iconsax.star1,
                       color: index < 4
                           ? const Color(0xFF2563EB)
                           : AppColors.borderGrey,

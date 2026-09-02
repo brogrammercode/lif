@@ -1,3 +1,4 @@
+import 'package:iconsax/iconsax.dart';
 import 'package:flutter/material.dart';
 import 'package:user/features/auth/constants/user.constant.dart';
 
@@ -10,15 +11,15 @@ class LoginFeatureItem {
 
 const List<LoginFeatureItem> loginFeatureItems = [
   LoginFeatureItem(
-    icon: Icons.speed_rounded,
+    icon: Iconsax.speedometer,
     label: UserConstants.FEATURE_FAST_DELIVERY,
   ),
   LoginFeatureItem(
-    icon: Icons.directions_car_rounded,
+    icon: Iconsax.car,
     label: UserConstants.FEATURE_FRESH_STORES,
   ),
   LoginFeatureItem(
-    icon: Icons.my_location_rounded,
+    icon: Iconsax.gps,
     label: UserConstants.FEATURE_LIVE_UPDATES,
   ),
 ];

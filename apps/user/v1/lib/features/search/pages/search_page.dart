@@ -1,3 +1,4 @@
+import 'package:iconsax/iconsax.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:user/core/color.dart';
@@ -89,10 +90,10 @@ class SearchPage extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         _buildIconButton(
-          Icons.chevron_left_rounded,
+          Iconsax.arrow_left,
           () => Navigator.pop(context),
         ),
-        _buildIconButton(Icons.notifications_none_rounded, () {}),
+        _buildIconButton(Iconsax.notification, () {}),
       ],
     );
   }
@@ -137,7 +138,7 @@ class SearchPage extends StatelessWidget {
       ),
       alignment: Alignment.center,
       child: Icon(
-        Icons.my_location_rounded,
+        Iconsax.gps,
         color: AppColors.pureWhite,
         size: 22.w,
       ),
@@ -225,7 +226,7 @@ class SearchPage extends StatelessWidget {
       alignment: Alignment.center,
       children: [
         Icon(
-          Icons.location_on_rounded,
+          Iconsax.location,
           color: const Color(0xFF2563EB),
           size: 34.w,
         ),
@@ -291,7 +292,7 @@ class SearchPage extends StatelessWidget {
                 ),
                 SizedBox(height: 4.h),
                 Icon(
-                  Icons.location_on_rounded,
+                  Iconsax.location,
                   color: AppColors.textTertiary,
                   size: 18.w,
                 ),
@@ -306,7 +307,7 @@ class SearchPage extends StatelessWidget {
                   context,
                   'Pickup',
                   'San Francisco, California 94117',
-                  Icons.add_rounded,
+                  Iconsax.add,
                 ),
                 Padding(
                   padding: EdgeInsets.symmetric(vertical: 12.h),
@@ -316,7 +317,7 @@ class SearchPage extends StatelessWidget {
                   context,
                   'Drop-off',
                   'Market Street',
-                  Icons.swap_vert_rounded,
+                  Iconsax.arrange_square,
                 ),
               ],
             ),
@@ -450,7 +451,7 @@ class SearchPage extends StatelessWidget {
                   ),
                   alignment: Alignment.center,
                   child: Icon(
-                    Icons.directions_car_rounded,
+                    Iconsax.car,
                     size: 32.w,
                     color: AppColors.textPrimary,
                   ),
@@ -482,7 +483,7 @@ class SearchPage extends StatelessWidget {
                           ),
                           SizedBox(width: 10.w),
                           Icon(
-                            Icons.person_rounded,
+                            Iconsax.profile_circle,
                             size: 14.w,
                             color: AppColors.textSecondary,
                           ),
@@ -523,7 +524,7 @@ class SearchPage extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.bolt_rounded, color: AppColors.pureWhite, size: 12.w),
+          Icon(Iconsax.flash, color: AppColors.pureWhite, size: 12.w),
           SizedBox(width: 3.w),
           Text(
             'Faster',

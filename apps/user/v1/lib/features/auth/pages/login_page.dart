@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:user/components/ui/button.dart';
 import 'package:user/core/color.dart';
 import 'package:user/core/routes.dart';
-import 'package:user/features/auth/_data_dummy/login_page.dart';
 import 'package:user/features/auth/constants/user.constant.dart';
 
 class LoginPage extends StatefulWidget {
@@ -16,136 +15,79 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.pureWhite,
-      body: Column(
-        children: [
-          SizedBox(height: MediaQuery.of(context).padding.top),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                return SingleChildScrollView(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      minHeight: constraints.maxHeight,
-                    ),
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 24.w),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SizedBox(height: 28.h),
-                          _buildBrandHeader(),
-                          SizedBox(height: 40.h),
-                          _buildHeroPanel(),
-                          SizedBox(height: 32.h),
-                          _buildTitleBlock(context),
-                          SizedBox(height: 24.h),
-                          _buildFeatureStrip(),
-                          SizedBox(height: 56.h),
-                          _buildGoogleButton(context),
-                          SizedBox(height: 14.h),
-                          _buildTermsText(),
-                          SizedBox(height: 24.h),
-                        ],
-                      ),
-                    ),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        statusBarBrightness: Brightness.dark,
+      ),
+      child: Scaffold(
+        backgroundColor: AppColors.deepOnyx,
+        body: Stack(
+          children: [
+            const Positioned.fill(child: _LoginBackground()),
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withValues(alpha: 0.04),
+                      Colors.black.withValues(alpha: 0.00),
+                      Colors.black.withValues(alpha: 0.16),
+                    ],
+                    stops: const [0.0, 0.48, 1.0],
                   ),
+                ),
+              ),
+            ),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final screenHeight = constraints.maxHeight;
+                final safePadding = MediaQuery.paddingOf(context);
+
+                return Stack(
+                  children: [
+                    Positioned(
+                      top: safePadding.top + 16.h,
+                      right: 14.w,
+                      child: _buildSkipButton(context),
+                    ),
+                    Positioned(
+                      top: screenHeight * 0.485,
+                      left: 0,
+                      right: 0,
+                      child: _buildSportMatesBadge(),
+                    ),
+                    Positioned(
+                      top: screenHeight * 0.54,
+                      left: 22.w,
+                      right: 22.w,
+                      child: _buildHeadline(),
+                    ),
+                    Positioned(
+                      top: screenHeight * 0.785,
+                      left: 22.w,
+                      right: 22.w,
+                      child: _buildSubtitle(),
+                    ),
+                    Positioned(
+                      top: screenHeight * 0.875,
+                      left: 0,
+                      right: 0,
+                      child: _buildPageIndicator(),
+                    ),
+                    Positioned(
+                      left: 16.w,
+                      right: 16.w,
+                      bottom: safePadding.bottom + 15.h,
+                      child: _buildContinueButton(context),
+                    ),
+                  ],
                 );
               },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBrandHeader() {
-    return Row(
-      children: [
-        Container(
-          width: 44.w,
-          height: 44.w,
-          decoration: const BoxDecoration(
-            color: AppColors.primaryGreen,
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.shadowColor,
-                blurRadius: 8,
-                offset: Offset(0, 4),
-              ),
-            ],
-          ),
-          alignment: Alignment.center,
-          child: Icon(
-            Icons.directions_car_rounded,
-            color: AppColors.pureWhite,
-            size: 22.w,
-          ),
-        ),
-        SizedBox(width: 10.w),
-        Text(
-          UserConstants.BRAND_NAME,
-          style: TextStyle(
-            fontSize: 22.sp,
-            fontWeight: FontWeight.w900,
-            color: AppColors.textPrimary,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildHeroPanel() {
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.all(16.w),
-      decoration: BoxDecoration(
-        color: AppColors.softGrey,
-        borderRadius: BorderRadius.circular(16.r),
-        border: Border.all(color: AppColors.borderGrey, width: 1.w),
-      ),
-      child: AspectRatio(
-        aspectRatio: 1.18,
-        child: Stack(
-          children: [
-            Positioned(
-               left: 14.w,
-               top: 18.h,
-               child: _buildFoodTile(
-                 icon: Icons.electric_scooter_rounded,
-                 color: AppColors.googleRed,
-                 size: 106.w,
-               ),
-            ),
-            Positioned(
-              right: 12.w,
-              top: 4.h,
-              child: _buildFoodTile(
-                icon: Icons.local_taxi_rounded,
-                color: AppColors.gold,
-                size: 132.w,
-              ),
-            ),
-            Positioned(
-              left: 90.w,
-              bottom: 20.h,
-              child: _buildFoodTile(
-                icon: Icons.directions_car_rounded,
-                color: AppColors.primaryGreen,
-                size: 144.w,
-              ),
-            ),
-            Positioned(
-              right: 16.w,
-              bottom: 10.h,
-              child: _buildSmallBadge(Icons.map_rounded),
-            ),
-            Positioned(
-              left: 18.w,
-              bottom: 12.h,
-              child: _buildSmallBadge(Icons.two_wheeler_rounded),
             ),
           ],
         ),
@@ -153,180 +95,195 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Widget _buildFoodTile({
-    required IconData icon,
-    required Color color,
-    required double size,
-  }) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: AppColors.pureWhite,
-        borderRadius: BorderRadius.circular(16.r),
-        boxShadow: const [
-          BoxShadow(
-            color: AppColors.shadowColor,
-            blurRadius: 8,
-            offset: Offset(0, 4),
+  Widget _buildSkipButton(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => Navigator.pushReplacementNamed(context, AppRoutes.home),
+      child: Padding(
+        padding: EdgeInsets.all(8.w),
+        child: Text(
+          'Skip',
+          style: TextStyle(
+            color: AppColors.pureWhite.withValues(alpha: 0.86),
+            fontSize: 12.sp,
+            fontWeight: FontWeight.w500,
+            height: 1,
+            shadows: const [
+              Shadow(
+                color: Color(0x66000000),
+                blurRadius: 4,
+                offset: Offset(0, 1),
+              ),
+            ],
           ),
-        ],
-      ),
-      alignment: Alignment.center,
-      child: Container(
-        width: size * 0.62,
-        height: size * 0.62,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.12),
-          shape: BoxShape.circle,
         ),
-        alignment: Alignment.center,
-        child: Icon(icon, color: color, size: size * 0.34),
       ),
     );
   }
 
-  Widget _buildSmallBadge(IconData icon) {
-    return Container(
-      width: 44.w,
-      height: 44.w,
-      decoration: const BoxDecoration(
-        color: AppColors.deepOnyx,
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadowColor,
-            blurRadius: 8,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      alignment: Alignment.center,
-      child: Icon(icon, color: AppColors.pureWhite, size: 20.w),
-    );
-  }
-
-  Widget _buildTitleBlock(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildSportMatesBadge() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
       children: [
+        SizedBox(
+          width: 34.w,
+          height: 18.w,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: const [
+              _MateAvatar(
+                offset: 0,
+                colors: [Color(0xFFD54B4B), Color(0xFF4BB4D5)],
+              ),
+              _MateAvatar(
+                offset: 10,
+                colors: [Color(0xFFF7D7B8), Color(0xFF2C6B4F)],
+              ),
+              _MateAvatar(
+                offset: 20,
+                colors: [Color(0xFFEBF0F2), Color(0xFFC77A4D)],
+              ),
+            ],
+          ),
+        ),
+        SizedBox(width: 6.w),
         Text(
           UserConstants.LOGIN_SECTION_LABEL,
           style: TextStyle(
-            fontSize: 12.sp,
-            color: AppColors.textTertiary,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.8,
-          ),
-        ),
-        SizedBox(height: 10.h),
-        Text(
-          UserConstants.LOGIN_TITLE,
-          style: Theme.of(
-            context,
-          ).textTheme.displayLarge?.copyWith(
-            height: 1.06,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        SizedBox(height: 12.h),
-        Text(
-          UserConstants.LOGIN_SUBTITLE,
-          style: TextStyle(
-            fontSize: 14.sp,
-            color: AppColors.textSecondary,
-            fontWeight: FontWeight.w500,
-            height: 1.35,
+            color: AppColors.pureWhite,
+            fontSize: 10.sp,
+            fontWeight: FontWeight.w700,
+            height: 1,
+            shadows: const [
+              Shadow(
+                color: Color(0x99000000),
+                blurRadius: 4,
+                offset: Offset(0, 1),
+              ),
+            ],
           ),
         ),
       ],
     );
   }
 
-  Widget _buildFeatureStrip() {
-    return Row(
-      children: List.generate(loginFeatureItems.length, (index) {
-        final item = loginFeatureItems[index];
-
-        return Expanded(
-          child: Padding(
-            padding: EdgeInsets.only(
-              left: index == 0 ? 0.w : 4.w,
-              right: index == loginFeatureItems.length - 1 ? 0.w : 4.w,
-            ),
-            child: Container(
-              height: 78.h,
-              padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 10.h),
-              decoration: BoxDecoration(
-                color: AppColors.pureWhite,
-                borderRadius: BorderRadius.circular(12.r),
-                border: Border.all(color: AppColors.borderGrey, width: 1.w),
-                boxShadow: const [
-                  BoxShadow(
-                    color: AppColors.shadowColor,
-                    blurRadius: 4,
-                    offset: Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(item.icon, color: AppColors.primaryGreen, size: 20.w),
-                  SizedBox(height: 8.h),
-                  Text(
-                    item.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 11.sp,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      }),
+  Widget _buildHeadline() {
+    return Text(
+      UserConstants.LOGIN_TITLE,
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        color: AppColors.pureWhite,
+        fontSize: 43.sp,
+        fontWeight: FontWeight.w900,
+        height: 1.13,
+        letterSpacing: 0,
+        shadows: const [
+          Shadow(color: Color(0x73000000), blurRadius: 8, offset: Offset(0, 2)),
+        ],
+      ),
     );
   }
 
-  Widget _buildGoogleButton(BuildContext context) {
-    return AppButton(
-      text: UserConstants.GOOGLE_AUTH_BUTTON,
-      backgroundColor: AppColors.pureWhite,
-      foregroundColor: AppColors.textPrimary,
-      borderColor: AppColors.borderGrey,
-      icon: _buildGoogleMark(),
-      onPressed: () {
-        Navigator.pushReplacementNamed(context, AppRoutes.home);
-      },
+  Widget _buildSubtitle() {
+    return Text(
+      UserConstants.LOGIN_SUBTITLE,
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        color: AppColors.pureWhite.withValues(alpha: 0.88),
+        fontSize: 13.sp,
+        fontWeight: FontWeight.w500,
+        height: 1.35,
+        letterSpacing: 0,
+        shadows: const [
+          Shadow(color: Color(0x73000000), blurRadius: 5, offset: Offset(0, 1)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPageIndicator() {
+    return Center(
+      child: Container(
+        width: 18.w,
+        height: 5.h,
+        decoration: BoxDecoration(
+          color: AppColors.pureWhite,
+          borderRadius: BorderRadius.circular(999.r),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x33000000),
+              blurRadius: 4,
+              offset: Offset(0, 1),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContinueButton(BuildContext context) {
+    return SizedBox(
+      height: 50.h,
+      child: ElevatedButton(
+        onPressed: () =>
+            Navigator.pushReplacementNamed(context, AppRoutes.home),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.pureWhite,
+          foregroundColor: AppColors.textPrimary,
+          elevation: 0,
+          shadowColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(999.r),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildGoogleMark(),
+            SizedBox(width: 10.w),
+            Flexible(
+              child: Text(
+                UserConstants.GOOGLE_AUTH_BUTTON,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 15.sp,
+                  fontWeight: FontWeight.w500,
+                  height: 1,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
   Widget _buildGoogleMark() {
     return SizedBox(
-      width: 22.w,
-      height: 22.w,
+      width: 20.w,
+      height: 20.w,
       child: Stack(
         alignment: Alignment.center,
         children: [
           Text(
             UserConstants.GOOGLE_MARK,
             style: TextStyle(
-              fontSize: 20.sp,
               color: AppColors.googleBlue,
+              fontSize: 18.sp,
+              fontWeight: FontWeight.w800,
+              height: 1,
             ),
           ),
           Positioned(
             right: 0.w,
-            bottom: 2.h,
+            bottom: 3.h,
             child: Container(
-              width: 8.w,
-              height: 4.h,
+              width: 7.w,
+              height: 3.h,
               color: AppColors.googleGreen,
             ),
           ),
@@ -346,8 +303,8 @@ class _LoginPageState extends State<LoginPage> {
             top: 2.h,
             left: 1.w,
             child: Container(
-              width: 6.w,
-              height: 6.w,
+              width: 5.w,
+              height: 5.w,
               decoration: const BoxDecoration(
                 color: AppColors.googleRed,
                 shape: BoxShape.circle,
@@ -358,17 +315,44 @@ class _LoginPageState extends State<LoginPage> {
       ),
     );
   }
+}
 
-  Widget _buildTermsText() {
-    return Center(
-      child: Text(
-        UserConstants.TERMS_TEXT,
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          fontSize: 11.sp,
-          color: AppColors.textTertiary,
-          fontWeight: FontWeight.w500,
-          height: 1.35,
+class _LoginBackground extends StatelessWidget {
+  const _LoginBackground();
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.asset(
+      UserConstants.LOGIN_BACKGROUND_ASSET,
+      fit: BoxFit.cover,
+      alignment: Alignment.topCenter,
+      filterQuality: FilterQuality.high,
+    );
+  }
+}
+
+class _MateAvatar extends StatelessWidget {
+  final double offset;
+  final List<Color> colors;
+
+  const _MateAvatar({required this.offset, required this.colors});
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: offset.w,
+      top: 0,
+      child: Container(
+        width: 18.w,
+        height: 18.w,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: AppColors.pureWhite, width: 1.2.w),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: colors,
+          ),
         ),
       ),
     );

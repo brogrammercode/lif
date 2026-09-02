@@ -65,7 +65,7 @@ class AppTheme {
           ),
           textStyle: GoogleFonts.outfit(
             fontSize: 16.sp,
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w500,
           ),
         ),
       ),
