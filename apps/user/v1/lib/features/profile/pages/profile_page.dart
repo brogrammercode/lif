@@ -1,0 +1,174 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:user/components/ui/app_page.dart';
+import 'package:user/components/ui/button.dart';
+import 'package:user/core/color.dart';
+import 'package:user/core/network/api_result.dart';
+import 'package:user/features/auth/models/user.model.dart';
+import 'package:user/features/user_app/user_app.constant.dart';
+import 'package:user/features/user_app/user_app.repo.dart';
+
+class ProfilePage extends StatefulWidget {
+  const ProfilePage({super.key});
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  final UserAppRepository _repository = UserAppRepository();
+  final TextEditingController _firstName = TextEditingController();
+  final TextEditingController _lastName = TextEditingController();
+  final TextEditingController _phone = TextEditingController();
+  final TextEditingController _email = TextEditingController();
+  late Future<Map<String, dynamic>> _profile = _repository.profile();
+  bool _saving = false;
+  bool _fieldsLoaded = false;
+
+  @override
+  void dispose() {
+    _firstName.dispose();
+    _lastName.dispose();
+    _phone.dispose();
+    _email.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      await _repository.updateProfile({
+        'first_name': _firstName.text.trim(),
+        'last_name': _lastName.text.trim(),
+        if (_phone.text.trim().isNotEmpty) 'phone_e164': _phone.text.trim(),
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text(UserAppCopy.PROFILE_SAVED)));
+      setState(() => _profile = _repository.profile());
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AppPage(
+    title: UserAppCopy.PROFILE,
+    child: FutureBuilder<Map<String, dynamic>>(
+      future: _profile,
+      builder: (context, snapshot) {
+        if (snapshot.hasError)
+          return AppLoadError(
+            message: ApiResult.errorMessage(snapshot.error!),
+            onRetry: () => setState(() => _profile = _repository.profile()),
+          );
+        if (!snapshot.hasData)
+          return const Center(
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: AppColors.primaryGreen,
+            ),
+          );
+        final user = UserModel.fromJson(snapshot.data!);
+        if (!_fieldsLoaded) {
+          _firstName.text = user.first_name ?? '';
+          _lastName.text = user.last_name ?? '';
+          _phone.text = user.phone_e164 ?? '';
+          _email.text = user.email ?? '';
+          _fieldsLoaded = true;
+        }
+        return ListView(
+          padding: EdgeInsets.only(bottom: 24.h),
+          children: [
+            SizedBox(height: 8.h),
+            Center(
+              child: CircleAvatar(
+                radius: 42.r,
+                backgroundColor: AppColors.softGrey,
+                backgroundImage: user.avatar_url == null
+                    ? null
+                    : NetworkImage(user.avatar_url!),
+                child: user.avatar_url == null
+                    ? Icon(
+                        Icons.person_outline,
+                        size: 36.w,
+                        color: AppColors.primaryGreen,
+                      )
+                    : null,
+              ),
+            ),
+            SizedBox(height: 24.h),
+            AppSectionLabel(UserAppCopy.PROFILE),
+            SizedBox(height: 12.h),
+            _field(UserAppCopy.FIRST_NAME, _firstName),
+            _field(UserAppCopy.LAST_NAME, _lastName),
+            _field(UserAppCopy.EMAIL, _email, enabled: false),
+            _field(
+              UserAppCopy.PHONE,
+              _phone,
+              keyboardType: TextInputType.phone,
+              hint: '+919876543210',
+            ),
+            SizedBox(height: 12.h),
+            AppButton(
+              text: UserAppCopy.SAVE_CHANGES,
+              onPressed: _save,
+              isLoading: _saving,
+            ),
+          ],
+        );
+      },
+    ),
+  );
+
+  Widget _field(
+    String label,
+    TextEditingController controller, {
+    bool enabled = true,
+    TextInputType? keyboardType,
+    String? hint,
+  }) => Padding(
+    padding: EdgeInsets.only(bottom: 14.h),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 13.sp,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textSecondary,
+          ),
+        ),
+        SizedBox(height: 7.h),
+        TextField(
+          controller: controller,
+          enabled: enabled,
+          keyboardType: keyboardType,
+          decoration: InputDecoration(
+            hintText: hint,
+            filled: true,
+            fillColor: enabled ? AppColors.pureWhite : AppColors.softGrey,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14.r),
+              borderSide: const BorderSide(color: AppColors.borderGrey),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14.r),
+              borderSide: const BorderSide(color: AppColors.borderGrey),
+            ),
+            contentPadding: EdgeInsets.symmetric(
+              horizontal: 14.w,
+              vertical: 15.h,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}

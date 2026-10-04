@@ -6,6 +6,7 @@ class UserConstants {
   static const String LOGIN_SUBTITLE =
       'Book nearby drivers, compare ride options,\nand track every trip in real time.';
   static const String GOOGLE_AUTH_BUTTON = 'Continue with Google';
+  static const String SIGN_IN = 'Sign in';
   static const String GOOGLE_MARK = 'G';
   static const String TERMS_TEXT =
       'By continuing, you agree to Lif Terms of Service and Privacy Policy.';

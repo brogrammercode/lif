@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 import 'package:geolocator/geolocator.dart';
@@ -10,6 +11,10 @@ import 'package:iconsax/iconsax.dart';
 import 'package:user/features/home/constants/home.constant.dart';
 import 'package:user/features/drawer/pages/drawer_page.dart';
 import '../../../core/network/dio_client.dart';
+import 'package:user/core/routes.dart';
+import 'package:user/features/user_app/user_app.repo.dart';
+import 'package:user/core/network/api_result.dart';
+import 'package:user/features/user_app/user_app.constant.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -51,6 +56,10 @@ class _HomePageState extends State<HomePage>
   bool _isSearchingDriver = false;
   bool _isDriverFound = false;
   bool _isProgrammaticTextChange = false;
+  final UserAppRepository _userRepository = UserAppRepository();
+  String? _quoteDraftId;
+  List<Map<String, dynamic>> _rideQuotes = [];
+  bool _isRequestingQuote = false;
 
   Timer? _debounce;
   List<dynamic> _suggestions = [];
@@ -166,18 +175,14 @@ class _HomePageState extends State<HomePage>
     }
     if (mounted) setState(() => _isFetchingSuggestions = true);
     try {
-      final response = await DioClient().dio.get(
-        'https://nominatim.openstreetmap.org/search',
-        queryParameters: {
-          'q': query,
-          'format': 'json',
-          'addressdetails': 1,
-          'limit': 5,
-        },
+      final response = await DioClient().getData(
+        '/geocode/search',
+        queryParameters: {'q': query},
       );
-      if (response.statusCode == 200 && mounted) {
+      final data = ApiResult.unwrap(response);
+      if (data is List && mounted) {
         setState(() {
-          _suggestions = response.data;
+          _suggestions = data;
           _isFetchingSuggestions = false;
         });
       }
@@ -194,16 +199,16 @@ class _HomePageState extends State<HomePage>
     if (targetField == SearchField.none) return;
 
     try {
-      final response = await DioClient().dio.get(
-        'https://nominatim.openstreetmap.org/reverse',
+      final response = await DioClient().getData(
+        '/geocode/reverse',
         queryParameters: {
-          'lat': location.latitude,
-          'lon': location.longitude,
-          'format': 'json',
+          'latitude': location.latitude,
+          'longitude': location.longitude,
         },
       );
-      if (response.statusCode == 200 && mounted) {
-        final displayName = response.data['display_name'] ?? '';
+      final data = ApiResult.unwrap(response);
+      if (data is Map && mounted) {
+        final displayName = data['display_name'] ?? '';
         final shortName = displayName.split(',').first;
 
         _isProgrammaticTextChange = true;
@@ -236,36 +241,27 @@ class _HomePageState extends State<HomePage>
   Future<void> _fetchRoute() async {
     if (_toLocation == null) return;
     try {
-      // OSRM requires longitude,latitude
-      final fromStr = '${_fromLocation.longitude},${_fromLocation.latitude}';
-      final toStr = '${_toLocation!.longitude},${_toLocation!.latitude}';
-      final response = await DioClient().dio.get(
-        'https://router.project-osrm.org/route/v1/driving/$fromStr;$toStr',
-        queryParameters: {'geometries': 'geojson', 'overview': 'full'},
+      final route = await _userRepository.drivingRoute(
+        fromLatitude: _fromLocation.latitude,
+        fromLongitude: _fromLocation.longitude,
+        toLatitude: _toLocation!.latitude,
+        toLongitude: _toLocation!.longitude,
       );
-
-      if (response.statusCode == 200 && mounted) {
-        final data = response.data;
-        if (data['routes'] != null && data['routes'].isNotEmpty) {
-          final route = data['routes'][0];
-          final geometry = route['geometry']['coordinates'] as List;
-          setState(() {
-            _routePoints = geometry
-                .map((coord) => LatLng(coord[1] as double, coord[0] as double))
-                .toList();
-            _routeDistance = (route['distance'] as num?)?.toDouble();
-            _routeDuration = (route['duration'] as num?)?.toDouble();
-          });
-          _animateCameraToBounds();
-        }
-      } else {
-        setState(() {
-          _routePoints = [_fromLocation, _toLocation!];
-          _routeDistance = null;
-          _routeDuration = null;
-        });
-        _animateCameraToBounds();
-      }
+      final geometry = route['geometry'] as List? ?? const [];
+      if (geometry.length < 2) throw StateError('Route geometry is empty.');
+      if (!mounted) return;
+      setState(() {
+        _routePoints = geometry.map((coordinate) {
+          final pair = coordinate as List;
+          return LatLng(
+            (pair[1] as num).toDouble(),
+            (pair[0] as num).toDouble(),
+          );
+        }).toList();
+        _routeDistance = (route['distance_m'] as num?)?.toDouble();
+        _routeDuration = (route['duration_s'] as num?)?.toDouble();
+      });
+      _animateCameraToBounds();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -275,6 +271,76 @@ class _HomePageState extends State<HomePage>
         });
         _animateCameraToBounds();
       }
+    }
+  }
+
+  Future<void> _loadRideQuotes() async {
+    if (_toLocation == null ||
+        _fromController.text.trim().isEmpty ||
+        _toController.text.trim().isEmpty)
+      return;
+    setState(() => _isRequestingQuote = true);
+    try {
+      final quote = await _userRepository.requestQuote({
+        'pickup': {
+          'address': _fromController.text.trim(),
+          'latitude': _fromLocation.latitude,
+          'longitude': _fromLocation.longitude,
+        },
+        'dropoff': {
+          'address': _toController.text.trim(),
+          'latitude': _toLocation!.latitude,
+          'longitude': _toLocation!.longitude,
+        },
+      });
+      final quoteItems = List<Map<String, dynamic>>.from(
+        (quote['quotes'] as List? ?? []).map(
+          (item) => Map<String, dynamic>.from(item as Map),
+        ),
+      );
+      if (quoteItems.isEmpty) throw StateError(UserAppCopy.QUOTE_FAILED);
+      setState(() {
+        _quoteDraftId = '${quote['id']}';
+        _rideQuotes = quoteItems;
+        _selectedVehicleIndex = 0;
+        _isSelectingVehicle = true;
+      });
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+    } finally {
+      if (mounted) setState(() => _isRequestingQuote = false);
+    }
+  }
+
+  Future<void> _bookSelectedRide() async {
+    if (_isRequestingQuote) return;
+    final selected = _selectedVehicleIndex;
+    if (_quoteDraftId == null ||
+        selected == null ||
+        selected >= _rideQuotes.length)
+      return;
+    setState(() => _isRequestingQuote = true);
+    try {
+      final requestedRide = await _userRepository.requestRide(
+        _quoteDraftId!,
+        '${_rideQuotes[selected]['id']}',
+      );
+      if (!mounted) return;
+      Navigator.pushNamed(
+        context,
+        AppRoutes.rideDetail,
+        arguments: '${requestedRide['id']}',
+      );
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+    } finally {
+      if (mounted) setState(() => _isRequestingQuote = false);
     }
   }
 
@@ -294,10 +360,7 @@ class _HomePageState extends State<HomePage>
     }
 
     final bounds = LatLngBounds(LatLng(minLat, minLng), LatLng(maxLat, maxLng));
-    final fit = CameraFit.bounds(
-      bounds: bounds,
-      padding: const EdgeInsets.all(40.0),
-    );
+    final fit = CameraFit.bounds(bounds: bounds, padding: EdgeInsets.all(40.r));
     final fittedCamera = fit.fit(_mapController.camera);
 
     _animatedMapMove(fittedCamera.center, fittedCamera.zoom, 0.0);
@@ -467,7 +530,7 @@ class _HomePageState extends State<HomePage>
                         Polyline(
                           points: _routePoints,
                           color: Colors.blue,
-                          strokeWidth: 6.0,
+                          strokeWidth: 6.r,
                         ),
                       ],
                     ),
@@ -476,8 +539,8 @@ class _HomePageState extends State<HomePage>
                       if (_activeField != SearchField.from)
                         Marker(
                           point: _fromLocation,
-                          width: 250,
-                          height: 120,
+                          width: 250.r,
+                          height: 120.r,
                           alignment: Alignment.topCenter,
                           child: _buildMarkerWidget(
                             isGreen: false,
@@ -489,8 +552,8 @@ class _HomePageState extends State<HomePage>
                       if (_toLocation != null && _activeField != SearchField.to)
                         Marker(
                           point: _toLocation!,
-                          width: 250,
-                          height: 120,
+                          width: 250.r,
+                          height: 120.r,
                           alignment: Alignment.topCenter,
                           child: _buildMarkerWidget(
                             isGreen: true,
@@ -529,25 +592,21 @@ class _HomePageState extends State<HomePage>
             // Refresh Location Button (Layer 0 actions)
             if (!_isLoading)
               Positioned(
-                top: MediaQuery.paddingOf(context).top + 80,
-                right: 20,
+                top: MediaQuery.paddingOf(context).top + 80.r,
+                right: 20.r,
                 child: GestureDetector(
                   onTap: _refreshLocation,
                   child: _buildGlassButton(
                     child: _isRefreshing
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
+                        ? SizedBox(
+                            width: 18.r,
+                            height: 18.r,
                             child: CircularProgressIndicator(
-                              strokeWidth: 2,
+                              strokeWidth: 2.r,
                               color: Colors.black87,
                             ),
                           )
-                        : const Icon(
-                            Iconsax.gps,
-                            color: Colors.black87,
-                            size: 22,
-                          ),
+                        : Icon(Iconsax.gps, color: Colors.black87, size: 22.r),
                   ),
                 ),
               ),
@@ -584,7 +643,7 @@ class _HomePageState extends State<HomePage>
 
             // Loading Text (Animated Fade Out - faster)
             Positioned(
-              top: MediaQuery.paddingOf(context).top + 30,
+              top: MediaQuery.paddingOf(context).top + 30.r,
               left: 0,
               right: 0,
               child: IgnorePointer(
@@ -605,9 +664,9 @@ class _HomePageState extends State<HomePage>
 
   Widget _buildLayer1(BuildContext context) {
     return Positioned(
-      top: MediaQuery.paddingOf(context).top + 10,
-      left: 20,
-      right: 20,
+      top: MediaQuery.paddingOf(context).top + 10.r,
+      left: 20.r,
+      right: 20.r,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -620,8 +679,8 @@ class _HomePageState extends State<HomePage>
               child: ClipOval(
                 child: Image.network(
                   HomeConstants.PROFILE_IMAGE_URL,
-                  width: 44,
-                  height: 44,
+                  width: 44.r,
+                  height: 44.r,
                   fit: BoxFit.cover,
                 ),
               ),
@@ -629,10 +688,10 @@ class _HomePageState extends State<HomePage>
           ),
           // Notification Button
           _buildGlassButton(
-            child: const Icon(
+            child: Icon(
               Iconsax.notification,
               color: Colors.black87,
-              size: 24,
+              size: 24.r,
             ),
           ),
         ],
@@ -642,28 +701,28 @@ class _HomePageState extends State<HomePage>
 
   Widget _buildGlassButton({required Widget child}) {
     return Container(
-      width: 50,
-      height: 50,
+      width: 50.r,
+      height: 50.r,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            blurRadius: 10.r,
+            offset: Offset(0, 4.r),
           ),
         ],
       ),
       child: ClipOval(
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          filter: ImageFilter.blur(sigmaX: 12.r, sigmaY: 12.r),
           child: Container(
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: Colors.white.withValues(alpha: 0.35),
               border: Border.all(
                 color: Colors.white.withValues(alpha: 0.5),
-                width: 1.5,
+                width: 1.5.r,
               ),
             ),
             alignment: Alignment.center,
@@ -676,40 +735,40 @@ class _HomePageState extends State<HomePage>
 
   Widget _buildMarkerWidget({required bool isGreen, String? label}) {
     return Transform.translate(
-      offset: const Offset(0, -32),
+      offset: Offset(0, -32.r),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (label != null) ...[
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 6.r),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: const [
+                borderRadius: BorderRadius.circular(20.r),
+                boxShadow: [
                   BoxShadow(
                     color: Colors.black12,
-                    blurRadius: 6,
-                    offset: Offset(0, 3),
+                    blurRadius: 6.r,
+                    offset: Offset(0, 3.r),
                   ),
                 ],
               ),
               child: Text(
                 label,
-                style: const TextStyle(
+                style: TextStyle(
                   color: Colors.black,
-                  fontSize: 12,
+                  fontSize: 12.r,
                   fontWeight: FontWeight.bold,
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            const SizedBox(height: 6),
+            SizedBox(height: 6.r),
           ],
           Container(
-            width: 28,
-            height: 28,
+            width: 28.r,
+            height: 28.r,
             decoration: BoxDecoration(
               color: isGreen ? Colors.green : Colors.black,
               shape: BoxShape.circle,
@@ -718,8 +777,8 @@ class _HomePageState extends State<HomePage>
                   color: (isGreen ? Colors.green : Colors.black).withValues(
                     alpha: 0.3,
                   ),
-                  blurRadius: 8,
-                  offset: const Offset(0, 4),
+                  blurRadius: 8.r,
+                  offset: Offset(0, 4.r),
                 ),
               ],
             ),
@@ -728,19 +787,19 @@ class _HomePageState extends State<HomePage>
                   ? Transform.rotate(
                       angle: math.pi, // Rotate triangle downwards
                       child: CustomPaint(
-                        size: const Size(10, 8),
+                        size: Size(10.r, 8.r),
                         painter: _TrianglePainter(color: Colors.white),
                       ),
                     )
                   : CustomPaint(
-                      size: const Size(10, 8),
+                      size: Size(10.r, 8.r),
                       painter: _TrianglePainter(color: Colors.white),
                     ),
             ),
           ),
           Container(
-            width: 2.5,
-            height: 20,
+            width: 2.5.r,
+            height: 20.r,
             decoration: BoxDecoration(
               color: isGreen ? Colors.green : Colors.black,
               boxShadow: [
@@ -748,8 +807,8 @@ class _HomePageState extends State<HomePage>
                   color: (isGreen ? Colors.green : Colors.black).withValues(
                     alpha: 0.2,
                   ),
-                  blurRadius: 2,
-                  offset: const Offset(1, 0),
+                  blurRadius: 2.r,
+                  offset: Offset(1.r, 0),
                 ),
               ],
             ),
@@ -762,20 +821,20 @@ class _HomePageState extends State<HomePage>
   Widget _buildTopHeader(BuildContext context) {
     return Column(
       children: [
-        Center(child: const SizedBox(height: 50)),
+        Center(child: SizedBox(height: 50.r)),
         Icon(
           _isSearchingDriver ? Icons.search : Icons.motorcycle,
-          size: 30,
+          size: 30.r,
           color: Colors.black87,
         ),
-        const SizedBox(height: 12),
+        SizedBox(height: 12.r),
         Text(
           _isSearchingDriver
               ? "Searching for drivers..."
               : HomeConstants.TEXT_LOCATING_YOU,
-          style: const TextStyle(
+          style: TextStyle(
             color: Colors.black,
-            fontSize: 24,
+            fontSize: 24.r,
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -796,60 +855,47 @@ class _HomePageState extends State<HomePage>
       }
     }
 
-    final km = (_routeDistance ?? 0) / 1000;
-    final vehicles = [
-      {
-        'name': 'Basic Bike',
+    final vehicles = _rideQuotes.map((quote) {
+      final kind = '${quote['vehicle_type'] ?? 'BIKE'}';
+      final vehicleName = kind[0] + kind.substring(1).toLowerCase();
+      return <String, dynamic>{
+        'quote_id': quote['id'],
+        'name': vehicleName,
         'capacity': 1,
-        'time': '3 min',
-        'price': 20 + (km * 8),
+        'time': '${((quote['duration_s'] as num? ?? 0) / 60).ceil()} min',
+        'price': num.tryParse('${quote['total_fare']}')?.toDouble() ?? 0,
         'image':
-            'https://images.unsplash.com/photo-1558981420-8ceaa10c9c30?auto=format&fit=crop&w=200&q=80',
-      },
-      {
-        'name': 'Premium',
-        'capacity': 1,
-        'time': '5 min',
-        'price': 30 + (km * 12),
-        'image':
-            'https://images.unsplash.com/photo-1558981285-6f0c94958bb6?auto=format&fit=crop&w=200&q=80',
-      },
-      {
-        'name': 'Electric',
-        'capacity': 1,
-        'time': '2 min',
-        'price': 15 + (km * 6),
-        'image':
-            'https://images.unsplash.com/photo-1558980394-0a37c36b69b5?auto=format&fit=crop&w=200&q=80',
-      },
-    ];
+            HomeConstants.VEHICLE_IMAGE_URLS[kind] ??
+            HomeConstants.VEHICLE_IMAGE_URLS['BIKE'],
+      };
+    }).toList();
 
     return Positioned(
-      bottom: MediaQuery.paddingOf(context).bottom + 10,
-      left: 16,
-      right: 16,
+      bottom: MediaQuery.paddingOf(context).bottom + 10.r,
+      left: 16.r,
+      right: 16.r,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
           // Main Container
           ClipRRect(
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(28.r),
             child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+              filter: ImageFilter.blur(sigmaX: 15.r, sigmaY: 15.r),
               child: Container(
                 padding: _isDriverFound
                     ? EdgeInsets.zero
-                    : const EdgeInsets.all(24),
+                    : EdgeInsets.all(24.r),
                 decoration: BoxDecoration(
                   color: _isDriverFound
                       ? Colors.white
                       : Colors.black.withValues(alpha: 0.25),
-                  borderRadius: BorderRadius.circular(28),
+                  borderRadius: BorderRadius.circular(28.r),
                   border: _isDriverFound
                       ? null
                       : Border.all(
                           color: Colors.white.withValues(alpha: 0.3),
-                          width: 1.5,
+                          width: 1.5.r,
                         ),
                 ),
                 child: Column(
@@ -859,21 +905,21 @@ class _HomePageState extends State<HomePage>
                     if (_isDriverFound) ...[
                       // Driver Found Profile
                       Container(
-                        padding: const EdgeInsets.all(24),
+                        padding: EdgeInsets.all(24.r),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            const Center(
+                            Center(
                               child: Text(
                                 "Driver will arrive in ~4 min.",
                                 style: TextStyle(
-                                  fontSize: 20,
+                                  fontSize: 20.r,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 20),
+                            SizedBox(height: 20.r),
                             Row(
                               children: [
                                 Column(
@@ -881,32 +927,32 @@ class _HomePageState extends State<HomePage>
                                     ClipOval(
                                       child: Image.network(
                                         'https://images.unsplash.com/photo-1599566150163-29194dcaad36?auto=format&fit=crop&w=100&q=80',
-                                        width: 60,
-                                        height: 60,
+                                        width: 60.r,
+                                        height: 60.r,
                                         fit: BoxFit.cover,
                                       ),
                                     ),
-                                    const SizedBox(height: 8),
-                                    const Text(
+                                    SizedBox(height: 8.r),
+                                    Text(
                                       "Kairatbek",
                                       style: TextStyle(
                                         fontWeight: FontWeight.w600,
-                                        fontSize: 14,
+                                        fontSize: 14.r,
                                       ),
                                     ),
                                     Row(
-                                      children: const [
+                                      children: [
                                         Icon(
                                           Icons.star,
                                           color: Colors.greenAccent,
-                                          size: 16,
+                                          size: 16.r,
                                         ),
-                                        SizedBox(width: 4),
+                                        SizedBox(width: 4.r),
                                         Text(
                                           "5.0",
                                           style: TextStyle(
                                             fontWeight: FontWeight.bold,
-                                            fontSize: 12,
+                                            fontSize: 12.r,
                                           ),
                                         ),
                                       ],
@@ -917,24 +963,26 @@ class _HomePageState extends State<HomePage>
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
-                                    const Text(
+                                    Text(
                                       "Grey Honda Activa",
                                       style: TextStyle(
                                         fontWeight: FontWeight.w600,
-                                        fontSize: 16,
+                                        fontSize: 16.r,
                                       ),
                                     ),
-                                    const SizedBox(height: 8),
+                                    SizedBox(height: 8.r),
                                     Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: 8.r,
+                                        vertical: 4.r,
                                       ),
                                       decoration: BoxDecoration(
                                         color: Colors.greenAccent.shade200,
-                                        borderRadius: BorderRadius.circular(8),
+                                        borderRadius: BorderRadius.circular(
+                                          8.r,
+                                        ),
                                       ),
-                                      child: const Text(
+                                      child: Text(
                                         "08KG1152",
                                         style: TextStyle(
                                           fontWeight: FontWeight.bold,
@@ -945,7 +993,7 @@ class _HomePageState extends State<HomePage>
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 16),
+                            SizedBox(height: 16.r),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                               children: [
@@ -955,19 +1003,19 @@ class _HomePageState extends State<HomePage>
                                       Icons.verified_user_outlined,
                                       color: Colors.grey.shade400,
                                     ),
-                                    const SizedBox(height: 4),
+                                    SizedBox(height: 4.r),
                                     Text(
                                       "Safe",
                                       style: TextStyle(
                                         color: Colors.grey.shade500,
-                                        fontSize: 12,
+                                        fontSize: 12.r,
                                       ),
                                     ),
                                   ],
                                 ),
                                 Container(
-                                  width: 1,
-                                  height: 30,
+                                  width: 1.r,
+                                  height: 30.r,
                                   color: Colors.grey.shade300,
                                 ),
                                 Column(
@@ -976,19 +1024,19 @@ class _HomePageState extends State<HomePage>
                                       Icons.motorcycle,
                                       color: Colors.grey.shade400,
                                     ),
-                                    const SizedBox(height: 4),
+                                    SizedBox(height: 4.r),
                                     Text(
                                       "Economy",
                                       style: TextStyle(
                                         color: Colors.grey.shade500,
-                                        fontSize: 12,
+                                        fontSize: 12.r,
                                       ),
                                     ),
                                   ],
                                 ),
                                 Container(
-                                  width: 1,
-                                  height: 30,
+                                  width: 1.r,
+                                  height: 30.r,
                                   color: Colors.grey.shade300,
                                 ),
                                 Column(
@@ -997,12 +1045,12 @@ class _HomePageState extends State<HomePage>
                                       Icons.password,
                                       color: Colors.grey.shade400,
                                     ),
-                                    const SizedBox(height: 4),
-                                    const Text(
+                                    SizedBox(height: 4.r),
+                                    Text(
                                       "OTP: 1254",
                                       style: TextStyle(
                                         color: Colors.black,
-                                        fontSize: 12,
+                                        fontSize: 12.r,
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
@@ -1010,29 +1058,29 @@ class _HomePageState extends State<HomePage>
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 20),
+                            SizedBox(height: 20.r),
                             Container(
-                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              padding: EdgeInsets.symmetric(vertical: 16.r),
                               decoration: BoxDecoration(
                                 color: Colors.black87,
-                                borderRadius: BorderRadius.circular(15),
+                                borderRadius: BorderRadius.circular(15.r),
                               ),
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
-                                children: const [
+                                children: [
                                   Text(
                                     "Contact driver",
                                     style: TextStyle(
                                       color: Colors.white,
-                                      fontSize: 16,
+                                      fontSize: 16.r,
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
-                                  SizedBox(width: 8),
+                                  SizedBox(width: 8.r),
                                   Icon(
                                     Icons.phone_outlined,
                                     color: Colors.white,
-                                    size: 20,
+                                    size: 20.r,
                                   ),
                                 ],
                               ),
@@ -1043,28 +1091,28 @@ class _HomePageState extends State<HomePage>
                     ] else ...[
                       if (_isSelectingVehicle) ...[
                         SizedBox(
-                          height: 220,
+                          height: 220.r,
                           child: ListView.separated(
                             scrollDirection: Axis.horizontal,
                             itemCount: vehicles.length,
                             separatorBuilder: (context, index) =>
-                                const SizedBox(width: 12),
+                                SizedBox(width: 12.r),
                             itemBuilder: (context, index) {
                               final vehicle = vehicles[index];
                               final isSelected = _selectedVehicleIndex == index;
 
                               final cardContent = Container(
-                                width: 140,
-                                padding: const EdgeInsets.all(12),
+                                width: 140.r,
+                                padding: EdgeInsets.all(12.r),
                                 decoration: BoxDecoration(
                                   color: isSelected
                                       ? Colors.white
                                       : Colors.white.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(15),
+                                  borderRadius: BorderRadius.circular(15.r),
                                   border: isSelected
                                       ? Border.all(
                                           color: Colors.white,
-                                          width: 2,
+                                          width: 2.r,
                                         )
                                       : Border.all(
                                           color: Colors.white.withValues(
@@ -1076,15 +1124,15 @@ class _HomePageState extends State<HomePage>
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     ClipRRect(
-                                      borderRadius: BorderRadius.circular(10),
+                                      borderRadius: BorderRadius.circular(10.r),
                                       child: Image.network(
                                         vehicle['image'] as String,
-                                        height: 70,
+                                        height: 70.r,
                                         width: double.infinity,
                                         fit: BoxFit.cover,
                                       ),
                                     ),
-                                    const SizedBox(height: 12),
+                                    SizedBox(height: 12.r),
                                     Text(
                                       vehicle['name'] as String,
                                       style: TextStyle(
@@ -1092,10 +1140,10 @@ class _HomePageState extends State<HomePage>
                                             ? Colors.black
                                             : Colors.white,
                                         fontWeight: FontWeight.bold,
-                                        fontSize: 16,
+                                        fontSize: 16.r,
                                       ),
                                     ),
-                                    const SizedBox(height: 4),
+                                    SizedBox(height: 4.r),
                                     Row(
                                       mainAxisAlignment:
                                           MainAxisAlignment.spaceBetween,
@@ -1104,19 +1152,19 @@ class _HomePageState extends State<HomePage>
                                           children: [
                                             Icon(
                                               Icons.person,
-                                              size: 12,
+                                              size: 12.r,
                                               color: isSelected
                                                   ? Colors.black54
                                                   : Colors.white70,
                                             ),
-                                            const SizedBox(width: 4),
+                                            SizedBox(width: 4.r),
                                             Text(
                                               '${vehicle['capacity']}',
                                               style: TextStyle(
                                                 color: isSelected
                                                     ? Colors.black54
                                                     : Colors.white70,
-                                                fontSize: 12,
+                                                fontSize: 12.r,
                                               ),
                                             ),
                                           ],
@@ -1127,20 +1175,20 @@ class _HomePageState extends State<HomePage>
                                             color: isSelected
                                                 ? Colors.black54
                                                 : Colors.white70,
-                                            fontSize: 12,
+                                            fontSize: 12.r,
                                           ),
                                         ),
                                       ],
                                     ),
                                     const Spacer(),
                                     Text(
-                                      '₹${(vehicle['price'] as double).toStringAsFixed(0)}',
+                                      '₹${(vehicle['price'] as num).toStringAsFixed(0)}',
                                       style: TextStyle(
                                         color: isSelected
                                             ? Colors.black
                                             : Colors.white,
                                         fontWeight: FontWeight.bold,
-                                        fontSize: 18,
+                                        fontSize: 18.r,
                                       ),
                                     ),
                                   ],
@@ -1156,15 +1204,15 @@ class _HomePageState extends State<HomePage>
                                         decoration: BoxDecoration(
                                           color: Colors.white,
                                           borderRadius: BorderRadius.circular(
-                                            15,
+                                            15.r,
                                           ),
                                           boxShadow: [
                                             BoxShadow(
                                               color: Colors.black.withValues(
                                                 alpha: 0.2,
                                               ),
-                                              blurRadius: 10,
-                                              offset: const Offset(0, 5),
+                                              blurRadius: 10.r,
+                                              offset: Offset(0, 5.r),
                                             ),
                                           ],
                                         ),
@@ -1173,37 +1221,30 @@ class _HomePageState extends State<HomePage>
                                           children: [
                                             Expanded(child: cardContent),
                                             GestureDetector(
-                                              onTap: () {
+                                              onTap: () async {
                                                 setState(() {
                                                   _isSelectingVehicle = false;
                                                   _isSearchingDriver = true;
                                                 });
-                                                Future.delayed(
-                                                  const Duration(seconds: 3),
-                                                  () {
-                                                    if (mounted) {
-                                                      setState(() {
-                                                        _isSearchingDriver =
-                                                            false;
-                                                        _isDriverFound = true;
-                                                      });
-                                                    }
-                                                  },
-                                                );
+                                                await _bookSelectedRide();
+                                                if (mounted)
+                                                  setState(
+                                                    () => _isSearchingDriver =
+                                                        false,
+                                                  );
                                               },
                                               child: Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      vertical: 12,
-                                                    ),
-                                                width: 140,
+                                                padding: EdgeInsets.symmetric(
+                                                  vertical: 12.r,
+                                                ),
+                                                width: 140.r,
                                                 color: Colors.yellow.shade600,
                                                 alignment: Alignment.center,
-                                                child: const Text(
+                                                child: Text(
                                                   "Book Now",
                                                   style: TextStyle(
                                                     fontWeight: FontWeight.bold,
-                                                    fontSize: 14,
+                                                    fontSize: 14.r,
                                                   ),
                                                 ),
                                               ),
@@ -1214,7 +1255,7 @@ class _HomePageState extends State<HomePage>
                                     : Align(
                                         alignment: Alignment.topCenter,
                                         child: SizedBox(
-                                          height: 170,
+                                          height: 170.r,
                                           child: cardContent,
                                         ),
                                       ),
@@ -1227,13 +1268,13 @@ class _HomePageState extends State<HomePage>
                       if (!isSearching && !_isSelectingVehicle) ...[
                         Text(
                           titleText,
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: Colors.white,
-                            fontSize: 20,
+                            fontSize: 20.r,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        const SizedBox(height: 2),
+                        SizedBox(height: 2.r),
                         GestureDetector(
                           onTap: _selectRideTime,
                           child: Row(
@@ -1244,20 +1285,20 @@ class _HomePageState extends State<HomePage>
                                     : HomeConstants.TEXT_NOW,
                                 style: TextStyle(
                                   color: Colors.white.withValues(alpha: 0.8),
-                                  fontSize: 14,
+                                  fontSize: 14.r,
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
-                              const SizedBox(width: 4),
+                              SizedBox(width: 4.r),
                               Icon(
                                 Iconsax.arrow_down_1,
                                 color: Colors.white.withValues(alpha: 0.8),
-                                size: 18,
+                                size: 18.r,
                               ),
                             ],
                           ),
                         ),
-                        const SizedBox(height: 24),
+                        SizedBox(height: 24.r),
                       ],
 
                       if (showBothFields && !_isSelectingVehicle)
@@ -1273,22 +1314,22 @@ class _HomePageState extends State<HomePage>
                               });
                             },
                             child: Container(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              padding: const EdgeInsets.all(8),
-                              decoration: const BoxDecoration(
+                              margin: EdgeInsets.only(bottom: 12.r),
+                              padding: EdgeInsets.all(8.r),
+                              decoration: BoxDecoration(
                                 color: Colors.white,
                                 shape: BoxShape.circle,
                                 boxShadow: [
                                   BoxShadow(
                                     color: Colors.black12,
-                                    blurRadius: 4,
-                                    offset: Offset(0, 2),
+                                    blurRadius: 4.r,
+                                    offset: Offset(0, 2.r),
                                   ),
                                 ],
                               ),
-                              child: const Icon(
+                              child: Icon(
                                 Icons.keyboard_arrow_down,
-                                size: 24,
+                                size: 24.r,
                                 color: Colors.black87,
                               ),
                             ),
@@ -1298,25 +1339,25 @@ class _HomePageState extends State<HomePage>
                       // Suggestions List (shows above text fields)
                       if (isSearching && _suggestions.isNotEmpty)
                         Container(
-                          constraints: const BoxConstraints(maxHeight: 180),
-                          margin: const EdgeInsets.only(bottom: 12),
+                          constraints: BoxConstraints(maxHeight: 180.r),
+                          margin: EdgeInsets.only(bottom: 12.r),
                           decoration: BoxDecoration(
                             color: Colors.white,
-                            borderRadius: BorderRadius.circular(15),
+                            borderRadius: BorderRadius.circular(15.r),
                             boxShadow: [
                               BoxShadow(
                                 color: Colors.black.withValues(alpha: 0.1),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
+                                blurRadius: 10.r,
+                                offset: Offset(0, 4.r),
                               ),
                             ],
                           ),
                           child: ListView.separated(
                             shrinkWrap: true,
-                            padding: const EdgeInsets.all(8),
+                            padding: EdgeInsets.all(8.r),
                             itemCount: _suggestions.length,
                             separatorBuilder: (context, index) =>
-                                const Divider(height: 1),
+                                Divider(height: 1.r),
                             itemBuilder: (context, index) {
                               final item = _suggestions[index];
                               return ListTile(
@@ -1328,8 +1369,8 @@ class _HomePageState extends State<HomePage>
                                   item['display_name'] ?? '',
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 14,
+                                  style: TextStyle(
+                                    fontSize: 14.r,
                                     fontWeight: FontWeight.w500,
                                     color: Colors.black87,
                                   ),
@@ -1343,12 +1384,12 @@ class _HomePageState extends State<HomePage>
                       // Search Box Area
                       Container(
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(15),
+                          borderRadius: BorderRadius.circular(15.r),
                           boxShadow: [
                             BoxShadow(
                               color: Colors.black.withValues(alpha: 0.05),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
+                              blurRadius: 10.r,
+                              offset: Offset(0, 4.r),
                             ),
                           ],
                         ),
@@ -1358,9 +1399,9 @@ class _HomePageState extends State<HomePage>
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 12,
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 16.r,
+                                vertical: 12.r,
                               ),
                               color: Colors.white,
                               child: Row(
@@ -1381,12 +1422,12 @@ class _HomePageState extends State<HomePage>
                                         ),
 
                                         if (showBothFields) ...[
-                                          const Padding(
+                                          Padding(
                                             padding: EdgeInsets.symmetric(
-                                              vertical: 4.0,
+                                              vertical: 4.r,
                                             ),
                                             child: Divider(
-                                              height: 1,
+                                              height: 1.r,
                                               color: Colors.black12,
                                             ),
                                           ),
@@ -1404,46 +1445,48 @@ class _HomePageState extends State<HomePage>
                                     ),
                                   ),
                                   if (_isFetchingSuggestions)
-                                    const SizedBox(
-                                      width: 24,
-                                      height: 24,
+                                    SizedBox(
+                                      width: 24.r,
+                                      height: 24.r,
                                       child: CircularProgressIndicator(
-                                        strokeWidth: 2.5,
+                                        strokeWidth: 2.5.r,
                                       ),
                                     )
                                   else if (!showBothFields)
                                     Icon(
                                       Iconsax.search_normal,
                                       color: Colors.grey.shade400,
-                                      size: 20,
+                                      size: 20.r,
                                     ),
                                 ],
                               ),
                             ),
-                            if (!isSearching && _routeDistance != null)
+                            if (!isSearching &&
+                                !_isSelectingVehicle &&
+                                _toLocation != null)
                               GestureDetector(
-                                onTap: () {
-                                  // Handle continue
-                                },
+                                onTap: _isRequestingQuote
+                                    ? null
+                                    : _loadRideQuotes,
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 8,
-                                  ),
+                                  padding: EdgeInsets.symmetric(vertical: 8.r),
                                   color: Colors.yellow.shade600,
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      const Icon(
+                                      Icon(
                                         Icons.motorcycle,
                                         color: Colors.black,
-                                        size: 15,
+                                        size: 15.r,
                                       ),
-                                      const SizedBox(width: 20),
-                                      const Text(
-                                        "Continue to select ride vehicle",
+                                      SizedBox(width: 20.r),
+                                      Text(
+                                        _isRequestingQuote
+                                            ? 'Finding ride options…'
+                                            : UserAppCopy.SELECT_RIDE,
                                         style: TextStyle(
                                           color: Colors.black,
-                                          fontSize: 14,
+                                          fontSize: 14.r,
                                           fontWeight: FontWeight.w500,
                                         ),
                                       ),
@@ -1463,7 +1506,7 @@ class _HomePageState extends State<HomePage>
 
           // ETA Badge (Only show when not actively searching)
           if (!isSearching)
-            Positioned(top: -24, right: 16, child: _buildEtaBadge()),
+            Positioned(top: -24.r, right: 16.r, child: _buildEtaBadge()),
         ],
       ),
     );
@@ -1507,11 +1550,11 @@ class _HomePageState extends State<HomePage>
                     isCollapsed ? HomeConstants.TEXT_LETS_GO : label,
                     style: TextStyle(
                       color: Colors.grey.shade600,
-                      fontSize: 10,
+                      fontSize: 10.r,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
-                  const SizedBox(height: 2),
+                  SizedBox(height: 2.r),
                   isSearching && !isCollapsed
                       ? TextField(
                           controller: controller,
@@ -1523,13 +1566,13 @@ class _HomePageState extends State<HomePage>
                             hintText: "Search location...",
                             hintStyle: TextStyle(
                               color: Colors.grey.shade400,
-                              fontSize: 15,
+                              fontSize: 15.r,
                             ),
                           ),
                           onTap: () => setState(() => _activeField = field),
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: Colors.black,
-                            fontSize: 15,
+                            fontSize: 15.r,
                             fontWeight: FontWeight.w700,
                           ),
                         )
@@ -1539,9 +1582,9 @@ class _HomePageState extends State<HomePage>
                               : (controller.text.isEmpty
                                     ? "Select location"
                                     : controller.text),
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: Colors.black,
-                            fontSize: 15,
+                            fontSize: 15.r,
                             fontWeight: FontWeight.w800,
                           ),
                           maxLines: 1,
@@ -1555,8 +1598,12 @@ class _HomePageState extends State<HomePage>
                 controller.text.isNotEmpty &&
                 controller.text != HomeConstants.TEXT_HOME)
               Padding(
-                padding: const EdgeInsets.only(left: 12.0),
-                child: Icon(Iconsax.tick_circle, color: Colors.green, size: 20),
+                padding: EdgeInsets.only(left: 12.r),
+                child: Icon(
+                  Iconsax.tick_circle,
+                  color: Colors.green,
+                  size: 20.r,
+                ),
               ),
           ],
         ),
@@ -1571,41 +1618,41 @@ class _HomePageState extends State<HomePage>
     }
 
     return Container(
-      width: 64,
-      height: 64,
+      width: 64.r,
+      height: 64.r,
       decoration: BoxDecoration(
         color: Colors.black,
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
+            blurRadius: 12.r,
+            offset: Offset(0, 6.r),
           ),
         ],
       ),
       child: Stack(
         alignment: Alignment.center,
         children: [
-          CustomPaint(size: const Size(64, 64), painter: _ClockTicksPainter()),
+          CustomPaint(size: Size(64.r, 64.r), painter: _ClockTicksPainter()),
           Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 etaText,
-                style: const TextStyle(
+                style: TextStyle(
                   color: Colors.white,
-                  fontSize: 20,
+                  fontSize: 20.r,
                   fontWeight: FontWeight.w800,
                   height: 1.0,
                 ),
               ),
-              const SizedBox(height: 1),
+              SizedBox(height: 1.r),
               Text(
                 "min",
                 style: TextStyle(
                   color: Colors.grey.shade400,
-                  fontSize: 10,
+                  fontSize: 10.r,
                   fontWeight: FontWeight.w600,
                   height: 1.0,
                 ),
@@ -1622,23 +1669,23 @@ class _ClockTicksPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - 4; // 4px padding from edge
+    final radius = size.width / 2 - 4.r; // 4px padding from edge
 
     final paint = Paint()
       ..color = Colors.white.withValues(alpha: 0.3)
-      ..strokeWidth = 1.5
+      ..strokeWidth = 1.5.r
       ..strokeCap = StrokeCap.round;
 
     final redPaint = Paint()
       ..color = Colors.redAccent
-      ..strokeWidth = 2.0
+      ..strokeWidth = 2.0.r
       ..strokeCap = StrokeCap.round;
 
     for (int i = 0; i < 12; i++) {
       final angle = (i * 30 - 90) * math.pi / 180; // start from top
       final isRed = i == 5; // roughly bottom tick
       final currentPaint = isRed ? redPaint : paint;
-      final tickLength = isRed ? 6.0 : 3.0;
+      final tickLength = isRed ? 6.0.r : 3.0.r;
 
       final p1 = Offset(
         center.dx + math.cos(angle) * radius,

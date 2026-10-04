@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:user/constants/app.constant.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/core/theme.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load(fileName: '.env');
   runApp(const MyApp());
 }
 
@@ -22,7 +25,7 @@ class MyApp extends StatelessWidget {
           title: AppConstants.APP_TITLE,
           debugShowCheckedModeBanner: false,
           theme: AppTheme.lightTheme,
-          initialRoute: AppRoutes.login,
+          initialRoute: AppRoutes.gate,
           routes: AppRoutes.routes,
         );
       },

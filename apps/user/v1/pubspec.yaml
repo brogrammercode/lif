@@ -17,6 +17,11 @@ dependencies:
   geolocator: ^14.0.3
   iconsax: ^0.0.8
   dio: ^5.11.0
+  flutter_dotenv: ^6.0.0
+  flutter_secure_storage: ^11.2.0
+  google_sign_in: ^7.2.0
+  dartz: ^0.10.1
+  flutter_bloc: ^9.1.1
 
 dev_dependencies:
   flutter_test:
@@ -27,3 +32,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/login-tennis-bg.png
+    - .env

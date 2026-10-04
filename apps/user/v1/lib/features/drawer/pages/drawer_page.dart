@@ -1,153 +1,213 @@
 import 'package:flutter/material.dart';
-import 'package:user/features/home/constants/home.constant.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:user/core/color.dart';
+import 'package:user/core/routes.dart';
+import 'package:user/features/auth/auth.repo.dart';
+import 'package:user/features/auth/models/user.model.dart';
+import 'package:user/features/user_app/user_app.constant.dart';
+import 'package:user/features/user_app/user_app.repo.dart';
 
-class DrawerPage extends StatelessWidget {
+class DrawerPage extends StatefulWidget {
   const DrawerPage({super.key});
+  @override
+  State<DrawerPage> createState() => _DrawerPageState();
+}
+
+class _DrawerPageState extends State<DrawerPage> {
+  final UserAppRepository _repository = UserAppRepository();
+  late Future<Map<String, dynamic>> _profile = _repository.profile();
+
+  void _open(String route) {
+    Navigator.pop(context);
+    Navigator.pushNamed(context, route);
+  }
+
+  Future<void> _signOut() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text(UserAppCopy.LOG_OUT),
+        content: const Text(UserAppCopy.LOG_OUT_CONFIRMATION),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text(UserAppCopy.CANCEL),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text(UserAppCopy.LOG_OUT),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    await AuthRepository().signOut();
+    if (mounted)
+      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.login, (_) => false);
+  }
 
   @override
-  Widget build(BuildContext context) {
-    return Drawer(
-      backgroundColor: Colors.white,
-      child: SafeArea(
-        child: Column(
-          children: [
-            // Profile Card on top
-            Container(
-              padding: const EdgeInsets.all(20),
-              child: Row(
-                children: [
-                  ClipOval(
-                    child: Image.network(
-                      HomeConstants.PROFILE_IMAGE_URL,
-                      width: 60,
-                      height: 60,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+  Widget build(BuildContext context) => Drawer(
+    backgroundColor: AppColors.pureWhite,
+    child: SafeArea(
+      child: Column(
+        children: [
+          FutureBuilder<Map<String, dynamic>>(
+            future: _profile,
+            builder: (context, snapshot) {
+              final user = snapshot.hasData
+                  ? UserModel.fromJson(snapshot.data!)
+                  : null;
+              return InkWell(
+                onTap: () => _open(AppRoutes.profile),
+                child: Padding(
+                  padding: EdgeInsets.all(20.w),
+                  child: Row(
                     children: [
-                      const Text(
-                        "Harsh Bhumihar",
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      CircleAvatar(
+                        radius: 30.r,
+                        backgroundColor: AppColors.softGrey,
+                        backgroundImage: user?.avatar_url == null
+                            ? null
+                            : NetworkImage(user!.avatar_url!),
+                        child: user?.avatar_url == null
+                            ? Icon(
+                                Icons.person_outline,
+                                color: AppColors.primaryGreen,
+                                size: 28.w,
+                              )
+                            : null,
                       ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.star,
-                            color: Colors.greenAccent.shade400,
-                            size: 16,
-                          ),
-                          const SizedBox(width: 4),
-                          const Text(
-                            "5.0",
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ],
+                      SizedBox(width: 14.w),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              user?.display_name.isNotEmpty == true
+                                  ? user!.display_name
+                                  : UserAppCopy.PROFILE,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 16.sp,
+                                fontWeight: FontWeight.w900,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                            SizedBox(height: 3.h),
+                            Text(
+                              user?.email ?? '',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12.sp,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            SizedBox(height: 7.h),
+                            Text(
+                              'EDIT PROFILE',
+                              style: TextStyle(
+                                fontSize: 10.sp,
+                                fontWeight: FontWeight.w900,
+                                color: AppColors.primaryGreen,
+                                letterSpacing: 0.6,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            // My Rides
-            ListTile(
-              leading: const Icon(Icons.history, color: Colors.black87),
-              title: const Text(
-                "My Rides",
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              onTap: () {},
-            ),
-            const Divider(height: 1),
-            // More Section
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              alignment: Alignment.centerLeft,
-              child: const Text(
-                "MORE",
-                style: TextStyle(
-                  color: Colors.grey,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2,
                 ),
-              ),
-            ),
-            ListTile(
-              leading: const Icon(
-                Icons.feedback_outlined,
-                color: Colors.black87,
-              ),
-              title: const Text(
-                "Your Feedback",
-                style: TextStyle(fontWeight: FontWeight.w500),
-              ),
-              onTap: () {},
-            ),
-            ListTile(
-              leading: const Icon(Icons.info_outline, color: Colors.black87),
-              title: const Text(
-                "About",
-                style: TextStyle(fontWeight: FontWeight.w500),
-              ),
-              onTap: () {},
-            ),
-            ListTile(
-              leading: const Icon(
-                Icons.rate_review_outlined,
-                color: Colors.black87,
-              ),
-              title: const Text(
-                "Send Feedback",
-                style: TextStyle(fontWeight: FontWeight.w500),
-              ),
-              onTap: () {},
-            ),
-            ListTile(
-              leading: const Icon(
-                Icons.warning_amber_rounded,
-                color: Colors.red,
-              ),
-              title: const Text(
-                "Report a safety Emergency",
-                style: TextStyle(
-                  fontWeight: FontWeight.w500,
-                  color: Colors.red,
+              );
+            },
+          ),
+          Divider(height: 1.h, color: AppColors.borderGrey),
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.symmetric(vertical: 8.h),
+              children: [
+                _tile(Icons.history, UserAppCopy.RIDES, AppRoutes.rides),
+                _tile(
+                  Icons.bookmark_border,
+                  UserAppCopy.SAVED_PLACES,
+                  AppRoutes.savedPlaces,
                 ),
-              ),
-              onTap: () {},
+                _tile(
+                  Icons.notifications_none,
+                  UserAppCopy.NOTIFICATIONS,
+                  AppRoutes.notifications,
+                ),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(20.w, 18.h, 20.w, 8.h),
+                  child: Text(
+                    'ACCOUNT',
+                    style: TextStyle(
+                      fontSize: 11.sp,
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.textTertiary,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ),
+                _tile(
+                  Icons.credit_card_outlined,
+                  UserAppCopy.PAYMENT_METHODS,
+                  AppRoutes.paymentMethods,
+                ),
+                _tile(
+                  Icons.health_and_safety_outlined,
+                  UserAppCopy.EMERGENCY_CONTACTS,
+                  AppRoutes.emergencyContacts,
+                ),
+                _tile(
+                  Icons.support_agent,
+                  UserAppCopy.SUPPORT,
+                  AppRoutes.support,
+                ),
+                _tile(
+                  Icons.settings_outlined,
+                  UserAppCopy.SETTINGS,
+                  AppRoutes.settings,
+                ),
+              ],
             ),
-            ListTile(
-              leading: const Icon(
-                Icons.settings_outlined,
-                color: Colors.black87,
+          ),
+          Divider(height: 1.h, color: AppColors.borderGrey),
+          ListTile(
+            leading: const Icon(Icons.logout, color: AppColors.googleRed),
+            title: const Text(
+              UserAppCopy.LOG_OUT,
+              style: TextStyle(
+                color: AppColors.googleRed,
+                fontWeight: FontWeight.w700,
               ),
-              title: const Text(
-                "Settings",
-                style: TextStyle(fontWeight: FontWeight.w500),
-              ),
-              onTap: () {},
             ),
-            const Spacer(),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.logout, color: Colors.black87),
-              title: const Text(
-                "Log out",
-                style: TextStyle(fontWeight: FontWeight.w500),
-              ),
-              onTap: () {},
-            ),
-            const SizedBox(height: 12),
-          ],
-        ),
+            onTap: _signOut,
+          ),
+          SizedBox(height: 8.h),
+        ],
       ),
-    );
-  }
+    ),
+  );
+
+  Widget _tile(IconData icon, String label, String route) => ListTile(
+    leading: Icon(icon, color: AppColors.textPrimary, size: 21.w),
+    title: Text(
+      label,
+      style: TextStyle(
+        fontSize: 14.sp,
+        fontWeight: FontWeight.w600,
+        color: AppColors.textPrimary,
+      ),
+    ),
+    trailing: Icon(
+      Icons.chevron_right,
+      size: 18.w,
+      color: AppColors.textTertiary,
+    ),
+    onTap: () => _open(route),
+  );
 }

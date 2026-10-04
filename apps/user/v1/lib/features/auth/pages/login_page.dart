@@ -4,6 +4,8 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:user/core/color.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/auth/constants/user.constant.dart';
+import 'package:user/features/auth/auth.repo.dart';
+import 'package:user/core/network/api_result.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -13,6 +15,29 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  bool _signingIn = false;
+
+  Future<void> _signIn() async {
+    if (_signingIn) return;
+    setState(() => _signingIn = true);
+    try {
+      await AuthRepository().signInWithGoogle();
+      if (mounted)
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          AppRoutes.home,
+          (_) => false,
+        );
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+    } finally {
+      if (mounted) setState(() => _signingIn = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -51,8 +76,8 @@ class _LoginPageState extends State<LoginPage> {
                 return Stack(
                   children: [
                     Positioned(
-                      top: safePadding.top + 16.h,
-                      right: 14.w,
+                      top: safePadding.top + 16.r,
+                      right: 14.r,
                       child: _buildSkipButton(context),
                     ),
                     Positioned(
@@ -63,14 +88,14 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                     Positioned(
                       top: screenHeight * 0.54,
-                      left: 22.w,
-                      right: 22.w,
+                      left: 22.r,
+                      right: 22.r,
                       child: _buildHeadline(),
                     ),
                     Positioned(
                       top: screenHeight * 0.785,
-                      left: 22.w,
-                      right: 22.w,
+                      left: 22.r,
+                      right: 22.r,
                       child: _buildSubtitle(),
                     ),
                     Positioned(
@@ -80,9 +105,9 @@ class _LoginPageState extends State<LoginPage> {
                       child: _buildPageIndicator(),
                     ),
                     Positioned(
-                      left: 16.w,
-                      right: 16.w,
-                      bottom: safePadding.bottom + 15.h,
+                      left: 16.r,
+                      right: 16.r,
+                      bottom: safePadding.bottom + 15.r,
                       child: _buildContinueButton(context),
                     ),
                   ],
@@ -98,14 +123,14 @@ class _LoginPageState extends State<LoginPage> {
   Widget _buildSkipButton(BuildContext context) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => Navigator.pushReplacementNamed(context, AppRoutes.home),
+      onTap: _signIn,
       child: Padding(
-        padding: EdgeInsets.all(8.w),
+        padding: EdgeInsets.all(8.r),
         child: Text(
-          'Skip',
+          UserConstants.SIGN_IN,
           style: TextStyle(
             color: AppColors.pureWhite.withValues(alpha: 0.86),
-            fontSize: 12.sp,
+            fontSize: 12.r,
             fontWeight: FontWeight.w500,
             height: 1,
             shadows: const [
@@ -127,8 +152,8 @@ class _LoginPageState extends State<LoginPage> {
       mainAxisSize: MainAxisSize.min,
       children: [
         SizedBox(
-          width: 34.w,
-          height: 18.w,
+          width: 34.r,
+          height: 18.r,
           child: Stack(
             clipBehavior: Clip.none,
             children: const [
@@ -147,12 +172,12 @@ class _LoginPageState extends State<LoginPage> {
             ],
           ),
         ),
-        SizedBox(width: 6.w),
+        SizedBox(width: 6.r),
         Text(
           UserConstants.LOGIN_SECTION_LABEL,
           style: TextStyle(
             color: AppColors.pureWhite,
-            fontSize: 10.sp,
+            fontSize: 10.r,
             fontWeight: FontWeight.w700,
             height: 1,
             shadows: const [
@@ -174,7 +199,7 @@ class _LoginPageState extends State<LoginPage> {
       textAlign: TextAlign.center,
       style: TextStyle(
         color: AppColors.pureWhite,
-        fontSize: 43.sp,
+        fontSize: 43.r,
         fontWeight: FontWeight.w900,
         height: 1.13,
         letterSpacing: 0,
@@ -191,7 +216,7 @@ class _LoginPageState extends State<LoginPage> {
       textAlign: TextAlign.center,
       style: TextStyle(
         color: AppColors.pureWhite.withValues(alpha: 0.88),
-        fontSize: 13.sp,
+        fontSize: 13.r,
         fontWeight: FontWeight.w500,
         height: 1.35,
         letterSpacing: 0,
@@ -205,8 +230,8 @@ class _LoginPageState extends State<LoginPage> {
   Widget _buildPageIndicator() {
     return Center(
       child: Container(
-        width: 18.w,
-        height: 5.h,
+        width: 18.r,
+        height: 5.r,
         decoration: BoxDecoration(
           color: AppColors.pureWhite,
           borderRadius: BorderRadius.circular(999.r),
@@ -224,10 +249,9 @@ class _LoginPageState extends State<LoginPage> {
 
   Widget _buildContinueButton(BuildContext context) {
     return SizedBox(
-      height: 50.h,
+      height: 50.r,
       child: ElevatedButton(
-        onPressed: () =>
-            Navigator.pushReplacementNamed(context, AppRoutes.home),
+        onPressed: _signIn,
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.pureWhite,
           foregroundColor: AppColors.textPrimary,
@@ -237,35 +261,44 @@ class _LoginPageState extends State<LoginPage> {
             borderRadius: BorderRadius.circular(999.r),
           ),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildGoogleMark(),
-            SizedBox(width: 10.w),
-            Flexible(
-              child: Text(
-                UserConstants.GOOGLE_AUTH_BUTTON,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 15.sp,
-                  fontWeight: FontWeight.w500,
-                  height: 1,
+        child: _signingIn
+            ? SizedBox(
+                width: 20.r,
+                height: 20.r,
+                child: const CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.primaryGreen,
                 ),
+              )
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildGoogleMark(),
+                  SizedBox(width: 10.r),
+                  Flexible(
+                    child: Text(
+                      UserConstants.GOOGLE_AUTH_BUTTON,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 15.r,
+                        fontWeight: FontWeight.w500,
+                        height: 1,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
       ),
     );
   }
 
   Widget _buildGoogleMark() {
     return SizedBox(
-      width: 20.w,
-      height: 20.w,
+      width: 20.r,
+      height: 20.r,
       child: Stack(
         alignment: Alignment.center,
         children: [
@@ -273,26 +306,26 @@ class _LoginPageState extends State<LoginPage> {
             UserConstants.GOOGLE_MARK,
             style: TextStyle(
               color: AppColors.googleBlue,
-              fontSize: 18.sp,
+              fontSize: 18.r,
               fontWeight: FontWeight.w800,
               height: 1,
             ),
           ),
           Positioned(
-            right: 0.w,
-            bottom: 3.h,
+            right: 0.r,
+            bottom: 3.r,
             child: Container(
-              width: 7.w,
-              height: 3.h,
+              width: 7.r,
+              height: 3.r,
               color: AppColors.googleGreen,
             ),
           ),
           Positioned(
-            left: 1.w,
-            bottom: 3.h,
+            left: 1.r,
+            bottom: 3.r,
             child: Container(
-              width: 5.w,
-              height: 5.w,
+              width: 5.r,
+              height: 5.r,
               decoration: const BoxDecoration(
                 color: AppColors.googleYellow,
                 shape: BoxShape.circle,
@@ -300,11 +333,11 @@ class _LoginPageState extends State<LoginPage> {
             ),
           ),
           Positioned(
-            top: 2.h,
-            left: 1.w,
+            top: 2.r,
+            left: 1.r,
             child: Container(
-              width: 5.w,
-              height: 5.w,
+              width: 5.r,
+              height: 5.r,
               decoration: const BoxDecoration(
                 color: AppColors.googleRed,
                 shape: BoxShape.circle,
@@ -340,14 +373,14 @@ class _MateAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Positioned(
-      left: offset.w,
+      left: offset.r,
       top: 0,
       child: Container(
-        width: 18.w,
-        height: 18.w,
+        width: 18.r,
+        height: 18.r,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          border: Border.all(color: AppColors.pureWhite, width: 1.2.w),
+          border: Border.all(color: AppColors.pureWhite, width: 1.2.r),
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
