@@ -6,6 +6,7 @@ import 'package:user/core/routes.dart';
 import 'package:user/features/auth/constants/user.constant.dart';
 import 'package:user/features/auth/auth.repo.dart';
 import 'package:user/core/network/api_result.dart';
+import 'package:user/components/ui/app_logo.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -75,6 +76,11 @@ class _LoginPageState extends State<LoginPage> {
 
                 return Stack(
                   children: [
+                    Positioned(
+                      top: safePadding.top + 16.r,
+                      left: 22.r,
+                      child: AppLogo(width: 120.r, height: 48.r),
+                    ),
                     Positioned(
                       top: safePadding.top + 16.r,
                       right: 14.r,

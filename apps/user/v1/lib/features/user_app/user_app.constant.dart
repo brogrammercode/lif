@@ -61,7 +61,7 @@ class UserAppCopy {
   static const String SEND = 'Send';
   static const String LOG_OUT = 'Log out';
   static const String LOG_OUT_CONFIRMATION =
-      'Are you sure you want to log out of Lif?';
+      'Are you sure you want to log out of 1more?';
   static const String PROFILE_SAVED = 'Profile updated';
   static const String PLACE_ADDED = 'Place added';
   static const String CONTACT_ADDED = 'Emergency contact added';

@@ -9,12 +9,12 @@ class HomeConstants {
 
   static const LatLng DEFAULT_LOCATION = LatLng(-6.200000, 106.816666);
   static const double DEFAULT_ZOOM = 16.5;
-  static const String MAP_USER_AGENT = 'com.example.v1';
+  static const String MAP_USER_AGENT = 'com.brogrammer.onemore';
   static const List<String> MAP_SUBDOMAINS = ['a', 'b', 'c', 'd'];
 
   static const String TILE_USER_AGENT_HEADER_NAME = 'User-Agent';
   static const String TILE_USER_AGENT_HEADER_VALUE =
-      'V1Mobile/1.0 (com.example.v1)';
+      '1more/1.0 (com.brogrammer.onemore)';
 
   static Map<String, String> get tileHeaders => {
     TILE_USER_AGENT_HEADER_NAME: TILE_USER_AGENT_HEADER_VALUE,

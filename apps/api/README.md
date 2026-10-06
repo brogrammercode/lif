@@ -7,9 +7,9 @@ This is the TypeScript/Express API for the Lif Flutter apps. It uses Prisma ORM 
 ```bash
 cd apps/api
 npm install
-docker compose up -d postgres
-copy .env.example .env
-npx prisma migrate dev --name init
+cp .env.example .env
+# Set DB_STRING in .env and start PostgreSQL if it is local.
+npm run prisma:deploy
 npm run prisma:seed
 npm run dev
 ```

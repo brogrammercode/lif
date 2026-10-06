@@ -15,6 +15,7 @@ import 'package:user/core/routes.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/features/user_app/user_app.constant.dart';
+import 'package:user/components/ui/app_logo.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -687,6 +688,7 @@ class _HomePageState extends State<HomePage>
             ),
           ),
           // Notification Button
+          AppLogo(width: 112.r, height: 44.r),
           _buildGlassButton(
             child: Icon(
               Iconsax.notification,
@@ -821,7 +823,8 @@ class _HomePageState extends State<HomePage>
   Widget _buildTopHeader(BuildContext context) {
     return Column(
       children: [
-        Center(child: SizedBox(height: 50.r)),
+        AppLogo(width: 112.r, height: 44.r),
+        SizedBox(height: 6.r),
         Icon(
           _isSearchingDriver ? Icons.search : Icons.motorcycle,
           size: 30.r,

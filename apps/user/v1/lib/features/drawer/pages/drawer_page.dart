@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:user/core/color.dart';
+import 'package:user/components/ui/app_logo.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/auth/auth.repo.dart';
 import 'package:user/features/auth/models/user.model.dart';
@@ -52,6 +53,13 @@ class _DrawerPageState extends State<DrawerPage> {
     child: SafeArea(
       child: Column(
         children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(20.w, 12.h, 20.w, 0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: AppLogo(width: 120.w, height: 48.h),
+            ),
+          ),
           FutureBuilder<Map<String, dynamic>>(
             future: _profile,
             builder: (context, snapshot) {

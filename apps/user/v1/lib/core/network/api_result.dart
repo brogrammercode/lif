@@ -12,6 +12,12 @@ class ApiResult {
       if (data is Map<String, dynamic> && data['message'] is String) {
         return data['message'] as String;
       }
+      if (error.type == DioExceptionType.connectionTimeout ||
+          error.type == DioExceptionType.connectionError ||
+          error.type == DioExceptionType.receiveTimeout ||
+          error.type == DioExceptionType.sendTimeout) {
+        return 'Cannot reach the API. Check that the server is running and your phone is connected to the same network.';
+      }
       return error.message ?? 'The request could not be completed.';
     }
     return 'The request could not be completed.';

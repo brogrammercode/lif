@@ -1,4 +1,8 @@
+import 'dart:convert';
+import 'dart:developer' as developer;
+
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:user/core/config.dart';
 import 'package:user/core/network/api.constant.dart';
@@ -24,6 +28,7 @@ class DioClient {
         },
       ),
     );
+    if (kDebugMode) dio.interceptors.add(_SimpleLogInterceptor());
     dio.interceptors.add(
       QueuedInterceptorsWrapper(
         onRequest: (options, handler) async {
@@ -49,7 +54,7 @@ class DioClient {
           try {
             final refreshToken = await readRefreshToken();
             if (refreshToken == null) throw StateError('Missing refresh token');
-            final refreshResponse = await Dio(
+            final refreshDio = Dio(
               BaseOptions(
                 baseUrl: AppConfig.API_BASE_URL,
                 headers: {
@@ -57,7 +62,13 @@ class DioClient {
                   'Content-Type': 'application/json',
                 },
               ),
-            ).post('/auth/refresh', data: {'refresh_token': refreshToken});
+            );
+            if (kDebugMode)
+              refreshDio.interceptors.add(_SimpleLogInterceptor());
+            final refreshResponse = await refreshDio.post(
+              '/auth/refresh',
+              data: {'refresh_token': refreshToken},
+            );
             final responseData = refreshResponse.data as Map<String, dynamic>;
             final data = responseData['data'] as Map<String, dynamic>;
             final accessToken = data['access_token'] as String;
@@ -114,4 +125,49 @@ class DioClient {
 
   Future<dynamic> deleteData(String path) async =>
       (await dio.delete(path)).data;
+}
+
+class _SimpleLogInterceptor extends Interceptor {
+  static const _blue = '\x1B[34m';
+  static const _yellow = '\x1B[33m';
+  static const _reset = '\x1B[0m';
+
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    developer.log('${_blue}request - ${options.path}$_reset', name: 'dio');
+    handler.next(options);
+  }
+
+  @override
+  void onResponse(Response response, ResponseInterceptorHandler handler) {
+    _logResponse(
+      response.requestOptions.path,
+      response.statusCode,
+      response.data,
+    );
+    handler.next(response);
+  }
+
+  @override
+  void onError(DioException error, ErrorInterceptorHandler handler) {
+    _logResponse(
+      error.requestOptions.path,
+      error.response?.statusCode,
+      error.response == null ? error.message : error.response!.data,
+    );
+    handler.next(error);
+  }
+
+  void _logResponse(String path, int? code, Object? body) {
+    String formattedBody;
+    try {
+      formattedBody = jsonEncode(body);
+    } catch (_) {
+      formattedBody = '$body';
+    }
+    developer.log(
+      '${_yellow}response - $path : ${code ?? '-'} : $formattedBody$_reset',
+      name: 'dio',
+    );
+  }
 }
