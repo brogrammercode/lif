@@ -7,6 +7,8 @@ class UserModel {
   final String? email;
   final String? phone_e164;
   final String? avatar_url;
+  final double? last_known_latitude;
+  final double? last_known_longitude;
 
   const UserModel({
     required this.id,
@@ -17,6 +19,8 @@ class UserModel {
     this.email,
     this.phone_e164,
     this.avatar_url,
+    this.last_known_latitude,
+    this.last_known_longitude,
   });
 
   String get display_name => [
@@ -33,6 +37,8 @@ class UserModel {
     email: json['email'] as String?,
     phone_e164: json['phone_e164'] as String?,
     avatar_url: json['avatar_url'] as String?,
+    last_known_latitude: (json['last_known_latitude'] as num?)?.toDouble(),
+    last_known_longitude: (json['last_known_longitude'] as num?)?.toDouble(),
   );
 
   Map<String, dynamic> toJson() => {
@@ -44,5 +50,7 @@ class UserModel {
     'email': email,
     'phone_e164': phone_e164,
     'avatar_url': avatar_url,
+    'last_known_latitude': last_known_latitude,
+    'last_known_longitude': last_known_longitude,
   };
 }

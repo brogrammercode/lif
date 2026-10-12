@@ -1,9 +1,14 @@
 import { AppError } from '../../core/error.js';
-import { NOTIFICATION_NOT_FOUND_MESSAGE, SAVED_PLACE_NOT_FOUND_MESSAGE } from './user.constant.js';
-import { create_saved_place, delete_saved_place, list_notifications, list_saved_places, mark_notification_read, update_profile, update_saved_place } from './user.repo.js';
-import type { ProfileUpdateInput, SavedPlaceInput } from './user.type.js';
+import { NOTIFICATION_NOT_FOUND_MESSAGE, SAVED_PLACE_NOT_FOUND_MESSAGE, USER_NOT_FOUND_MESSAGE } from './user.constant.js';
+import { create_saved_place, delete_saved_place, list_notifications, list_saved_places, mark_notification_read, update_last_known_location, update_profile, update_saved_place } from './user.repo.js';
+import type { LocationUpdateInput, ProfileUpdateInput, SavedPlaceInput } from './user.type.js';
 
 export const update_user_profile = (user_id: string, input: ProfileUpdateInput) => update_profile(user_id, input, user_id);
+export const save_user_last_known_location = async (user_id: string, input: LocationUpdateInput) => {
+  const user = await update_last_known_location(user_id, input);
+  if (!user) throw new AppError(404, 'USER_NOT_FOUND', USER_NOT_FOUND_MESSAGE);
+  return user;
+};
 export const get_saved_places = (user_id: string) => list_saved_places(user_id);
 export const add_saved_place = (user_id: string, input: SavedPlaceInput) => create_saved_place(user_id, input, user_id);
 

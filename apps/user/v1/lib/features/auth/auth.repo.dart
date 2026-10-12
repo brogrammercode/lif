@@ -31,14 +31,30 @@ class AuthRepository {
       data['access_token'] as String,
       data['refresh_token'] as String,
     );
-    return UserModel.fromJson(data['user'] as Map<String, dynamic>);
+    final user = UserModel.fromJson(data['user'] as Map<String, dynamic>);
+    await _cacheUserLocation(user);
+    return user;
   }
 
   Future<UserModel> currentUser() async {
     final response = await _client.getData(ApiConstants.AUTH_ME);
-    return UserModel.fromJson(
+    final user = UserModel.fromJson(
       ApiResult.unwrap(response) as Map<String, dynamic>,
     );
+    await _cacheUserLocation(user);
+    return user;
+  }
+
+  Future<void> _cacheUserLocation(UserModel user) async {
+    final latitude = user.last_known_latitude;
+    final longitude = user.last_known_longitude;
+    if (latitude == null || longitude == null) return;
+    try {
+      await _client.saveCachedUserLocation(
+        latitude: latitude,
+        longitude: longitude,
+      );
+    } catch (_) {}
   }
 
   Future<void> signOut() async {

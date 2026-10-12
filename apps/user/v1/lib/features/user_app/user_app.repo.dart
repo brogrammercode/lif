@@ -15,6 +15,16 @@ class UserAppRepository {
   ) async => Map<String, dynamic>.from(
     _data(await _client.patchData(ApiConstants.USER_ME, data: input)) as Map,
   );
+  Future<void> updateLastKnownLocation({
+    required double latitude,
+    required double longitude,
+  }) async {
+    await _client.patchData(
+      ApiConstants.USER_LOCATION,
+      data: {'latitude': latitude, 'longitude': longitude},
+    );
+  }
+
   Future<List<Map<String, dynamic>>> rides() async =>
       List<Map<String, dynamic>>.from(
         (_data(await _client.getData(ApiConstants.RIDES)) as List).map(

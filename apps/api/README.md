@@ -53,6 +53,7 @@ POST  /api/v1/auth/refresh
 POST  /api/v1/auth/logout
 GET   /api/v1/auth/me
 PATCH /api/v1/me
+PATCH /api/v1/me/location
 POST  /api/v1/me/avatar
 GET   /api/v1/me/saved-places
 POST  /api/v1/me/saved-places
@@ -63,6 +64,8 @@ POST  /api/v1/me/notifications/:id/read
 ```
 
 The Google endpoint accepts an `id_token`, verifies its audience and signature with Google's public keys, then creates the Lif session. The mobile app's `GOOGLE_SERVER_CLIENT_ID` must match this API's `GOOGLE_CLIENT_ID`.
+
+`PATCH /api/v1/me/location` accepts `{ "latitude": number, "longitude": number }` and updates the authenticated user's last-known coordinates.
 
 ### Rides
 

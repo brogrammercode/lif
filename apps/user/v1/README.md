@@ -23,6 +23,7 @@ For iOS Google sign-in, create an iOS OAuth client for `com.brogrammer.onemore` 
 
 - Google sign-in, secure token storage, session restoration, logout, and access-token refresh.
 - Location search, reverse geocoding, and road routing through the API.
+- On home entry, current location is read with `geolocator`; the latest coordinates are cached locally and synced to the user's API record. A cached coordinate is used as the initial map center while fresh permission/location is resolved.
 - Server fare quotes and ride requests from the map booking screen.
 - Ride history, ride details, cancellation, start confirmation, review, payment checkout, and receipt.
 - Profile editing, saved places, notifications, payment methods, emergency contacts, and support conversations.

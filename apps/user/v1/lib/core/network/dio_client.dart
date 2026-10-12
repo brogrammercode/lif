@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:developer' as developer;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -99,6 +98,41 @@ class DioClient {
   Future<String?> readRefreshToken() =>
       _storage.read(key: ApiConstants.REFRESH_TOKEN_KEY);
 
+  Future<void> saveCachedUserLocation({
+    required double latitude,
+    required double longitude,
+  }) async {
+    await _storage.write(
+      key: ApiConstants.CACHED_LOCATION_LATITUDE_KEY,
+      value: latitude.toString(),
+    );
+    await _storage.write(
+      key: ApiConstants.CACHED_LOCATION_LONGITUDE_KEY,
+      value: longitude.toString(),
+    );
+  }
+
+  Future<Map<String, double>?> readCachedUserLocation() async {
+    final latitude = double.tryParse(
+      await _storage.read(key: ApiConstants.CACHED_LOCATION_LATITUDE_KEY) ?? '',
+    );
+    final longitude = double.tryParse(
+      await _storage.read(key: ApiConstants.CACHED_LOCATION_LONGITUDE_KEY) ??
+          '',
+    );
+    if (latitude == null ||
+        longitude == null ||
+        !latitude.isFinite ||
+        !longitude.isFinite ||
+        latitude < -90 ||
+        latitude > 90 ||
+        longitude < -180 ||
+        longitude > 180) {
+      return null;
+    }
+    return {'latitude': latitude, 'longitude': longitude};
+  }
+
   Future<bool> hasSession() async =>
       (await _storage.read(key: ApiConstants.ACCESS_TOKEN_KEY))?.isNotEmpty ??
       false;
@@ -128,13 +162,17 @@ class DioClient {
 }
 
 class _SimpleLogInterceptor extends Interceptor {
-  static const _blue = '\x1B[34m';
-  static const _yellow = '\x1B[33m';
+  static const _blue = '\x1B[38;2;0;122;255m';
+  static const _orange = '\x1B[38;2;255;145;0m';
+  static const _red = '\x1B[38;2;255;55;55m';
   static const _reset = '\x1B[0m';
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    developer.log('${_blue}request - ${options.path}$_reset', name: 'dio');
+    final now = DateTime.now();
+    final time =
+        '${_twoDigits(now.hour)}:${_twoDigits(now.minute)}:${_twoDigits(now.second)}.${now.millisecond.toString().padLeft(3, '0')}';
+    _write('$_blue- $time : ${options.method} : ${options.path}$_reset');
     handler.next(options);
   }
 
@@ -144,6 +182,7 @@ class _SimpleLogInterceptor extends Interceptor {
       response.requestOptions.path,
       response.statusCode,
       response.data,
+      isError: (response.statusCode ?? 0) >= 400,
     );
     handler.next(response);
   }
@@ -153,21 +192,58 @@ class _SimpleLogInterceptor extends Interceptor {
     _logResponse(
       error.requestOptions.path,
       error.response?.statusCode,
-      error.response == null ? error.message : error.response!.data,
+      error.response?.data ?? {'message': error.message ?? 'Request failed'},
+      isError: true,
     );
     handler.next(error);
   }
 
-  void _logResponse(String path, int? code, Object? body) {
+  void _logResponse(
+    String path,
+    int? status,
+    Object? body, {
+    required bool isError,
+  }) {
     String formattedBody;
     try {
-      formattedBody = jsonEncode(body);
+      formattedBody = const JsonEncoder.withIndent(
+        '  ',
+      ).convert(_redactSensitiveValues(body));
     } catch (_) {
       formattedBody = '$body';
     }
-    developer.log(
-      '${_yellow}response - $path : ${code ?? '-'} : $formattedBody$_reset',
-      name: 'dio',
-    );
+    final color = isError ? _red : _orange;
+    final statusLabel = status?.toString() ?? 'NO STATUS';
+    _write('$color🔥🔥 : $statusLabel : $path : $formattedBody$_reset');
   }
+
+  Object? _redactSensitiveValues(Object? value) {
+    if (value is Map) {
+      return value.map((key, nestedValue) {
+        final keyString = '$key';
+        final normalizedKey = keyString.toLowerCase();
+        final isSensitive =
+            normalizedKey.contains('token') ||
+            normalizedKey.contains('password') ||
+            normalizedKey.contains('secret') ||
+            normalizedKey.contains('authorization') ||
+            normalizedKey.contains('latitude') ||
+            normalizedKey.contains('longitude');
+        return MapEntry(
+          keyString,
+          isSensitive ? '[REDACTED]' : _redactSensitiveValues(nestedValue),
+        );
+      });
+    }
+    if (value is List) {
+      return value.map(_redactSensitiveValues).toList();
+    }
+    return value;
+  }
+
+  void _write(String message) {
+    debugPrint(message, wrapWidth: 1000);
+  }
+
+  String _twoDigits(int value) => value.toString().padLeft(2, '0');
 }

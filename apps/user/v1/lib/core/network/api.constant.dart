@@ -4,6 +4,7 @@ class ApiConstants {
   static const String AUTH_LOGOUT = '/auth/logout';
   static const String AUTH_ME = '/auth/me';
   static const String USER_ME = '/me';
+  static const String USER_LOCATION = '/me/location';
   static const String SAVED_PLACES = '/me/saved-places';
   static const String NOTIFICATIONS = '/me/notifications';
   static const String RIDES = '/rides';
@@ -18,4 +19,7 @@ class ApiConstants {
   static const String IDP_HEADER = 'Idempotency-Key';
   static const String ACCESS_TOKEN_KEY = 'access_token';
   static const String REFRESH_TOKEN_KEY = 'refresh_token';
+  static const String CACHED_LOCATION_LATITUDE_KEY = 'cached_location_latitude';
+  static const String CACHED_LOCATION_LONGITUDE_KEY =
+      'cached_location_longitude';
 }

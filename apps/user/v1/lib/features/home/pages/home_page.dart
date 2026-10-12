@@ -27,13 +27,14 @@ class HomePage extends StatefulWidget {
 enum SearchField { none, from, to }
 
 class _HomePageState extends State<HomePage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   LatLng _fromLocation = HomeConstants.DEFAULT_LOCATION;
   LatLng? _toLocation;
 
   bool _isLoading = true;
   bool _isRefreshing = false;
+  bool _waitingForLocationSettingsReturn = false;
   final MapController _mapController = MapController();
   late final AnimationController _animController;
 
@@ -70,17 +71,19 @@ class _HomePageState extends State<HomePage>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _animController = AnimationController(
       duration: const Duration(milliseconds: 1500),
       vsync: this,
     );
-    _determinePosition();
+    _initializeLocation();
     _fromController.addListener(_onSearchChanged);
     _toController.addListener(_onSearchChanged);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _fromController.dispose();
     _toController.dispose();
     _fromFocus.dispose();
@@ -90,28 +93,88 @@ class _HomePageState extends State<HomePage>
     super.dispose();
   }
 
-  Future<void> _determinePosition() async {
-    bool serviceEnabled;
-    LocationPermission permission;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed ||
+        !_waitingForLocationSettingsReturn) {
+      return;
+    }
 
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    _waitingForLocationSettingsReturn = false;
+    setState(() => _isLoading = true);
+    unawaited(
+      _determinePosition(
+        requestPermissionIfDenied: false,
+        showSettingsDialog: false,
+      ),
+    );
+  }
+
+  Future<void> _initializeLocation() async {
+    Map<String, double>? cachedLocation;
+    try {
+      cachedLocation = await DioClient().readCachedUserLocation();
+    } catch (_) {}
+
+    if (!mounted) return;
+    if (cachedLocation != null) {
+      final location = LatLng(
+        cachedLocation['latitude']!,
+        cachedLocation['longitude']!,
+      );
+      setState(() => _fromLocation = location);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _mapController.move(location, HomeConstants.DEFAULT_ZOOM);
+      });
+    }
+
+    final hasFreshLocation = await _determinePosition();
+    if (!hasFreshLocation && cachedLocation != null && mounted) {
+      _reverseGeocode(
+        LatLng(cachedLocation['latitude']!, cachedLocation['longitude']!),
+        overrideField: SearchField.from,
+      );
+    }
+  }
+
+  Future<bool> _determinePosition({
+    bool requestPermissionIfDenied = true,
+    bool showSettingsDialog = true,
+  }) async {
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied && requestPermissionIfDenied) {
+      permission = await Geolocator.requestPermission();
+    }
+
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      if (mounted) setState(() => _isLoading = false);
+      if (permission == LocationPermission.deniedForever &&
+          showSettingsDialog) {
+        await _showLocationSettingsDialog(
+          title: 'Location permission is off',
+          message:
+              'Allow location access in app settings, then return to the app to retry.',
+          openSettings: Geolocator.openAppSettings,
+          buttonText: 'Open app settings',
+        );
+      }
+      return false;
+    }
+
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       if (mounted) setState(() => _isLoading = false);
-      return;
-    }
-
-    permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        if (mounted) setState(() => _isLoading = false);
-        return;
+      if (showSettingsDialog) {
+        await _showLocationSettingsDialog(
+          title: 'Turn on location services',
+          message:
+              'Location access is allowed for this app, but device location services are off.',
+          openSettings: Geolocator.openLocationSettings,
+          buttonText: 'Open location settings',
+        );
       }
-    }
-
-    if (permission == LocationPermission.deniedForever) {
-      if (mounted) setState(() => _isLoading = false);
-      return;
+      return false;
     }
 
     try {
@@ -121,13 +184,63 @@ class _HomePageState extends State<HomePage>
           _fromLocation = LatLng(position.latitude, position.longitude);
           _isLoading = false;
         });
+        unawaited(_saveLastKnownLocation(_fromLocation));
         double heading = position.heading > 0 ? position.heading : 0;
         _animatedMapMove(_fromLocation, HomeConstants.DEFAULT_ZOOM, heading);
         _reverseGeocode(_fromLocation, overrideField: SearchField.from);
+        return true;
       }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
     }
+    return false;
+  }
+
+  Future<void> _showLocationSettingsDialog({
+    required String title,
+    required String message,
+    required Future<bool> Function() openSettings,
+    required String buttonText,
+  }) async {
+    if (!mounted) return;
+    final shouldOpenSettings = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Not now'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(buttonText),
+          ),
+        ],
+      ),
+    );
+    if (shouldOpenSettings == true) {
+      _waitingForLocationSettingsReturn = true;
+      final opened = await openSettings();
+      if (!opened) _waitingForLocationSettingsReturn = false;
+    }
+  }
+
+  Future<void> _saveLastKnownLocation(LatLng location) async {
+    try {
+      await DioClient().saveCachedUserLocation(
+        latitude: location.latitude,
+        longitude: location.longitude,
+      );
+    } catch (_) {}
+
+    try {
+      await _userRepository.updateLastKnownLocation(
+        latitude: location.latitude,
+        longitude: location.longitude,
+      );
+    } catch (_) {}
   }
 
   Future<void> _refreshLocation() async {
@@ -139,6 +252,7 @@ class _HomePageState extends State<HomePage>
       setState(() {
         _fromLocation = newLocation;
       });
+      unawaited(_saveLastKnownLocation(newLocation));
       // Reset rotation to default (0.0) alongside default zoom
       _animatedMapMove(newLocation, HomeConstants.DEFAULT_ZOOM, 0.0);
       _reverseGeocode(newLocation, overrideField: SearchField.from);

@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../infra/database/client.js';
 import { create_user_log } from '../../infra/database/user_log.js';
-import type { ProfileUpdateInput, SavedPlaceInput } from './user.type.js';
+import type { LocationUpdateInput, ProfileUpdateInput, SavedPlaceInput } from './user.type.js';
 
 export const update_profile = async (user_id: string, input: ProfileUpdateInput, actor_uid: string) =>
   prisma.$transaction(async (tx) => {
@@ -14,6 +14,35 @@ export const update_profile = async (user_id: string, input: ProfileUpdateInput,
       action: 'UPDATE_PROFILE',
       before_data: before as unknown as Prisma.InputJsonObject,
       after_data: user as unknown as Prisma.InputJsonObject,
+    });
+    return user;
+  });
+
+export const update_last_known_location = async (
+  user_id: string,
+  input: LocationUpdateInput,
+) =>
+  prisma.$transaction(async (tx) => {
+    const before = await tx.user.findUnique({ where: { id: user_id }, select: { id: true } });
+    if (!before) return null;
+
+    const user = await tx.user.update({
+      where: { id: user_id },
+      data: {
+        last_known_latitude: input.latitude,
+        last_known_longitude: input.longitude,
+      },
+      select: {
+        id: true,
+        last_known_latitude: true,
+        last_known_longitude: true,
+      },
+    });
+    await create_user_log(tx, {
+      actor_id: user_id,
+      entity_type: 'User',
+      entity_id: user_id,
+      action: 'UPDATE_LAST_KNOWN_LOCATION',
     });
     return user;
   });

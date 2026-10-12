@@ -9,6 +9,11 @@ export const profile_update_schema = z.object({
 
 export const avatar_schema = z.object({ avatar_url: z.string().url() });
 
+export const location_update_schema = z.object({
+  latitude: z.number().gte(-90).lte(90),
+  longitude: z.number().gte(-180).lte(180),
+});
+
 export const saved_place_schema = z.object({
   label: z.string().trim().min(1).max(80),
   address: z.string().trim().min(1).max(300),
@@ -20,4 +25,5 @@ export const saved_place_schema = z.object({
 
 export type ProfileUpdateInput = z.infer<typeof profile_update_schema>;
 export type AvatarInput = z.infer<typeof avatar_schema>;
+export type LocationUpdateInput = z.infer<typeof location_update_schema>;
 export type SavedPlaceInput = z.infer<typeof saved_place_schema>;

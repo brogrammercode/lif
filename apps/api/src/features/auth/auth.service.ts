@@ -15,7 +15,7 @@ import {
 } from './auth.repo.js';
 import type { AuthResponse, ExternalLoginInput } from './auth.type.js';
 
-const to_user_response = (user: { id: string; role: string; status: string; first_name: string | null; last_name: string | null; email: string | null; phone_e164: string | null; avatar_url: string | null; driver_profile?: unknown }) => ({
+const to_user_response = (user: { id: string; role: string; status: string; first_name: string | null; last_name: string | null; email: string | null; phone_e164: string | null; avatar_url: string | null; last_known_latitude: { toNumber(): number } | null; last_known_longitude: { toNumber(): number } | null; driver_profile?: unknown }) => ({
   id: user.id,
   role: user.role,
   status: user.status,
@@ -24,6 +24,8 @@ const to_user_response = (user: { id: string; role: string; status: string; firs
   email: user.email,
   phone_e164: user.phone_e164,
   avatar_url: user.avatar_url,
+  last_known_latitude: user.last_known_latitude?.toNumber() ?? null,
+  last_known_longitude: user.last_known_longitude?.toNumber() ?? null,
   driver_profile: user.driver_profile,
 });
 
