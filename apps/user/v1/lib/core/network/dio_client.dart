@@ -18,7 +18,7 @@ class DioClient {
   DioClient._internal() {
     dio = Dio(
       BaseOptions(
-        baseUrl: AppConfig.API_BASE_URL,
+        baseUrl: AppConfig.apiBaseUrl,
         connectTimeout: const Duration(seconds: 15),
         receiveTimeout: const Duration(seconds: 20),
         headers: {
@@ -32,8 +32,9 @@ class DioClient {
       QueuedInterceptorsWrapper(
         onRequest: (options, handler) async {
           final token = await _storage.read(key: ApiConstants.ACCESS_TOKEN_KEY);
-          if (token != null && token.isNotEmpty)
+          if (token != null && token.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $token';
+          }
           handler.next(options);
         },
         onError: (error, handler) async {
@@ -55,15 +56,16 @@ class DioClient {
             if (refreshToken == null) throw StateError('Missing refresh token');
             final refreshDio = Dio(
               BaseOptions(
-                baseUrl: AppConfig.API_BASE_URL,
+                baseUrl: AppConfig.apiBaseUrl,
                 headers: {
                   'Accept': 'application/json',
                   'Content-Type': 'application/json',
                 },
               ),
             );
-            if (kDebugMode)
+            if (kDebugMode) {
               refreshDio.interceptors.add(_SimpleLogInterceptor());
+            }
             final refreshResponse = await refreshDio.post(
               '/auth/refresh',
               data: {'refresh_token': refreshToken},

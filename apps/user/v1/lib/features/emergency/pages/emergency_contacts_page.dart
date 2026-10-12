@@ -49,12 +49,13 @@ class _EmergencyContactsPageState extends State<EmergencyContactsPage> {
           TextButton(
             onPressed: () {
               if (name.text.trim().isNotEmpty &&
-                  phone.text.trim().startsWith('+'))
+                  phone.text.trim().startsWith('+')) {
                 Navigator.pop(dialogContext, {
                   'name': name.text.trim(),
                   'phone_e164': phone.text.trim(),
                   'relationship': relationship.text.trim(),
                 });
+              }
             },
             child: Text(
               current == null ? UserAppCopy.ADD : UserAppCopy.SAVE_CHANGES,
@@ -103,19 +104,21 @@ class _EmergencyContactsPageState extends State<EmergencyContactsPage> {
     child: FutureBuilder<List<Map<String, dynamic>>>(
       future: _contacts,
       builder: (context, snapshot) {
-        if (snapshot.hasError)
+        if (snapshot.hasError) {
           return AppLoadError(
             message: ApiResult.errorMessage(snapshot.error!),
             onRetry: _reload,
           );
-        if (!snapshot.hasData)
+        }
+        if (!snapshot.hasData) {
           return const Center(
             child: CircularProgressIndicator(
               strokeWidth: 2,
               color: AppColors.primaryGreen,
             ),
           );
-        if (snapshot.data!.isEmpty)
+        }
+        if (snapshot.data!.isEmpty) {
           return RefreshIndicator(
             onRefresh: _reload,
             color: AppColors.primaryGreen,
@@ -130,6 +133,7 @@ class _EmergencyContactsPageState extends State<EmergencyContactsPage> {
               ],
             ),
           );
+        }
         return RefreshIndicator(
           color: AppColors.primaryGreen,
           onRefresh: _reload,

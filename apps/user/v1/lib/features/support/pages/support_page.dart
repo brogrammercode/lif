@@ -52,12 +52,14 @@ class _SupportPageState extends State<SupportPage> {
           ),
           TextButton(
             onPressed: () {
-              if (subject.text.trim().isNotEmpty && body.text.trim().isNotEmpty)
+              if (subject.text.trim().isNotEmpty &&
+                  body.text.trim().isNotEmpty) {
                 Navigator.pop(dialogContext, {
                   'subject': subject.text.trim(),
                   'body': body.text.trim(),
                   'priority': 'NORMAL',
                 });
+              }
             },
             child: const Text(UserAppCopy.SEND),
           ),
@@ -90,19 +92,21 @@ class _SupportPageState extends State<SupportPage> {
     child: FutureBuilder<List<Map<String, dynamic>>>(
       future: _tickets,
       builder: (context, snapshot) {
-        if (snapshot.hasError)
+        if (snapshot.hasError) {
           return AppLoadError(
             message: ApiResult.errorMessage(snapshot.error!),
             onRetry: _reload,
           );
-        if (!snapshot.hasData)
+        }
+        if (!snapshot.hasData) {
           return const Center(
             child: CircularProgressIndicator(
               strokeWidth: 2,
               color: AppColors.primaryGreen,
             ),
           );
-        if (snapshot.data!.isEmpty)
+        }
+        if (snapshot.data!.isEmpty) {
           return RefreshIndicator(
             onRefresh: _reload,
             color: AppColors.primaryGreen,
@@ -117,6 +121,7 @@ class _SupportPageState extends State<SupportPage> {
               ],
             ),
           );
+        }
         return RefreshIndicator(
           color: AppColors.primaryGreen,
           onRefresh: _reload,

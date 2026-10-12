@@ -69,10 +69,7 @@ class UserAppRepository {
     ApiResult.unwrap(
           await _client.postData(
             ApiConstants.CHECKOUT,
-            data: {
-              'ride_id': rideId,
-              if (paymentMethodId != null) 'payment_method_id': paymentMethodId,
-            },
+            data: {'ride_id': rideId, 'payment_method_id': ?paymentMethodId},
             headers: {
               ApiConstants.IDP_HEADER: DateTime.now().microsecondsSinceEpoch
                   .toString(),

@@ -95,17 +95,19 @@ class _SavedPlacesPageState extends State<SavedPlacesPage> {
                           final results = await _repository.searchPlaces(
                             value.trim(),
                           );
-                          if (context.mounted)
+                          if (context.mounted) {
                             update(() {
                               suggestions = results;
                               searching = false;
                             });
+                          }
                         } catch (_) {
-                          if (context.mounted)
+                          if (context.mounted) {
                             update(() {
                               suggestions = [];
                               searching = false;
                             });
+                          }
                         }
                       },
                     );
@@ -177,8 +179,9 @@ class _SavedPlacesPageState extends State<SavedPlacesPage> {
               onPressed: () {
                 if (label.text.trim().isEmpty ||
                     selectedLatitude == null ||
-                    selectedLongitude == null)
+                    selectedLongitude == null) {
                   return;
+                }
                 Navigator.pop(dialogContext, {
                   'label': label.text.trim(),
                   'address': address.text.trim(),
@@ -235,19 +238,21 @@ class _SavedPlacesPageState extends State<SavedPlacesPage> {
     child: FutureBuilder<List<Map<String, dynamic>>>(
       future: _places,
       builder: (context, snapshot) {
-        if (snapshot.hasError)
+        if (snapshot.hasError) {
           return AppLoadError(
             message: ApiResult.errorMessage(snapshot.error!),
             onRetry: _reload,
           );
-        if (!snapshot.hasData)
+        }
+        if (!snapshot.hasData) {
           return const Center(
             child: CircularProgressIndicator(
               strokeWidth: 2,
               color: AppColors.primaryGreen,
             ),
           );
-        if (snapshot.data!.isEmpty)
+        }
+        if (snapshot.data!.isEmpty) {
           return RefreshIndicator(
             onRefresh: _reload,
             color: AppColors.primaryGreen,
@@ -262,6 +267,7 @@ class _SavedPlacesPageState extends State<SavedPlacesPage> {
               ],
             ),
           );
+        }
         return RefreshIndicator(
           color: AppColors.primaryGreen,
           onRefresh: _reload,

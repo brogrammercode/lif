@@ -29,8 +29,9 @@ class SettingsPage extends StatelessWidget {
     );
     if (confirmed != true) return;
     await AuthRepository().signOut();
-    if (context.mounted)
+    if (context.mounted) {
       Navigator.pushNamedAndRemoveUntil(context, AppRoutes.login, (_) => false);
+    }
   }
 
   @override

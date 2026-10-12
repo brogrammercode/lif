@@ -23,17 +23,19 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _signingIn = true);
     try {
       await AuthRepository().signInWithGoogle();
-      if (mounted)
+      if (mounted) {
         Navigator.pushNamedAndRemoveUntil(
           context,
           AppRoutes.home,
           (_) => false,
         );
+      }
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+      }
     } finally {
       if (mounted) setState(() => _signingIn = false);
     }

@@ -11,6 +11,8 @@ The Flutter rider app signs in with Google and consumes the versioned Lif API at
 5. Set `API_BASE_URL` in this app's `.env` to the machine running the API.
 6. Run `flutter pub get` and `flutter run` from `apps/user/v1`.
 
+Android builds need JDK 21 for the MapLibre native plugin. Flutter currently selects Android Studio's JDK automatically; check `flutter doctor -v` if the build reports a Java version error.
+
 The default API URL, `http://10.0.2.2:4000/api/v1`, works from the Android emulator. Use `http://localhost:4000/api/v1` for an iOS simulator, or the computer's LAN address for a physical device. Use HTTPS for deployed builds.
 
 For a physical phone, open `http://<computer-LAN-IP>:4000/api/v1/health` on the phone before signing in. It should report `database: connected`. A request timeout usually means the API is stopped or the phone cannot reach the computer.
@@ -24,6 +26,7 @@ For iOS Google sign-in, create an iOS OAuth client for `com.brogrammer.onemore` 
 - Google sign-in, secure token storage, session restoration, logout, and access-token refresh.
 - Location search, reverse geocoding, and road routing through the API.
 - On home entry, current location is read with `geolocator`; the latest coordinates are cached locally and synced to the user's API record. A cached coordinate is used as the initial map center while fresh permission/location is resolved.
+- Home and ride detail maps use MapLibre with OpenFreeMap's Liberty vector style, a tilted camera, 3D building extrusions where map data is available, and visible map attribution. The public style endpoint needs no API key; it is a third-party service provided as-is.
 - Server fare quotes and ride requests from the map booking screen.
 - Ride history, ride details, cancellation, start confirmation, review, payment checkout, and receipt.
 - Profile editing, saved places, notifications, payment methods, emergency contacts, and support conversations.

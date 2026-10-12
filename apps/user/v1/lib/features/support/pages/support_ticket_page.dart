@@ -43,10 +43,11 @@ class _SupportTicketPageState extends State<SupportTicketPage> {
       _message.clear();
       setState(() => _ticket = _repository.supportTicket(_ticketId));
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+      }
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -59,19 +60,21 @@ class _SupportTicketPageState extends State<SupportTicketPage> {
     child: FutureBuilder<Map<String, dynamic>>(
       future: _ticket,
       builder: (context, snapshot) {
-        if (snapshot.hasError)
+        if (snapshot.hasError) {
           return AppLoadError(
             message: ApiResult.errorMessage(snapshot.error!),
             onRetry: () =>
                 setState(() => _ticket = _repository.supportTicket(_ticketId)),
           );
-        if (!snapshot.hasData)
+        }
+        if (!snapshot.hasData) {
           return const Center(
             child: CircularProgressIndicator(
               strokeWidth: 2,
               color: AppColors.primaryGreen,
             ),
           );
+        }
         final ticket = snapshot.data!;
         final messages = List<Map<String, dynamic>>.from(
           (ticket['messages'] as List? ?? []).map(

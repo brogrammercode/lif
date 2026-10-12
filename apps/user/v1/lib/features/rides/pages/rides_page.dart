@@ -28,20 +28,22 @@ class _RidesPageState extends State<RidesPage> {
     child: FutureBuilder<List<Map<String, dynamic>>>(
       future: _rides,
       builder: (context, snapshot) {
-        if (snapshot.hasError)
+        if (snapshot.hasError) {
           return AppLoadError(
             message: ApiResult.errorMessage(snapshot.error!),
             onRetry: _refresh,
           );
-        if (!snapshot.hasData)
+        }
+        if (!snapshot.hasData) {
           return const Center(
             child: CircularProgressIndicator(
               strokeWidth: 2,
               color: AppColors.primaryGreen,
             ),
           );
+        }
         final rides = snapshot.data!;
-        if (rides.isEmpty)
+        if (rides.isEmpty) {
           return RefreshIndicator(
             onRefresh: _refresh,
             color: AppColors.primaryGreen,
@@ -56,6 +58,7 @@ class _RidesPageState extends State<RidesPage> {
               ],
             ),
           );
+        }
         return RefreshIndicator(
           color: AppColors.primaryGreen,
           onRefresh: _refresh,

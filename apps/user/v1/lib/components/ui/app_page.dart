@@ -44,7 +44,7 @@ class AppPage extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (action != null) action!,
+                ?action,
               ],
             ),
           ),

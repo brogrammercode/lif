@@ -47,10 +47,11 @@ class _ProfilePageState extends State<ProfilePage> {
       ).showSnackBar(const SnackBar(content: Text(UserAppCopy.PROFILE_SAVED)));
       setState(() => _profile = _repository.profile());
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -62,23 +63,25 @@ class _ProfilePageState extends State<ProfilePage> {
     child: FutureBuilder<Map<String, dynamic>>(
       future: _profile,
       builder: (context, snapshot) {
-        if (snapshot.hasError)
+        if (snapshot.hasError) {
           return AppLoadError(
             message: ApiResult.errorMessage(snapshot.error!),
             onRetry: () => setState(() => _profile = _repository.profile()),
           );
-        if (!snapshot.hasData)
+        }
+        if (!snapshot.hasData) {
           return const Center(
             child: CircularProgressIndicator(
               strokeWidth: 2,
               color: AppColors.primaryGreen,
             ),
           );
+        }
         final user = UserModel.fromJson(snapshot.data!);
         if (!_fieldsLoaded) {
-          _firstName.text = user.first_name ?? '';
-          _lastName.text = user.last_name ?? '';
-          _phone.text = user.phone_e164 ?? '';
+          _firstName.text = user.firstName ?? '';
+          _lastName.text = user.lastName ?? '';
+          _phone.text = user.phoneE164 ?? '';
           _email.text = user.email ?? '';
           _fieldsLoaded = true;
         }
@@ -90,10 +93,10 @@ class _ProfilePageState extends State<ProfilePage> {
               child: CircleAvatar(
                 radius: 42.r,
                 backgroundColor: AppColors.softGrey,
-                backgroundImage: user.avatar_url == null
+                backgroundImage: user.avatarUrl == null
                     ? null
-                    : NetworkImage(user.avatar_url!),
-                child: user.avatar_url == null
+                    : NetworkImage(user.avatarUrl!),
+                child: user.avatarUrl == null
                     ? Icon(
                         Icons.person_outline,
                         size: 36.w,

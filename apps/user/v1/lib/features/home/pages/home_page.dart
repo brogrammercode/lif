@@ -4,8 +4,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart' hide Path;
+import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:user/features/home/constants/home.constant.dart';
@@ -26,8 +25,7 @@ class HomePage extends StatefulWidget {
 
 enum SearchField { none, from, to }
 
-class _HomePageState extends State<HomePage>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   LatLng _fromLocation = HomeConstants.DEFAULT_LOCATION;
   LatLng? _toLocation;
@@ -35,8 +33,10 @@ class _HomePageState extends State<HomePage>
   bool _isLoading = true;
   bool _isRefreshing = false;
   bool _waitingForLocationSettingsReturn = false;
-  final MapController _mapController = MapController();
-  late final AnimationController _animController;
+  MapLibreMapController? _mapController;
+  bool _mapStyleReady = false;
+  bool _isProgrammaticMapMove = false;
+  LatLng? _pendingMapCenter;
 
   // Search State
   SearchField _activeField = SearchField.none;
@@ -56,7 +56,7 @@ class _HomePageState extends State<HomePage>
   bool _isSelectingVehicle = false;
   int? _selectedVehicleIndex = 0;
   bool _isSearchingDriver = false;
-  bool _isDriverFound = false;
+  final bool _isDriverFound = false;
   bool _isProgrammaticTextChange = false;
   final UserAppRepository _userRepository = UserAppRepository();
   String? _quoteDraftId;
@@ -64,6 +64,7 @@ class _HomePageState extends State<HomePage>
   bool _isRequestingQuote = false;
 
   Timer? _debounce;
+  Timer? _mapDataSyncTimer;
   List<dynamic> _suggestions = [];
   bool _isFetchingSuggestions = false;
   bool _isMapDragging = false;
@@ -72,10 +73,6 @@ class _HomePageState extends State<HomePage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _animController = AnimationController(
-      duration: const Duration(milliseconds: 1500),
-      vsync: this,
-    );
     _initializeLocation();
     _fromController.addListener(_onSearchChanged);
     _toController.addListener(_onSearchChanged);
@@ -89,7 +86,7 @@ class _HomePageState extends State<HomePage>
     _fromFocus.dispose();
     _toFocus.dispose();
     _debounce?.cancel();
-    _animController.dispose();
+    _mapDataSyncTimer?.cancel();
     super.dispose();
   }
 
@@ -123,9 +120,7 @@ class _HomePageState extends State<HomePage>
         cachedLocation['longitude']!,
       );
       setState(() => _fromLocation = location);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _mapController.move(location, HomeConstants.DEFAULT_ZOOM);
-      });
+      _animatedMapMove(location, HomeConstants.DEFAULT_ZOOM, 0);
     }
 
     final hasFreshLocation = await _determinePosition();
@@ -184,6 +179,7 @@ class _HomePageState extends State<HomePage>
           _fromLocation = LatLng(position.latitude, position.longitude);
           _isLoading = false;
         });
+        _scheduleMapDataSync();
         unawaited(_saveLastKnownLocation(_fromLocation));
         double heading = position.heading > 0 ? position.heading : 0;
         _animatedMapMove(_fromLocation, HomeConstants.DEFAULT_ZOOM, heading);
@@ -252,6 +248,7 @@ class _HomePageState extends State<HomePage>
       setState(() {
         _fromLocation = newLocation;
       });
+      _scheduleMapDataSync();
       unawaited(_saveLastKnownLocation(newLocation));
       // Reset rotation to default (0.0) alongside default zoom
       _animatedMapMove(newLocation, HomeConstants.DEFAULT_ZOOM, 0.0);
@@ -334,6 +331,7 @@ class _HomePageState extends State<HomePage>
             _toController.text = shortName;
           }
         });
+        _scheduleMapDataSync();
         Future.microtask(() => _isProgrammaticTextChange = false);
       }
     } catch (e) {
@@ -376,6 +374,7 @@ class _HomePageState extends State<HomePage>
         _routeDistance = (route['distance_m'] as num?)?.toDouble();
         _routeDuration = (route['duration_s'] as num?)?.toDouble();
       });
+      _scheduleMapDataSync();
       _animateCameraToBounds();
     } catch (e) {
       if (mounted) {
@@ -384,6 +383,7 @@ class _HomePageState extends State<HomePage>
           _routeDistance = null;
           _routeDuration = null;
         });
+        _scheduleMapDataSync();
         _animateCameraToBounds();
       }
     }
@@ -392,8 +392,9 @@ class _HomePageState extends State<HomePage>
   Future<void> _loadRideQuotes() async {
     if (_toLocation == null ||
         _fromController.text.trim().isEmpty ||
-        _toController.text.trim().isEmpty)
+        _toController.text.trim().isEmpty) {
       return;
+    }
     setState(() => _isRequestingQuote = true);
     try {
       final quote = await _userRepository.requestQuote({
@@ -421,10 +422,11 @@ class _HomePageState extends State<HomePage>
         _isSelectingVehicle = true;
       });
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+      }
     } finally {
       if (mounted) setState(() => _isRequestingQuote = false);
     }
@@ -435,8 +437,9 @@ class _HomePageState extends State<HomePage>
     final selected = _selectedVehicleIndex;
     if (_quoteDraftId == null ||
         selected == null ||
-        selected >= _rideQuotes.length)
+        selected >= _rideQuotes.length) {
       return;
+    }
     setState(() => _isRequestingQuote = true);
     try {
       final requestedRide = await _userRepository.requestRide(
@@ -450,10 +453,11 @@ class _HomePageState extends State<HomePage>
         arguments: '${requestedRide['id']}',
       );
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+      }
     } finally {
       if (mounted) setState(() => _isRequestingQuote = false);
     }
@@ -474,11 +478,44 @@ class _HomePageState extends State<HomePage>
       if (point.longitude > maxLng) maxLng = point.longitude;
     }
 
-    final bounds = LatLngBounds(LatLng(minLat, minLng), LatLng(maxLat, maxLng));
-    final fit = CameraFit.bounds(bounds: bounds, padding: EdgeInsets.all(40.r));
-    final fittedCamera = fit.fit(_mapController.camera);
+    final bounds = LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
+    );
+    unawaited(_fitRouteBoundsAndTilt(bounds));
+  }
 
-    _animatedMapMove(fittedCamera.center, fittedCamera.zoom, 0.0);
+  Future<void> _fitRouteBoundsAndTilt(LatLngBounds bounds) async {
+    final controller = _mapController;
+    if (controller == null) return;
+    _isProgrammaticMapMove = true;
+    try {
+      await controller.animateCamera(
+        CameraUpdate.newLatLngBounds(
+          bounds,
+          left: 40.r,
+          top: 40.r,
+          right: 40.r,
+          bottom: 40.r,
+        ),
+        duration: const Duration(milliseconds: 700),
+      );
+      final camera = await controller.queryCameraPosition();
+      if (camera == null) return;
+      await controller.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: camera.target,
+            zoom: camera.zoom,
+            bearing: camera.bearing,
+            tilt: HomeConstants.MAP_TILT,
+          ),
+        ),
+        duration: const Duration(milliseconds: 350),
+      );
+    } finally {
+      _isProgrammaticMapMove = false;
+    }
   }
 
   void _onSuggestionSelected(dynamic suggestion) {
@@ -502,6 +539,7 @@ class _HomePageState extends State<HomePage>
       }
       _activeField = SearchField.none;
     });
+    _scheduleMapDataSync();
 
     if (newLoc != null &&
         !(_fromLocation.latitude != 0 && _toLocation != null)) {
@@ -518,48 +556,202 @@ class _HomePageState extends State<HomePage>
     double destZoom,
     double destRotation,
   ) {
-    final latTween = Tween<double>(
-      begin: _mapController.camera.center.latitude,
-      end: destLocation.latitude,
-    );
-    final lngTween = Tween<double>(
-      begin: _mapController.camera.center.longitude,
-      end: destLocation.longitude,
-    );
-    final zoomTween = Tween<double>(
-      begin: _mapController.camera.zoom,
-      end: destZoom,
-    );
-    final rotateTween = Tween<double>(
-      begin: _mapController.camera.rotation,
-      end: destRotation,
-    );
+    final controller = _mapController;
+    if (controller == null) return;
+    _isProgrammaticMapMove = true;
+    unawaited(() async {
+      try {
+        await controller.animateCamera(
+          CameraUpdate.newCameraPosition(
+            CameraPosition(
+              target: destLocation,
+              zoom: destZoom,
+              bearing: destRotation,
+              tilt: HomeConstants.MAP_TILT,
+            ),
+          ),
+          duration: const Duration(milliseconds: 900),
+        );
+      } finally {
+        _isProgrammaticMapMove = false;
+      }
+    }());
+  }
 
-    final animation = CurvedAnimation(
-      parent: _animController,
-      curve: Curves.fastOutSlowIn,
+  void _onMapCreated(MapLibreMapController controller) {
+    _mapController = controller;
+    unawaited(
+      controller.moveCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: _fromLocation,
+            zoom: HomeConstants.DEFAULT_ZOOM,
+            tilt: HomeConstants.MAP_TILT,
+          ),
+        ),
+      ),
     );
+  }
 
-    _animController.reset();
+  Future<void> _onMapStyleLoaded() async {
+    final controller = _mapController;
+    if (controller == null) return;
+    try {
+      await controller.addGeoJsonSource('home-route', _emptyFeatureCollection);
+      await controller.addLineLayer(
+        'home-route',
+        'home-route-line',
+        LineLayerProperties(
+          lineColor: '#2563EB',
+          lineWidth: 5.r,
+          lineCap: 'round',
+          lineJoin: 'round',
+        ),
+        enableInteraction: false,
+      );
+      await controller.addGeoJsonSource(
+        'home-markers',
+        _emptyFeatureCollection,
+      );
+      await controller.addCircleLayer(
+        'home-markers',
+        'home-marker-circles',
+        const CircleLayerProperties(
+          circleRadius: 8,
+          circleColor: ['get', 'color'],
+          circleStrokeColor: '#FFFFFF',
+          circleStrokeWidth: 2,
+        ),
+        enableInteraction: false,
+      );
+      await controller.addSymbolLayer(
+        'home-markers',
+        'home-marker-labels',
+        const SymbolLayerProperties(
+          textField: ['get', 'label'],
+          textSize: 12,
+          textColor: '#1F2937',
+          textHaloColor: '#FFFFFF',
+          textHaloWidth: 2,
+          textOffset: [0, 1.3],
+          textAnchor: 'top',
+          textAllowOverlap: true,
+          textIgnorePlacement: true,
+        ),
+        enableInteraction: false,
+      );
+      _mapStyleReady = true;
+      await _syncMapData();
+    } catch (error) {
+      debugPrint('MapLibre style setup failed: $error');
+    }
+  }
 
-    void listener() {
-      _mapController.moveAndRotate(
-        LatLng(latTween.evaluate(animation), lngTween.evaluate(animation)),
-        zoomTween.evaluate(animation),
-        rotateTween.evaluate(animation),
+  void _onMapCameraMove(CameraPosition position) {
+    if (_isProgrammaticMapMove || _activeField == SearchField.none) return;
+    _pendingMapCenter = position.target;
+    if (!_isMapDragging && mounted) {
+      setState(() {
+        _isMapDragging = true;
+        _suggestions = [];
+      });
+    }
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      final center = _pendingMapCenter;
+      if (center == null || !mounted) return;
+      setState(() {
+        _isMapDragging = false;
+        if (_activeField == SearchField.from) {
+          _fromLocation = center;
+        } else if (_activeField == SearchField.to) {
+          _toLocation = center;
+        }
+      });
+      _scheduleMapDataSync();
+      _reverseGeocode(center).then((_) {
+        if (_fromLocation.latitude != 0 && _toLocation != null) {
+          _fetchRoute();
+        }
+      });
+    });
+  }
+
+  void _scheduleMapDataSync() {
+    _mapDataSyncTimer?.cancel();
+    _mapDataSyncTimer = Timer(const Duration(milliseconds: 80), _syncMapData);
+  }
+
+  Future<void> _syncMapData() async {
+    final controller = _mapController;
+    if (!_mapStyleReady || controller == null) return;
+
+    final routeFeatures = _routePoints.length < 2
+        ? <Map<String, dynamic>>[]
+        : [
+            {
+              'type': 'Feature',
+              'properties': <String, dynamic>{},
+              'geometry': {
+                'type': 'LineString',
+                'coordinates': _routePoints
+                    .map((point) => [point.longitude, point.latitude])
+                    .toList(),
+              },
+            },
+          ];
+    final markerFeatures = <Map<String, dynamic>>[];
+    if (_activeField != SearchField.from) {
+      markerFeatures.add(
+        _markerFeature(
+          _fromLocation,
+          _fromController.text.isNotEmpty
+              ? _fromController.text
+              : 'Current location',
+          '#2563EB',
+        ),
       );
     }
-
-    _animController.addListener(listener);
-    _animController.addStatusListener((status) {
-      if (status == AnimationStatus.completed ||
-          status == AnimationStatus.dismissed) {
-        _animController.removeListener(listener);
-      }
-    });
-
-    _animController.forward();
+    if (_toLocation != null && _activeField != SearchField.to) {
+      markerFeatures.add(
+        _markerFeature(
+          _toLocation!,
+          _toController.text.isNotEmpty ? _toController.text : 'Destination',
+          '#16A34A',
+        ),
+      );
+    }
+    try {
+      await controller.setGeoJsonSource('home-route', {
+        'type': 'FeatureCollection',
+        'features': routeFeatures,
+      });
+      await controller.setGeoJsonSource('home-markers', {
+        'type': 'FeatureCollection',
+        'features': markerFeatures,
+      });
+    } catch (error) {
+      debugPrint('MapLibre feature update failed: $error');
+    }
   }
+
+  Map<String, dynamic> _markerFeature(
+    LatLng point,
+    String label,
+    String color,
+  ) => {
+    'type': 'Feature',
+    'properties': {'label': label, 'color': color},
+    'geometry': {
+      'type': 'Point',
+      'coordinates': [point.longitude, point.latitude],
+    },
+  };
+
+  static const Map<String, dynamic> _emptyFeatureCollection = {
+    'type': 'FeatureCollection',
+    'features': <Map<String, dynamic>>[],
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -575,112 +767,21 @@ class _HomePageState extends State<HomePage>
         drawer: const DrawerPage(),
         body: Stack(
           children: [
-            // Layer 0: Map View (Greyscale with top/bottom fade)
-            ShaderMask(
-              shaderCallback: (Rect bounds) {
-                return const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black,
-                    Colors.black,
-                    Colors.transparent,
-                  ],
-                  stops: [0.0, 0.15, 0.85, 1.0],
-                ).createShader(bounds);
-              },
-              blendMode: BlendMode.dstIn,
-              child: FlutterMap(
-                mapController: _mapController,
-                options: MapOptions(
-                  initialCenter: _fromLocation,
-                  initialZoom: HomeConstants.DEFAULT_ZOOM,
-                  onPositionChanged: (MapCamera position, bool hasGesture) {
-                    if (hasGesture && _activeField != SearchField.none) {
-                      if (!_isMapDragging) {
-                        setState(() {
-                          _isMapDragging = true;
-                          _suggestions = [];
-                        });
-                      }
-                      if (_debounce?.isActive ?? false) _debounce!.cancel();
-                      _debounce = Timer(const Duration(milliseconds: 500), () {
-                        setState(() => _isMapDragging = false);
-                        if (_activeField == SearchField.from) {
-                          _fromLocation = position.center;
-                        } else if (_activeField == SearchField.to) {
-                          _toLocation = position.center;
-                        }
-                        _reverseGeocode(position.center).then((_) {
-                          if (_fromLocation.latitude != 0 &&
-                              _toLocation != null) {
-                            _fetchRoute();
-                          }
-                        });
-                      });
-                    }
-                  },
-                ),
-                children: [
-                  ColorFiltered(
-                    colorFilter: const ColorFilter.matrix(<double>[
-                      0.33, 0.5, 0.16, 0, 10, // R
-                      0.33, 0.5, 0.16, 0, 10, // G
-                      0.33, 0.5, 0.16, 0, 10, // B
-                      0, 0, 0, 1, 0, // A
-                    ]),
-                    child: TileLayer(
-                      urlTemplate: HomeConstants.OPEN_STREET_MAP_TILE_URL,
-                      subdomains: HomeConstants.MAP_SUBDOMAINS,
-                      userAgentPackageName: HomeConstants.MAP_USER_AGENT,
-                      tileProvider: NetworkTileProvider(
-                        headers: HomeConstants.tileHeaders,
-                      ),
-                    ),
-                  ),
-                  if (_routePoints.isNotEmpty)
-                    PolylineLayer(
-                      polylines: [
-                        Polyline(
-                          points: _routePoints,
-                          color: Colors.blue,
-                          strokeWidth: 6.r,
-                        ),
-                      ],
-                    ),
-                  MarkerLayer(
-                    markers: [
-                      if (_activeField != SearchField.from)
-                        Marker(
-                          point: _fromLocation,
-                          width: 250.r,
-                          height: 120.r,
-                          alignment: Alignment.topCenter,
-                          child: _buildMarkerWidget(
-                            isGreen: false,
-                            label: _fromController.text.isNotEmpty
-                                ? _fromController.text
-                                : "Current Location",
-                          ),
-                        ),
-                      if (_toLocation != null && _activeField != SearchField.to)
-                        Marker(
-                          point: _toLocation!,
-                          width: 250.r,
-                          height: 120.r,
-                          alignment: Alignment.topCenter,
-                          child: _buildMarkerWidget(
-                            isGreen: true,
-                            label: _toController.text.isNotEmpty
-                                ? _toController.text
-                                : "Destination",
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
+            // Layer 0: tilted vector map with 3D buildings.
+            MapLibreMap(
+              initialCameraPosition: CameraPosition(
+                target: _fromLocation,
+                zoom: HomeConstants.DEFAULT_ZOOM,
+                tilt: HomeConstants.MAP_TILT,
               ),
+              styleString: HomeConstants.MAP_STYLE_URL,
+              onMapCreated: _onMapCreated,
+              onStyleLoadedCallback: _onMapStyleLoaded,
+              onCameraMove: _onMapCameraMove,
+              trackCameraPosition: true,
+              tiltGesturesEnabled: true,
+              attributionButtonPosition: AttributionButtonPosition.topRight,
+              attributionButtonMargins: math.Point<double>(12.r, 132.r),
             ),
 
             // Fixed Center Pin Overlay when Dragging/Searching
@@ -1344,11 +1445,12 @@ class _HomePageState extends State<HomePage>
                                                   _isSearchingDriver = true;
                                                 });
                                                 await _bookSelectedRide();
-                                                if (mounted)
+                                                if (mounted) {
                                                   setState(
                                                     () => _isSearchingDriver =
                                                         false,
                                                   );
+                                                }
                                               },
                                               child: Container(
                                                 padding: EdgeInsets.symmetric(
@@ -1429,6 +1531,7 @@ class _HomePageState extends State<HomePage>
                                 _suggestions = [];
                                 FocusScope.of(context).unfocus();
                               });
+                              _scheduleMapDataSync();
                             },
                             child: Container(
                               margin: EdgeInsets.only(bottom: 12.r),
@@ -1644,6 +1747,7 @@ class _HomePageState extends State<HomePage>
           _hasExpandedSearch = true;
           _routePoints = [];
         });
+        _scheduleMapDataSync();
         focusNode.requestFocus();
         if (field == SearchField.from &&
             controller.text == HomeConstants.TEXT_HOME) {
@@ -1686,7 +1790,10 @@ class _HomePageState extends State<HomePage>
                               fontSize: 15.r,
                             ),
                           ),
-                          onTap: () => setState(() => _activeField = field),
+                          onTap: () {
+                            setState(() => _activeField = field);
+                            _scheduleMapDataSync();
+                          },
                           style: TextStyle(
                             color: Colors.black,
                             fontSize: 15.r,

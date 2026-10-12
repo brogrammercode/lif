@@ -1,24 +1,12 @@
-import 'package:latlong2/latlong.dart' hide Path;
+import 'package:maplibre_gl/maplibre_gl.dart' show LatLng;
 
 class HomeConstants {
-  static const String OPEN_STREET_MAP_TILE_URL =
-      'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-  static const String LIGHT_TILE_URL =
-      'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png';
-  static const String FALLBACK_TILE_URL = LIGHT_TILE_URL;
+  static const String MAP_STYLE_URL =
+      'https://tiles.openfreemap.org/styles/liberty';
 
   static const LatLng DEFAULT_LOCATION = LatLng(-6.200000, 106.816666);
   static const double DEFAULT_ZOOM = 16.5;
-  static const String MAP_USER_AGENT = 'com.brogrammer.onemore';
-  static const List<String> MAP_SUBDOMAINS = ['a', 'b', 'c', 'd'];
-
-  static const String TILE_USER_AGENT_HEADER_NAME = 'User-Agent';
-  static const String TILE_USER_AGENT_HEADER_VALUE =
-      '1more/1.0 (com.brogrammer.onemore)';
-
-  static Map<String, String> get tileHeaders => {
-    TILE_USER_AGENT_HEADER_NAME: TILE_USER_AGENT_HEADER_VALUE,
-  };
+  static const double MAP_TILT = 48;
 
   static const String TEXT_LOCATING_YOU = 'Locating you...';
   static const String TEXT_CANCEL = 'Cancel';

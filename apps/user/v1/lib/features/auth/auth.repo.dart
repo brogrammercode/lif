@@ -12,7 +12,7 @@ class AuthRepository {
 
   Future<UserModel> signInWithGoogle() async {
     if (!_googleInitialized) {
-      final serverClientId = AppConfig.GOOGLE_SERVER_CLIENT_ID.trim();
+      final serverClientId = AppConfig.googleServerClientId.trim();
       await _googleSignIn.initialize(
         serverClientId: serverClientId.isEmpty ? null : serverClientId,
       );
@@ -20,8 +20,9 @@ class AuthRepository {
     }
     final account = await _googleSignIn.authenticate();
     final idToken = account.authentication.idToken;
-    if (idToken == null || idToken.isEmpty)
+    if (idToken == null || idToken.isEmpty) {
       throw StateError('Google did not return an identity token.');
+    }
     final response = await _client.postData(
       ApiConstants.AUTH_GOOGLE,
       data: {'id_token': idToken},
@@ -46,8 +47,8 @@ class AuthRepository {
   }
 
   Future<void> _cacheUserLocation(UserModel user) async {
-    final latitude = user.last_known_latitude;
-    final longitude = user.last_known_longitude;
+    final latitude = user.lastKnownLatitude;
+    final longitude = user.lastKnownLongitude;
     if (latitude == null || longitude == null) return;
     try {
       await _client.saveCachedUserLocation(
@@ -73,8 +74,9 @@ class AuthRepository {
 
   Future<void> refreshSession() async {
     final refreshToken = await _client.readRefreshToken();
-    if (refreshToken == null)
+    if (refreshToken == null) {
       throw StateError('Your session has expired. Please sign in again.');
+    }
     final response = await _client.postData(
       ApiConstants.AUTH_REFRESH,
       data: {'refresh_token': refreshToken},

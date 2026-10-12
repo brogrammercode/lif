@@ -16,7 +16,7 @@ class DrawerPage extends StatefulWidget {
 
 class _DrawerPageState extends State<DrawerPage> {
   final UserAppRepository _repository = UserAppRepository();
-  late Future<Map<String, dynamic>> _profile = _repository.profile();
+  late final Future<Map<String, dynamic>> _profile = _repository.profile();
 
   void _open(String route) {
     Navigator.pop(context);
@@ -43,8 +43,9 @@ class _DrawerPageState extends State<DrawerPage> {
     );
     if (confirm != true) return;
     await AuthRepository().signOut();
-    if (mounted)
+    if (mounted) {
       Navigator.pushNamedAndRemoveUntil(context, AppRoutes.login, (_) => false);
+    }
   }
 
   @override
@@ -75,10 +76,10 @@ class _DrawerPageState extends State<DrawerPage> {
                       CircleAvatar(
                         radius: 30.r,
                         backgroundColor: AppColors.softGrey,
-                        backgroundImage: user?.avatar_url == null
+                        backgroundImage: user?.avatarUrl == null
                             ? null
-                            : NetworkImage(user!.avatar_url!),
-                        child: user?.avatar_url == null
+                            : NetworkImage(user!.avatarUrl!),
+                        child: user?.avatarUrl == null
                             ? Icon(
                                 Icons.person_outline,
                                 color: AppColors.primaryGreen,
@@ -92,8 +93,8 @@ class _DrawerPageState extends State<DrawerPage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              user?.display_name.isNotEmpty == true
-                                  ? user!.display_name
+                              user?.displayName.isNotEmpty == true
+                                  ? user!.displayName
                                   : UserAppCopy.PROFILE,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,

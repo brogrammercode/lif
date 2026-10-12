@@ -1,8 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart' hide Path;
+import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/button.dart';
 import 'package:user/core/color.dart';
@@ -91,10 +90,11 @@ class _RideDetailPageState extends State<RideDetailPage> {
       ).showSnackBar(SnackBar(content: Text(message)));
       setState(() => _ride = _repository.ride(_rideId));
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -118,11 +118,12 @@ class _RideDetailPageState extends State<RideDetailPage> {
         ],
       ),
     );
-    if (confirmed == true)
+    if (confirmed == true) {
       await _perform(
         () => _repository.cancelRide(_rideId, UserAppCopy.CANCEL_RIDE),
         UserAppCopy.CANCEL_RIDE,
       );
+    }
   }
 
   Future<void> _checkout() async {
@@ -146,8 +147,9 @@ class _RideDetailPageState extends State<RideDetailPage> {
           ],
         ),
       );
-      if (addMethod == true && mounted)
+      if (addMethod == true && mounted) {
         await Navigator.pushNamed(context, AppRoutes.paymentMethods);
+      }
       return;
     }
     final selected = await showModalBottomSheet<Map<String, dynamic>>(
@@ -211,10 +213,11 @@ class _RideDetailPageState extends State<RideDetailPage> {
       );
       setState(() => _ride = _repository.ride(_rideId));
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -238,11 +241,12 @@ class _RideDetailPageState extends State<RideDetailPage> {
         ],
       ),
     );
-    if (confirmed == true)
+    if (confirmed == true) {
       await _perform(
         () => _repository.confirmRideStart(_rideId),
         UserAppCopy.START_CONFIRMED,
       );
+    }
   }
 
   Future<void> _showReceipt() async {
@@ -304,10 +308,11 @@ class _RideDetailPageState extends State<RideDetailPage> {
         ),
       );
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+      }
     }
   }
 
@@ -317,18 +322,20 @@ class _RideDetailPageState extends State<RideDetailPage> {
     child: FutureBuilder<Map<String, dynamic>>(
       future: _ride,
       builder: (context, snapshot) {
-        if (snapshot.hasError)
+        if (snapshot.hasError) {
           return AppLoadError(
             message: ApiResult.errorMessage(snapshot.error!),
             onRetry: () => setState(() => _ride = _repository.ride(_rideId)),
           );
-        if (!snapshot.hasData)
+        }
+        if (!snapshot.hasData) {
           return const Center(
             child: CircularProgressIndicator(
               strokeWidth: 2,
               color: AppColors.primaryGreen,
             ),
           );
+        }
         final ride = snapshot.data!;
         final status = '${ride['status'] ?? ''}';
         _lastStatus = status;
@@ -481,10 +488,11 @@ class _RideDetailPageState extends State<RideDetailPage> {
         : <String, dynamic>{};
     final driverId = '${driver['user_id'] ?? ''}';
     if (driverId.isEmpty) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('This ride has no driver to rate.')),
         );
+      }
       return;
     }
     final score = await showDialog<int>(
@@ -506,11 +514,12 @@ class _RideDetailPageState extends State<RideDetailPage> {
         ),
       ),
     );
-    if (score != null)
+    if (score != null) {
       await _perform(
         () => _repository.review(_rideId, driverId, score, null),
         'Thanks for rating your ride.',
       );
+    }
   }
 
   Widget _trackingMap(Map<String, dynamic> ride) {
@@ -542,102 +551,16 @@ class _RideDetailPageState extends State<RideDetailPage> {
       double.tryParse('${ride['dropoff_longitude']}') ?? pickup.longitude,
     );
     if (points.isEmpty) return const SizedBox.shrink();
-    final boundsPoints = [
-      ...points,
-      if (_driverLocation != null) _driverLocation!,
-    ];
-    var minLatitude = boundsPoints.first.latitude;
-    var maxLatitude = minLatitude;
-    var minLongitude = boundsPoints.first.longitude;
-    var maxLongitude = minLongitude;
-    for (final point in boundsPoints.skip(1)) {
-      minLatitude = point.latitude < minLatitude ? point.latitude : minLatitude;
-      maxLatitude = point.latitude > maxLatitude ? point.latitude : maxLatitude;
-      minLongitude = point.longitude < minLongitude
-          ? point.longitude
-          : minLongitude;
-      maxLongitude = point.longitude > maxLongitude
-          ? point.longitude
-          : maxLongitude;
-    }
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(18.r),
       child: SizedBox(
         height: 210.h,
-        child: FlutterMap(
-          options: MapOptions(
-            initialCameraFit: CameraFit.bounds(
-              bounds: LatLngBounds(
-                LatLng(minLatitude, minLongitude),
-                LatLng(maxLatitude, maxLongitude),
-              ),
-              padding: EdgeInsets.all(34.r),
-            ),
-          ),
-          children: [
-            TileLayer(
-              urlTemplate: HomeConstants.OPEN_STREET_MAP_TILE_URL,
-              userAgentPackageName: HomeConstants.MAP_USER_AGENT,
-              tileProvider: NetworkTileProvider(
-                headers: HomeConstants.tileHeaders,
-              ),
-            ),
-            PolylineLayer(
-              polylines: [
-                Polyline(
-                  points: points,
-                  color: AppColors.primaryGreen,
-                  strokeWidth: 5.r,
-                ),
-              ],
-            ),
-            MarkerLayer(
-              markers: [
-                Marker(
-                  point: pickup,
-                  width: 32.r,
-                  height: 32.r,
-                  child: Icon(
-                    Icons.trip_origin,
-                    color: AppColors.primaryGreen,
-                    size: 22.r,
-                  ),
-                ),
-                Marker(
-                  point: dropoff,
-                  width: 32.r,
-                  height: 32.r,
-                  child: Icon(
-                    Icons.location_on,
-                    color: AppColors.googleRed,
-                    size: 27.r,
-                  ),
-                ),
-                if (_driverLocation != null)
-                  Marker(
-                    point: _driverLocation!,
-                    width: 40.r,
-                    height: 40.r,
-                    child: Container(
-                      decoration: const BoxDecoration(
-                        color: AppColors.pureWhite,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        Icons.directions_car,
-                        color: AppColors.primaryGreen,
-                        size: 23.r,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            RichAttributionWidget(
-              attributions: [
-                TextSourceAttribution('© OpenStreetMap contributors'),
-              ],
-            ),
-          ],
+        child: _RideMapLibreView(
+          points: points,
+          pickup: pickup,
+          dropoff: dropoff,
+          driverLocation: _driverLocation,
         ),
       ),
     );
@@ -694,5 +617,208 @@ class _RideDetailPageState extends State<RideDetailPage> {
         ),
       ],
     ),
+  );
+}
+
+class _RideMapLibreView extends StatefulWidget {
+  const _RideMapLibreView({
+    required this.points,
+    required this.pickup,
+    required this.dropoff,
+    required this.driverLocation,
+  });
+
+  final List<LatLng> points;
+  final LatLng pickup;
+  final LatLng dropoff;
+  final LatLng? driverLocation;
+
+  @override
+  State<_RideMapLibreView> createState() => _RideMapLibreViewState();
+}
+
+class _RideMapLibreViewState extends State<_RideMapLibreView> {
+  MapLibreMapController? _controller;
+  bool _styleReady = false;
+
+  @override
+  void didUpdateWidget(covariant _RideMapLibreView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.driverLocation != widget.driverLocation && _styleReady) {
+      _syncMapFeatures();
+    }
+  }
+
+  void _onMapCreated(MapLibreMapController controller) {
+    _controller = controller;
+  }
+
+  Future<void> _onStyleLoaded() async {
+    final controller = _controller;
+    if (controller == null) return;
+    try {
+      await controller.addGeoJsonSource('ride-route', _emptyFeatureCollection);
+      await controller.addLineLayer(
+        'ride-route',
+        'ride-route-line',
+        LineLayerProperties(
+          lineColor: '#16A34A',
+          lineWidth: 5.r,
+          lineCap: 'round',
+          lineJoin: 'round',
+        ),
+        enableInteraction: false,
+      );
+      await controller.addGeoJsonSource(
+        'ride-markers',
+        _emptyFeatureCollection,
+      );
+      await controller.addCircleLayer(
+        'ride-markers',
+        'ride-marker-circles',
+        const CircleLayerProperties(
+          circleRadius: 7,
+          circleColor: ['get', 'color'],
+          circleStrokeColor: '#FFFFFF',
+          circleStrokeWidth: 2,
+        ),
+        enableInteraction: false,
+      );
+      await controller.addSymbolLayer(
+        'ride-markers',
+        'ride-marker-labels',
+        const SymbolLayerProperties(
+          textField: ['get', 'label'],
+          textSize: 11,
+          textColor: '#1F2937',
+          textHaloColor: '#FFFFFF',
+          textHaloWidth: 2,
+          textOffset: [0, 1.2],
+          textAnchor: 'top',
+          textAllowOverlap: true,
+          textIgnorePlacement: true,
+        ),
+        enableInteraction: false,
+      );
+      _styleReady = true;
+      await _syncMapFeatures();
+      await _fitRouteAndTilt();
+    } catch (error) {
+      debugPrint('Ride MapLibre style setup failed: $error');
+    }
+  }
+
+  Future<void> _syncMapFeatures() async {
+    final controller = _controller;
+    if (!_styleReady || controller == null) return;
+    final routeFeatures = widget.points.length < 2
+        ? <Map<String, dynamic>>[]
+        : [
+            {
+              'type': 'Feature',
+              'properties': <String, dynamic>{},
+              'geometry': {
+                'type': 'LineString',
+                'coordinates': widget.points
+                    .map((point) => [point.longitude, point.latitude])
+                    .toList(),
+              },
+            },
+          ];
+    final markerFeatures = <Map<String, dynamic>>[
+      _markerFeature(widget.pickup, 'Pickup', '#16A34A'),
+      _markerFeature(widget.dropoff, 'Drop-off', '#DC2626'),
+      if (widget.driverLocation != null)
+        _markerFeature(widget.driverLocation!, 'Driver', '#2563EB'),
+    ];
+    await controller.setGeoJsonSource('ride-route', {
+      'type': 'FeatureCollection',
+      'features': routeFeatures,
+    });
+    await controller.setGeoJsonSource('ride-markers', {
+      'type': 'FeatureCollection',
+      'features': markerFeatures,
+    });
+  }
+
+  Future<void> _fitRouteAndTilt() async {
+    final controller = _controller;
+    if (controller == null) return;
+    final boundsPoints = [
+      ...widget.points,
+      widget.pickup,
+      widget.dropoff,
+      if (widget.driverLocation != null) widget.driverLocation!,
+    ];
+    var minLatitude = boundsPoints.first.latitude;
+    var maxLatitude = minLatitude;
+    var minLongitude = boundsPoints.first.longitude;
+    var maxLongitude = minLongitude;
+    for (final point in boundsPoints.skip(1)) {
+      minLatitude = point.latitude < minLatitude ? point.latitude : minLatitude;
+      maxLatitude = point.latitude > maxLatitude ? point.latitude : maxLatitude;
+      minLongitude = point.longitude < minLongitude
+          ? point.longitude
+          : minLongitude;
+      maxLongitude = point.longitude > maxLongitude
+          ? point.longitude
+          : maxLongitude;
+    }
+    await controller.moveCamera(
+      CameraUpdate.newLatLngBounds(
+        LatLngBounds(
+          southwest: LatLng(minLatitude, minLongitude),
+          northeast: LatLng(maxLatitude, maxLongitude),
+        ),
+        left: 34.r,
+        top: 34.r,
+        right: 34.r,
+        bottom: 34.r,
+      ),
+    );
+    final fittedPosition = await controller.queryCameraPosition();
+    if (fittedPosition == null) return;
+    await controller.moveCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: fittedPosition.target,
+          zoom: fittedPosition.zoom,
+          bearing: fittedPosition.bearing,
+          tilt: HomeConstants.MAP_TILT,
+        ),
+      ),
+    );
+  }
+
+  Map<String, dynamic> _markerFeature(
+    LatLng point,
+    String label,
+    String color,
+  ) => {
+    'type': 'Feature',
+    'properties': {'label': label, 'color': color},
+    'geometry': {
+      'type': 'Point',
+      'coordinates': [point.longitude, point.latitude],
+    },
+  };
+
+  static const Map<String, dynamic> _emptyFeatureCollection = {
+    'type': 'FeatureCollection',
+    'features': <Map<String, dynamic>>[],
+  };
+
+  @override
+  Widget build(BuildContext context) => MapLibreMap(
+    initialCameraPosition: CameraPosition(
+      target: widget.pickup,
+      zoom: HomeConstants.DEFAULT_ZOOM,
+      tilt: HomeConstants.MAP_TILT,
+    ),
+    styleString: HomeConstants.MAP_STYLE_URL,
+    onMapCreated: _onMapCreated,
+    onStyleLoadedCallback: _onStyleLoaded,
+    tiltGesturesEnabled: true,
+    attributionButtonPosition: AttributionButtonPosition.bottomRight,
   );
 }

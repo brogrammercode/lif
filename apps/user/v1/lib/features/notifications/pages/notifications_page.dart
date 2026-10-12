@@ -27,10 +27,11 @@ class _NotificationsPageState extends State<NotificationsPage> {
       await _repository.readNotification('${item['id']}');
       await _reload();
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+      }
     }
   }
 
@@ -41,19 +42,21 @@ class _NotificationsPageState extends State<NotificationsPage> {
     child: FutureBuilder<List<Map<String, dynamic>>>(
       future: _notifications,
       builder: (context, snapshot) {
-        if (snapshot.hasError)
+        if (snapshot.hasError) {
           return AppLoadError(
             message: ApiResult.errorMessage(snapshot.error!),
             onRetry: _reload,
           );
-        if (!snapshot.hasData)
+        }
+        if (!snapshot.hasData) {
           return const Center(
             child: CircularProgressIndicator(
               strokeWidth: 2,
               color: AppColors.primaryGreen,
             ),
           );
-        if (snapshot.data!.isEmpty)
+        }
+        if (snapshot.data!.isEmpty) {
           return RefreshIndicator(
             onRefresh: _reload,
             color: AppColors.primaryGreen,
@@ -68,6 +71,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
               ],
             ),
           );
+        }
         return RefreshIndicator(
           color: AppColors.primaryGreen,
           onRefresh: _reload,
