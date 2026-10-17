@@ -1,0 +1,59 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_html/flutter_html.dart';
+import 'package:flutter_html_table/flutter_html_table.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:user/core/color.dart';
+
+class PartnerDocument extends StatelessWidget {
+  final Map<String, dynamic> document;
+  const PartnerDocument({super.key, required this.document});
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        '${document['title'] ?? ''}',
+        style: const TextStyle(
+          fontSize: 22,
+          fontWeight: FontWeight.w800,
+          color: AppColors.textPrimary,
+        ),
+      ),
+      const SizedBox(height: 6),
+      Text(
+        'Version ${document['version'] ?? ''}',
+        style: const TextStyle(fontSize: 12, color: AppColors.textTertiary),
+      ),
+      const SizedBox(height: 12),
+      Html(
+        data: '${document['html'] ?? ''}',
+        extensions: [TableHtmlExtension()],
+        style: {
+          'body': Style(
+            margin: Margins.zero,
+            lineHeight: const LineHeight(1.6),
+            fontSize: FontSize(15),
+            color: AppColors.textPrimary,
+          ),
+          'table': Style(display: Display.block),
+          'td': Style(
+            padding: HtmlPaddings.all(8),
+            border: Border.all(color: AppColors.borderGrey),
+          ),
+        },
+        onLinkTap: (url, attributes, element) async {
+          final uri = Uri.tryParse(url ?? '');
+          if (uri == null || !['https', 'mailto', 'tel'].contains(uri.scheme)) {
+            return;
+          }
+          if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
+              context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('This link could not be opened.')),
+            );
+          }
+        },
+      ),
+    ],
+  );
+}

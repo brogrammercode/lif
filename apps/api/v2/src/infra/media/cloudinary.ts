@@ -13,7 +13,11 @@ type UploadedImage = {
   public_id: string;
 };
 type ImageScope =
-  'vehicle-categories' | 'users' | 'vehicle-brands' | 'vehicle-models';
+  | 'vehicle-categories'
+  | 'users'
+  | 'vehicle-brands'
+  | 'vehicle-models'
+  | 'partner-documents';
 @Injectable()
 export class CloudinaryService {
   readonly UPLOAD_TIMEOUT_MS = 30000;

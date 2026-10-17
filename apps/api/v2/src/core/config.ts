@@ -72,6 +72,9 @@ const CONFIG_SCHEMA = z.object({
       'TRUSTED_PROXY_CIDRS must contain explicit proxy IP addresses or CIDR subnets.',
     ),
   GOOGLE_CLIENT_ID: z.string().default(''),
+  MAIL_USER: z.union([z.literal(''), z.email()]).default(''),
+  GOOGLE_APP_PASSWORD: z.string().default(''),
+  MAIL_FROM_NAME: z.string().trim().min(1).default('1More Partner Program'),
   GOOGLE_WEB_CLIENT_ID: z.string().default(''),
   CLOUDINARY_CLOUD_NAME: z
     .string()

@@ -10,7 +10,7 @@ export const HTTP_CONFIG = {
   BODY_LIMIT: '1mb',
   IMAGE_BODY_LIMIT: '8mb',
   IMAGE_FORM_PATH:
-    /^\/api\/v[12]\/(?:admin\/(?:vehicle-categories|users|vehicle-brands|vehicle-models)(?:\/[^/]+)?|driver\/vehicle-(?:brands|models)\/requests)\/?$/i,
+    /^\/api\/v[12]\/(?:admin\/(?:vehicle-categories|users|vehicle-brands|vehicle-models)(?:\/[^/]+)?|driver\/vehicle-(?:brands|models)\/requests|(?:admin\/)?partner-program\/(?:assets|documents\/(?:POLICY|CONFIRMATION)))\/?$/i,
   IMAGE_METHODS: ['POST', 'PATCH'],
   REQUEST_ID_HEADER: 'X-Request-ID',
   CACHE_CONTROL_HEADER: 'Cache-Control',

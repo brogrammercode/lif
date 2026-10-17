@@ -29,6 +29,9 @@ function WorkspaceShell() {
   const usersSection = Boolean(useMatch("/users/*"));
   const adminSection = Boolean(useMatch("/admin/*"));
   const partnerSection = Boolean(useMatch("/partner-program/*"));
+  const partnerApplications = Boolean(
+    useMatch("/partner-program/applications/*"),
+  );
   const selectedId = useMatch("/users/:userId/*")?.params.userId;
   const { result } = useUsers();
   const selected = result?.users.find((item) => item.id === selectedId);
@@ -132,6 +135,14 @@ function WorkspaceShell() {
               <span>Requirements</span>
               <Icon name="chevronRight" size={14} />
             </NavLink>
+            <NavLink
+              to="/partner-program/applications"
+              className="secondary-nav-item"
+            >
+              <Icon name="users" size={19} />
+              <span>Applications</span>
+              <Icon name="chevronRight" size={14} />
+            </NavLink>
           </nav>
         ) : adminSection ? (
           <nav aria-label="Admin navigation">
@@ -180,7 +191,9 @@ function WorkspaceShell() {
                   ? userName(selected)
                   : selectedId || "Select a user"
                 : partnerSection
-                  ? "Requirements"
+                  ? partnerApplications
+                    ? "Applications"
+                    : "Requirements"
                   : adminSection
                     ? "Access"
                     : "User"}
@@ -207,7 +220,9 @@ function WorkspaceShell() {
             usersSection
               ? "User details"
               : partnerSection
-                ? "Requirement settings"
+                ? partnerApplications
+                  ? "Application settings"
+                  : "Requirement settings"
                 : adminSection
                   ? "Access settings"
                   : "User settings"
@@ -218,14 +233,31 @@ function WorkspaceShell() {
               Personal
             </NavLink>
           ) : partnerSection ? (
-            <>
-              <NavLink to="/partner-program/requirements/details">
-                Details
-              </NavLink>
-              <NavLink to="/partner-program/requirements/documents">
-                Documents
-              </NavLink>
-            </>
+            partnerApplications ? (
+              <>
+                <NavLink to="/partner-program/applications" end>
+                  Applications
+                </NavLink>
+                <NavLink to="/partner-program/applications/confirmations">
+                  Confirmations
+                </NavLink>
+              </>
+            ) : (
+              <>
+                <NavLink to="/partner-program/requirements/details">
+                  Details
+                </NavLink>
+                <NavLink to="/partner-program/requirements/documents">
+                  Documents
+                </NavLink>
+                <NavLink to="/partner-program/requirements/policy">
+                  Policy
+                </NavLink>
+                <NavLink to="/partner-program/requirements/confirmation">
+                  Confirmation
+                </NavLink>
+              </>
+            )
           ) : adminSection ? (
             <>
               <NavLink to={ADMIN_ACCESS_PATH}>1More Admin</NavLink>

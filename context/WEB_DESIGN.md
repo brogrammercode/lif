@@ -262,3 +262,14 @@ All workspace pages use the existing category layout as their reference. The sha
 Only the current tab uses amber text, heavier weight and an underline; inactive tabs use muted text with a transparent underline. Long tab/navigation labels scroll locally on narrow screens. Form errors, local upload previews, save behavior and validation stay with their existing feature logic. No separate `management-*` presentation system is used.
 
 Implement shared `Button`, `Icon`, `Field`, `ImageUpload`, `Badge`, `Switch`, `Dialog`, `StateCard`, `Toast`, `Avatar`, and shell components. The shared `useImageUpload` hook owns pending files, validation, blob preview URLs, removal, undo, and submit-time serialization. Feature pages consume them rather than reproducing class strings and interaction logic. Global colors/measurements belong in Tailwind theme/CSS variables; module copy and API paths belong in module constants. This document must be updated when a new shared component or a user-approved visual decision is introduced.
+
+
+## Partner onboarding components
+
+- Reuse PageHeading, Button, Field, Badge, Dialog, StateCard, the shared tabs/rails and the existing panel geometry. Requirement and review states use text labels alongside semantic colors.
+- RichDocumentEditor: white document surface, restrained gray formatting toolbar, 34px controls with 6px corners, amber active states, existing focus rings, 36px paper padding (20px on narrow screens). Keep formatting controls accessible by name. Image previews stay local until save. Typography inside the document follows the author's formatting; surrounding UI keeps Space Grotesk.
+- DocumentPreview: sandboxed, white paper frame with consistent paragraph/table/image presentation and local scrolling. Confirmation/policy viewing never creates a second application-wide style system.
+- Partner application review: bordered white answer cards, 16px card gaps, two columns on wide screens and one below 1000px. Use existing status badges and fields for visible rejection reasons. Long filenames wrap within the card.
+- Final PDF upload: neutral dashed drop area with filename/size, native file picker, local PDF preview, and explicit approval confirmation. Manual share, download and SMTP retry are separate labeled actions.
+- Activation-code dialog: shared small Dialog, centered 36px code, amber emphasis, copy action, explicit manual-delivery description. Code retrieval/unlock remains an administrator action.
+- Editor routes are loaded on demand. Loading, errors, refresh and confirmation actions keep their existing shared components.

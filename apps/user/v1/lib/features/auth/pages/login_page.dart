@@ -26,7 +26,7 @@ class _LoginPageState extends State<LoginPage> {
       if (mounted) {
         Navigator.pushNamedAndRemoveUntil(
           context,
-          AppRoutes.home,
+          AppRoutes.gate,
           (_) => false,
         );
       }

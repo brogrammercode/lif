@@ -493,9 +493,15 @@ class _SimpleLogInterceptor extends Interceptor {
             normalizedKey.contains('authorization') ||
             normalizedKey.contains('latitude') ||
             normalizedKey.contains('longitude');
+        final isPrivatePartnerData =
+            normalizedKey == 'data_url' ||
+            normalizedKey == 'code' ||
+            normalizedKey == 'activation_ciphertext';
         return MapEntry(
           keyString,
-          isSensitive ? '[REDACTED]' : _redactSensitiveValues(nestedValue),
+          isSensitive || isPrivatePartnerData
+              ? '[REDACTED]'
+              : _redactSensitiveValues(nestedValue),
         );
       });
     }

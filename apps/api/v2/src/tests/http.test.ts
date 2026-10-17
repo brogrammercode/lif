@@ -166,7 +166,10 @@ it('keeps the route manifest aligned with compiled Nest routes and security meta
           RequestMethod | undefined;
         if (method === undefined) continue;
         const paths = Reflect.getMetadata('path', fn) as string | string[];
-        const guards = (Reflect.getMetadata('__guards__', fn) ?? []) as {
+        const guards = [
+          ...(Reflect.getMetadata('__guards__', Controller) ?? []),
+          ...(Reflect.getMetadata('__guards__', fn) ?? []),
+        ] as {
           name: string;
         }[];
         const interceptors = (Reflect.getMetadata('__interceptors__', fn) ??
@@ -179,7 +182,15 @@ it('keeps the route manifest aligned with compiled Nest routes and security meta
               .toLowerCase(),
             handler,
             method: RequestMethod[method]!.toLowerCase(),
-            path,
+            path: [
+              String(Reflect.getMetadata('path', Controller) ?? '').replace(
+                /^\/+|\/+$/g,
+                '',
+              ),
+              path.replace(/^\/+|\/+$/g, ''),
+            ]
+              .filter(Boolean)
+              .join('/'),
             guards: guards.map((guard) => guard.name),
             idempotent: interceptors.some(
               (interceptor) => interceptor.name === 'IdempotencyInterceptor',
@@ -207,7 +218,7 @@ it('registers and protects every authenticated route on both URI versions', asyn
     path: string;
     guards: string[];
   }[];
-  assert.equal(routes.length, 98);
+  assert.equal(routes.length, 116);
   for (const version of ['1', '2'])
     for (const route of routes.filter((value) =>
       value.guards.includes('AuthGuard'),

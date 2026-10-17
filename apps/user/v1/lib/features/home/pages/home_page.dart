@@ -8,7 +8,6 @@ import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:user/features/home/constants/home.constant.dart';
-import 'package:user/features/drawer/pages/drawer_page.dart';
 import '../../../core/network/dio_client.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
@@ -1013,7 +1012,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       child: Scaffold(
         key: _scaffoldKey,
         backgroundColor: Colors.white,
-        drawer: const DrawerPage(),
         body: Stack(
           children: [
             // Layer 0: tilted vector map with 3D buildings.
@@ -1142,8 +1140,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         children: [
           // Profile Button
           GestureDetector(
-            onTap: () {
-              _scaffoldKey.currentState?.openDrawer();
+            onTap: () async {
+              await Navigator.pushNamed(context, AppRoutes.settings);
+              if (mounted) await _loadProfileAvatar();
             },
             child: _buildGlassButton(
               child: _profileAvatarUrl == null

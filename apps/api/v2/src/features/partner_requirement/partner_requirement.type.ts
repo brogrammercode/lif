@@ -46,12 +46,25 @@ export const requirement_input = z
     min_value: z.number().finite().nullable().default(null),
     max_value: z.number().finite().nullable().default(null),
     max_length: z.number().int().min(1).max(100000).nullable().default(null),
-    max_file_size_mb: z.number().int().min(1).max(20).nullable().default(null),
+    max_file_size_mb: z.number().int().min(1).max(3).nullable().default(null),
     allowed_extensions: z
       .array(
-        z.enum(['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.doc', '.docx']),
+        z.enum([
+          '.pdf',
+          '.jpg',
+          '.jpeg',
+          '.png',
+          '.webp',
+          '.doc',
+          '.docx',
+          '.xls',
+          '.xlsx',
+          '.txt',
+          '.csv',
+          '.zip',
+        ]),
       )
-      .max(7)
+      .max(12)
       .default([]),
     allow_multiple: z.boolean().default(false),
   })

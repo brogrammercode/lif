@@ -9,6 +9,8 @@ class UserModel {
   final String? avatarUrl;
   final double? lastKnownLatitude;
   final double? lastKnownLongitude;
+  final String? partnerStatus;
+  final bool partnerActivationRequired;
 
   const UserModel({
     required this.id,
@@ -21,6 +23,8 @@ class UserModel {
     this.avatarUrl,
     this.lastKnownLatitude,
     this.lastKnownLongitude,
+    this.partnerStatus,
+    this.partnerActivationRequired = false,
   });
 
   String get displayName => [
@@ -39,6 +43,8 @@ class UserModel {
     avatarUrl: json['avatar_url'] as String?,
     lastKnownLatitude: (json['last_known_latitude'] as num?)?.toDouble(),
     lastKnownLongitude: (json['last_known_longitude'] as num?)?.toDouble(),
+    partnerStatus: json['partner_status'] as String?,
+    partnerActivationRequired: json['partner_activation_required'] == true,
   );
 
   Map<String, dynamic> toJson() => {
@@ -52,5 +58,7 @@ class UserModel {
     'avatar_url': avatarUrl,
     'last_known_latitude': lastKnownLatitude,
     'last_known_longitude': lastKnownLongitude,
+    'partner_status': partnerStatus,
+    'partner_activation_required': partnerActivationRequired,
   };
 }

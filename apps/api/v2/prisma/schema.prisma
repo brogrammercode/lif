@@ -152,25 +152,28 @@ model User {
   devices                  Device[]
   driver_profile           DriverProfile?
   saved_places             SavedPlace[]
-  rider_rides              Ride[]             @relation("rider_rides")
-  reviews_given            Review[]           @relation("reviews_given")
-  reviews_received         Review[]           @relation("reviews_received")
+  rider_rides              Ride[]              @relation("rider_rides")
+  reviews_given            Review[]            @relation("reviews_given")
+  reviews_received         Review[]            @relation("reviews_received")
   payment_methods          PaymentMethod[]
   notifications            Notification[]
   support_tickets          SupportTicket[]
-  support_messages         SupportMessage[]   @relation("support_message_authors")
-  ride_events_as_actor     RideEvent[]        @relation("ride_event_actors")
-  audit_logs               UserLog[]          @relation("user_log_actors")
+  support_messages         SupportMessage[]    @relation("support_message_authors")
+  ride_events_as_actor     RideEvent[]         @relation("ride_event_actors")
+  audit_logs               UserLog[]           @relation("user_log_actors")
   emergency_contacts       EmergencyContact[]
   idempotency_keys         IdempotencyKey[]
-  admin_access             AdminAccess?       @relation("admin_access_user")
-  admin_access_grants      AdminAccess[]      @relation("admin_access_granted_by")
-  admin_access_revocations AdminAccess[]      @relation("admin_access_revoked_by")
+  admin_access             AdminAccess?        @relation("admin_access_user")
+  admin_access_grants      AdminAccess[]       @relation("admin_access_granted_by")
+  admin_access_revocations AdminAccess[]       @relation("admin_access_revoked_by")
   admin_activity           AdminActivity[]
-  brand_requests           VehicleBrand[]     @relation("brand_requester")
-  brand_reviews            VehicleBrand[]     @relation("brand_reviewer")
-  model_requests           VehicleModel[]     @relation("model_requester")
-  model_reviews            VehicleModel[]     @relation("model_reviewer")
+  brand_requests           VehicleBrand[]      @relation("brand_requester")
+  brand_reviews            VehicleBrand[]      @relation("brand_reviewer")
+  model_requests           VehicleModel[]      @relation("model_requester")
+  model_reviews            VehicleModel[]      @relation("model_reviewer")
+  partner_application      PartnerApplication?
+  partner_assets           PartnerAsset[]
+  partner_activated_at     DateTime?           @db.Timestamptz(3)
 
   @@index([role, status])
   @@index([created_at])
@@ -817,4 +820,139 @@ model PartnerRequirement {
 
   @@index([category_id, is_active, sort_order])
   @@map("partner_requirements")
+}
+
+enum PartnerApplicationStatus {
+  SUBMITTED
+  CHANGES_REQUESTED
+  APPROVED
+  CONFIRMATION_SUBMITTED
+  CONFIRMATION_CHANGES_REQUESTED
+  COMPLETED
+  ACTIVATED
+}
+
+enum PartnerReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model PartnerDocument {
+  id                String    @id @default(uuid())
+  kind              String    @unique
+  title             String
+  html              String
+  revision          Int       @default(1)
+  published_title   String?
+  published_html    String?
+  published_version Int       @default(0)
+  published_at      DateTime? @db.Timestamptz(3)
+  created_at        DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at        DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@map("partner_documents")
+}
+
+model PartnerApplication {
+  id                    String                    @id @default(uuid())
+  user_id               String                    @unique
+  status                PartnerApplicationStatus  @default(SUBMITTED)
+  version               Int                       @default(1)
+  contact_email         String
+  whatsapp_phone        String
+  policy_snapshot       Json
+  confirmation_document Json?
+  submitted_at          DateTime                  @default(now()) @db.Timestamptz(3)
+  reviewed_at           DateTime?                 @db.Timestamptz(3)
+  reviewed_by_id        String?
+  completed_at          DateTime?                 @db.Timestamptz(3)
+  activated_at          DateTime?                 @db.Timestamptz(3)
+  final_pdf_id          String?
+  activation_hash       String?
+  activation_salt       String?
+  activation_ciphertext String?
+  activation_attempts   Int                       @default(0)
+  activation_issued_at  DateTime?                 @db.Timestamptz(3)
+  created_at            DateTime                  @default(now()) @db.Timestamptz(3)
+  updated_at            DateTime                  @updatedAt @db.Timestamptz(3)
+  user                  User                      @relation(fields: [user_id], references: [id], onDelete: Restrict)
+  fields                PartnerApplicationField[]
+  confirmation          PartnerConfirmation?
+  deliveries            PartnerDelivery[]
+
+  @@index([status, submitted_at])
+  @@map("partner_applications")
+}
+
+model PartnerApplicationField {
+  id               String              @id @default(uuid())
+  application_id   String
+  requirement_id   String
+  definition       Json
+  value            Json
+  status           PartnerReviewStatus @default(PENDING)
+  rejection_reason String?
+  reviewed_by_id   String?
+  reviewed_at      DateTime?           @db.Timestamptz(3)
+  created_at       DateTime            @default(now()) @db.Timestamptz(3)
+  updated_at       DateTime            @updatedAt @db.Timestamptz(3)
+  application      PartnerApplication  @relation(fields: [application_id], references: [id], onDelete: Cascade)
+
+  @@unique([application_id, requirement_id])
+  @@map("partner_application_fields")
+}
+
+model PartnerConfirmation {
+  id                String              @id @default(uuid())
+  application_id    String              @unique
+  document_snapshot Json
+  signature_name    String
+  accepted_at       DateTime            @default(now()) @db.Timestamptz(3)
+  status            PartnerReviewStatus @default(PENDING)
+  rejection_reason  String?
+  reviewed_by_id    String?
+  reviewed_at       DateTime?           @db.Timestamptz(3)
+  created_at        DateTime            @default(now()) @db.Timestamptz(3)
+  updated_at        DateTime            @updatedAt @db.Timestamptz(3)
+  application       PartnerApplication  @relation(fields: [application_id], references: [id], onDelete: Cascade)
+
+  @@map("partner_confirmations")
+}
+
+model PartnerAsset {
+  id         String   @id @default(uuid())
+  owner_id   String
+  purpose    String
+  field_id   String?
+  file_name  String
+  mime_type  String
+  size       Int
+  sha256     String
+  content    Bytes
+  created_at DateTime @default(now()) @db.Timestamptz(3)
+  updated_at DateTime @updatedAt @db.Timestamptz(3)
+  owner      User     @relation(fields: [owner_id], references: [id], onDelete: Restrict)
+
+  @@index([owner_id, purpose])
+  @@map("partner_assets")
+}
+
+model PartnerDelivery {
+  id             String             @id @default(uuid())
+  application_id String
+  channel        String
+  status         String             @default("PENDING")
+  attempts       Int                @default(0)
+  last_error     String?
+  sent_at        DateTime?          @db.Timestamptz(3)
+  claimed_at     DateTime?          @db.Timestamptz(3)
+  provider_id    String?
+  created_at     DateTime           @default(now()) @db.Timestamptz(3)
+  updated_at     DateTime           @updatedAt @db.Timestamptz(3)
+  application    PartnerApplication @relation(fields: [application_id], references: [id], onDelete: Cascade)
+
+  @@unique([application_id, channel])
+  @@index([status, updated_at])
+  @@map("partner_deliveries")
 }

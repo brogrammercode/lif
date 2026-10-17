@@ -32,6 +32,10 @@ export class AuthService {
       toNumber(): number;
     } | null;
     driver_profile?: unknown;
+    partner_application?: {
+      status: string;
+      activation_issued_at: Date | null;
+    } | null;
   }) => ({
     id: user.id,
     role: user.role,
@@ -44,6 +48,11 @@ export class AuthService {
     last_known_latitude: user.last_known_latitude?.toNumber() ?? null,
     last_known_longitude: user.last_known_longitude?.toNumber() ?? null,
     driver_profile: user.driver_profile,
+    partner_status: user.partner_application?.status ?? null,
+    partner_activation_required:
+      user.role === 'RIDER' &&
+      user.partner_application?.status === 'COMPLETED' &&
+      !!user.partner_application.activation_issued_at,
   });
 
   readonly issue_session = async (
@@ -65,10 +74,20 @@ export class AuthService {
       request_data.user_agent,
       request_data.ip_address,
     );
+    const current_user = await this.authRepository.find_user_by_id(user.id);
+    if (
+      !current_user ||
+      current_user.status !== 'ACTIVE' ||
+      current_user.deleted_at
+    )
+      throw new AppError(403, 'USER_INACTIVE', 'This account is not active');
     return {
-      access_token: create_access_token({ user_id: user.id, role: user.role }),
+      access_token: create_access_token({
+        user_id: current_user.id,
+        role: current_user.role,
+      }),
       refresh_token,
-      user: this.to_user_response(user),
+      user: this.to_user_response(current_user),
     };
   };
 

@@ -6,6 +6,10 @@ import type { ExternalLoginInput } from './auth.type.js';
 import { AppError } from '../../core/error.js';
 import { require_active_account } from '../../infra/database/account_lifecycle.js';
 import {
+  create_activation,
+  partner_lock,
+} from '../partner_program/partner_program.security.js';
+import {
   AUTH_IDENTITY_CONFLICT_MESSAGE,
   AUTH_ACCOUNT_INACTIVE_MESSAGE,
 } from './auth.constant.js';
@@ -15,7 +19,12 @@ export class AuthRepository {
   readonly find_user_by_id = async (user_id: string) =>
     this.prismaService.client.user.findUnique({
       where: { id: user_id },
-      include: { driver_profile: true },
+      include: {
+        driver_profile: true,
+        partner_application: {
+          select: { status: true, activation_issued_at: true },
+        },
+      },
     });
 
   readonly resolve_external_user = async (
@@ -82,9 +91,22 @@ export class AuthRepository {
         ? await tx.user.update({
             where: { id: existing.id },
             data,
-            include: { driver_profile: true },
+            include: {
+              driver_profile: true,
+              partner_application: {
+                select: { status: true, activation_issued_at: true },
+              },
+            },
           })
-        : await tx.user.create({ data, include: { driver_profile: true } });
+        : await tx.user.create({
+            data,
+            include: {
+              driver_profile: true,
+              partner_application: {
+                select: { status: true, activation_issued_at: true },
+              },
+            },
+          });
       if (!account)
         await tx.authAccount.create({
           data: {
@@ -114,34 +136,66 @@ export class AuthRepository {
     user_agent: string | undefined,
     ip_address: string | undefined,
   ) =>
-    this.prismaService.client.$transaction(async (tx) => {
-      await require_active_account(tx, user_id);
-      const session = await tx.session.create({
-        data: {
-          user_id,
-          refresh_token_hash,
-          expires_at,
-          user_agent,
-          ip_address,
-        },
-      });
-      await create_user_log(tx, {
-        actor_id: user_id,
-        entity_type: 'Session',
-        entity_id: session.id,
-        action: 'CREATE_SESSION',
-      });
-      await tx.user.update({
-        where: { id: user_id },
-        data: { last_login_at: new Date() },
-      });
-      return session;
-    });
+    this.prismaService.client.$transaction(
+      async (tx) => {
+        await require_active_account(tx, user_id);
+        await partner_lock(tx, user_id);
+        const session = await tx.session.create({
+          data: {
+            user_id,
+            refresh_token_hash,
+            expires_at,
+            user_agent,
+            ip_address,
+          },
+        });
+        await create_user_log(tx, {
+          actor_id: user_id,
+          entity_type: 'Session',
+          entity_id: session.id,
+          action: 'CREATE_SESSION',
+        });
+        const login_user = await tx.user.update({
+          where: { id: user_id },
+          data: { last_login_at: new Date() },
+        });
+        const application = await tx.partnerApplication.findUnique({
+          where: { user_id },
+        });
+        if (
+          login_user.role === 'RIDER' &&
+          application?.status === 'COMPLETED' &&
+          !application.activation_issued_at
+        ) {
+          await tx.partnerApplication.update({
+            where: { id: application.id },
+            data: create_activation(),
+          });
+          await create_user_log(tx, {
+            actor_id: user_id,
+            entity_type: 'PartnerApplication',
+            entity_id: application.id,
+            action: 'GENERATE_PARTNER_ACTIVATION_ON_FIRST_LOGIN',
+          });
+        }
+        return session;
+      },
+      { maxWait: 10000, timeout: 20000 },
+    );
 
   readonly find_session = async (refresh_token_hash: string) =>
     this.prismaService.client.session.findUnique({
       where: { refresh_token_hash },
-      include: { user: { include: { driver_profile: true } } },
+      include: {
+        user: {
+          include: {
+            driver_profile: true,
+            partner_application: {
+              select: { status: true, activation_issued_at: true },
+            },
+          },
+        },
+      },
     });
 
   readonly rotate_mobile_session = async (
@@ -156,7 +210,16 @@ export class AuthRepository {
       async (tx) => {
         const session = await tx.session.findUnique({
           where: { refresh_token_hash },
-          include: { user: { include: { driver_profile: true } } },
+          include: {
+            user: {
+              include: {
+                driver_profile: true,
+                partner_application: {
+                  select: { status: true, activation_issued_at: true },
+                },
+              },
+            },
+          },
         });
         if (
           !session ||

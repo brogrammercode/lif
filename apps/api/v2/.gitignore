@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dist-tests/
+src/infra/vendor/*.mjs
 .env
 .env.*
 !.env.example

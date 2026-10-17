@@ -4,6 +4,8 @@ import 'package:user/core/color.dart';
 import 'package:user/core/network/dio_client.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/auth/auth.repo.dart';
+import 'package:user/components/ui/app_page.dart';
+import 'package:user/core/network/api_result.dart';
 
 class SessionGate extends StatefulWidget {
   const SessionGate({super.key});
@@ -13,15 +15,18 @@ class SessionGate extends StatefulWidget {
 }
 
 class _SessionGateState extends State<SessionGate> {
-  late final Future<String> _destination = _resolveDestination();
+  late Future<String> _destination = _resolveDestination();
 
   Future<String> _resolveDestination() async {
     if (!await DioClient().hasSession()) return AppRoutes.login;
     try {
-      await AuthRepository().currentUser();
+      final user = await AuthRepository().currentUser();
+      if (user.role == 'DRIVER') return AppRoutes.driverHome;
+      if (user.partnerActivationRequired) return AppRoutes.partnerActivation;
       return AppRoutes.home;
     } catch (_) {
-      return await DioClient().hasSession() ? AppRoutes.home : AppRoutes.login;
+      if (!await DioClient().hasSession()) return AppRoutes.login;
+      rethrow;
     }
   }
 
@@ -29,6 +34,17 @@ class _SessionGateState extends State<SessionGate> {
   Widget build(BuildContext context) => FutureBuilder<String>(
     future: _destination,
     builder: (context, snapshot) {
+      if (snapshot.hasError) {
+        return Scaffold(
+          body: SafeArea(
+            child: AppLoadError(
+              message: ApiResult.errorMessage(snapshot.error!),
+              onRetry: () =>
+                  setState(() => _destination = _resolveDestination()),
+            ),
+          ),
+        );
+      }
       if (!snapshot.hasData) {
         return Scaffold(
           backgroundColor: AppColors.pureWhite,
@@ -44,9 +60,7 @@ class _SessionGateState extends State<SessionGate> {
           ),
         );
       }
-      return snapshot.data == AppRoutes.home
-          ? const HomeDestination()
-          : const LoginDestination();
+      return _RouteReplacement(route: snapshot.data!);
     },
   );
 }

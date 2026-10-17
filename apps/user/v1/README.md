@@ -1,21 +1,23 @@
 # 1more User App
 
-The Flutter rider app signs in with Google and consumes the versioned Lif API at `/api/v1`.
+The Flutter rider app signs in with Google and consumes API V2 at `/api/v2`. The API V2 server also supports its `/api/v1` compatibility prefix.
+
+Home avatar opens Settings, including profile and Partner Program. The program includes published rich policy/confirmation documents, dynamic applications and field feedback, private final PDF download, first-login one-time activation and the driver-home placeholder. See [the phased plan](../../../context/PARTNER_ONBOARDING_PLAN.md) and [implementation/operator guide](../../../context/PARTNER_ONBOARDING_IMPLEMENTATION.md). Use the API V2 server for these features.
 
 ## Local setup
 
-1. From `apps/api/v1`, run `npm run dev` and keep the API running while using the app. The configured database must be reachable.
+1. From `apps/api/v2`, apply migrations, regenerate Prisma, run `npm run dev`, and keep the API running while using the app. The default port is `4001`.
 2. Copy `.env.example` to `.env` if `.env` is missing.
-3. Set `GOOGLE_CLIENT_ID` in `apps/api/v1/.env` to the Google web OAuth client ID.
+3. Set `GOOGLE_CLIENT_ID` in `apps/api/v2/.env` to the Google web OAuth client ID.
 4. Set `GOOGLE_SERVER_CLIENT_ID` in this app's `.env` to that same client ID.
 5. Set `API_BASE_URL` in this app's `.env` to the machine running the API.
 6. Run `flutter pub get` and `flutter run` from `apps/user/v1`.
 
 Android builds need JDK 21 for the MapLibre native plugin. Flutter currently selects Android Studio's JDK automatically; check `flutter doctor -v` if the build reports a Java version error.
 
-The default API URL, `http://10.0.2.2:4000/api/v1`, works from the Android emulator. Use `http://localhost:4000/api/v1` for an iOS simulator, or the computer's LAN address for a physical device. Use HTTPS for deployed builds.
+The default API URL, `http://10.0.2.2:4001/api/v2`, works from the Android emulator. Use `http://localhost:4001/api/v2` for an iOS simulator, or the computer's LAN address for a physical device. Use HTTPS for deployed builds.
 
-For a physical phone, open `http://<computer-LAN-IP>:4000/api/v1/health` on the phone before signing in. It should report `database: connected`. A request timeout usually means the API is stopped or the phone cannot reach the computer.
+For a physical phone, open `http://<computer-LAN-IP>:4001/api/v2/health` on the phone before signing in. It should report `database: connected`. A request timeout usually means the API is stopped or the phone cannot reach the computer.
 
 Firebase initializes from `lib/firebase_options.dart` on Android and iOS. The checked-in Android `google-services.json` has OAuth entries for the app and the local debug signing SHA-1 is registered in Firebase. Add the SHA-1 for any other signing key and download an updated `google-services.json` before signing in with that build.
 

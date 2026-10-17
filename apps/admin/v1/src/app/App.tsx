@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "../components/layout/AppShell";
 import { LoadingState, StateCard } from "../components/feedback/StateCard";
@@ -11,6 +12,16 @@ import { ADMIN_ACCESS_PATH } from "../modules/admin-access/admin-access.constant
 import { AdminActivityPage } from "../modules/admin-access/AdminActivityPage";
 import { VehicleModelsPage } from "../modules/vehicle-models/VehicleModelsPage";
 import { RequirementsPage } from "../modules/partner-requirements/RequirementsPage";
+const PartnerDocumentPage = lazy(() =>
+  import("../modules/partner-program/PartnerDocumentPage").then((module) => ({
+    default: module.PartnerDocumentPage,
+  })),
+);
+const PartnerApplicationsPage = lazy(() =>
+  import("../modules/partner-program/PartnerApplicationsPage").then(
+    (module) => ({ default: module.PartnerApplicationsPage }),
+  ),
+);
 
 export function App() {
   const auth = useAuth();
@@ -33,6 +44,44 @@ export function App() {
         <Route
           path="/partner-program/requirements/details"
           element={<RequirementsPage key="details" section="details" />}
+        />
+        <Route
+          path="/partner-program/requirements/policy"
+          element={
+            <Suspense fallback={<LoadingState />}>
+              <PartnerDocumentPage key="POLICY" kind="POLICY" />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/partner-program/requirements/confirmation"
+          element={
+            <Suspense fallback={<LoadingState />}>
+              <PartnerDocumentPage key="CONFIRMATION" kind="CONFIRMATION" />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/partner-program/applications"
+          element={
+            <Suspense fallback={<LoadingState />}>
+              <PartnerApplicationsPage
+                key="applications"
+                section="applications"
+              />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/partner-program/applications/confirmations"
+          element={
+            <Suspense fallback={<LoadingState />}>
+              <PartnerApplicationsPage
+                key="confirmations"
+                section="confirmations"
+              />
+            </Suspense>
+          }
         />
         <Route
           path="/partner-program/requirements/documents"

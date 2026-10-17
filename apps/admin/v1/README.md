@@ -4,6 +4,8 @@ Vercel deployment uses this folder as the Admin project's root. Its `vercel.json
 
 Vite + React + TypeScript + Tailwind admin workspace. Its module organization follows `Quest/gym/apps/web`; its visual system comes from Gym Flutter's Space Grotesk, amber/brown colors, gray canvas, bordered cards, fields, tabs, and feedback patterns. The complete component reference is [`context/WEB_DESIGN.md`](../../../context/WEB_DESIGN.md), with the delivery plan in [`context/ADMIN_IMPLEMENTATION_PLAN.md`](../../../context/ADMIN_IMPLEMENTATION_PLAN.md).
 
+Partner Program includes rich Policy/Confirmation editors, Applications/Confirmations review, private final PDF upload/download, SMTP retries, manual WhatsApp/media sharing and activation-code controls. See [PARTNER_ONBOARDING_IMPLEMENTATION.md](../../../context/PARTNER_ONBOARDING_IMPLEMENTATION.md) and [the phased plan](../../../context/PARTNER_ONBOARDING_PLAN.md).
+
 ## Run locally
 
 From `apps/api/v2`:
@@ -173,6 +175,6 @@ Admin Access now includes the location recorded at the last sign-in. Google sign
 - **Admin / Access / 1More Admin**: access removal uses the grant version rather than the profile timestamp. Last admin login is visible. **Audit log** records recognized admin requests, session activity and outcomes with search/filters/pagination.
 - **Users / Personal**: last login timestamps and confirmed deactivation, with sessions/devices revoked and history retained. Self-deactivation and accounts with active rides are protected.
 - **App / User / Vehicle Models**: create/edit brands and models, local logo previews, approve/reject driver requests, filter moderation states and enable verified catalog entries.
-- **Partner program / Requirements / Details, Documents**: one dynamic field entity, shared editable categories, type-specific validation, required/active state and display order. These configure future partner forms; they do not collect submissions.
+- **Partner program / Requirements / Details, Documents**: one dynamic field entity, shared editable categories, type-specific validation, required/active state and display order. These configure the fields collected by the user app's partner application form.
 
 See [ADMIN_EXPANSION_IMPLEMENTATION.md](../../../context/ADMIN_EXPANSION_IMPLEMENTATION.md) for the complete V2 API contract and limits. Apply V2 migrations 0005/0006 and generate its Prisma client before running the updated server. Existing test results above predate this expansion; only compilation/build/format/schema checks were run for the new features.

@@ -46,6 +46,16 @@ export class DriverRepository {
     this.prismaService.client.$transaction(
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
+        const applicant = await tx.user.findUnique({
+          where: { id: user_id },
+          select: { role: true, partner_activated_at: true },
+        });
+        if (!applicant?.partner_activated_at && applicant?.role !== 'DRIVER')
+          throw new AppError(
+            403,
+            'PARTNER_ACTIVATION_REQUIRED',
+            'Complete Partner Program approval and activation before registering as a driver.',
+          );
         const existing = await tx.driverProfile.findUnique({
           where: { user_id },
           select: { id: true },

@@ -5,9 +5,16 @@ import 'package:user/core/color.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/auth/auth.repo.dart';
 import 'package:user/features/user_app/user_app.constant.dart';
+import 'package:user/features/auth/models/user.model.dart';
 
-class SettingsPage extends StatelessWidget {
+class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
+  @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  late Future<UserModel> _profile = AuthRepository().currentUser();
 
   Future<void> _signOut(BuildContext context) async {
     final confirmed = await showDialog<bool>(
@@ -41,12 +48,94 @@ class SettingsPage extends StatelessWidget {
       padding: EdgeInsets.only(bottom: 24.h),
       children: [
         SizedBox(height: 8.h),
+        FutureBuilder<UserModel>(
+          future: _profile,
+          builder: (context, snapshot) {
+            final user = snapshot.data;
+            return Padding(
+              padding: EdgeInsets.only(bottom: 22.h),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16.r),
+                onTap: () async {
+                  await Navigator.pushNamed(context, AppRoutes.profile);
+                  if (mounted) {
+                    setState(() => _profile = AuthRepository().currentUser());
+                  }
+                },
+                child: AppCard(
+                  child: Row(
+                    children: [
+                      ClipOval(
+                        child: user?.avatarUrl != null
+                            ? Image.network(
+                                user!.avatarUrl!,
+                                width: 58.w,
+                                height: 58.w,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, error, stack) => _avatar(),
+                              )
+                            : _avatar(),
+                      ),
+                      SizedBox(width: 14.w),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              user?.displayName.isNotEmpty == true
+                                  ? user!.displayName
+                                  : snapshot.connectionState ==
+                                        ConnectionState.waiting
+                                  ? 'Loading your profile…'
+                                  : 'Your profile',
+                              style: TextStyle(
+                                fontSize: 18.sp,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            SizedBox(height: 4.h),
+                            Text(
+                              user?.email ??
+                                  'View and edit your account details',
+                              style: TextStyle(
+                                fontSize: 12.sp,
+                                color: AppColors.textSecondary,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (user != null)
+                              Text(
+                                'ID ${user.id}',
+                                style: TextStyle(
+                                  fontSize: 11.sp,
+                                  color: AppColors.textTertiary,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const Icon(
+                        Icons.chevron_right,
+                        color: AppColors.primaryGreen,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+        const AppSectionLabel('Partner with 1More'),
+        SizedBox(height: 10.h),
         _tile(
           context,
-          Icons.person_outline,
-          UserAppCopy.PROFILE,
-          AppRoutes.profile,
+          Icons.handshake_outlined,
+          'Partner Program',
+          AppRoutes.partnerProgram,
         ),
+        SizedBox(height: 12.h),
+        const AppSectionLabel('Your journeys'),
+        SizedBox(height: 10.h),
         _tile(context, Icons.history, UserAppCopy.RIDES, AppRoutes.rides),
         _tile(
           context,
@@ -72,6 +161,9 @@ class SettingsPage extends StatelessWidget {
           UserAppCopy.EMERGENCY_CONTACTS,
           AppRoutes.emergencyContacts,
         ),
+        SizedBox(height: 12.h),
+        const AppSectionLabel('Help and account'),
+        SizedBox(height: 10.h),
         _tile(
           context,
           Icons.support_agent,
@@ -95,6 +187,17 @@ class SettingsPage extends StatelessWidget {
           onTap: () => _signOut(context),
         ),
       ],
+    ),
+  );
+
+  Widget _avatar() => Container(
+    width: 58.w,
+    height: 58.w,
+    color: AppColors.primaryGreen.withValues(alpha: 0.1),
+    child: Icon(
+      Icons.person_outline,
+      color: AppColors.primaryGreen,
+      size: 30.w,
     ),
   );
 

@@ -18,7 +18,20 @@ import {
   type RequirementSection,
 } from "./partner-requirements.type";
 
-const extensions = [".pdf", ".jpg", ".jpeg", ".png", ".webp", ".doc", ".docx"];
+const extensions = [
+  ".pdf",
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".txt",
+  ".csv",
+  ".zip",
+];
 const keyFromLabel = (value: string) =>
   value
     .toLowerCase()
@@ -59,7 +72,9 @@ export function RequirementEditor({
   const [maxLength, setMaxLength] = useState(
     record?.max_length?.toString() ?? "",
   );
-  const [maxSize, setMaxSize] = useState(record?.max_file_size_mb ?? 5);
+  const [maxSize, setMaxSize] = useState(
+    Math.min(record?.max_file_size_mb ?? 3, 3),
+  );
   const [allowed, setAllowed] = useState<string[]>(
     record?.allowed_extensions ?? [".pdf"],
   );
@@ -272,13 +287,17 @@ export function RequirementEditor({
                 </Field>
               )}
               {document && (
-                <Field id="requirement-size" label="Maximum file size (MB)">
+                <Field
+                  id="requirement-size"
+                  label="Maximum file size (MB)"
+                  hint="Partner uploads are limited to 3 MB per file for Vercel compatibility."
+                >
                   <input
                     className="field"
                     id="requirement-size"
                     type="number"
                     min={1}
-                    max={20}
+                    max={3}
                     required
                     value={maxSize}
                     onChange={(event) => setMaxSize(event.target.valueAsNumber)}
