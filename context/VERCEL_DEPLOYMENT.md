@@ -21,6 +21,8 @@ API V2 runs as native ES modules: `package.json` declares `type: module` and Typ
 
 Configure the API project's Production/Preview environment:
 
+No `.env` file is required or loaded on Vercel. API runtime and Prisma use the variables provided by the hosting process. Local `.env` loading is optional and only enabled outside production/Vercel.
+
 - `NODE_ENV=production`, `DB_STRING` pointing to the intended reachable PostgreSQL database.
 - Private `JWT_SECRET` (at least 32 characters) and real `PAYMENT_WEBHOOK_SECRET`.
 - `GOOGLE_WEB_CLIENT_ID` and, where applicable, `GOOGLE_CLIENT_ID`.
@@ -28,6 +30,18 @@ Configure the API project's Production/Preview environment:
 - `CORS_ORIGIN`: intended frontend origins.
 - Cloudinary cloud name, API key and API secret for uploads.
 - Other optional values from `.env.example`. `TRUSTED_PROXY_CIDRS` is an explicit proxy peer allowlist, empty by default.
+
+### Fix the example-secret startup error
+
+If logs say `Configure a private JWT signing secret in production` or `Configure a private payment webhook secret in production`, the deployment has public example values (or the development webhook default), not a missing `.env` file. In the **API project's Settings > Environment Variables**, replace `JWT_SECRET` and `PAYMENT_WEBHOOK_SECRET` in every environment you deploy (Production and Preview as applicable). Do not put these secrets in `vercel.json` or source control.
+
+Generate a private JWT value locally and paste it directly into Vercel, without sharing it in chat:
+
+```powershell
+node --input-type=module -e "import { randomBytes } from 'node:crypto'; console.log(randomBytes(48).toString('hex'))"
+```
+
+Set `PAYMENT_WEBHOOK_SECRET` to the actual secret shared with the service signing payment callbacks. If that integration is yours, generate a separate value with the same command and configure it on both ends. Keep both values persistent; do not generate them at application startup. After changing Vercel variables, create a new deployment; existing deployments retain their previous configuration. [Vercel environment variables](https://vercel.com/docs/environment-variables).
 
 The requested API build runs:
 

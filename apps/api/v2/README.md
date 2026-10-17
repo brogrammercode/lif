@@ -105,6 +105,8 @@ For an empty database, configure `DB_STRING` and deliberately apply the committe
 
 Configuration retains `DB_STRING`, JWT settings, Google web/mobile client IDs, exact admin origins, routing URL, Cloudinary credentials, and payment webhook secret. See [.env.example](./.env.example). Cloudinary secrets and database credentials stay on the API server. The existing admin grant command is available as `npm run admin:grant -- --email you@example.com`; existing ADMIN accounts already work against the shared database.
 
+A `.env` file is optional in development and is not loaded in production or on Vercel. Both runtime configuration and Prisma read the process environment. Configure production credentials in Vercel's API project environment settings; the public example JWT/payment secrets are rejected. Values must persist across invocations and deployments so existing tokens and webhook signatures remain valid.
+
 ## Administrator access management
 
 The admin panel's **Admin → Access → 1More Admin** page uses these protected endpoints beneath `/api/v2` (or this server's `/api/v1` alias):

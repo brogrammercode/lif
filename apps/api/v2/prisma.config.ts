@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import './src/core/environment.js';
 import { defineConfig, env } from 'prisma/config';
 import { database_connection_url } from './src/infra/database/connection_url.js';
 

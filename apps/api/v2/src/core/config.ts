@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import './environment.js';
 import { z } from 'zod';
 import { isIP } from 'node:net';
 import {
@@ -117,8 +117,12 @@ const CONFIG_SCHEMA = z
   });
 const parsed_config = CONFIG_SCHEMA.safeParse(process.env);
 if (!parsed_config.success) {
+  const configuration_help =
+    process.env.VERCEL === '1'
+      ? 'Configure these variables in the API Vercel project Settings > Environment Variables for the deployment environment, then redeploy. No .env file is required.'
+      : 'Provide valid process environment variables. A local .env file is optional for development.';
   throw new Error(
-    `Invalid environment configuration: ${parsed_config.error.message}`,
+    `Invalid environment configuration: ${parsed_config.error.message}\n${configuration_help}`,
   );
 }
 export const config = parsed_config.data;
