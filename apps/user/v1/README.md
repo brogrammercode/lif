@@ -4,9 +4,9 @@ The Flutter rider app signs in with Google and consumes the versioned Lif API at
 
 ## Local setup
 
-1. From `apps/api`, run `npm run dev` and keep the API running while using the app. The configured database must be reachable.
+1. From `apps/api/v1`, run `npm run dev` and keep the API running while using the app. The configured database must be reachable.
 2. Copy `.env.example` to `.env` if `.env` is missing.
-3. Set `GOOGLE_CLIENT_ID` in `apps/api/.env` to the Google web OAuth client ID.
+3. Set `GOOGLE_CLIENT_ID` in `apps/api/v1/.env` to the Google web OAuth client ID.
 4. Set `GOOGLE_SERVER_CLIENT_ID` in this app's `.env` to that same client ID.
 5. Set `API_BASE_URL` in this app's `.env` to the machine running the API.
 6. Run `flutter pub get` and `flutter run` from `apps/user/v1`.

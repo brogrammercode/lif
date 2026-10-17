@@ -32,7 +32,7 @@ Admin/support web app                                      │
 Recommended backend layout:
 
 ```text
-apps/api/
+apps/api/v1/
   src/
     modules/
       auth/
@@ -87,7 +87,7 @@ Use REST for normal CRUD and commands. Use WebSockets or Server-Sent Events for 
 
 ## 3. Prisma schema
 
-Create `apps/api/prisma/schema.prisma` with the following starting point. Keep the models together for the first migration; split them into multiple `.prisma` files later only if the backend becomes large.
+Create `apps/api/v1/prisma/schema.prisma` with the following starting point. Keep the models together for the first migration; split them into multiple `.prisma` files later only if the backend becomes large.
 
 ```prisma
 generator client {
@@ -839,7 +839,7 @@ model AuditLog {
 The code block is the target domain model, but run validation before migration:
 
 ```bash
-cd apps/api
+cd apps/api/v1
 npx prisma format
 npx prisma validate
 npx prisma migrate dev --name init
@@ -1122,7 +1122,7 @@ Suggested Flutter feature routes:
 
 ### Phase 0 — backend foundation
 
-- Create `apps/api` with TypeScript and the chosen HTTP framework.
+- Create `apps/api/v1` with TypeScript and the chosen HTTP framework.
 - Add `DATABASE_URL`, separate development/staging/production databases, and secret management.
 - Add Prisma, `schema.prisma`, migration scripts, seed scripts, and health checks.
 - Add structured logging, request IDs, validation, and error responses.
@@ -1196,4 +1196,4 @@ The first production-ready version is complete when:
 
 ## 15. Implemented API v1 alignment
 
-The implementation lives in `apps/api`. The repository coding standard is the source of truth for code-level conventions, so the executable API schema uses snake_case fields and timestamps, transaction-backed `UserLog` records, and the project ID middleware. The earlier conceptual model in this document remains the product/domain reference; `apps/api/prisma/schema.prisma` is the migration source of truth.
+The implementation lives in `apps/api/v1`. The repository coding standard is the source of truth for code-level conventions, so the executable API schema uses snake_case fields and timestamps, transaction-backed `UserLog` records, and the project ID middleware. The earlier conceptual model in this document remains the product/domain reference; `apps/api/v1/prisma/schema.prisma` is the migration source of truth.

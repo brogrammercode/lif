@@ -7,6 +7,7 @@ import 'package:user/features/auth/auth.repo.dart';
 import 'package:user/features/auth/models/user.model.dart';
 import 'package:user/features/user_app/user_app.constant.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
+import 'package:user/features/driver_vehicles/driver_vehicles.constant.dart';
 
 class DrawerPage extends StatefulWidget {
   const DrawerPage({super.key});
@@ -139,6 +140,17 @@ class _DrawerPageState extends State<DrawerPage> {
               padding: EdgeInsets.symmetric(vertical: 8.h),
               children: [
                 _tile(Icons.history, UserAppCopy.RIDES, AppRoutes.rides),
+                FutureBuilder<Map<String, dynamic>>(
+                  future: _profile,
+                  builder: (context, snapshot) =>
+                      snapshot.data?['role'] == 'DRIVER'
+                      ? _tile(
+                          Icons.directions_car_outlined,
+                          DriverVehicleCopy.title,
+                          AppRoutes.driverVehicles,
+                        )
+                      : const SizedBox.shrink(),
+                ),
                 _tile(
                   Icons.bookmark_border,
                   UserAppCopy.SAVED_PLACES,

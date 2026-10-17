@@ -28,6 +28,7 @@ enum SearchField { none, from, to }
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   LatLng _fromLocation = HomeConstants.DEFAULT_LOCATION;
+  LatLng? _currentDeviceLocation;
   LatLng? _toLocation;
 
   bool _isLoading = true;
@@ -36,10 +37,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   MapLibreMapController? _mapController;
   bool _mapStyleReady = false;
   bool _isProgrammaticMapMove = false;
+  double _mapMarkerIconScale = 1;
   LatLng? _pendingMapCenter;
 
   // Search State
   SearchField _activeField = SearchField.none;
+  SearchField? _mapPickField;
   final TextEditingController _fromController = TextEditingController(
     text: HomeConstants.TEXT_HOME,
   );
@@ -59,21 +62,32 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final bool _isDriverFound = false;
   bool _isProgrammaticTextChange = false;
   final UserAppRepository _userRepository = UserAppRepository();
+  String? _profileAvatarUrl;
   String? _quoteDraftId;
   List<Map<String, dynamic>> _rideQuotes = [];
   bool _isRequestingQuote = false;
+  List<Map<String, dynamic>> _savedPlaces = [];
 
   Timer? _debounce;
   Timer? _mapDataSyncTimer;
+  Timer? _routeSettleTimer;
   List<dynamic> _suggestions = [];
+  List<dynamic>? _pendingSuggestions;
+  String? _pendingSuggestionQuery;
+  SearchField? _pendingSuggestionField;
+  int _searchGeneration = 0;
+  int _routeRequestGeneration = 0;
   bool _isFetchingSuggestions = false;
   bool _isMapDragging = false;
+  bool _isFetchingRoute = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initializeLocation();
+    unawaited(_loadSavedPlaces());
+    unawaited(_loadProfileAvatar());
     _fromController.addListener(_onSearchChanged);
     _toController.addListener(_onSearchChanged);
   }
@@ -87,6 +101,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _toFocus.dispose();
     _debounce?.cancel();
     _mapDataSyncTimer?.cancel();
+    _routeSettleTimer?.cancel();
     super.dispose();
   }
 
@@ -107,6 +122,38 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
+  @override
+  void didChangeMetrics() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final keyboardIsVisible = WidgetsBinding.instance.platformDispatcher.views
+          .any((view) => view.viewInsets.bottom > 0);
+      if (!keyboardIsVisible) _showPendingSuggestions();
+    });
+  }
+
+  Future<void> _loadSavedPlaces() async {
+    try {
+      final places = await _userRepository.savedPlaces();
+      if (!mounted) return;
+      setState(() => _savedPlaces = places);
+      _scheduleMapDataSync();
+    } catch (_) {
+      // The home map remains usable if saved-place loading is unavailable.
+    }
+  }
+
+  Future<void> _loadProfileAvatar() async {
+    try {
+      final profile = await _userRepository.profile();
+      final avatarUrl = '${profile['avatar_url'] ?? ''}'.trim();
+      if (!mounted) return;
+      setState(() => _profileAvatarUrl = avatarUrl.isEmpty ? null : avatarUrl);
+    } catch (_) {
+      // Keep the account icon visible when the profile cannot be loaded.
+    }
+  }
+
   Future<void> _initializeLocation() async {
     Map<String, double>? cachedLocation;
     try {
@@ -119,8 +166,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         cachedLocation['latitude']!,
         cachedLocation['longitude']!,
       );
-      setState(() => _fromLocation = location);
+      setState(() {
+        _fromLocation = location;
+        _currentDeviceLocation = location;
+      });
       _animatedMapMove(location, HomeConstants.DEFAULT_ZOOM, 0);
+      unawaited(_syncUserLocationPuck());
     }
 
     final hasFreshLocation = await _determinePosition();
@@ -175,11 +226,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     try {
       Position position = await Geolocator.getCurrentPosition();
       if (mounted) {
+        final location = LatLng(position.latitude, position.longitude);
         setState(() {
-          _fromLocation = LatLng(position.latitude, position.longitude);
+          _fromLocation = location;
+          _currentDeviceLocation = location;
           _isLoading = false;
         });
         _scheduleMapDataSync();
+        unawaited(_syncUserLocationPuck());
         unawaited(_saveLastKnownLocation(_fromLocation));
         double heading = position.heading > 0 ? position.heading : 0;
         _animatedMapMove(_fromLocation, HomeConstants.DEFAULT_ZOOM, heading);
@@ -247,8 +301,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final newLocation = LatLng(position.latitude, position.longitude);
       setState(() {
         _fromLocation = newLocation;
+        _currentDeviceLocation = newLocation;
       });
       _scheduleMapDataSync();
+      unawaited(_syncUserLocationPuck());
       unawaited(_saveLastKnownLocation(newLocation));
       // Reset rotation to default (0.0) alongside default zoom
       _animatedMapMove(newLocation, HomeConstants.DEFAULT_ZOOM, 0.0);
@@ -265,26 +321,36 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   void _onSearchChanged() {
     if (_isProgrammaticTextChange) return;
     if (_activeField == SearchField.none) return;
-    final text = _activeField == SearchField.from
-        ? _fromController.text
-        : _toController.text;
+    final field = _activeField;
+    final query = _searchControllerFor(field).text.trim();
+    final generation = ++_searchGeneration;
 
     if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), () {
-      _fetchSuggestions(text);
+    _pendingSuggestions = null;
+    _pendingSuggestionQuery = null;
+    _pendingSuggestionField = null;
+    if (mounted) {
+      setState(() {
+        _suggestions = [];
+        _isFetchingSuggestions = false;
+      });
+    }
+    if (query.length < 3) return;
+
+    _debounce = Timer(const Duration(seconds: 3), () {
+      _fetchSuggestions(query, field, generation);
     });
   }
 
-  Future<void> _fetchSuggestions(String query) async {
-    if (query.trim().length < 3 || query == HomeConstants.TEXT_HOME) {
-      if (mounted) {
-        setState(() {
-          _suggestions = [];
-          _isFetchingSuggestions = false;
-        });
-      }
-      return;
-    }
+  TextEditingController _searchControllerFor(SearchField field) =>
+      field == SearchField.from ? _fromController : _toController;
+
+  Future<void> _fetchSuggestions(
+    String query,
+    SearchField field,
+    int generation,
+  ) async {
+    if (generation != _searchGeneration || _activeField != field) return;
     if (mounted) setState(() => _isFetchingSuggestions = true);
     try {
       final response = await DioClient().getData(
@@ -292,15 +358,64 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         queryParameters: {'q': query},
       );
       final data = ApiResult.unwrap(response);
-      if (data is List && mounted) {
-        setState(() {
-          _suggestions = data;
-          _isFetchingSuggestions = false;
-        });
+      if (!mounted ||
+          generation != _searchGeneration ||
+          _activeField != field ||
+          _searchControllerFor(field).text.trim() != query) {
+        return;
       }
+      if (data is List) _holdOrShowSuggestions(data, query, field);
     } catch (e) {
-      if (mounted) setState(() => _isFetchingSuggestions = false);
+      if (mounted && generation == _searchGeneration) {
+        setState(() => _isFetchingSuggestions = false);
+      }
     }
+  }
+
+  void _holdOrShowSuggestions(
+    List<dynamic> suggestions,
+    String query,
+    SearchField field,
+  ) {
+    final keyboardIsVisible = WidgetsBinding.instance.platformDispatcher.views
+        .any((view) => view.viewInsets.bottom > 0);
+    if (keyboardIsVisible) {
+      _pendingSuggestions = suggestions;
+      _pendingSuggestionQuery = query;
+      _pendingSuggestionField = field;
+      setState(() => _isFetchingSuggestions = false);
+      return;
+    }
+
+    setState(() {
+      _suggestions = suggestions;
+      _isFetchingSuggestions = false;
+    });
+  }
+
+  void _showPendingSuggestions() {
+    final keyboardIsVisible = WidgetsBinding.instance.platformDispatcher.views
+        .any((view) => view.viewInsets.bottom > 0);
+    if (keyboardIsVisible) return;
+
+    final suggestions = _pendingSuggestions;
+    final query = _pendingSuggestionQuery;
+    final field = _pendingSuggestionField;
+    _pendingSuggestions = null;
+    _pendingSuggestionQuery = null;
+    _pendingSuggestionField = null;
+
+    if (!mounted || suggestions == null || query == null || field == null) {
+      return;
+    }
+    if (_activeField != field ||
+        _searchControllerFor(field).text.trim() != query) {
+      return;
+    }
+    setState(() {
+      _suggestions = suggestions;
+      _isFetchingSuggestions = false;
+    });
   }
 
   Future<void> _reverseGeocode(
@@ -353,6 +468,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _fetchRoute() async {
     if (_toLocation == null) return;
+    final generation = ++_routeRequestGeneration;
+    if (mounted) setState(() => _isFetchingRoute = true);
     try {
       final route = await _userRepository.drivingRoute(
         fromLatitude: _fromLocation.latitude,
@@ -362,7 +479,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
       final geometry = route['geometry'] as List? ?? const [];
       if (geometry.length < 2) throw StateError('Route geometry is empty.');
-      if (!mounted) return;
+      if (!mounted || generation != _routeRequestGeneration) return;
       setState(() {
         _routePoints = geometry.map((coordinate) {
           final pair = coordinate as List;
@@ -371,20 +488,39 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             (pair[0] as num).toDouble(),
           );
         }).toList();
-        _routeDistance = (route['distance_m'] as num?)?.toDouble();
-        _routeDuration = (route['duration_s'] as num?)?.toDouble();
+        _routeDistance =
+            (route['distance_m'] as num?)?.toDouble() ??
+            Geolocator.distanceBetween(
+              _fromLocation.latitude,
+              _fromLocation.longitude,
+              _toLocation!.latitude,
+              _toLocation!.longitude,
+            );
+        _routeDuration =
+            (route['duration_s'] as num?)?.toDouble() ??
+            _routeDistance! / (25 * 1000 / 3600);
       });
       _scheduleMapDataSync();
       _animateCameraToBounds();
     } catch (e) {
-      if (mounted) {
+      if (mounted && generation == _routeRequestGeneration) {
         setState(() {
           _routePoints = [_fromLocation, _toLocation!];
-          _routeDistance = null;
-          _routeDuration = null;
+          _routeDistance = Geolocator.distanceBetween(
+            _fromLocation.latitude,
+            _fromLocation.longitude,
+            _toLocation!.latitude,
+            _toLocation!.longitude,
+          );
+          // Show a useful approximate ETA if the routing service is offline.
+          _routeDuration = _routeDistance! / (25 * 1000 / 3600);
         });
         _scheduleMapDataSync();
         _animateCameraToBounds();
+      }
+    } finally {
+      if (mounted && generation == _routeRequestGeneration) {
+        setState(() => _isFetchingRoute = false);
       }
     }
   }
@@ -519,6 +655,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _onSuggestionSelected(dynamic suggestion) {
+    _debounce?.cancel();
+    _routeSettleTimer?.cancel();
+    _routeRequestGeneration++;
+    _searchGeneration++;
+    _pendingSuggestions = null;
+    _pendingSuggestionQuery = null;
+    _pendingSuggestionField = null;
+    _mapPickField = null;
     final displayName = suggestion['display_name'] ?? '';
     final shortName = displayName.split(',').first;
 
@@ -528,11 +672,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     setState(() {
       _suggestions = [];
+      _routePoints = [];
+      _routeDistance = null;
+      _routeDuration = null;
+      _isFetchingRoute = false;
+      _isMapDragging = false;
       if (_activeField == SearchField.from) {
         _fromController.text = shortName;
         if (newLoc != null) _fromLocation = newLoc;
         _fromFocus.unfocus();
       } else if (_activeField == SearchField.to) {
+        _hasExpandedSearch = true;
         _toController.text = shortName;
         if (newLoc != null) _toLocation = newLoc;
         _toFocus.unfocus();
@@ -597,6 +747,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final controller = _mapController;
     if (controller == null) return;
     try {
+      final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+      _mapMarkerIconScale = 1 / devicePixelRatio;
       await controller.addGeoJsonSource('home-route', _emptyFeatureCollection);
       await controller.addLineLayer(
         'home-route',
@@ -609,71 +761,149 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ),
         enableInteraction: false,
       );
-      await controller.addGeoJsonSource(
-        'home-markers',
-        _emptyFeatureCollection,
-      );
-      await controller.addCircleLayer(
-        'home-markers',
-        'home-marker-circles',
-        const CircleLayerProperties(
-          circleRadius: 8,
-          circleColor: ['get', 'color'],
-          circleStrokeColor: '#FFFFFF',
-          circleStrokeWidth: 2,
+      await controller.addImage(
+        'home-from-pin',
+        await _buildPreviousMarkerImage(
+          color: Colors.black,
+          trianglePointsDown: false,
         ),
-        enableInteraction: false,
       );
-      await controller.addSymbolLayer(
-        'home-markers',
-        'home-marker-labels',
-        const SymbolLayerProperties(
-          textField: ['get', 'label'],
-          textSize: 12,
-          textColor: '#1F2937',
-          textHaloColor: '#FFFFFF',
-          textHaloWidth: 2,
-          textOffset: [0, 1.3],
-          textAnchor: 'top',
-          textAllowOverlap: true,
-          textIgnorePlacement: true,
+      await controller.addImage(
+        'home-to-pin',
+        await _buildPreviousMarkerImage(
+          color: Colors.green,
+          trianglePointsDown: true,
         ),
-        enableInteraction: false,
       );
+      await controller.addImage(
+        'home-saved-pin',
+        await _buildPreviousMarkerImage(
+          color: const Color(0xFFEA580C),
+          trianglePointsDown: false,
+        ),
+      );
+      await controller.setSymbolIconAllowOverlap(true);
+      await controller.setSymbolIconIgnorePlacement(true);
+      await controller.setSymbolTextAllowOverlap(true);
+      await controller.setSymbolTextIgnorePlacement(true);
       _mapStyleReady = true;
       await _syncMapData();
+      await _syncUserLocationPuck();
     } catch (error) {
       debugPrint('MapLibre style setup failed: $error');
     }
   }
 
+  Future<Uint8List> _buildPreviousMarkerImage({
+    required Color color,
+    required bool trianglePointsDown,
+  }) async {
+    final width = 28.r;
+    final height = 40.r;
+    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+    final recorder = PictureRecorder();
+    final canvas = Canvas(recorder);
+    canvas.scale(devicePixelRatio);
+    final center = Offset(width / 2, 12.r);
+    final circle = Path()
+      ..addOval(Rect.fromCircle(center: center, radius: 12.r));
+    canvas.drawShadow(circle, color.withValues(alpha: 0.3), 4, true);
+    canvas.drawCircle(center, 12.r, Paint()..color = color);
+    final triangle = Path();
+    if (trianglePointsDown) {
+      triangle
+        ..moveTo(width / 2, 16.r)
+        ..lineTo(width / 2 + 4.5.r, 8.r)
+        ..lineTo(width / 2 - 4.5.r, 8.r);
+    } else {
+      triangle
+        ..moveTo(width / 2, 8.r)
+        ..lineTo(width / 2 + 4.5.r, 16.r)
+        ..lineTo(width / 2 - 4.5.r, 16.r);
+    }
+    triangle.close();
+    canvas.drawPath(triangle, Paint()..color = Colors.white);
+    canvas.drawRect(
+      Rect.fromCenter(
+        center: Offset(width / 2, 32.r),
+        width: 2.r,
+        height: 16.r,
+      ),
+      Paint()..color = color.withValues(alpha: 0.2),
+    );
+    canvas.drawRect(
+      Rect.fromCenter(
+        center: Offset(width / 2, 32.r),
+        width: 2.r,
+        height: 16.r,
+      ),
+      Paint()..color = color,
+    );
+
+    final image = await recorder.endRecording().toImage(
+      (width * devicePixelRatio).round(),
+      (height * devicePixelRatio).round(),
+    );
+    final data = await image.toByteData(format: ImageByteFormat.png);
+    image.dispose();
+    if (data == null) throw StateError('Could not create map pin image.');
+    return data.buffer.asUint8List();
+  }
+
+  Future<void> _syncUserLocationPuck() async {
+    final controller = _mapController;
+    final location = _currentDeviceLocation;
+    if (!_mapStyleReady || controller == null || location == null) return;
+
+    try {
+      await controller.updateManualLocation(
+        ManualLocationUpdate(target: location),
+      );
+    } catch (error) {
+      debugPrint('MapLibre user location update failed: $error');
+    }
+  }
+
   void _onMapCameraMove(CameraPosition position) {
-    if (_isProgrammaticMapMove || _activeField == SearchField.none) return;
+    final pickField =
+        _mapPickField ??
+        (_activeField == SearchField.none ? null : _activeField);
+    if (_isProgrammaticMapMove || pickField == null) return;
     _pendingMapCenter = position.target;
+    _routeRequestGeneration++;
     if (!_isMapDragging && mounted) {
       setState(() {
         _isMapDragging = true;
         _suggestions = [];
-      });
-    }
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), () {
-      final center = _pendingMapCenter;
-      if (center == null || !mounted) return;
-      setState(() {
-        _isMapDragging = false;
-        if (_activeField == SearchField.from) {
-          _fromLocation = center;
-        } else if (_activeField == SearchField.to) {
-          _toLocation = center;
-        }
+        _routePoints = [];
+        _routeDistance = null;
+        _routeDuration = null;
+        _isFetchingRoute = false;
       });
       _scheduleMapDataSync();
-      _reverseGeocode(center).then((_) {
-        if (_fromLocation.latitude != 0 && _toLocation != null) {
-          _fetchRoute();
+    }
+    _routeSettleTimer?.cancel();
+    _routeSettleTimer = Timer(const Duration(seconds: 3), () async {
+      final center = _pendingMapCenter;
+      if (center == null || !mounted) return;
+      final settledField =
+          _mapPickField ??
+          (_activeField == SearchField.none ? null : _activeField);
+      if (settledField == null) return;
+      setState(() {
+        _isMapDragging = false;
+        if (settledField == SearchField.from) {
+          _fromLocation = center;
+        } else if (settledField == SearchField.to) {
+          _toLocation = center;
         }
+        _activeField = SearchField.none;
       });
+      _fromFocus.unfocus();
+      _toFocus.unfocus();
+      _scheduleMapDataSync();
+      await _reverseGeocode(center, overrideField: settledField);
+      if (mounted && _toLocation != null) await _fetchRoute();
     });
   }
 
@@ -700,24 +930,38 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               },
             },
           ];
-    final markerFeatures = <Map<String, dynamic>>[];
-    if (_activeField != SearchField.from) {
-      markerFeatures.add(
-        _markerFeature(
+    final markerSymbols = <SymbolOptions>[];
+    if (!(_isMapDragging && _mapPickField == SearchField.from)) {
+      markerSymbols.add(
+        _markerSymbol(
           _fromLocation,
           _fromController.text.isNotEmpty
               ? _fromController.text
               : 'Current location',
-          '#2563EB',
+          'home-from-pin',
         ),
       );
     }
-    if (_toLocation != null && _activeField != SearchField.to) {
-      markerFeatures.add(
-        _markerFeature(
+    if (_toLocation != null &&
+        !(_isMapDragging && _mapPickField == SearchField.to)) {
+      markerSymbols.add(
+        _markerSymbol(
           _toLocation!,
           _toController.text.isNotEmpty ? _toController.text : 'Destination',
-          '#16A34A',
+          'home-to-pin',
+        ),
+      );
+    }
+    for (final place in _savedPlaces) {
+      final latitude = _coordinateValue(place['latitude']);
+      final longitude = _coordinateValue(place['longitude']);
+      if (latitude == null || longitude == null) continue;
+      final label = '${place['label'] ?? ''}'.trim();
+      markerSymbols.add(
+        _markerSymbol(
+          LatLng(latitude, longitude),
+          label.isEmpty ? 'Saved place' : label,
+          'home-saved-pin',
         ),
       );
     }
@@ -726,27 +970,32 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         'type': 'FeatureCollection',
         'features': routeFeatures,
       });
-      await controller.setGeoJsonSource('home-markers', {
-        'type': 'FeatureCollection',
-        'features': markerFeatures,
-      });
+      await controller.clearSymbols();
+      if (markerSymbols.isNotEmpty) {
+        await controller.addSymbols(markerSymbols);
+      }
     } catch (error) {
       debugPrint('MapLibre feature update failed: $error');
     }
   }
 
-  Map<String, dynamic> _markerFeature(
-    LatLng point,
-    String label,
-    String color,
-  ) => {
-    'type': 'Feature',
-    'properties': {'label': label, 'color': color},
-    'geometry': {
-      'type': 'Point',
-      'coordinates': [point.longitude, point.latitude],
-    },
-  };
+  SymbolOptions _markerSymbol(LatLng point, String label, String icon) =>
+      SymbolOptions(
+        geometry: point,
+        iconImage: icon,
+        iconSize: _mapMarkerIconScale,
+        iconAnchor: 'bottom',
+        textField: label,
+        textSize: 12,
+        textColor: '#1F2937',
+        textHaloColor: '#FFFFFF',
+        textHaloWidth: 2,
+        textOffset: const Offset(0, 1.3),
+        textAnchor: 'top',
+      );
+
+  double? _coordinateValue(dynamic value) =>
+      value is num ? value.toDouble() : double.tryParse('${value ?? ''}');
 
   static const Map<String, dynamic> _emptyFeatureCollection = {
     'type': 'FeatureCollection',
@@ -775,6 +1024,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 tilt: HomeConstants.MAP_TILT,
               ),
               styleString: HomeConstants.MAP_STYLE_URL,
+              locationSource: const ManualLocationSource(),
+              myLocationEnabled: true,
+              myLocationRenderMode: MyLocationRenderMode.normal,
               onMapCreated: _onMapCreated,
               onStyleLoadedCallback: _onMapStyleLoaded,
               onCameraMove: _onMapCameraMove,
@@ -784,19 +1036,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               attributionButtonMargins: math.Point<double>(12.r, 132.r),
             ),
 
-            // Fixed Center Pin Overlay when Dragging/Searching
-            if (_activeField != SearchField.none)
+            if (_mapPickField != null &&
+                (_isMapDragging || _activeField != SearchField.none))
               Positioned.fill(
-                child: Center(
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    transform: Matrix4.translationValues(
-                      0,
-                      _isMapDragging ? -15 : 0,
-                      0,
-                    ),
-                    child: _buildMarkerWidget(
-                      isGreen: _activeField == SearchField.to,
+                child: IgnorePointer(
+                  child: Center(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      transform: Matrix4.translationValues(
+                        0,
+                        _isMapDragging ? -15.r : 0,
+                        0,
+                      ),
+                      child: _buildMarkerWidget(
+                        isGreen: _mapPickField == SearchField.to,
+                      ),
                     ),
                   ),
                 ),
@@ -892,14 +1146,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               _scaffoldKey.currentState?.openDrawer();
             },
             child: _buildGlassButton(
-              child: ClipOval(
-                child: Image.network(
-                  HomeConstants.PROFILE_IMAGE_URL,
-                  width: 44.r,
-                  height: 44.r,
-                  fit: BoxFit.cover,
-                ),
-              ),
+              child: _profileAvatarUrl == null
+                  ? Icon(
+                      Icons.person_outline,
+                      size: 25.r,
+                      color: Colors.black87,
+                    )
+                  : ClipOval(
+                      child: Image.network(
+                        _profileAvatarUrl!,
+                        width: 44.r,
+                        height: 44.r,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => Icon(
+                          Icons.person_outline,
+                          size: 25.r,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
             ),
           ),
           // Notification Button
@@ -950,91 +1215,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildMarkerWidget({required bool isGreen, String? label}) {
-    return Transform.translate(
-      offset: Offset(0, -32.r),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (label != null) ...[
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 6.r),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20.r),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black12,
-                    blurRadius: 6.r,
-                    offset: Offset(0, 3.r),
-                  ),
-                ],
-              ),
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: Colors.black,
-                  fontSize: 12.r,
-                  fontWeight: FontWeight.bold,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            SizedBox(height: 6.r),
-          ],
-          Container(
-            width: 28.r,
-            height: 28.r,
-            decoration: BoxDecoration(
-              color: isGreen ? Colors.green : Colors.black,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: (isGreen ? Colors.green : Colors.black).withValues(
-                    alpha: 0.3,
-                  ),
-                  blurRadius: 8.r,
-                  offset: Offset(0, 4.r),
-                ),
-              ],
-            ),
-            child: Center(
-              child: isGreen
-                  ? Transform.rotate(
-                      angle: math.pi, // Rotate triangle downwards
-                      child: CustomPaint(
-                        size: Size(10.r, 8.r),
-                        painter: _TrianglePainter(color: Colors.white),
-                      ),
-                    )
-                  : CustomPaint(
-                      size: Size(10.r, 8.r),
-                      painter: _TrianglePainter(color: Colors.white),
-                    ),
-            ),
-          ),
-          Container(
-            width: 2.5.r,
-            height: 20.r,
-            decoration: BoxDecoration(
-              color: isGreen ? Colors.green : Colors.black,
-              boxShadow: [
-                BoxShadow(
-                  color: (isGreen ? Colors.green : Colors.black).withValues(
-                    alpha: 0.2,
-                  ),
-                  blurRadius: 2.r,
-                  offset: Offset(1.r, 0),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildTopHeader(BuildContext context) {
     return Column(
       children: [
@@ -1060,33 +1240,89 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildMarkerWidget({required bool isGreen}) {
+    final color = isGreen ? Colors.green : Colors.black;
+    return Transform.translate(
+      offset: Offset(0, -20.r),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 24.r,
+            height: 24.r,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: color.withValues(alpha: 0.3),
+                  blurRadius: 8.r,
+                  offset: Offset(0, 4.r),
+                ),
+              ],
+            ),
+            child: Center(
+              child: Transform.rotate(
+                angle: isGreen ? math.pi : 0,
+                child: CustomPaint(
+                  size: Size(9.r, 8.r),
+                  painter: _TrianglePainter(color: Colors.white),
+                ),
+              ),
+            ),
+          ),
+          Container(
+            width: 2.r,
+            height: 16.r,
+            decoration: BoxDecoration(
+              color: color,
+              boxShadow: [
+                BoxShadow(
+                  color: color.withValues(alpha: 0.2),
+                  blurRadius: 2.r,
+                  offset: Offset(1.r, 0),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildLayer2(BuildContext context) {
     final isSearching = _activeField != SearchField.none;
     final showBothFields = _hasExpandedSearch;
 
     String titleText = HomeConstants.TEXT_GOOD_TIME;
-    if (_routeDistance != null && !isSearching) {
-      if (_routeDistance! < 1000) {
-        titleText = "${_routeDistance!.round()} m";
-      } else {
-        titleText = "${(_routeDistance! / 1000).toStringAsFixed(1)} km";
-      }
+    if (_isFetchingRoute && !isSearching) {
+      titleText = 'Finding route…';
+    } else if (_routeDistance != null && !isSearching) {
+      titleText = "${(_routeDistance! / 1000).toStringAsFixed(1)} km";
     }
 
     final vehicles = _rideQuotes.map((quote) {
       final kind = '${quote['vehicle_type'] ?? 'BIKE'}';
       final vehicleName = kind[0] + kind.substring(1).toLowerCase();
+      final snapshot = quote['category_snapshot'];
+      final category = snapshot is Map ? snapshot : const <String, dynamic>{};
+      final configuredImage = '${category['image_url'] ?? ''}'.trim();
       return <String, dynamic>{
         'quote_id': quote['id'],
-        'name': vehicleName,
-        'capacity': 1,
+        'name': '${category['name'] ?? vehicleName}',
+        'capacity': (category['capacity'] as num?)?.toInt() ?? 1,
+        'family': kind,
         'time': '${((quote['duration_s'] as num? ?? 0) / 60).ceil()} min',
         'price': num.tryParse('${quote['total_fare']}')?.toDouble() ?? 0,
-        'image':
-            HomeConstants.VEHICLE_IMAGE_URLS[kind] ??
-            HomeConstants.VEHICLE_IMAGE_URLS['BIKE'],
+        'image': configuredImage.isNotEmpty
+            ? configuredImage
+            : HomeConstants.VEHICLE_IMAGE_URLS[kind] ??
+                  HomeConstants.VEHICLE_IMAGE_URLS['BIKE'],
       };
     }).toList();
+    final hasSelectedRoute = _toLocation != null && !isSearching;
+    final showRouteClock =
+        hasSelectedRoute && !_isSelectingVehicle && !_isDriverFound;
 
     return Positioned(
       bottom: MediaQuery.paddingOf(context).bottom + 10.r,
@@ -1103,7 +1339,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               child: Container(
                 padding: _isDriverFound
                     ? EdgeInsets.zero
-                    : EdgeInsets.all(24.r),
+                    : EdgeInsets.fromLTRB(
+                        24.r,
+                        showRouteClock ? 44.r : 24.r,
+                        24.r,
+                        24.r,
+                      ),
                 decoration: BoxDecoration(
                   color: _isDriverFound
                       ? Colors.white
@@ -1321,7 +1562,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
                               final cardContent = Container(
                                 width: 140.r,
-                                padding: EdgeInsets.all(12.r),
+                                padding: EdgeInsets.all(10.r),
                                 decoration: BoxDecoration(
                                   color: isSelected
                                       ? Colors.white
@@ -1345,20 +1586,43 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                       borderRadius: BorderRadius.circular(10.r),
                                       child: Image.network(
                                         vehicle['image'] as String,
-                                        height: 70.r,
+                                        height: 64.r,
                                         width: double.infinity,
                                         fit: BoxFit.cover,
+                                        errorBuilder:
+                                            (
+                                              context,
+                                              error,
+                                              stackTrace,
+                                            ) => SizedBox(
+                                              height: 64.r,
+                                              child: Center(
+                                                child: Icon(
+                                                  vehicle['family'] == 'BIKE' ||
+                                                          vehicle['family'] ==
+                                                              'SCOOTER'
+                                                      ? Icons.two_wheeler
+                                                      : Icons.directions_car,
+                                                  size: 36.r,
+                                                  color: isSelected
+                                                      ? Colors.black54
+                                                      : Colors.white70,
+                                                ),
+                                              ),
+                                            ),
                                       ),
                                     ),
-                                    SizedBox(height: 12.r),
+                                    SizedBox(height: 8.r),
                                     Text(
                                       vehicle['name'] as String,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         color: isSelected
                                             ? Colors.black
                                             : Colors.white,
                                         fontWeight: FontWeight.bold,
-                                        fontSize: 16.r,
+                                        fontSize: 15.r,
                                       ),
                                     ),
                                     SizedBox(height: 4.r),
@@ -1370,7 +1634,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                           children: [
                                             Icon(
                                               Icons.person,
-                                              size: 12.r,
+                                              size: 11.r,
                                               color: isSelected
                                                   ? Colors.black54
                                                   : Colors.white70,
@@ -1382,7 +1646,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                                 color: isSelected
                                                     ? Colors.black54
                                                     : Colors.white70,
-                                                fontSize: 12.r,
+                                                fontSize: 11.r,
                                               ),
                                             ),
                                           ],
@@ -1393,7 +1657,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                             color: isSelected
                                                 ? Colors.black54
                                                 : Colors.white70,
-                                            fontSize: 12.r,
+                                            fontSize: 11.r,
                                           ),
                                         ),
                                       ],
@@ -1406,7 +1670,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                             ? Colors.black
                                             : Colors.white,
                                         fontWeight: FontWeight.bold,
-                                        fontSize: 18.r,
+                                        fontSize: 17.r,
                                       ),
                                     ),
                                   ],
@@ -1474,7 +1738,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                     : Align(
                                         alignment: Alignment.topCenter,
                                         child: SizedBox(
-                                          height: 170.r,
+                                          height: 180.r,
                                           child: cardContent,
                                         ),
                                       ),
@@ -1485,39 +1749,100 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ],
                       // Persistent Title Section
                       if (!isSearching && !_isSelectingVehicle) ...[
-                        Text(
-                          titleText,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 20.r,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        SizedBox(height: 2.r),
-                        GestureDetector(
-                          onTap: _selectRideTime,
-                          child: Row(
+                        if (hasSelectedRoute)
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              Text(
-                                _selectedRideTime != null
-                                    ? _selectedRideTime!.format(context)
-                                    : HomeConstants.TEXT_NOW,
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.8),
-                                  fontSize: 14.r,
-                                  fontWeight: FontWeight.w500,
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      titleText,
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 20.r,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    SizedBox(height: 6.r),
+                                    GestureDetector(
+                                      onTap: _selectRideTime,
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Iconsax.clock,
+                                            color: Colors.white.withValues(
+                                              alpha: 0.8,
+                                            ),
+                                            size: 16.r,
+                                          ),
+                                          SizedBox(width: 5.r),
+                                          Text(
+                                            _selectedRideTime != null
+                                                ? _selectedRideTime!.format(
+                                                    context,
+                                                  )
+                                                : HomeConstants.TEXT_NOW,
+                                            style: TextStyle(
+                                              color: Colors.white.withValues(
+                                                alpha: 0.8,
+                                              ),
+                                              fontSize: 14.r,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                          SizedBox(width: 4.r),
+                                          Icon(
+                                            Iconsax.arrow_down_1,
+                                            color: Colors.white.withValues(
+                                              alpha: 0.8,
+                                            ),
+                                            size: 16.r,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              SizedBox(width: 4.r),
-                              Icon(
-                                Iconsax.arrow_down_1,
-                                color: Colors.white.withValues(alpha: 0.8),
-                                size: 18.r,
-                              ),
                             ],
+                          )
+                        else ...[
+                          Text(
+                            titleText,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 20.r,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
-                        ),
-                        SizedBox(height: 24.r),
+                          SizedBox(height: 2.r),
+                          GestureDetector(
+                            onTap: _selectRideTime,
+                            child: Row(
+                              children: [
+                                Text(
+                                  _selectedRideTime != null
+                                      ? _selectedRideTime!.format(context)
+                                      : HomeConstants.TEXT_NOW,
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.8),
+                                    fontSize: 14.r,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                SizedBox(width: 4.r),
+                                Icon(
+                                  Iconsax.arrow_down_1,
+                                  color: Colors.white.withValues(alpha: 0.8),
+                                  size: 18.r,
+                                ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(height: 24.r),
+                        ],
                       ],
 
                       if (showBothFields && !_isSelectingVehicle)
@@ -1526,9 +1851,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           child: GestureDetector(
                             onTap: () {
                               setState(() {
+                                _debounce?.cancel();
+                                _searchGeneration++;
+                                _pendingSuggestions = null;
+                                _pendingSuggestionQuery = null;
+                                _pendingSuggestionField = null;
+                                _mapPickField = null;
                                 _activeField = SearchField.none;
                                 _hasExpandedSearch = false;
                                 _suggestions = [];
+                                _isFetchingSuggestions = false;
                                 FocusScope.of(context).unfocus();
                               });
                               _scheduleMapDataSync();
@@ -1723,10 +2055,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ),
             ),
           ),
-
-          // ETA Badge (Only show when not actively searching)
-          if (!isSearching)
-            Positioned(top: -24.r, right: 16.r, child: _buildEtaBadge()),
+          if (showRouteClock)
+            Positioned(top: -32.r, right: 16.r, child: _buildEtaBadge()),
         ],
       ),
     );
@@ -1742,10 +2072,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }) {
     return GestureDetector(
       onTap: () {
+        _routeSettleTimer?.cancel();
+        _routeRequestGeneration++;
         setState(() {
+          if (_activeField != field) {
+            _debounce?.cancel();
+            _searchGeneration++;
+            _pendingSuggestions = null;
+            _pendingSuggestionQuery = null;
+            _pendingSuggestionField = null;
+            _suggestions = [];
+            _isFetchingSuggestions = false;
+          }
           _activeField = field;
+          _mapPickField = field;
           _hasExpandedSearch = true;
           _routePoints = [];
+          _routeDistance = null;
+          _routeDuration = null;
+          _isFetchingRoute = false;
         });
         _scheduleMapDataSync();
         focusNode.requestFocus();
@@ -1794,6 +2139,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             setState(() => _activeField = field);
                             _scheduleMapDataSync();
                           },
+                          onSubmitted: (_) {
+                            focusNode.unfocus();
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              _showPendingSuggestions();
+                            });
+                          },
                           style: TextStyle(
                             color: Colors.black,
                             fontSize: 15.r,
@@ -1836,9 +2187,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Widget _buildEtaBadge() {
-    String etaText = "0";
+    String etaText = _isFetchingRoute ? '…' : '--';
     if (_routeDuration != null) {
-      etaText = "${(_routeDuration! / 60).round()}";
+      etaText = "${(_routeDuration! / 60).ceil().clamp(1, 999)}";
     }
 
     return Container(
@@ -1929,21 +2280,23 @@ class _ClockTicksPainter extends CustomPainter {
 
 class _TrianglePainter extends CustomPainter {
   final Color color;
+
   _TrianglePainter({required this.color});
 
   @override
   void paint(Canvas canvas, Size size) {
-    var paint = Paint()
+    final paint = Paint()
       ..color = color
       ..style = PaintingStyle.fill;
-    var path = Path();
-    path.moveTo(size.width / 2, 0);
-    path.lineTo(size.width, size.height);
-    path.lineTo(0, size.height);
-    path.close();
+    final path = Path()
+      ..moveTo(size.width / 2, 0)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
     canvas.drawPath(path, paint);
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _TrianglePainter oldDelegate) =>
+      oldDelegate.color != color;
 }

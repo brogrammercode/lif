@@ -7,6 +7,32 @@ class UserAppRepository {
 
   dynamic _data(dynamic response) => ApiResult.unwrap(response);
 
+  Future<List<Map<String, dynamic>>> vehicleCategories() async =>
+      List<Map<String, dynamic>>.from(
+        (_data(await _client.getData(ApiConstants.VEHICLE_CATEGORIES)) as List)
+            .map((value) => Map<String, dynamic>.from(value as Map)),
+      );
+
+  Future<Map<String, dynamic>> driverProfile() async =>
+      Map<String, dynamic>.from(
+        _data(await _client.getData(ApiConstants.DRIVER_PROFILE)) as Map,
+      );
+
+  Future<void> registerVehicle(Map<String, dynamic> input) async =>
+      _client.postData(ApiConstants.DRIVER_VEHICLES, data: input);
+
+  Future<void> changeVehicleCategory(
+    String vehicleId,
+    String categoryId,
+  ) async => _client.patchData(
+    '${ApiConstants.DRIVER_VEHICLES}/$vehicleId${ApiConstants.VEHICLE_CATEGORY_SUFFIX}',
+    data: {'vehicle_category_id': categoryId},
+  );
+
+  Future<void> selectActiveVehicle(String vehicleId) async => _client.patchData(
+    '${ApiConstants.DRIVER_VEHICLES}/$vehicleId${ApiConstants.ACTIVE_VEHICLE_SUFFIX}',
+  );
+
   Future<Map<String, dynamic>> profile() async => Map<String, dynamic>.from(
     _data(await _client.getData(ApiConstants.USER_ME)) as Map,
   );

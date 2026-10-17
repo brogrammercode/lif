@@ -13,9 +13,6 @@ class HomeConstants {
   static const String TEXT_EMOJI = '\u{1F914}';
   static const String TEXT_FAKE_CAR = '...';
 
-  static const String PROFILE_IMAGE_URL =
-      'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80';
-
   static const String TEXT_GOOD_TIME = 'Good time to go';
   static const String TEXT_NOW = 'Now';
   static const String TEXT_LETS_GO = 'Lets go to';

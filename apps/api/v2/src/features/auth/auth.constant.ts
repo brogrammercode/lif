@@ -1,0 +1,17 @@
+export const AUTH_ROUTE = '/auth';
+export const GOOGLE_LOGIN_ROUTE = '/google';
+export const DEV_LOGIN_ROUTE = '/dev-login';
+export const REFRESH_ROUTE = '/refresh';
+export const LOGOUT_ROUTE = '/logout';
+export const ME_ROUTE = '/me';
+export const LOGIN_SUCCESS_MESSAGE = 'Authentication successful';
+export const REFRESH_SUCCESS_MESSAGE = 'Session refreshed';
+export const LOGOUT_SUCCESS_MESSAGE = 'Session revoked';
+export const USER_NOT_FOUND_MESSAGE = 'User was not found';
+export const INVALID_SESSION_MESSAGE =
+  'The refresh session is invalid or expired';
+export const AUTH_IDENTITY_CONFLICT_MESSAGE =
+  'This Google identity conflicts with an existing account. Contact support to resolve account access.';
+export const AUTH_ACCOUNT_INACTIVE_MESSAGE = 'This account is not active';
+export const DEV_LOGIN_DISABLED_MESSAGE =
+  'Development login is disabled outside development';

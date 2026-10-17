@@ -59,32 +59,11 @@ class AuthRepository {
   }
 
   Future<void> signOut() async {
-    final refreshToken = await _client.readRefreshToken();
-    if (refreshToken != null) {
-      try {
-        await _client.postData(
-          ApiConstants.AUTH_LOGOUT,
-          data: {'refresh_token': refreshToken},
-        );
-      } catch (_) {}
-    }
-    await _client.clearSession();
-    await _googleSignIn.signOut();
+    await _client.signOut();
+    if (_googleInitialized) await _googleSignIn.signOut();
   }
 
   Future<void> refreshSession() async {
-    final refreshToken = await _client.readRefreshToken();
-    if (refreshToken == null) {
-      throw StateError('Your session has expired. Please sign in again.');
-    }
-    final response = await _client.postData(
-      ApiConstants.AUTH_REFRESH,
-      data: {'refresh_token': refreshToken},
-    );
-    final data = ApiResult.unwrap(response) as Map<String, dynamic>;
-    await _client.saveTokens(
-      data['access_token'] as String,
-      data['refresh_token'] as String,
-    );
+    await _client.refreshSession();
   }
 }

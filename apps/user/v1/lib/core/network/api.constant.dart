@@ -9,6 +9,15 @@ class ApiConstants {
   static const String NOTIFICATIONS = '/me/notifications';
   static const String RIDES = '/rides';
   static const String QUOTE = '/rides/quote';
+  static const String VEHICLE_CATEGORIES = '/vehicle-categories';
+  static const String DRIVER_PROFILE = '/driver/profile';
+  static const String DRIVER_VEHICLES = '/driver/vehicles';
+  static const String VEHICLE_CATEGORY_SUFFIX = '/category';
+  static const String ACTIVE_VEHICLE_SUFFIX = '/active';
+  static const String SESSION_VERSION_EXTRA = 'session_version';
+  static const String SESSION_RETRY_EXTRA = 'session_refresh_attempted';
+  static const String SESSION_CHANGED_MESSAGE =
+      'The active account changed before this request completed.';
   static const String PAYMENT_METHODS = '/me/payment-methods';
   static const String EMERGENCY_CONTACTS = '/me/emergency-contacts';
   static const String SUPPORT_TICKETS = '/support/tickets';

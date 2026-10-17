@@ -1,0 +1,15 @@
+export const DRIVER_ROUTES = {
+  PROFILE: ['driver/profile', 'driver/me'],
+  CREATE_PROFILE: ['driver/profile'],
+  AVAILABILITY: ['driver/availability'],
+  VEHICLE: ['driver/vehicles'],
+  CHANGE_CATEGORY: ['driver/vehicles/:id/category'],
+  ACTIVE_VEHICLE: ['driver/vehicles/:id/active'],
+  OFFERS: ['driver/offers'],
+  ACCEPT: ['driver/offers/:id/accept'],
+  REJECT: ['driver/offers/:id/reject'],
+  LOCATION: ['driver/location'],
+  ARRIVE: ['driver/rides/:id/arrive'],
+  START: ['driver/rides/:id/start'],
+  COMPLETE: ['driver/rides/:id/complete'],
+} satisfies Record<string, string[]>;

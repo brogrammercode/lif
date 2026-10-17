@@ -94,7 +94,7 @@ shop/
       prisma.config.ts
 ```
 
-`apps/mobile` is the Flutter client. `apps/api` is the TypeScript backend. Mobile code must be written with the backend response contract in mind, but mobile feature code must not import or depend on backend files directly.
+`apps/mobile` is the Flutter client. `apps/api/v1` is the TypeScript backend. Mobile code must be written with the backend response contract in mind, but mobile feature code must not import or depend on backend files directly.
 
 ## 2. Mobile Folder Structure
 

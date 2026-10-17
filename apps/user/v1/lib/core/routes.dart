@@ -12,6 +12,7 @@ import 'package:user/features/support/pages/support_page.dart';
 import 'package:user/features/support/pages/support_ticket_page.dart';
 import 'package:user/features/payments/pages/payment_methods_page.dart';
 import 'package:user/features/settings/pages/settings_page.dart';
+import 'package:user/features/driver_vehicles/pages/driver_vehicles_page.dart';
 
 class AppRoutes {
   static const String login = '/login';
@@ -29,6 +30,7 @@ class AppRoutes {
   static const String supportTicket = '/support-ticket';
   static const String paymentMethods = '/payment-methods';
   static const String settings = '/settings';
+  static const String driverVehicles = '/driver/vehicles';
 
   static Map<String, WidgetBuilder> get routes => {
     gate: (context) => const SessionGate(),
@@ -44,5 +46,6 @@ class AppRoutes {
     supportTicket: (context) => const SupportTicketPage(),
     paymentMethods: (context) => const PaymentMethodsPage(),
     settings: (context) => const SettingsPage(),
+    driverVehicles: (context) => const DriverVehiclesPage(),
   };
 }

@@ -7,7 +7,8 @@ This document describes the repository as it exists now: its applications, runti
 Lif (also branded as “1more” in some app metadata) is a ride-booking product in development. The current workspace contains:
 
 - A Flutter rider app in `apps/user/v1`.
-- A Node.js/TypeScript REST API in `apps/api`.
+- A Node.js/TypeScript REST API in `apps/api/v1`.
+- A NestJS 12 API in `apps/api/v2`, covering the same features on port 4001 with `/api/v2` and `/api/v1` compatibility routes. See [API v2 setup and migration](apps/api/v2/README.md).
 - A PostgreSQL data model managed by Prisma, with one initial migration and a development seed.
 - Product, database, backend, and UI guidance in `PROJECT_SCHEMA.md` and `contexts/`.
 
@@ -122,7 +123,7 @@ The app ID/package metadata is `com.brogrammer.onemore`; the pubspec package is 
 
 ### Process and middleware
 
-`apps/api/src/main.ts` loads validated environment config, creates the Express app, listens on `PORT` (default 4000), and closes the HTTP server and Prisma connection on SIGINT/SIGTERM. `infra/http/server.ts` installs Helmet, configured CORS, a JSON parser capped at 1 MB, request context, the `/api/v1` router, not-found handling, and centralized error handling.
+`apps/api/v1/src/main.ts` loads validated environment config, creates the Express app, listens on `PORT` (default 4000), and closes the HTTP server and Prisma connection on SIGINT/SIGTERM. `infra/http/server.ts` installs Helmet, configured CORS, a JSON parser capped at 1 MB, request context, the `/api/v1` router, not-found handling, and centralized error handling.
 
 `core/config.ts` validates environment variables with Zod at startup. The required `DB_STRING` and `JWT_SECRET` must be set; `JWT_SECRET` must contain at least 32 characters. Defaults include a 15-minute access token, 30-day refresh token, port 4000, wildcard CORS, OSRM public routing URL, and a development webhook secret. The sample `.env.example` lists the configuration variables.
 
@@ -160,7 +161,7 @@ The API persists payment methods and checkout/payment state. Cash checkout remai
 
 ## 6. Database and persistence
 
-The Prisma schema is `apps/api/prisma/schema.prisma`; it uses PostgreSQL and snake_case database mappings. The checked-in migration history contains one initial migration, `0001_init`. Prisma’s datasource variable is `DB_STRING`. `infra/database/client.ts` wraps Prisma Client with an ID hook that fills missing IDs using the current millisecond timestamp string; model IDs in this schema are text IDs rather than PostgreSQL UUID types.
+The Prisma schema is `apps/api/v1/prisma/schema.prisma`; it uses PostgreSQL and snake_case database mappings. The checked-in migration history contains one initial migration, `0001_init`. Prisma’s datasource variable is `DB_STRING`. `infra/database/client.ts` wraps Prisma Client with an ID hook that fills missing IDs using the current millisecond timestamp string; model IDs in this schema are text IDs rather than PostgreSQL UUID types.
 
 ### Enums
 
@@ -218,9 +219,9 @@ Money is stored as `Decimal` and currency defaults to INR. Coordinates use `Deci
 
 ### API
 
-1. Start PostgreSQL from `apps/api` with `docker compose up -d` (or use another PostgreSQL instance).
+1. Start PostgreSQL from `apps/api/v1` with `docker compose up -d` (or use another PostgreSQL instance).
 2. Copy `.env.example` to `.env` and set `DB_STRING`, a 32+ character `JWT_SECRET`, and the Google web client ID used by the app.
-3. From `apps/api`, install packages with `npm install`.
+3. From `apps/api/v1`, install packages with `npm install`.
 4. Apply the committed migration with `npm run prisma:deploy`.
 5. Optionally load development records with `npm run prisma:seed`.
 6. Start with `npm run dev`; health endpoint is `GET http://localhost:4000/api/v1/health`.
@@ -258,7 +259,7 @@ The pubspec declares `.env` as a Flutter asset. `.env` files are ignored by Git.
 - `PROJECT_SCHEMA.md` is a broad target architecture and implementation blueprint. It contains a proposed fuller ride-booking schema, state machine, endpoint contracts, security guidance, and phased completion plan. It includes future concepts that are not in the actual Prisma schema or app, such as scheduled rides/stops, promos/discounts, broader payment attempts, and other operational entities. Its final “Implemented API v1 alignment” section relates the blueprint to later API work.
 - `contexts/code_standard.md` describes project coding conventions and preferred feature/layer patterns.
 - `contexts/ui_standard.md` is a detailed visual design standard. It includes UI guidance from another restaurant/POS-oriented design context, so parts of it (restaurant cards, POS terminal, etc.) are not the current Lif ride app specification.
-- `apps/api/README.md` documents API setup, environment, layering, endpoints, and payment limitations.
+- `apps/api/v1/README.md` documents API setup, environment, layering, endpoints, and payment limitations.
 - `apps/user/v1/README.md` documents rider app setup, Google sign-in setup, connected flows, and local networking.
 
 ## 9. What is implemented versus what remains
@@ -298,7 +299,7 @@ The pubspec declares `.env` as a Flutter asset. `.env` files are ignored by Git.
 
 ## 11. Commands and checks available
 
-From `apps/api`:
+From `apps/api/v1`:
 
 ```bash
 npm run dev
@@ -326,11 +327,11 @@ The API README also lists build/schema validation commands. No build or test com
 | Map and ride request UI | `apps/user/v1/lib/features/home/pages/home_page.dart` |
 | Rider API calls | `apps/user/v1/lib/features/user_app/user_app.repo.dart` |
 | Auth/session/token behavior | `apps/user/v1/lib/features/auth/auth.repo.dart`, `apps/user/v1/lib/core/network/dio_client.dart` |
-| API startup/middleware | `apps/api/src/main.ts`, `apps/api/src/infra/http/server.ts` |
-| API routes | `apps/api/src/routes/index.ts` and each feature’s `*.route.ts` |
-| Ride logic and pricing | `apps/api/src/features/ride/` |
-| Database structure | `apps/api/prisma/schema.prisma` |
-| Initial DB creation | `apps/api/prisma/migrations/0001_init/migration.sql` |
-| Local seed | `apps/api/prisma/seed.ts` |
+| API startup/middleware | `apps/api/v1/src/main.ts`, `apps/api/v1/src/infra/http/server.ts` |
+| API routes | `apps/api/v1/src/routes/index.ts` and each feature’s `*.route.ts` |
+| Ride logic and pricing | `apps/api/v1/src/features/ride/` |
+| Database structure | `apps/api/v1/prisma/schema.prisma` |
+| Initial DB creation | `apps/api/v1/prisma/migrations/0001_init/migration.sql` |
+| Local seed | `apps/api/v1/prisma/seed.ts` |
 | Product/target schema plan | `PROJECT_SCHEMA.md` |
 
