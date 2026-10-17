@@ -15,10 +15,13 @@ import {
   SESSION_CLEANUP_TIMEOUT_MS,
 } from "./network.constant";
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || "/api/v2").replace(
-  /\/$/,
-  "",
-);
+// Production uses the host's /api rewrite so refresh cookies stay first party.
+const API_BASE = import.meta.env.PROD
+  ? "/api/v2"
+  : (import.meta.env.VITE_API_BASE_URL?.trim() || "/api/v2").replace(
+      /\/+$/,
+      "",
+    );
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;

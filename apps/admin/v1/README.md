@@ -1,6 +1,6 @@
 # 1More Admin
 
-Vercel deployment uses this folder as the Admin project's root. Its `vercel.json` serves the Vite build and SPA deep links and rewrites `/api/*` to `https://apionemore.vercel.app/api/*`. Keep `VITE_API_BASE_URL=/api/v2` so browser authentication stays on the admin origin. See [VERCEL_DEPLOYMENT.md](../../../context/VERCEL_DEPLOYMENT.md).
+Vercel deployment uses this folder as the Admin project's root. Its `vercel.json` serves the Vite build and SPA deep links and rewrites `/api/*` to `https://apionemore.vercel.app/api/*`. Production browser requests always use same-origin `/api/v2`, even if `VITE_API_BASE_URL` contains an old backend URL. That variable overrides the API base in development only. See [VERCEL_DEPLOYMENT.md](../../../context/VERCEL_DEPLOYMENT.md).
 
 Vite + React + TypeScript + Tailwind admin workspace. Its module organization follows `Quest/gym/apps/web`; its visual system comes from Gym Flutter's Space Grotesk, amber/brown colors, gray canvas, bordered cards, fields, tabs, and feedback patterns. The complete component reference is [`context/WEB_DESIGN.md`](../../../context/WEB_DESIGN.md), with the delivery plan in [`context/ADMIN_IMPLEMENTATION_PLAN.md`](../../../context/ADMIN_IMPLEMENTATION_PLAN.md).
 

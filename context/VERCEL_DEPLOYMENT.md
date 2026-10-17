@@ -72,6 +72,8 @@ The platform rewrite retains the API path and proxies requests to the backend wi
 
 The browser calls `/api/v2` on the admin domain, preserving the Secure, HttpOnly, SameSite=Strict refresh cookie flow. Align API `ADMIN_WEB_ORIGIN` and Google's authorized JavaScript origins with the real admin origin. An absolute cross-site browser API URL is not a replacement for this rewrite.
 
+Production admin builds always use `/api/v2` on their own origin; `VITE_API_BASE_URL` is a development override only. A stale value such as `https://apionemore.vercel.app` previously caused browser requests to `/admin/auth/google` without the API prefix and bypassed the cookie proxy. The corrected production request is `https://adminonemore.vercel.app/api/v2/admin/auth/google`, forwarded by the existing rewrite to `https://apionemore.vercel.app/api/v2/admin/auth/google`. Deploy the updated admin build to apply this fix. For this deployment, API `ADMIN_WEB_ORIGIN` must include `https://adminonemore.vercel.app`, and Google must allow that JavaScript origin.
+
 The API uses `@vercel/functions` `waitUntil` for post-response audit writes. Audit completion is registered before the response so the invocation can stay alive until it settles. Function timeout/database failures can still leave a pending audit record.
 
 ## Limits and checks

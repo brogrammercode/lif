@@ -121,7 +121,7 @@ Every endpoint requires a current active administrator. Grants reject suspended/
 
 ## Point clients at V2
 
-For the admin web app, use `VITE_API_BASE_URL=/api/v2` in `apps/admin/v1/.env`. Vite development and preview proxy `/api` to V2 at `http://127.0.0.1:4001`. Keep the actual browser origin in `ADMIN_WEB_ORIGIN`. The relative URL keeps browser refresh cookies on the same origin when using either localhost or 127.0.0.1. Restart Vite after environment changes. For deployment, route `/api` to V2 through the admin host's reverse proxy. An absolute API URL is supported when deliberately configuring a separate same-site API host.
+For the admin web app, use `VITE_API_BASE_URL=/api/v2` in `apps/admin/v1/.env` during development. Vite development and preview proxy `/api` to V2 at `http://127.0.0.1:4001`. Keep the actual browser origin in `ADMIN_WEB_ORIGIN`. The relative URL keeps browser refresh cookies on the same origin when using either localhost or 127.0.0.1. Restart Vite after environment changes. Production admin builds always use same-origin `/api/v2`; route `/api` to V2 through the admin host's reverse proxy. An absolute API base override is available in development only.
 
 For Flutter Android emulators, set `API_BASE_URL=http://10.0.2.2:4001/api/v2` in `apps/user/v1/.env` and restart the app. Physical devices use the development machine's LAN address instead of `10.0.2.2`. Existing clients can retain `/api/v1` while directing traffic to V2.
 
