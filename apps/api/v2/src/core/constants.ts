@@ -1,4 +1,7 @@
 export const API_PREFIX = '/api/v2';
+export const PRODUCTION_ADMIN_WEB_ORIGIN = 'https://adminonemore.vercel.app';
+export const DEVELOPMENT_ADMIN_WEB_ORIGINS =
+  'http://localhost:5173,http://127.0.0.1:5173';
 export const DEVELOPMENT_WEBHOOK_SECRET = 'development-webhook-secret';
 export const EXAMPLE_JWT_SECRET = 'replace-with-a-long-random-secret';
 export const EXAMPLE_WEBHOOK_SECRET = 'replace-with-a-webhook-secret';

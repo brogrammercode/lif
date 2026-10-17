@@ -91,8 +91,15 @@ export class AdminOriginGuard implements CanActivate {
     const origins = config.ADMIN_WEB_ORIGIN.split(',').map((origin) =>
       origin.trim(),
     );
-    if (!request.headers.origin || !origins.includes(request.headers.origin))
+    if (!request.headers.origin || !origins.includes(request.headers.origin)) {
+      console.warn({
+        event: 'ADMIN_ORIGIN_REJECTED',
+        request_id: request.request_id,
+        origin: request.headers.origin ?? null,
+        allowed_origins: origins,
+      });
       throw new AppError(403, 'ORIGIN_NOT_ALLOWED', ADMIN_AUTH_MESSAGES.ORIGIN);
+    }
     return true;
   }
 }

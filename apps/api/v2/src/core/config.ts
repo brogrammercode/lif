@@ -3,8 +3,10 @@ import { z } from 'zod';
 import { isIP } from 'node:net';
 import {
   DEVELOPMENT_WEBHOOK_SECRET,
+  DEVELOPMENT_ADMIN_WEB_ORIGINS,
   EXAMPLE_JWT_SECRET,
   EXAMPLE_WEBHOOK_SECRET,
+  PRODUCTION_ADMIN_WEB_ORIGIN,
 } from './constants.js';
 const origin_list = z
   .string()
@@ -79,7 +81,9 @@ const CONFIG_SCHEMA = z.object({
   CLOUDINARY_API_KEY: z.string().trim().default(''),
   CLOUDINARY_API_SECRET: z.string().trim().default(''),
   ADMIN_WEB_ORIGIN: origin_list.default(
-    'http://localhost:5173,http://127.0.0.1:5173',
+    process.env.NODE_ENV === 'production' || process.env.VERCEL === '1'
+      ? PRODUCTION_ADMIN_WEB_ORIGIN
+      : DEVELOPMENT_ADMIN_WEB_ORIGINS,
   ),
   ROUTING_BASE_URL: z.string().url().default('https://router.project-osrm.org'),
   PAYMENT_WEBHOOK_SECRET: z
