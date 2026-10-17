@@ -25,7 +25,7 @@ for (const [key, value] of Object.entries({
   });
 }
 
-it('rejects the development webhook secret in production', () => {
+it('warns about the development webhook secret without blocking production startup', () => {
   const result = spawnSync(
     process.execPath,
     [
@@ -44,7 +44,8 @@ it('rejects the development webhook secret in production', () => {
       },
     },
   );
-  assert.notEqual(result.status, 0);
+  assert.equal(result.status, 0);
+  assert.ok(result.stderr.includes('EXAMPLE_SECRETS_CONFIGURED'));
   assert.ok(result.stderr.includes('PAYMENT_WEBHOOK_SECRET'));
 });
 
@@ -52,7 +53,7 @@ for (const [key, value] of Object.entries({
   JWT_SECRET: 'replace-with-a-long-random-secret',
   PAYMENT_WEBHOOK_SECRET: 'replace-with-a-webhook-secret',
 })) {
-  it(`rejects the public example ${key} in production`, () => {
+  it(`warns about the public example ${key} without blocking production startup`, () => {
     const result = spawnSync(
       process.execPath,
       [
@@ -67,7 +68,8 @@ for (const [key, value] of Object.entries({
         env: { ...process.env, NODE_ENV: 'production', [key]: value },
       },
     );
-    assert.notEqual(result.status, 0);
+    assert.equal(result.status, 0);
+    assert.ok(result.stderr.includes('EXAMPLE_SECRETS_CONFIGURED'));
     assert.ok(result.stderr.includes(key));
   });
 }

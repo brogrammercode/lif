@@ -31,9 +31,11 @@ No `.env` file is required or loaded on Vercel. API runtime and Prisma use the v
 - Cloudinary cloud name, API key and API secret for uploads.
 - Other optional values from `.env.example`. `TRUSTED_PROXY_CIDRS` is an explicit proxy peer allowlist, empty by default.
 
-### Fix the example-secret startup error
+### Example-secret production warning
 
-If logs say `Configure a private JWT signing secret in production` or `Configure a private payment webhook secret in production`, the deployment has public example values (or the development webhook default), not a missing `.env` file. In the **API project's Settings > Environment Variables**, replace `JWT_SECRET` and `PAYMENT_WEBHOOK_SECRET` in every environment you deploy (Production and Preview as applicable). Do not put these secrets in `vercel.json` or source control.
+The earlier `Configure a private JWT signing secret in production` and `Configure a private payment webhook secret in production` errors are now nonfatal. With public example values (or the development webhook default), API startup continues and logs `EXAMPLE_SECRETS_CONFIGURED` with variable names only. Existing configured signing values, JWT verification, and payment signature verification remain in use. Missing/structurally invalid configuration still fails validation.
+
+Public example secrets allow forged authentication tokens or payment signatures. In the **API project's Settings > Environment Variables**, replace `JWT_SECRET` and `PAYMENT_WEBHOOK_SECRET` with private values before production use (Production and Preview as applicable). Do not put secrets in `vercel.json` or source control.
 
 Generate a private JWT value locally and paste it directly into Vercel, without sharing it in chat:
 
