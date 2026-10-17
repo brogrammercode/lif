@@ -26,6 +26,8 @@ npm run start
 
 `npm run type-check` checks TypeScript without emitting files; `npm run format:check` checks source formatting. Development uses the Nest CLI watch compiler, including decorator metadata.
 
+The API emits native ES modules for NestJS 12: package `type: module`, TypeScript `NodeNext`, and explicit `.js` extensions on relative imports. Preserve these settings for Vercel; CommonJS output can fail there with `ERR_REQUIRE_ESM`. The existing unit-test script preloads its environment using `--import`.
+
 ## Architecture
 
 ```text

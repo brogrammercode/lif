@@ -15,6 +15,8 @@ The API install command is `npm ci --include=dev`: Nest CLI, TypeScript and Pris
 
 `src/main.ts` creates the Nest application with a direct `@nestjs/core` import, then applies the shared configuration from `bootstrap.ts`. This import also survives compilation into `dist/src/main.js`. Vercel's Nest builder checks the entry file itself for that import; delegating all Nest creation to another module caused `No entrypoint found which imports nestjs`. The existing `create_application` helper uses the same configuration for other callers. [Nest builder source](https://github.com/vercel/vercel/blob/main/packages/nestjs/src/build.ts).
 
+API V2 runs as native ES modules: `package.json` declares `type: module` and TypeScript uses `module: NodeNext` with `moduleResolution: NodeNext`. Installed NestJS 12 packages are ES modules; compiling API imports to CommonJS `require()` caused `ERR_REQUIRE_ESM` in Vercel's runtime. Keep the package type and compiler settings aligned, retain relative `.js` import extensions, and preload the existing unit-test environment with Node's `--import` option. [TypeScript NodeNext module rules](https://www.typescriptlang.org/docs/handbook/modules/reference.html#node16-node18-node20-nodenext).
+
 ## API environment and Prisma
 
 Configure the API project's Production/Preview environment:

@@ -2,7 +2,7 @@
   "name": "onemore-api-v2",
   "version": "2.0.0",
   "private": true,
-  "type": "commonjs",
+  "type": "module",
   "scripts": {
     "dev": "nest start --watch",
     "build": "prisma generate && prisma db push --skip-generate && nest build",
@@ -20,7 +20,7 @@
     "admin:grant": "tsx src/scripts/grant_admin.ts",
     "format": "prettier --write \"src/**/*.ts\" \"prisma/**/*.ts\" \"*.{ts,json}\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"prisma/**/*.ts\" \"*.{ts,json}\"",
-    "test:unit": "tsc -p tsconfig.test.json && node --require ./dist-tests/src/tests/setup.js --test dist-tests/src/tests/config.test.js dist-tests/src/tests/geocode.test.js dist-tests/src/tests/http.test.js dist-tests/src/tests/media.test.js dist-tests/src/tests/entity_id.test.js dist-tests/src/tests/ride.test.js dist-tests/src/tests/payment.test.js dist-tests/src/tests/auth_identity.test.js dist-tests/src/tests/database.test.js",
+    "test:unit": "tsc -p tsconfig.test.json && node --import ./dist-tests/src/tests/setup.js --test dist-tests/src/tests/config.test.js dist-tests/src/tests/geocode.test.js dist-tests/src/tests/http.test.js dist-tests/src/tests/media.test.js dist-tests/src/tests/entity_id.test.js dist-tests/src/tests/ride.test.js dist-tests/src/tests/payment.test.js dist-tests/src/tests/auth_identity.test.js dist-tests/src/tests/database.test.js",
     "test:integration": "tsc -p tsconfig.test.json && node --test --test-concurrency=1 dist-tests/src/tests/admin.integration.spec.js dist-tests/src/tests/admin_identity.integration.spec.js",
     "test:identity": "tsc -p tsconfig.test.json && node --test dist-tests/src/tests/admin_identity.integration.spec.js"
   },
