@@ -5,9 +5,155 @@ import { AppError } from '../../core/error.js';
 import { create_user_log } from '../../infra/database/user_log.js';
 import { ADMIN_USER_MESSAGES } from './admin_user.constant.js';
 import type { PersonalUpdateInput, UserListInput } from './admin_user.type.js';
+import { ADMIN_ACCESS_LOCK } from '../admin_access/admin_access.constant.js';
+import {
+  ACCOUNT_LIFECYCLE_LOCK,
+  require_active_admin,
+} from '../../infra/database/account_lifecycle.js';
 @Injectable()
 export class AdminUserRepository {
   constructor(private readonly prismaService: PrismaService) {}
+  readonly deactivate_user = (
+    actor_id: string,
+    id: string,
+    input: { expected_updated_at: string; confirmation: string },
+  ) =>
+    this.prismaService.client.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ADMIN_ACCESS_LOCK})`;
+        const actor = await tx.user.findUnique({
+          where: { id: actor_id },
+          select: { role: true, status: true, deleted_at: true },
+        });
+        if (
+          !actor ||
+          actor.role !== 'ADMIN' ||
+          actor.status !== 'ACTIVE' ||
+          actor.deleted_at
+        )
+          throw new AppError(
+            403,
+            'ADMIN_ACCESS_DENIED',
+            'Administrator access is required.',
+          );
+        if (id === actor_id)
+          throw new AppError(
+            409,
+            'SELF_DEACTIVATION',
+            'You cannot deactivate your own account.',
+          );
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ACCOUNT_LIFECYCLE_LOCK}::integer, hashtext(${id}))`;
+        const user = await tx.user.findUnique({
+          where: { id },
+          include: { driver_profile: true, admin_access: true },
+        });
+        if (!user)
+          throw new AppError(404, 'USER_NOT_FOUND', 'This user was not found.');
+        if (
+          input.confirmation.trim().toLowerCase() !==
+          (user.email ?? user.id).toLowerCase()
+        )
+          throw new AppError(
+            422,
+            'CONFIRMATION_REQUIRED',
+            'Enter the displayed email or user ID to confirm deactivation.',
+          );
+        if (user.deleted_at || user.status === 'DELETED')
+          return { id, changed: false };
+        if (
+          user.role === 'ADMIN' &&
+          user.status === 'ACTIVE' &&
+          (await tx.user.count({
+            where: { role: 'ADMIN', status: 'ACTIVE', deleted_at: null },
+          })) <= 1
+        )
+          throw new AppError(
+            409,
+            'LAST_ADMIN',
+            'Keep at least one active administrator.',
+          );
+        if (user.driver_profile)
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${id}))`;
+        const active = await tx.ride.count({
+          where: {
+            OR: [
+              { rider_id: id },
+              ...(user.driver_profile
+                ? [{ driver_id: user.driver_profile.id }]
+                : []),
+            ],
+            status: {
+              in: [
+                'REQUESTED',
+                'SEARCHING',
+                'DRIVER_ASSIGNED',
+                'DRIVER_ARRIVING',
+                'DRIVER_WAITING',
+                'IN_PROGRESS',
+              ],
+            },
+          },
+        });
+        if (active)
+          throw new AppError(
+            409,
+            'USER_HAS_ACTIVE_RIDE',
+            'Finish or cancel this user’s active rides before deactivating the account.',
+          );
+        const now = new Date();
+        const role =
+          user.role === 'ADMIN'
+            ? (user.admin_access?.previous_role ??
+              (user.driver_profile ? 'DRIVER' : 'RIDER'))
+            : user.role;
+        const updated = await tx.user.updateMany({
+          where: { id, updated_at: new Date(input.expected_updated_at) },
+          data: { status: 'DELETED', deleted_at: now, role },
+        });
+        if (updated.count !== 1)
+          throw new AppError(
+            409,
+            'USER_CONFLICT',
+            'This user changed. Reload their details before deactivating.',
+          );
+        await tx.session.updateMany({
+          where: { user_id: id, revoked_at: null },
+          data: { revoked_at: now },
+        });
+        await tx.device.updateMany({
+          where: { user_id: id, revoked_at: null },
+          data: { revoked_at: now },
+        });
+        await tx.adminAccess.updateMany({
+          where: { user_id: id, revoked_at: null },
+          data: { revoked_at: now, revoked_by_id: actor_id },
+        });
+        await tx.ride.updateMany({
+          where: { rider_id: id, status: 'DRAFT' },
+          data: { status: 'EXPIRED' },
+        });
+        if (user.driver_profile) {
+          await tx.driverProfile.update({
+            where: { id: user.driver_profile.id },
+            data: { availability: 'OFFLINE' },
+          });
+          await tx.rideOffer.updateMany({
+            where: { driver_id: user.driver_profile.id, status: 'SENT' },
+            data: { status: 'CANCELLED', responded_at: now },
+          });
+        }
+        await create_user_log(tx, {
+          actor_id,
+          entity_type: 'User',
+          entity_id: id,
+          action: 'ADMIN_DEACTIVATE_USER',
+          before_data: { role: user.role, status: user.status },
+          after_data: { role, status: 'DELETED', history_retained: true },
+        });
+        return { id, changed: true };
+      },
+      { maxWait: 10000, timeout: 30000 },
+    );
   readonly visible_user = {
     deleted_at: null,
     status: { not: 'DELETED' as const },
@@ -30,6 +176,8 @@ export class AdminUserRepository {
     last_known_longitude: true,
     created_at: true,
     updated_at: true,
+    last_login_at: true,
+    last_admin_login_at: true,
   } satisfies Prisma.UserSelect;
 
   readonly list_admin_users = async (input: UserListInput) => {
@@ -79,6 +227,7 @@ export class AdminUserRepository {
     input: PersonalUpdateInput,
   ) =>
     this.prismaService.client.$transaction(async (tx) => {
+      await require_active_admin(tx, actor_id);
       const before = await tx.user.findFirst({
         where: { id, ...this.visible_user },
         select: this.detail_select,

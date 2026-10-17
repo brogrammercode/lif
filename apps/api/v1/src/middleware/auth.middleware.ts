@@ -22,6 +22,7 @@ export const require_auth: RequestHandler = async (request, response, next) => {
       select: {
         role: true,
         status: true,
+        deleted_at: true,
         sessions: auth.session_family_id
           ? {
               where: {
@@ -37,7 +38,7 @@ export const require_auth: RequestHandler = async (request, response, next) => {
     });
     if (!user)
       throw new AppError(401, 'INVALID_SESSION', SESSION_EXPIRED_MESSAGE);
-    if (user.status !== 'ACTIVE')
+    if (user.status !== 'ACTIVE' || user.deleted_at)
       throw new AppError(403, 'USER_INACTIVE', ACCOUNT_INACTIVE_MESSAGE);
     if (auth.session_family_id && !user.sessions?.length)
       throw new AppError(401, 'INVALID_SESSION', SESSION_EXPIRED_MESSAGE);

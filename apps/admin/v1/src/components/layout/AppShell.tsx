@@ -13,6 +13,7 @@ import { UsersProvider, useUsers } from "../../modules/users/UsersProvider";
 import { UsersNavigation } from "../../modules/users/UsersNavigation";
 import { USERS_PATH, personalPath } from "../../modules/users/users.constant";
 import { userName } from "../../modules/users/users.type";
+import { ADMIN_ACCESS_PATH } from "../../modules/admin-access/admin-access.constant";
 
 export function AppShell() {
   const usersSection = Boolean(useMatch("/users/*"));
@@ -26,6 +27,8 @@ export function AppShell() {
 function WorkspaceShell() {
   const { user } = useAuth();
   const usersSection = Boolean(useMatch("/users/*"));
+  const adminSection = Boolean(useMatch("/admin/*"));
+  const partnerSection = Boolean(useMatch("/partner-program/*"));
   const selectedId = useMatch("/users/:userId/*")?.params.userId;
   const { result } = useUsers();
   const selected = result?.users.find((item) => item.id === selectedId);
@@ -37,7 +40,9 @@ function WorkspaceShell() {
     [user.first_name, user.last_name].filter(Boolean).join(" ") ||
     "Administrator";
   return (
-    <div className={`workspace${usersSection ? " has-users" : ""}`}>
+    <div
+      className={`workspace${usersSection ? " has-users" : adminSection || partnerSection ? " has-admin" : ""}`}
+    >
       <a className="skip-link" href="#main-content">
         Skip to content
       </a>
@@ -62,6 +67,14 @@ function WorkspaceShell() {
             <Icon name="users" size={24} />
             <span>Users</span>
           </NavLink>
+          <NavLink to="/admin" className="primary-nav-item">
+            <Icon name="shield" size={24} />
+            <span>Admin</span>
+          </NavLink>
+          <NavLink to="/partner-program" className="primary-nav-item">
+            <Icon name="layers" size={24} />
+            <span>Partner program</span>
+          </NavLink>
         </nav>
         <div className="rail-account">
           <Avatar user={user} />
@@ -75,20 +88,59 @@ function WorkspaceShell() {
         </div>
       </aside>
       <aside
-        className={`secondary-rail${usersSection ? " users-rail" : ""}`}
-        aria-label={usersSection ? "User navigation" : "App navigation"}
+        className={`secondary-rail${usersSection ? " users-rail" : adminSection || partnerSection ? " admin-rail" : ""}`}
+        aria-label={
+          usersSection
+            ? "User navigation"
+            : partnerSection
+              ? "Partner program navigation"
+              : adminSection
+                ? "Admin navigation"
+                : "App navigation"
+        }
       >
         <div className="secondary-heading">
-          <span>{usersSection ? "Users" : "App"}</span>
+          <span>
+            {usersSection
+              ? "Users"
+              : partnerSection
+                ? "Partner program"
+                : adminSection
+                  ? "Admin"
+                  : "App"}
+          </span>
           <span className="tiny-tag">MANAGE</span>
         </div>
         <p className="secondary-caption">
           {usersSection
             ? "Find an account to manage."
-            : "Build a better experience."}
+            : partnerSection
+              ? "Configure partner onboarding."
+              : adminSection
+                ? "Manage your workspace access."
+                : "Build a better experience."}
         </p>
         {usersSection ? (
           <UsersNavigation />
+        ) : partnerSection ? (
+          <nav aria-label="Partner program navigation">
+            <NavLink
+              to="/partner-program/requirements"
+              className="secondary-nav-item"
+            >
+              <Icon name="layers" size={19} />
+              <span>Requirements</span>
+              <Icon name="chevronRight" size={14} />
+            </NavLink>
+          </nav>
+        ) : adminSection ? (
+          <nav aria-label="Admin navigation">
+            <NavLink to="/admin/access" className="secondary-nav-item">
+              <Icon name="shield" size={19} />
+              <span>Access</span>
+              <Icon name="chevronRight" size={14} />
+            </NavLink>
+          </nav>
         ) : (
           <nav aria-label="App navigation">
             <NavLink to="/app/user" className="secondary-nav-item">
@@ -109,7 +161,15 @@ function WorkspaceShell() {
       <div className="workspace-body">
         <header className="workspace-header">
           <div className="breadcrumbs">
-            <span>{usersSection ? "Users" : "App"}</span>
+            <span>
+              {usersSection
+                ? "Users"
+                : partnerSection
+                  ? "Partner program"
+                  : adminSection
+                    ? "Admin"
+                    : "App"}
+            </span>
             <Icon name="chevronRight" size={14} />
             <span
               className="text-ink truncate"
@@ -119,7 +179,11 @@ function WorkspaceShell() {
                 ? selected
                   ? userName(selected)
                   : selectedId || "Select a user"
-                : "User"}
+                : partnerSection
+                  ? "Requirements"
+                  : adminSection
+                    ? "Access"
+                    : "User"}
             </span>
           </div>
           <div className="header-account">
@@ -139,14 +203,39 @@ function WorkspaceShell() {
         </header>
         <nav
           className="page-tabs"
-          aria-label={usersSection ? "User details" : "User settings"}
+          aria-label={
+            usersSection
+              ? "User details"
+              : partnerSection
+                ? "Requirement settings"
+                : adminSection
+                  ? "Access settings"
+                  : "User settings"
+          }
         >
           {usersSection ? (
             <NavLink to={selectedId ? personalPath(selectedId) : USERS_PATH}>
               Personal
             </NavLink>
+          ) : partnerSection ? (
+            <>
+              <NavLink to="/partner-program/requirements/details">
+                Details
+              </NavLink>
+              <NavLink to="/partner-program/requirements/documents">
+                Documents
+              </NavLink>
+            </>
+          ) : adminSection ? (
+            <>
+              <NavLink to={ADMIN_ACCESS_PATH}>1More Admin</NavLink>
+              <NavLink to="/admin/access/activity">Audit log</NavLink>
+            </>
           ) : (
-            <NavLink to={WORKSPACE_PATH}>Vehicle Categories</NavLink>
+            <>
+              <NavLink to={WORKSPACE_PATH}>Vehicle Categories</NavLink>
+              <NavLink to="/app/user/vehicle-models">Vehicle Models</NavLink>
+            </>
           )}
         </nav>
         <main id="main-content" className="workspace-content">

@@ -75,7 +75,7 @@ Desktop rail 88px, white, right 1px border, full viewport height. Brand at top; 
 
 ### Secondary navigation
 
-Desktop width 208px, white with right border. In App, show header **App**, small explanatory label, and one **User** navigation entry. In Users, show header **Users** and the searchable account directory described below. Selected state is a rounded 8px pale amber row with semibold label. Selecting items preserves the shell. On small screens the Users directory remains accessible above the details.
+Desktop width 260px (224px at the intermediate desktop breakpoint), white with right border. In App, show header **App**, small explanatory label, and one **User** navigation entry. In Users, show header **Users** and the searchable account directory described below. Selected state is a rounded 8px pale amber row with semibold label. Selecting items preserves the shell. On small screens the Users directory remains accessible above the details.
 
 ### Workspace header and breadcrumbs
 
@@ -163,6 +163,8 @@ Gym-auth dark canvas `#080C10`, thin amber elliptical orbital lines, the One Mor
 
 ### Error boundary and not-found screen
 
+Workspace restoration failure automatically signs out and returns to the existing Google sign-in page. Do not show a blocking restoration error or Retry screen. Clear the authenticated view promptly while server logout cleanup runs; Google sign-in uses its existing pending/error states. Data-fetch failures inside an authenticated page retain their existing error and retry components.
+
 Reuse the feedback panel and primary button. Route errors provide a return-to-catalog action. Unexpected rendering errors provide Reload; they do not show tokens, stack traces or raw server messages.
 
 ## Responsive, accessibility and interaction rules
@@ -182,6 +184,81 @@ The first user detail tab is **Personal**, using the existing 44px tab strip. Th
 - Images are optional. Interactive content remains usable if images or fonts fail.
 - Google and API requests have timeouts and retry controls; authenticated data is never replaced by mock fixtures.
 
+### Admin navigation and access management
+
+The primary rail contains **App**, **Users**, and **Admin**. Admin uses the existing shield icon and the same muted/amber selected states. Its secondary rail contains **Access**, and the horizontal tab strip contains **1More Admin**. Breadcrumbs read **Admin / Access**. Below 1024px the Access rail becomes a compact context panel above the workspace; below 640px the three primary items remain in the top row with compact padding.
+
+The access page reuses the existing heading/action layout, with **Grant access** as its primary action. Three real statistics use the existing white bordered tiles: administrators, active accounts, and awaiting Google sign-in. Use three columns on desktop, two on tablet, and one on phones. The directory card reuses search, a native All/Active/Suspended select, Refresh, loading rows, errors, empty states and server pagination (20 per page). The table scrolls inside its card on narrow screens.
+
+Administrator rows use the shared 36px `Avatar`, name/email/ID, a pale amber **You** label for the signed-in account, Active/Suspended `Badge`, Google linkage, and recorded grant metadata. Long email addresses wrap inside a bounded cell. Legacy grants show **Existing access** and **Granted before access tracking**. Never fabricate grant dates or actors. Actions use the existing ghost button; self-removal is disabled and labeled **Your access**.
+
+Grant uses the small `Dialog`, a labeled Google account email `Field`, helper copy explaining immediate Google sign-in and no invitation email, and a gray bordered notice explaining full admin permissions. Removal uses the same dialog with the real account identity and a clear explanation that personal/ride data is retained and admin sessions end. Add the shared **danger** button variant for confirmed removal: red `#B91C1C`, white text, darker hover `#991B1B`, existing 8px radius and pending/disabled treatment. Ordinary primary actions stay amber.
+
+Saving disables the form and dialog dismissal, prevents repeated submissions, and shows the standard spinner. Errors retain the email input. A stale removal refreshes the directory and disables confirmation until the administrator closes and reselects the account. Successful grants/removals close the dialog, reload the directory, and announce a truthful shared `Toast`. Requests are canceled on page departure. Every control has an accessible name; tables have column headings and an accessible caption, and loading/results use a status live region.
+
+## Workspace expansion components
+
+### Navigation and audit tab
+
+Add **Partner program** as the fourth primary item with the existing layers icon. Its secondary item is **Requirements**, with horizontal **Details** and **Documents** tabs. Admin / Access gains **Audit log** beside **1More Admin**. App / User gains **Vehicle Models** beside **Vehicle Categories**. Preserve the 1More logo, Gym typography, amber active states and rail geometry. Long primary labels wrap on desktop; compact phone navigation scrolls horizontally. Context rails remain visible above the content on tablets/phones.
+
+### Shared management search and pagination
+
+`ManagementToolbar` owns a shared `ManagementSearch`, grouped `FilterSelect` controls and the secondary Refresh button, always in that order. Search timing remains feature-specific: server searches debounce for 300 ms and cancel stale requests; the local category filter updates immediately. Every filter uses the same bordered `field` styling and height. `ManagementPagination` displays the actual server range, total and previous/next controls. A zero-result response differs from a loading or failed response. Tables scroll within their cards and include accessible captions and column headings.
+
+### Brand directory and model table
+
+Use two shared white bordered catalog panels: a 240–300px brand directory and a flexible model table. Stack below 1280px. Brand choices scroll within a bounded 480px region (250px when stacked), keeping model controls reachable. Each row uses the existing 42px category image tile, with contain-fit for logos, name, review state/model count and labeled edit icon. Selected brand uses pale amber with `aria-pressed`; All brands clears the scope. The model card has independent search, Requested/Verified/Rejected filtering, pagination and Add model, enabled after a brand is selected.
+
+Model rows display logo/name/brand, family/fuel, seats/years, review/requester metadata and Edit/Review. Missing or broken logos fall back to the vehicle icon. Disabled state is explicit. Pending requests never appear as verified choices.
+
+### Brand and model editors
+
+Reuse `Dialog`, `Field`, the two-column grid, `ImageUpload`, alerts and footer buttons. Brand fields: name, review status, country, HTTPS website, description, logo and enabled setting. Model fields: name, status, parent brand context, family, fuel, seats, optional year range, description, logo and enabled setting. Rejected status reveals a required reason. Both use local image preview and upload on submit; no image URL paste input is added. Show the real requester. Saving disables edits/dismissal, avoids duplicate submits and retains values on error; closing reloads current records after a conflict.
+
+### Requirement categories manager
+
+Open **Categories** from either Requirements tab. Reuse one modal surface with Add category and rows showing name, description, field count, order, status and Edit. Category editing replaces the manager modal. Fields are name, description, numeric order and active checkbox. Disabled categories remain editable with text status. An empty manager explains that a category is needed before adding fields. Return to the refreshed directory after save/cancel.
+
+### Dynamic requirement field editor
+
+One form and entity power both tabs. Short text / Long text / Number / Date / Yes-no appear in Details; File / Image / PDF appear in Documents. The heading has Categories and Add field; Add field requires an active category. Filters are search, category and active state. Rows show label/key, type, category, required/order/file rules, effective status and Edit. An inactive category is identified even if its field is enabled.
+
+The dialog contains label, stable key, category, type, help text, conditional placeholder, order, Required and Active. On creation the key follows the label until manually edited; after creation it is read-only. NUMBER reveals minimum/maximum; text types reveal maximum characters. Documents reveal a 1–20 MB size control and multiple-files checkbox. Generic File reveals extension checkboxes; Image/PDF display fixed accepted formats. Controls have labels, hints and browser/server validation. Changing type moves the saved field to its corresponding tab. This screen defines requirements; it does not ask admins to upload partner documents.
+
+### Checkboxes, extension choices and action groups
+
+Boolean settings use the existing amber `Switch` in a shared `SettingRow`, matching category visibility. Native 16px checkboxes are reserved for multi-select extension choices, with amber accent and an 8px label gap inside a bordered 8px fieldset with a visible legend. Generic files require at least one extension. Action groups wrap on narrow screens. Reuse existing buttons, badges, fields and icons.
+
+### Account deactivation and login metadata
+
+Append the same white bordered 12px personal card below Personal, aligned to the same content width. Use the existing red danger button for deactivation. Explain that access/sessions end while personal/ride history remains. Self-deactivation is disabled. The small danger confirmation names the real account and requires its email or ID; confirmation stays disabled until it matches. Errors preserve input and offer Reload latest details. Active rides must be finished/canceled first. Success returns to the refreshed directory.
+
+Personal displays read-only Last login and Last admin login; the admin directory displays Last admin login. Format real timestamps locally; unknown historical values say **Not recorded**.
+
+### Administrator audit history
+
+Admin Access also shows a **Login location** column beside Last admin login. Use the shared 12px cell title, 10px helper text and amber underlined map link. Browser-permitted location shows accuracy; IP lookup shows an explicitly approximate network location and ISP, with browser-reported IP origin identified. Missing historical data says Not recorded and explains that a new sign-in is needed. Keep the table's local horizontal scroll. The sign-in screen includes muted 11px copy explaining the native permission request and IP fallback, using its existing dark auth palette.
+
+Use the existing heading/card, shared search/refresh, outcome filter and pagination. Columns are time, real administrator identity, method/route, readable outcome/status code, and monospace request ID. Unknown actors on session failures are labeled unauthenticated session requests. Pending entries say In progress. Tokens and request bodies are excluded. Loading, failure and empty history remain distinct. Identities/request IDs wrap; the table scrolls locally on phones.
+
 ## Reuse requirements
+
+### Shared implementation contract
+
+All workspace pages use the existing category layout as their reference. The shared components below implement it; new feature modules must consume these components instead of adding alternative heading, panel, toolbar, pagination, loading or editor styles.
+
+| Component | Established design it owns | Consumers |
+| --- | --- | --- |
+| `PageHeading` | Eyebrow/context, 28px title, helper text and wrapping action row | Categories, models, requirements, admin access, audit, Personal |
+| `CatalogPanel` | White surface, 12px border radius, 24px header, section title/count, actions, local table overflow | All management directories and category manager |
+| `ManagementToolbar`, `ManagementSearch`, `FilterSelect` | Search → filters → refresh; bounded fields, common heights and responsive wrapping | All management directories |
+| `ManagementPagination` | Shared range and previous/next layout; one-based display | All management directories, adapting category's existing zero-based state |
+| `TableLoading` | Shared shimmer rows and accessible loading status | All management directories |
+| `EditorSection`, `SettingRow` | Category editor's numbered dividers, 18px form grid gaps and visibility switches | Brand/model, requirement/category editors |
+| `EntityImage` | Existing 42px category image tile, icon fallback, lazy image loading and logo contain-fit | Categories, brands and models |
+| `Badge` | Existing enabled/disabled geometry; shared pending and error variants | Configuration state, moderation, access, audit outcomes |
+
+Only the current tab uses amber text, heavier weight and an underline; inactive tabs use muted text with a transparent underline. Long tab/navigation labels scroll locally on narrow screens. Form errors, local upload previews, save behavior and validation stay with their existing feature logic. No separate `management-*` presentation system is used.
 
 Implement shared `Button`, `Icon`, `Field`, `ImageUpload`, `Badge`, `Switch`, `Dialog`, `StateCard`, `Toast`, `Avatar`, and shell components. The shared `useImageUpload` hook owns pending files, validation, blob preview URLs, removal, undo, and submit-time serialization. Feature pages consume them rather than reproducing class strings and interaction logic. Global colors/measurements belong in Tailwind theme/CSS variables; module copy and API paths belong in module constants. This document must be updated when a new shared component or a user-approved visual decision is introduced.

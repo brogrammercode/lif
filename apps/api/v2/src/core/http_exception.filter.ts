@@ -34,10 +34,17 @@ export class HttpExceptionFilter implements ExceptionFilter {
       typeof error === 'object' &&
       'type' in error &&
       error.type === 'entity.too.large';
+    const database_code =
+      error instanceof Prisma.PrismaClientKnownRequestError
+        ? error.code
+        : error instanceof Prisma.PrismaClientInitializationError
+          ? error.errorCode
+          : undefined;
     const database_error =
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      Object.hasOwn(HTTP_DATABASE_ERRORS, error.code)
-        ? HTTP_DATABASE_ERRORS[error.code as keyof typeof HTTP_DATABASE_ERRORS]
+      database_code && Object.hasOwn(HTTP_DATABASE_ERRORS, database_code)
+        ? HTTP_DATABASE_ERRORS[
+            database_code as keyof typeof HTTP_DATABASE_ERRORS
+          ]
         : undefined;
     const unsupported_encoding =
       error !== null &&
@@ -101,7 +108,16 @@ export class HttpExceptionFilter implements ExceptionFilter {
         error_code,
         message,
       });
-    else console.error({ request_id: request.request_id, error });
+    else
+      console.error({
+        request_id: request.request_id,
+        path: request.originalUrl,
+        status_code,
+        error_code,
+        error,
+      });
+    if (status_code === 503 && !response.headersSent)
+      response.setHeader('Retry-After', '3');
     if (!response.headersSent)
       response.status(status_code).json({
         status: 'error',

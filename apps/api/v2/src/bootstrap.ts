@@ -17,6 +17,10 @@ export const create_application = async (
     ...options,
   });
   app.disable(HTTP_CONFIG.POWERED_BY_HEADER);
+  app.set(
+    'trust proxy',
+    config.TRUSTED_PROXY_CIDRS.length ? config.TRUSTED_PROXY_CIDRS : false,
+  );
   app.use(helmet());
   app.enableCors({
     origin:

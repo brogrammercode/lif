@@ -53,6 +53,20 @@ Repositories own Prisma access. Mutations run in a transaction and write a `User
 
 ## Implemented endpoints
 
+### Administrator access
+
+The admin panel includes **Admin → Access → 1More Admin**. Active administrators can list, grant and remove full workspace access:
+
+```text
+GET    /api/v1/admin/access/1more-admin
+POST   /api/v1/admin/access/1more-admin
+DELETE /api/v1/admin/access/1more-admin/:id
+```
+
+Grant accepts `{ email }`. Removal accepts `{ expected_updated_at }`, restores the prior role and invalidates browser admin sessions. Self-removal and removing the last active administrator are blocked. Suspended/deleted and ambiguous duplicate-email accounts cannot receive grants. Apply `0004_admin_access` before starting the updated server. Existing grants remain intact. See [ADMIN_ACCESS_IMPLEMENTATION.md](../../../context/ADMIN_ACCESS_IMPLEMENTATION.md).
+
+Granting access provisions a normal user ID before Google is linked. First sign-in from Admin or the user app links the same record; later sign-ins keep its ID and saved profile. With `LIF_RUN_DB_TESTS=1`, `npm run test:identity` checks both sign-in orders, simultaneous sign-ins/registration, and rejected conflicting or inactive identities using temporary records in a test database. This suite is also included in `test:integration`.
+
 ### Authentication and user
 
 ```text

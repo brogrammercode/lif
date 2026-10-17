@@ -15,6 +15,8 @@ export type UserDetails = UserSummary & {
   last_known_longitude: number | null;
   created_at: string;
   updated_at: string;
+  last_login_at: string | null;
+  last_admin_login_at: string | null;
 };
 export type PersonalInput = Pick<
   UserDetails,

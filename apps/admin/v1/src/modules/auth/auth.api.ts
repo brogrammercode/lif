@@ -5,13 +5,15 @@ import {
   withBrowserSessionLock,
 } from "../../lib/session";
 import { AUTH_PATHS } from "./auth.constant";
+import { captureLoginLocation } from "./login-location";
 
 export async function signInWithGoogle(idToken: string) {
+  const browserLocation = await captureLoginLocation();
   return withBrowserSessionLock(async () => {
     const session = readBrowserSession(
       await apiRequest<unknown>(AUTH_PATHS.GOOGLE, {
         method: "POST",
-        data: { id_token: idToken },
+        data: { id_token: idToken, browser_location: browserLocation },
         anonymous: true,
       }),
     );

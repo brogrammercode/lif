@@ -39,6 +39,10 @@ const users = new Map([
   ],
 ]);
 const fake = {
+  adminActivity: {
+    create: async () => ({ id: randomUUID() }),
+    update: async () => ({}),
+  },
   user: {
     findUnique: async ({ where }: { where: { id: string } }) =>
       users.get(where.id) ?? null,
@@ -203,7 +207,7 @@ it('registers and protects every authenticated route on both URI versions', asyn
     path: string;
     guards: string[];
   }[];
-  assert.equal(routes.length, 76);
+  assert.equal(routes.length, 98);
   for (const version of ['1', '2'])
     for (const route of routes.filter((value) =>
       value.guards.includes('AuthGuard'),
@@ -525,6 +529,13 @@ it('returns safe client errors for missing records, foreign-key conflicts, and t
     ['P2025', 404, 'NOT_FOUND'],
     ['P2003', 409, 'REFERENCE_CONFLICT'],
     ['P2034', 409, 'TRANSACTION_CONFLICT'],
+    ['P1001', 503, 'DATABASE_UNAVAILABLE'],
+    ['P1002', 503, 'DATABASE_UNAVAILABLE'],
+    ['P1008', 503, 'DATABASE_UNAVAILABLE'],
+    ['P1017', 503, 'DATABASE_UNAVAILABLE'],
+    ['P2024', 503, 'DATABASE_BUSY'],
+    ['P2028', 503, 'DATABASE_BUSY'],
+    ['P2037', 503, 'DATABASE_BUSY'],
   ] as const) {
     mock.restoreAll();
     mock.method(app.get(RideService), 'get_rides', async () => {
@@ -538,8 +549,29 @@ it('returns safe client errors for missing records, foreign-key conflicts, and t
     });
     assert.equal(result.response.status, status, code);
     assert.equal(result.body.error_code, expected);
+    if (status === 503)
+      assert.equal(result.response.headers.get('retry-after'), '3');
     assert.ok(!JSON.stringify(result.body).includes('Private SQL diagnostics'));
   }
+});
+
+it('returns a safe service-unavailable response when Prisma cannot initialize a connection', async () => {
+  mock.method(app.get(RideService), 'get_rides', async () => {
+    throw new Prisma.PrismaClientInitializationError(
+      'Private connection diagnostics',
+      '6.19.3',
+      'P1001',
+    );
+  });
+  const result = await request('/api/v2/rides', {
+    headers: { Authorization: `Bearer ${token()}` },
+  });
+  assert.equal(result.response.status, 503);
+  assert.equal(result.body.error_code, 'DATABASE_UNAVAILABLE');
+  assert.equal(result.response.headers.get('retry-after'), '3');
+  assert.ok(
+    !JSON.stringify(result.body).includes('Private connection diagnostics'),
+  );
 });
 
 it('verifies webhook signatures against exact raw bytes', async () => {

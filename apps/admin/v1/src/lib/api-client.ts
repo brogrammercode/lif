@@ -1,15 +1,21 @@
 import {
   accessTokenExpiresSoon,
   clearSession,
+  endUnrestorableSession,
   getAccessToken,
   getSessionVersion,
+  isSessionRestoreBlocked,
   rememberAccessToken,
   withBrowserSessionLock,
 } from "./session";
 import type { BrowserSession } from "../types/domain";
-import { NETWORK_COPY, REQUEST_TIMEOUT_MS } from "./network.constant";
+import {
+  NETWORK_COPY,
+  REQUEST_TIMEOUT_MS,
+  SESSION_CLEANUP_TIMEOUT_MS,
+} from "./network.constant";
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || "/api/v2").replace(
   /\/$/,
   "",
 );
@@ -128,34 +134,48 @@ async function send<T>(
 
 let refreshing: Promise<BrowserSession | null> | null = null;
 export function restoreBrowserSession(): Promise<BrowserSession | null> {
+  if (isSessionRestoreBlocked()) return Promise.resolve(null);
   if (refreshing) return refreshing;
   const version = getSessionVersion();
   const result = withBrowserSessionLock(async () => {
-    if (version !== getSessionVersion()) return null;
-    return readBrowserSession(
-      await send<unknown>("/admin/auth/refresh", {
-        method: "POST",
-        anonymous: true,
-      }),
-    );
+    if (version !== getSessionVersion() || isSessionRestoreBlocked())
+      return null;
+    try {
+      return readBrowserSession(
+        await send<unknown>("/admin/auth/refresh", {
+          method: "POST",
+          anonymous: true,
+        }),
+      );
+    } catch {
+      if (version !== getSessionVersion()) return null;
+      endUnrestorableSession();
+      try {
+        await send("/admin/auth/logout", {
+          method: "POST",
+          anonymous: true,
+          timeoutMs: SESSION_CLEANUP_TIMEOUT_MS,
+        });
+      } catch {
+        // Local sign-out already completed; the API may be unavailable.
+      }
+      return null;
+    }
   });
   refreshing = result
     .then((session) => {
-      if (!session || version !== getSessionVersion()) return null;
+      if (
+        !session ||
+        version !== getSessionVersion() ||
+        isSessionRestoreBlocked()
+      )
+        return null;
       rememberAccessToken(session.access_token, session.user);
       return session;
     })
-    .catch((error: unknown) => {
-      if (
-        error instanceof ApiError &&
-        (error.status === 401 ||
-          error.code === "ADMIN_ACCESS_DENIED" ||
-          error.code === "USER_INACTIVE")
-      ) {
-        if (version === getSessionVersion()) clearSession(true);
-        return null;
-      }
-      throw error;
+    .catch(() => {
+      if (version === getSessionVersion()) endUnrestorableSession();
+      return null;
     })
     .finally(() => {
       refreshing = null;

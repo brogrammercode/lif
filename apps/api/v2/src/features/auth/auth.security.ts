@@ -18,7 +18,8 @@ export const verify_google_identity = async (
       audience,
     });
     const payload = ticket.getPayload();
-    if (!payload?.sub || !payload.email_verified)
+    const email = payload?.email?.trim().toLowerCase();
+    if (!payload?.sub || payload.email_verified !== true || !email)
       throw new Error('Verified Google account details are missing');
     const [first_name, ...last_name_parts] = (payload.name ?? '')
       .trim()
@@ -26,7 +27,7 @@ export const verify_google_identity = async (
       .filter(Boolean);
     return {
       provider_account_id: payload.sub,
-      provider_email: payload.email,
+      provider_email: email,
       first_name,
       last_name: last_name_parts.join(' ') || undefined,
       avatar_url: payload.picture,

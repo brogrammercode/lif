@@ -1,13 +1,16 @@
 # 1More API v2 — NestJS
 
-Standalone NestJS 12 implementation of the existing API: 13 feature modules, 76 method/path combinations, injected services/repositories, and the existing Prisma/PostgreSQL model. See [route-manifest.json](./route-manifest.json) for every route and its guards/idempotency policy.
+Standalone NestJS 12 implementation: 16 feature modules, 98 method/path combinations, injected services/repositories, and Prisma/PostgreSQL persistence. See [route-manifest.json](./route-manifest.json) for every route and its guards/idempotency policy.
 
 ## Start
+
+For Vercel, use this folder as the API project's root; `vercel.json` selects NestJS. See [VERCEL_DEPLOYMENT.md](../../../context/VERCEL_DEPLOYMENT.md) for project roots, environment settings, admin API routing and platform limits. API `npm run build` now runs Prisma generation and schema push before Nest compilation; use `npm run build:compile` for compilation without database writes.
 
 Requires Node.js 24 or newer. Run from `apps/api/v2`:
 
 ```powershell
 npm ci
+npm run prisma:deploy
 npm run prisma:generate
 npm run dev
 ```
@@ -63,6 +66,9 @@ Controllers are registered with Nest modules. Services and repositories receive 
 | Health | Database connectivity status |
 | Auth | Verified Google mobile login, rotating refresh tokens, current user, logout |
 | Admin auth | Google administrator sign-in, browser cookies, refresh families, logout |
+| Admin access | Searchable administrator directory, Google-email grants, audited removal and role restoration |
+| Vehicle catalog | Brands/models, deferred WebP logo uploads, driver requests and admin moderation |
+| Partner requirements | Shared dynamic categories and typed Detail/Document field definitions |
 | Admin users | Search/pagination, personal details, edit conflicts, unique phone validation |
 | Admin | Driver verification and ride offers |
 | User | Profile/avatar/location, saved places, notifications |
@@ -91,15 +97,27 @@ Fare components use decimal arithmetic and round half-up to two decimal places. 
 
 ## Database and configuration
 
-The schema and three committed migrations are copied from V1 without schema changes or a database reset. The local `.env` points to the same database and integrations as V1, so both processes see the same users, roles, categories, sessions and rides. Creating this package does not provision accounts, seed records, or apply migrations. Keep migration histories synchronized while both implementations are maintained; use V2 as the canonical schema after client cutover.
+V1 and V2 share the same schema and four committed migrations. Migration `0004_admin_access` adds durable grant/revocation metadata and the previous role used when removing administrator access. Existing administrator roles are retained. The local `.env` points to the same database and integrations as V1, so both processes see the same users, roles, categories, sessions and rides. Keep migration histories synchronized while both implementations are maintained; use V2 as the canonical schema after client cutover. For another environment, apply pending migrations with `npm run prisma:deploy` before starting the updated API.
 
 For an empty database, configure `DB_STRING` and deliberately apply the committed migrations using `npm run prisma:deploy`. `npm run prisma:seed` is optional development data. Docker Compose retains project name `api` to reuse the existing local PostgreSQL volume.
 
 Configuration retains `DB_STRING`, JWT settings, Google web/mobile client IDs, exact admin origins, routing URL, Cloudinary credentials, and payment webhook secret. See [.env.example](./.env.example). Cloudinary secrets and database credentials stay on the API server. The existing admin grant command is available as `npm run admin:grant -- --email you@example.com`; existing ADMIN accounts already work against the shared database.
 
+## Administrator access management
+
+The admin panel's **Admin → Access → 1More Admin** page uses these protected endpoints beneath `/api/v2` (or this server's `/api/v1` alias):
+
+| Method | Path | Behavior |
+| --- | --- | --- |
+| GET | `/admin/access/1more-admin` | Search/filter/page existing administrators and read overview counts |
+| POST | `/admin/access/1more-admin` | Grant access to `{ email }`, provisioning an account if needed |
+| DELETE | `/admin/access/1more-admin/:id` | Remove access with `{ expected_updated_at }` |
+
+Every endpoint requires a current active administrator. Grants reject suspended/deleted and ambiguous duplicate-email accounts. Removal rejects self-removal, protects the last active administrator, restores the previous role, and revokes browser session families. Access changes and browser sign-in/refresh coordinate with database advisory locks. The initial `admin:grant` command uses the same lock and metadata rules. See [ADMIN_ACCESS_IMPLEMENTATION.md](../../../context/ADMIN_ACCESS_IMPLEMENTATION.md).
+
 ## Point clients at V2
 
-For the admin web app, set `VITE_API_BASE_URL=http://localhost:4001/api/v2` in `apps/admin/v1/.env` and restart Vite. Keep that browser origin in `ADMIN_WEB_ORIGIN`. For a same-origin deployment, proxy `/api` to V2 and use `/api/v2` as the base URL. The current development proxy still targets port 4000; use the absolute URL above when running V2 on 4001.
+For the admin web app, use `VITE_API_BASE_URL=/api/v2` in `apps/admin/v1/.env`. Vite development and preview proxy `/api` to V2 at `http://127.0.0.1:4001`. Keep the actual browser origin in `ADMIN_WEB_ORIGIN`. The relative URL keeps browser refresh cookies on the same origin when using either localhost or 127.0.0.1. Restart Vite after environment changes. For deployment, route `/api` to V2 through the admin host's reverse proxy. An absolute API URL is supported when deliberately configuring a separate same-site API host.
 
 For Flutter Android emulators, set `API_BASE_URL=http://10.0.2.2:4001/api/v2` in `apps/user/v1/.env` and restart the app. Physical devices use the development machine's LAN address instead of `10.0.2.2`. Existing clients can retain `/api/v1` while directing traffic to V2.
 
@@ -115,6 +133,8 @@ npm run test:unit
 
 The fast suite uses fixture secrets, a fake database for HTTP checks, mocked provider requests, and real Sharp image conversion. It checks environment validation, geocoding errors, nested IDs, compiled route metadata, both URL versions, access rules, cookies, request limits, pagination, idempotency, webhook signatures, and media handling.
 
+Google identity checks also cover verified, nonempty normalized emails. The focused `npm run test:identity` database suite (with `LIF_RUN_DB_TESTS=1`) verifies that grant, first admin sign-in, and mobile sign-in retain one user ID and one Google link. It covers both sign-in orders, concurrent registration, saved profiles, inactive/deleted accounts and conflicting identities. It is included in `test:integration`; all integration files run sequentially.
+
 Database integration checks are opt-in. Configure `DB_STRING` for a test database; the suite refuses database names without `test`. It creates uniquely named fixtures and removes them afterward.
 
 ```powershell
@@ -125,3 +145,17 @@ npm run test:integration
 The database suite covers personal edits and image persistence, identity binding, current admin permissions, refresh/logout races, driver location auditing, category hierarchy and conflicts, vehicle ownership, quote snapshots, ride assignment races, support/review ownership, concurrent driver ratings, payments, and signed webhooks including initial reference binding. Provider uploads are mocked; no image is sent to Cloudinary during these checks.
 
 See [API_V2_REVIEW.md](../../../context/API_V2_REVIEW.md) for review findings, results, and remaining verification limits.
+
+See [API_V2_PARITY_REVIEW.md](../../../context/API_V2_PARITY_REVIEW.md) for the subsequent V1 comparison, development proxy correction, database availability handling, final checks and the observed intermittent permission-test limitation.
+
+V2 supplies a 15-second PostgreSQL connection timeout when `DB_STRING` does not specify `connect_timeout`. Explicit connection settings are preserved. Known connection and pool/transaction availability failures return safe HTTP 503 responses with `DATABASE_UNAVAILABLE`/`DATABASE_BUSY` and a short Retry-After header; no write is retried automatically. Unexpected permission denials include actor ID/current role in server diagnostics, without credentials or bodies.
+
+## Admin workspace expansion
+
+Admin sign-in now records optional browser-permitted coordinates or an explicitly approximate IP/ISP location in the sign-in UserLog event. Admin Access exposes the latest snapshot; existing sessions need a fresh sign-in to populate it. External lookups are bounded, outside database transactions and do not prevent login on provider failure. If deployed behind a reverse proxy, configure `TRUSTED_PROXY_CIDRS` with its explicit peer IP/CIDR allowlist so request IP attribution uses only known proxies. See [ADMIN_LOGIN_LOCATION.md](../../../context/ADMIN_LOGIN_LOCATION.md).
+
+Migration 0005 adds brand/model moderation, shared partner requirement categories/fields, login timestamps and central admin activity records. Migration 0006 backfills login timestamps from retained authentication events. V2 is the only API package updated for this expansion; do not synchronize these new migrations into V1.
+
+Access removal uses `expected_access_version` from the directory, avoiding unrelated profile/location/login conflicts. Missing/already-removed access is idempotent. Users can be deactivated with confirmation while retaining history; sessions/devices are revoked and active rides block deactivation. Recognized admin requests are centrally audited alongside transactional business logs.
+
+See [ADMIN_EXPANSION_IMPLEMENTATION.md](../../../context/ADMIN_EXPANSION_IMPLEMENTATION.md) for all new endpoints, future driver proposal integration, dynamic field configuration, concurrency protections and audit/check limits. No automated tests were run for the expansion.

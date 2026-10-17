@@ -6,6 +6,14 @@ let mutationQueue: Promise<unknown> = Promise.resolve();
 export const SESSION_ENDED = "lif-admin-session-ended";
 export const SESSION_UPDATED = "lif-admin-session-updated";
 const SESSION_CHANNEL = "lif-admin-session";
+const RESTORE_BLOCKED_KEY = "onemore-admin-restore-blocked";
+export const isSessionRestoreBlocked = () => {
+  try {
+    return localStorage.getItem(RESTORE_BLOCKED_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
 const sessionChannel =
   typeof BroadcastChannel === "undefined"
     ? null
@@ -25,6 +33,11 @@ export function withBrowserSessionLock<T>(
   return result;
 }
 export const rememberAccessToken = (value: string, user?: AdminUser) => {
+  try {
+    localStorage.removeItem(RESTORE_BLOCKED_KEY);
+  } catch {
+    // Session credentials remain in memory when browser storage is unavailable.
+  }
   accessToken = value;
   if (user)
     window.dispatchEvent(new CustomEvent(SESSION_UPDATED, { detail: user }));
@@ -50,6 +63,14 @@ export const clearSession = (broadcast = false) => {
   sessionVersion++;
   window.dispatchEvent(new Event(SESSION_ENDED));
   if (broadcast) sessionChannel?.postMessage(SESSION_ENDED);
+};
+export const endUnrestorableSession = () => {
+  try {
+    localStorage.setItem(RESTORE_BLOCKED_KEY, "1");
+  } catch {
+    // Still end the current session if storage is blocked.
+  }
+  clearSession(true);
 };
 if (sessionChannel)
   sessionChannel.onmessage = (event: MessageEvent<unknown>) => {

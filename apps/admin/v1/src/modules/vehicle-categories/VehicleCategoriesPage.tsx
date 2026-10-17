@@ -1,3 +1,10 @@
+import { PageHeading } from "../../components/layout/PageHeading";
+import { CatalogPanel, TableLoading } from "../../components/ui/CatalogPanel";
+import {
+  ManagementToolbar,
+  FilterSelect,
+  ManagementPagination,
+} from "../../components/ui/ManagementControls";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -146,21 +153,17 @@ export function VehicleCategoriesPage() {
   };
   return (
     <div className="catalog-page">
-      <div className="page-heading">
-        <div>
-          <div className="page-eyebrow">
-            <span className="eyebrow">APP CONFIGURATION</span>
-            <span className="eyebrow-dot" />
-            <span className="text-xs text-muted">User experience</span>
-          </div>
-          <h1>{CATEGORY_COPY.TITLE}</h1>
-          <p>{CATEGORY_COPY.DESCRIPTION}</p>
-        </div>
+      <PageHeading
+        eyebrow="APP CONFIGURATION"
+        context="User experience"
+        title={CATEGORY_COPY.TITLE}
+        description={CATEGORY_COPY.DESCRIPTION}
+      >
         <Button onClick={() => setEditor({ category: null })}>
           <Icon name="plus" size={18} />
           Add category
         </Button>
-      </div>
+      </PageHeading>
       <section className="stats-grid" aria-label="Category overview">
         {stats.map((stat) => (
           <article className="stat-card" key={stat.label}>
@@ -179,52 +182,30 @@ export function VehicleCategoriesPage() {
           </article>
         ))}
       </section>
-      <section
-        className="catalog-card"
-        aria-labelledby="catalog-title"
-        aria-busy={loading}
-      >
-        <div className="catalog-card-header">
-          <div>
-            <h2 id="catalog-title">
-              Your ride catalog{" "}
-              <span className="count-tag">{categories.length}</span>
-            </h2>
-            <p>Organize your categories. Make every option count.</p>
-          </div>
+      <CatalogPanel
+        title="Your ride catalog"
+        description="Organize your categories. Make every option count."
+        count={categories.length}
+        busy={loading}
+        actions={
           <span className="catalog-live-label">
             <span className="h-1.5 w-1.5 rounded-full bg-brand" />
             Shared across 1More Admin
           </span>
-        </div>
-        <div className="catalog-toolbar">
-          <div className="search-field">
-            <Icon name="search" size={18} />
-            <input
-              aria-label="Search categories"
-              value={query}
-              placeholder="Search categories…"
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setPage(0);
-              }}
-            />
-            {query && (
-              <button
-                type="button"
-                aria-label="Clear search"
-                onClick={() => {
-                  setQuery("");
-                  setPage(0);
-                }}
-              >
-                <Icon name="close" size={16} />
-              </button>
-            )}
-          </div>
-          <select
-            className="field status-filter"
-            aria-label="Filter category status"
+        }
+      >
+        <ManagementToolbar
+          value={query}
+          onChange={(value) => {
+            setQuery(value);
+            setPage(0);
+          }}
+          placeholder="Search categories…"
+          refresh={() => void load()}
+          busy={loading}
+        >
+          <FilterSelect
+            label="Filter category status"
             value={status}
             onChange={(event) => {
               setStatus(event.target.value as CategoryStatus);
@@ -234,17 +215,8 @@ export function VehicleCategoriesPage() {
             <option value="all">All statuses</option>
             <option value="enabled">Enabled</option>
             <option value="disabled">Disabled</option>
-          </select>
-          <Button
-            variant="secondary"
-            busy={loading}
-            onClick={() => void load()}
-            aria-label="Refresh categories"
-          >
-            {!loading && <Icon name="refresh" size={16} />}
-            <span className="refresh-label">Refresh</span>
-          </Button>
-        </div>
+          </FilterSelect>
+        </ManagementToolbar>
         {error && loaded && (
           <div className="px-5 pb-4">
             <InlineError message={error} />
@@ -257,22 +229,7 @@ export function VehicleCategoriesPage() {
             </Button>
           </StateCard>
         ) : loading && !loaded ? (
-          <div
-            className="catalog-skeleton"
-            role="status"
-            aria-label="Loading categories"
-          >
-            {[0, 1, 2, 3, 4].map((index) => (
-              <div className="skeleton-row" key={index}>
-                <div className="skeleton h-11 w-11 rounded-lg" />
-                <div className="flex-1 space-y-2">
-                  <div className="skeleton h-3 w-32" />
-                  <div className="skeleton h-2 w-48" />
-                </div>
-                <div className="skeleton h-5 w-20" />
-              </div>
-            ))}
-          </div>
+          <TableLoading label="Loading categories" rows={5} />
         ) : categories.length === 0 ? (
           <StateCard
             title={CATEGORY_COPY.EMPTY}
@@ -296,6 +253,9 @@ export function VehicleCategoriesPage() {
           <>
             <div className="table-scroll">
               <table>
+                <caption className="sr-only">
+                  Vehicle categories, pricing and availability
+                </caption>
                 <thead>
                   <tr>
                     <th scope="col">Category</th>
@@ -305,7 +265,7 @@ export function VehicleCategoriesPage() {
                     <th scope="col">Per km</th>
                     <th scope="col">Per min</th>
                     <th scope="col">Status</th>
-                    <th scope="col">
+                    <th scope="col" className="col-actions">
                       <span className="sr-only">Actions</span>
                     </th>
                   </tr>
@@ -411,37 +371,18 @@ export function VehicleCategoriesPage() {
                 </tbody>
               </table>
             </div>
-            <div className="catalog-pagination">
-              <span>
-                Showing {currentPage * PAGE_SIZE + 1}–
-                {Math.min((currentPage + 1) * PAGE_SIZE, filtered.length)} of{" "}
-                {filtered.length} categories
-              </span>
-              <div>
-                <Button
-                  variant="secondary"
-                  disabled={currentPage === 0}
-                  aria-label="Previous page"
-                  onClick={() => setPage(currentPage - 1)}
-                >
-                  <Icon name="arrowLeft" size={16} />
-                </Button>
-                <span>
-                  {currentPage + 1} / {pageCount}
-                </span>
-                <Button
-                  variant="secondary"
-                  disabled={currentPage + 1 >= pageCount}
-                  aria-label="Next page"
-                  onClick={() => setPage(currentPage + 1)}
-                >
-                  <Icon name="arrowRight" size={16} />
-                </Button>
-              </div>
-            </div>
+            <ManagementPagination
+              data={{
+                total: filtered.length,
+                page: currentPage + 1,
+                page_size: PAGE_SIZE,
+              }}
+              disabled={loading}
+              onPage={(value) => setPage(value - 1)}
+            />
           </>
         )}
-      </section>
+      </CatalogPanel>
       <div className="catalog-note">
         <Icon name="shield" size={17} />
         <p>

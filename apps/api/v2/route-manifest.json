@@ -1,18 +1,178 @@
 [
   {
-    "feature": "admin",
-    "handler": "verification",
-    "method": "patch",
-    "path": "admin/drivers/:id/verification",
+    "feature": "vehicle_catalog",
+    "handler": "brands",
+    "method": "get",
+    "path": "admin/vehicle-brands",
     "guards": ["AuthGuard", "AdminGuard"],
     "idempotent": false
   },
   {
-    "feature": "admin",
-    "handler": "offer",
-    "method": "post",
-    "path": "admin/rides/:id/offers",
+    "feature": "vehicle_catalog",
+    "handler": "models",
+    "method": "get",
+    "path": "admin/vehicle-models",
     "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_catalog",
+    "handler": "create_brand",
+    "method": "post",
+    "path": "admin/vehicle-brands",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_catalog",
+    "handler": "update_brand",
+    "method": "patch",
+    "path": "admin/vehicle-brands/:id",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_catalog",
+    "handler": "create_model",
+    "method": "post",
+    "path": "admin/vehicle-models",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_catalog",
+    "handler": "update_model",
+    "method": "patch",
+    "path": "admin/vehicle-models/:id",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_catalog",
+    "handler": "brand_choices",
+    "method": "get",
+    "path": "vehicle-brands",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_catalog",
+    "handler": "model_choices",
+    "method": "get",
+    "path": "vehicle-models",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_catalog",
+    "handler": "request_brand",
+    "method": "post",
+    "path": "driver/vehicle-brands/requests",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_catalog",
+    "handler": "request_model",
+    "method": "post",
+    "path": "driver/vehicle-models/requests",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "partner_requirement",
+    "handler": "categories",
+    "method": "get",
+    "path": "admin/partner-program/requirement-categories",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "partner_requirement",
+    "handler": "create_category",
+    "method": "post",
+    "path": "admin/partner-program/requirement-categories",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "partner_requirement",
+    "handler": "update_category",
+    "method": "patch",
+    "path": "admin/partner-program/requirement-categories/:id",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "partner_requirement",
+    "handler": "fields",
+    "method": "get",
+    "path": "admin/partner-program/requirements",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "partner_requirement",
+    "handler": "create_field",
+    "method": "post",
+    "path": "admin/partner-program/requirements",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "partner_requirement",
+    "handler": "update_field",
+    "method": "patch",
+    "path": "admin/partner-program/requirements/:id",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "partner_requirement",
+    "handler": "public_fields",
+    "method": "get",
+    "path": "partner-program/requirements",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "admin_access",
+    "handler": "list",
+    "method": "get",
+    "path": "admin/access/1more-admin",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "admin_access",
+    "handler": "grant",
+    "method": "post",
+    "path": "admin/access/1more-admin",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "admin_access",
+    "handler": "revoke",
+    "method": "delete",
+    "path": "admin/access/1more-admin/:id",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "admin_activity",
+    "handler": "list",
+    "method": "get",
+    "path": "admin/activity",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "health",
+    "handler": "get_health",
+    "method": "get",
+    "path": "health",
+    "guards": [],
     "idempotent": false
   },
   {
@@ -49,6 +209,14 @@
   },
   {
     "feature": "admin_user",
+    "handler": "deactivate",
+    "method": "delete",
+    "path": "admin/users/:id",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "admin_user",
     "handler": "list",
     "method": "get",
     "path": "admin/users",
@@ -72,6 +240,22 @@
     "idempotent": false
   },
   {
+    "feature": "admin",
+    "handler": "verification",
+    "method": "patch",
+    "path": "admin/drivers/:id/verification",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "admin",
+    "handler": "offer",
+    "method": "post",
+    "path": "admin/rides/:id/offers",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
     "feature": "auth",
     "handler": "google_login",
     "method": "post",
@@ -89,18 +273,26 @@
   },
   {
     "feature": "auth",
-    "handler": "revoke",
-    "method": "post",
-    "path": "auth/logout",
-    "guards": [],
+    "handler": "current_user",
+    "method": "get",
+    "path": "auth/me",
+    "guards": ["AuthGuard"],
     "idempotent": false
   },
   {
     "feature": "auth",
     "handler": "current_user",
     "method": "get",
-    "path": "auth/me",
+    "path": "me",
     "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "auth",
+    "handler": "revoke",
+    "method": "post",
+    "path": "auth/logout",
+    "guards": [],
     "idempotent": false
   },
   {
@@ -225,30 +417,6 @@
   },
   {
     "feature": "emergency",
-    "handler": "create",
-    "method": "post",
-    "path": "emergency-contacts",
-    "guards": ["AuthGuard"],
-    "idempotent": false
-  },
-  {
-    "feature": "emergency",
-    "handler": "update",
-    "method": "patch",
-    "path": "emergency-contacts/:id",
-    "guards": ["AuthGuard"],
-    "idempotent": false
-  },
-  {
-    "feature": "emergency",
-    "handler": "remove",
-    "method": "delete",
-    "path": "emergency-contacts/:id",
-    "guards": ["AuthGuard"],
-    "idempotent": false
-  },
-  {
-    "feature": "emergency",
     "handler": "list",
     "method": "get",
     "path": "me/emergency-contacts",
@@ -259,6 +427,14 @@
     "feature": "emergency",
     "handler": "create",
     "method": "post",
+    "path": "emergency-contacts",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "emergency",
+    "handler": "create",
+    "method": "post",
     "path": "me/emergency-contacts",
     "guards": ["AuthGuard"],
     "idempotent": false
@@ -267,7 +443,23 @@
     "feature": "emergency",
     "handler": "update",
     "method": "patch",
+    "path": "emergency-contacts/:id",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "emergency",
+    "handler": "update",
+    "method": "patch",
     "path": "me/emergency-contacts/:id",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "emergency",
+    "handler": "remove",
+    "method": "delete",
+    "path": "emergency-contacts/:id",
     "guards": ["AuthGuard"],
     "idempotent": false
   },
@@ -304,42 +496,10 @@
     "idempotent": false
   },
   {
-    "feature": "health",
-    "handler": "get_health",
-    "method": "get",
-    "path": "health",
-    "guards": [],
-    "idempotent": false
-  },
-  {
-    "feature": "payment",
-    "handler": "webhook",
-    "method": "post",
-    "path": "payments/webhooks/:provider",
-    "guards": ["PaymentWebhookGuard"],
-    "idempotent": false
-  },
-  {
     "feature": "payment",
     "handler": "list",
     "method": "get",
     "path": "payment-methods",
-    "guards": ["AuthGuard"],
-    "idempotent": false
-  },
-  {
-    "feature": "payment",
-    "handler": "create",
-    "method": "post",
-    "path": "payment-methods",
-    "guards": ["AuthGuard"],
-    "idempotent": false
-  },
-  {
-    "feature": "payment",
-    "handler": "remove",
-    "method": "delete",
-    "path": "payment-methods/:id",
     "guards": ["AuthGuard"],
     "idempotent": false
   },
@@ -355,7 +515,23 @@
     "feature": "payment",
     "handler": "create",
     "method": "post",
+    "path": "payment-methods",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "payment",
+    "handler": "create",
+    "method": "post",
     "path": "me/payment-methods/setup",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "payment",
+    "handler": "remove",
+    "method": "delete",
+    "path": "payment-methods/:id",
     "guards": ["AuthGuard"],
     "idempotent": false
   },
@@ -385,10 +561,50 @@
   },
   {
     "feature": "payment",
+    "handler": "webhook",
+    "method": "post",
+    "path": "payments/webhooks/:provider",
+    "guards": ["PaymentWebhookGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "payment",
     "handler": "receipt",
     "method": "get",
     "path": "rides/:id/receipt",
     "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_category",
+    "handler": "catalog",
+    "method": "get",
+    "path": "vehicle-categories",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_category",
+    "handler": "admin_catalog",
+    "method": "get",
+    "path": "admin/vehicle-categories",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_category",
+    "handler": "create",
+    "method": "post",
+    "path": "admin/vehicle-categories",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_category",
+    "handler": "update",
+    "method": "patch",
+    "path": "admin/vehicle-categories/:id",
+    "guards": ["AuthGuard", "AdminGuard"],
     "idempotent": false
   },
   {
@@ -473,14 +689,6 @@
   },
   {
     "feature": "support",
-    "handler": "create",
-    "method": "post",
-    "path": "support/tickets",
-    "guards": ["AuthGuard"],
-    "idempotent": true
-  },
-  {
-    "feature": "support",
     "handler": "detail",
     "method": "get",
     "path": "support/tickets/:id",
@@ -489,17 +697,17 @@
   },
   {
     "feature": "support",
+    "handler": "create",
+    "method": "post",
+    "path": "support/tickets",
+    "guards": ["AuthGuard"],
+    "idempotent": true
+  },
+  {
+    "feature": "support",
     "handler": "message",
     "method": "post",
     "path": "support/tickets/:id/messages",
-    "guards": ["AuthGuard"],
-    "idempotent": false
-  },
-  {
-    "feature": "auth",
-    "handler": "current_user",
-    "method": "get",
-    "path": "me",
     "guards": ["AuthGuard"],
     "idempotent": false
   },
@@ -513,17 +721,17 @@
   },
   {
     "feature": "user",
-    "handler": "update_location",
-    "method": "patch",
-    "path": "me/location",
+    "handler": "update_avatar",
+    "method": "post",
+    "path": "me/avatar",
     "guards": ["AuthGuard"],
     "idempotent": false
   },
   {
     "feature": "user",
-    "handler": "update_avatar",
-    "method": "post",
-    "path": "me/avatar",
+    "handler": "update_location",
+    "method": "patch",
+    "path": "me/location",
     "guards": ["AuthGuard"],
     "idempotent": false
   },
@@ -573,38 +781,6 @@
     "method": "post",
     "path": "me/notifications/:id/read",
     "guards": ["AuthGuard"],
-    "idempotent": false
-  },
-  {
-    "feature": "vehicle_category",
-    "handler": "catalog",
-    "method": "get",
-    "path": "vehicle-categories",
-    "guards": ["AuthGuard"],
-    "idempotent": false
-  },
-  {
-    "feature": "vehicle_category",
-    "handler": "admin_catalog",
-    "method": "get",
-    "path": "admin/vehicle-categories",
-    "guards": ["AuthGuard", "AdminGuard"],
-    "idempotent": false
-  },
-  {
-    "feature": "vehicle_category",
-    "handler": "create",
-    "method": "post",
-    "path": "admin/vehicle-categories",
-    "guards": ["AuthGuard", "AdminGuard"],
-    "idempotent": false
-  },
-  {
-    "feature": "vehicle_category",
-    "handler": "update",
-    "method": "patch",
-    "path": "admin/vehicle-categories/:id",
-    "guards": ["AuthGuard", "AdminGuard"],
     "idempotent": false
   }
 ]

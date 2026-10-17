@@ -1,5 +1,8 @@
 import { Module } from '@nestjs/common';
+import { VehicleCatalogModule } from './features/vehicle_catalog/vehicle_catalog.module.js';
+import { PartnerRequirementModule } from './features/partner_requirement/partner_requirement.module.js';
 import { CoreModule } from './core/core.module.js';
+import { AdminAccessModule } from './features/admin_access/admin_access.module.js';
 import { AdminModule } from './features/admin/admin.module.js';
 import { AdminAuthModule } from './features/admin_auth/admin_auth.module.js';
 import { AdminUserModule } from './features/admin_user/admin_user.module.js';
@@ -15,7 +18,10 @@ import { UserModule } from './features/user/user.module.js';
 import { VehicleCategoryModule } from './features/vehicle_category/vehicle_category.module.js';
 @Module({
   imports: [
+    VehicleCatalogModule,
+    PartnerRequirementModule,
     CoreModule,
+    AdminAccessModule,
     HealthModule,
     AdminAuthModule,
     AdminUserModule,

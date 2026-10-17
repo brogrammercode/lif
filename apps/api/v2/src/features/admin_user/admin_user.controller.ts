@@ -5,6 +5,7 @@ import {
   Res,
   Get,
   Patch,
+  Delete,
   UseGuards,
 } from '@nestjs/common';
 import { AdminUserRepository } from './admin_user.repo.js';
@@ -15,6 +16,7 @@ import type { Request, Response } from 'express';
 import { AppError } from '../../core/error.js';
 import { send_success } from '../../core/response.js';
 import { ADMIN_USER_MESSAGES } from './admin_user.constant.js';
+import { z } from 'zod';
 import {
   personal_update_schema,
   user_id_schema,
@@ -26,6 +28,29 @@ export class AdminUserController {
     private readonly adminUserRepository: AdminUserRepository,
     private readonly adminUserService: AdminUserService,
   ) {}
+  @Delete(ADMIN_USER_ROUTES.DETAIL)
+  @UseGuards(AuthGuard, AdminGuard)
+  async deactivate(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const input = z
+      .object({
+        expected_updated_at: z.iso.datetime(),
+        confirmation: z.string().trim().min(1).max(254),
+      })
+      .strict()
+      .parse(request.body);
+    return send_success(
+      response,
+      await this.adminUserRepository.deactivate_user(
+        request.auth!.user_id,
+        user_id_schema.parse(request.params.id),
+        input,
+      ),
+      'User deactivated; history retained',
+    );
+  }
   @Get(ADMIN_USER_ROUTES.LIST)
   @HttpCode(200)
   @UseGuards(AuthGuard, AdminGuard)

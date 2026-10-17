@@ -135,7 +135,7 @@ export function AuthPage() {
             {busy && (
               <div className="flex items-center justify-center gap-3 py-3">
                 <Icon name="spinner" className="animate-spin" />
-                <span>Verifying your account…</span>
+                <span>Signing you in…</span>
               </div>
             )}
             {loading && !busy && (
@@ -158,6 +158,11 @@ export function AuthPage() {
             </div>
           )}
           {error && <InlineError message={error} />}
+          <p className="auth-location-note">
+            At sign-in, we ask to record your browser location. If permission is
+            declined or unavailable, we use an approximate public IP location
+            for the login record.
+          </p>
           <div className="auth-access-note">
             <Icon name="shield" size={18} />
             <p>{AUTH_COPY.ACCESS_NOTE}</p>

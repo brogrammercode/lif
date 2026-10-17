@@ -33,9 +33,17 @@ export const resolve_external_user = async (
     if (input.provider_email) {
       const email = input.provider_email.trim().toLowerCase();
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(720047, hashtext(${email}))`;
-      const email_owner = await tx.user.findFirst({
+      const email_owners = await tx.user.findMany({
         where: { email: { equals: email, mode: 'insensitive' } },
+        take: 2,
       });
+      if (email_owners.length > 1)
+        throw new AppError(
+          409,
+          'IDENTITY_CONFLICT',
+          AUTH_IDENTITY_CONFLICT_MESSAGE,
+        );
+      const email_owner = email_owners[0];
       if (existing && email_owner && existing.id !== email_owner.id)
         throw new AppError(
           409,
@@ -55,14 +63,17 @@ export const resolve_external_user = async (
         existing = email_owner;
       }
     }
-    if (existing && existing.status !== 'ACTIVE')
+    if (existing && (existing.status !== 'ACTIVE' || existing.deleted_at))
       throw new AppError(403, 'USER_INACTIVE', AUTH_ACCOUNT_INACTIVE_MESSAGE);
-    const data = {
-      first_name: input.first_name,
-      last_name: input.last_name,
-      email: input.provider_email?.trim().toLowerCase(),
-      avatar_url: input.avatar_url,
-    };
+    const email = input.provider_email?.trim().toLowerCase();
+    const data = account
+      ? { email }
+      : {
+          first_name: existing?.first_name ?? input.first_name,
+          last_name: existing?.last_name ?? input.last_name,
+          email,
+          avatar_url: existing?.avatar_url ?? input.avatar_url,
+        };
     const user = existing
       ? await tx.user.update({
           where: { id: existing.id },
@@ -134,7 +145,8 @@ export const rotate_mobile_session = async (
         session.family_id ||
         session.revoked_at ||
         session.expires_at.getTime() <= Date.now() ||
-        session.user.status !== 'ACTIVE'
+        session.user.status !== 'ACTIVE' ||
+        session.user.deleted_at
       )
         return null;
       const claimed = await tx.session.updateMany({

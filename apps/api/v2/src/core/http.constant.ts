@@ -10,7 +10,7 @@ export const HTTP_CONFIG = {
   BODY_LIMIT: '1mb',
   IMAGE_BODY_LIMIT: '8mb',
   IMAGE_FORM_PATH:
-    /^\/api\/v[12]\/admin\/(?:vehicle-categories|users)(?:\/[^/]+)?\/?$/i,
+    /^\/api\/v[12]\/(?:admin\/(?:vehicle-categories|users|vehicle-brands|vehicle-models)(?:\/[^/]+)?|driver\/vehicle-(?:brands|models)\/requests)\/?$/i,
   IMAGE_METHODS: ['POST', 'PATCH'],
   REQUEST_ID_HEADER: 'X-Request-ID',
   CACHE_CONTROL_HEADER: 'Cache-Control',
@@ -25,6 +25,52 @@ export const HTTP_CONFIG = {
   ROUTE_PARAMETER_PATTERN: /:([A-Za-z_][A-Za-z0-9_]*)/g,
 } as const;
 export const HTTP_DATABASE_ERRORS = {
+  P1000: {
+    status_code: 503,
+    error_code: 'DATABASE_UNAVAILABLE',
+    message:
+      'The database is temporarily unavailable. Please try again shortly.',
+  },
+  P1001: {
+    status_code: 503,
+    error_code: 'DATABASE_UNAVAILABLE',
+    message:
+      'The database is temporarily unavailable. Please try again shortly.',
+  },
+  P1002: {
+    status_code: 503,
+    error_code: 'DATABASE_UNAVAILABLE',
+    message:
+      'The database is temporarily unavailable. Please try again shortly.',
+  },
+  P1008: {
+    status_code: 503,
+    error_code: 'DATABASE_UNAVAILABLE',
+    message:
+      'The database is temporarily unavailable. Please try again shortly.',
+  },
+  P1017: {
+    status_code: 503,
+    error_code: 'DATABASE_UNAVAILABLE',
+    message:
+      'The database is temporarily unavailable. Please try again shortly.',
+  },
+  P2024: {
+    status_code: 503,
+    error_code: 'DATABASE_BUSY',
+    message: 'The database is busy. Please try again shortly.',
+  },
+  P2028: {
+    status_code: 503,
+    error_code: 'DATABASE_BUSY',
+    message:
+      'The database transaction could not finish. Please try again shortly.',
+  },
+  P2037: {
+    status_code: 503,
+    error_code: 'DATABASE_BUSY',
+    message: 'The database is busy. Please try again shortly.',
+  },
   P2002: {
     status_code: 409,
     error_code: 'RECORD_EXISTS',
@@ -66,4 +112,5 @@ export const HTTP_ERROR_CODES = {
   415: 'UNSUPPORTED_MEDIA_TYPE',
   422: 'VALIDATION_ERROR',
   429: 'RATE_LIMITED',
+  503: 'SERVICE_UNAVAILABLE',
 } as const;

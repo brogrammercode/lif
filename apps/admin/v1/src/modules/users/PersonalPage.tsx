@@ -6,6 +6,7 @@ import {
   type FormEvent,
 } from "react";
 import { useParams } from "react-router-dom";
+import { PageHeading } from "../../components/layout/PageHeading";
 import { InlineError, StateCard } from "../../components/feedback/StateCard";
 import { Toast } from "../../components/feedback/Toast";
 import { Avatar } from "../../components/ui/Avatar";
@@ -18,6 +19,7 @@ import { userName, type PersonalInput, type UserDetails } from "./users.type";
 import { useAuth } from "../auth/AuthProvider";
 import { ImageUpload } from "../../components/ui/ImageUpload";
 import { useImageUpload } from "../../lib/useImageUpload";
+import { DeactivateUser } from "./DeactivateUser";
 
 export function PersonalPage() {
   const { userId } = useParams<{ userId: string }>();
@@ -74,7 +76,7 @@ function UserPersonal({ id }: { id: string }) {
       </StateCard>
     );
   return (
-    <>
+    <div className="personal-page">
       <PersonalForm
         key={`${user.id}:${user.updated_at}`}
         user={user}
@@ -87,8 +89,12 @@ function UserPersonal({ id }: { id: string }) {
           setRevision((value) => value + 1);
         }}
       />
+      <DeactivateUser
+        user={user}
+        onReload={() => setRevision((value) => value + 1)}
+      />
       {toast && <Toast message={toast} onDismiss={dismissToast} />}
-    </>
+    </div>
   );
 }
 
@@ -162,12 +168,12 @@ function PersonalForm({
   }
   return (
     <div className="personal-page">
-      <div className="page-heading">
-        <div>
-          <span className="eyebrow text-brand">USER DETAILS</span>
-          <h1>Personal</h1>
-          <p>View and update {userName(user)}’s personal details.</p>
-        </div>
+      <PageHeading
+        eyebrow="USER DETAILS"
+        context="Account management"
+        title="Personal"
+        description={`View and update ${userName(user)}’s personal details.`}
+      >
         <div className="personal-identity">
           <Avatar user={{ ...user, avatar_url: image.preview }} />
           <div>
@@ -175,7 +181,7 @@ function PersonalForm({
             <span>{user.id}</span>
           </div>
         </div>
-      </div>
+      </PageHeading>
       <form className="personal-card" onSubmit={submit} aria-busy={busy}>
         {error && (
           <div className="mb-6">
@@ -265,6 +271,20 @@ function PersonalForm({
                 ["user-id", "User ID", user.id],
                 ["user-role", "Role", user.role],
                 ["user-status", "Status", user.status],
+                [
+                  "user-last-login",
+                  "Last login",
+                  user.last_login_at
+                    ? new Date(user.last_login_at).toLocaleString()
+                    : "Not recorded",
+                ],
+                [
+                  "user-last-admin-login",
+                  "Last admin login",
+                  user.last_admin_login_at
+                    ? new Date(user.last_admin_login_at).toLocaleString()
+                    : "Not recorded",
+                ],
                 [
                   "user-created",
                   "Created",

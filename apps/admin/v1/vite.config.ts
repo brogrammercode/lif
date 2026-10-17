@@ -6,7 +6,13 @@ const LOCAL_SERVER = {
   port: 5173,
   strictPort: true,
   headers: { "Cross-Origin-Opener-Policy": "same-origin-allow-popups" },
-  proxy: { "/api": { target: "http://localhost:4000", changeOrigin: false } },
+  proxy: {
+    "/api": {
+      target: "http://127.0.0.1:4001",
+      changeOrigin: false,
+      xfwd: true,
+    },
+  },
 };
 
 export default defineConfig({

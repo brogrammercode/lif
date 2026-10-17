@@ -7,38 +7,37 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { restoreBrowserSession, safeMessage } from "../../lib/api-client";
-import { SESSION_ENDED, SESSION_UPDATED } from "../../lib/session";
+import { restoreBrowserSession } from "../../lib/api-client";
+import {
+  endUnrestorableSession,
+  SESSION_ENDED,
+  SESSION_UPDATED,
+} from "../../lib/session";
 import type { AdminUser } from "../../types/domain";
 
 type AuthState = {
   user: AdminUser | null;
   ready: boolean;
-  error: string | null;
-  retry: () => void;
   setUser: (user: AdminUser) => void;
 };
 const AuthContext = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AdminUser | null>(null);
   const [ready, setReady] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const requestVersion = useRef(0);
   const authenticated = useCallback((value: AdminUser) => {
     requestVersion.current++;
     setUser(value);
-    setError(null);
     setReady(true);
   }, []);
   const restore = useCallback(async () => {
     const version = ++requestVersion.current;
-    setError(null);
     setReady(false);
     try {
       const session = await restoreBrowserSession();
       if (version === requestVersion.current) setUser(session?.user ?? null);
-    } catch (cause) {
-      if (version === requestVersion.current) setError(safeMessage(cause));
+    } catch {
+      if (version === requestVersion.current) endUnrestorableSession();
     } finally {
       if (version === requestVersion.current) setReady(true);
     }
@@ -48,7 +47,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const ended = () => {
       requestVersion.current++;
       setUser(null);
-      setError(null);
       setReady(true);
     };
     const updated = (event: Event) =>
@@ -66,8 +64,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         ready,
-        error,
-        retry: () => void restore(),
         setUser: authenticated,
       }}
     >

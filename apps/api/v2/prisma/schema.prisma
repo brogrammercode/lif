@@ -142,25 +142,35 @@ model User {
   last_known_latitude  Decimal?   @db.Decimal(9, 6)
   last_known_longitude Decimal?   @db.Decimal(9, 6)
   deleted_at           DateTime?  @db.Timestamptz(3)
+  last_login_at        DateTime?  @db.Timestamptz(3)
+  last_admin_login_at  DateTime?  @db.Timestamptz(3)
   created_at           DateTime   @default(now()) @db.Timestamptz(3)
   updated_at           DateTime   @updatedAt @db.Timestamptz(3)
 
-  auth_accounts        AuthAccount[]
-  sessions             Session[]
-  devices              Device[]
-  driver_profile       DriverProfile?
-  saved_places         SavedPlace[]
-  rider_rides          Ride[]             @relation("rider_rides")
-  reviews_given        Review[]           @relation("reviews_given")
-  reviews_received     Review[]           @relation("reviews_received")
-  payment_methods      PaymentMethod[]
-  notifications        Notification[]
-  support_tickets      SupportTicket[]
-  support_messages     SupportMessage[]   @relation("support_message_authors")
-  ride_events_as_actor RideEvent[]        @relation("ride_event_actors")
-  audit_logs           UserLog[]          @relation("user_log_actors")
-  emergency_contacts   EmergencyContact[]
-  idempotency_keys     IdempotencyKey[]
+  auth_accounts            AuthAccount[]
+  sessions                 Session[]
+  devices                  Device[]
+  driver_profile           DriverProfile?
+  saved_places             SavedPlace[]
+  rider_rides              Ride[]             @relation("rider_rides")
+  reviews_given            Review[]           @relation("reviews_given")
+  reviews_received         Review[]           @relation("reviews_received")
+  payment_methods          PaymentMethod[]
+  notifications            Notification[]
+  support_tickets          SupportTicket[]
+  support_messages         SupportMessage[]   @relation("support_message_authors")
+  ride_events_as_actor     RideEvent[]        @relation("ride_event_actors")
+  audit_logs               UserLog[]          @relation("user_log_actors")
+  emergency_contacts       EmergencyContact[]
+  idempotency_keys         IdempotencyKey[]
+  admin_access             AdminAccess?       @relation("admin_access_user")
+  admin_access_grants      AdminAccess[]      @relation("admin_access_granted_by")
+  admin_access_revocations AdminAccess[]      @relation("admin_access_revoked_by")
+  admin_activity           AdminActivity[]
+  brand_requests           VehicleBrand[]     @relation("brand_requester")
+  brand_reviews            VehicleBrand[]     @relation("brand_reviewer")
+  model_requests           VehicleModel[]     @relation("model_requester")
+  model_reviews            VehicleModel[]     @relation("model_reviewer")
 
   @@index([role, status])
   @@index([created_at])
@@ -659,4 +669,152 @@ model IdempotencyKey {
   @@index([user_id, expires_at])
   @@index([expires_at])
   @@map("idempotency_keys")
+}
+
+model AdminAccess {
+  id            String    @id @default(uuid())
+  user_id       String    @unique
+  previous_role UserRole
+  granted_by_id String?
+  granted_at    DateTime  @default(now()) @db.Timestamptz(3)
+  revoked_by_id String?
+  revoked_at    DateTime? @db.Timestamptz(3)
+  created_at    DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at    DateTime  @updatedAt @db.Timestamptz(3)
+
+  user       User  @relation("admin_access_user", fields: [user_id], references: [id], onDelete: Cascade)
+  granted_by User? @relation("admin_access_granted_by", fields: [granted_by_id], references: [id], onDelete: SetNull)
+  revoked_by User? @relation("admin_access_revoked_by", fields: [revoked_by_id], references: [id], onDelete: SetNull)
+
+  @@index([granted_by_id])
+  @@index([revoked_by_id])
+  @@map("admin_access")
+}
+
+enum CatalogStatus {
+  REQUESTED
+  VERIFIED
+  REJECTED
+}
+
+enum RequirementFieldType {
+  STRING
+  TEXT
+  NUMBER
+  DATE
+  BOOLEAN
+  FILE
+  IMAGE
+  PDF
+}
+
+model AdminActivity {
+  id           String    @id @default(uuid())
+  request_id   String    @unique
+  actor_id     String?
+  method       String
+  path         String
+  action       String
+  status_code  Int?
+  ip_address   String?
+  user_agent   String?
+  started_at   DateTime  @default(now()) @db.Timestamptz(3)
+  completed_at DateTime? @db.Timestamptz(3)
+  actor        User?     @relation(fields: [actor_id], references: [id], onDelete: SetNull)
+
+  @@index([actor_id, started_at])
+  @@index([started_at])
+  @@map("admin_activity")
+}
+
+model VehicleBrand {
+  id               String         @id @default(uuid())
+  name             String
+  normalized_name  String         @unique
+  description      String?
+  country          String?
+  website_url      String?
+  logo_url         String?
+  status           CatalogStatus  @default(VERIFIED)
+  is_active        Boolean        @default(true)
+  requested_by_id  String?
+  reviewed_by_id   String?
+  reviewed_at      DateTime?      @db.Timestamptz(3)
+  rejection_reason String?
+  created_at       DateTime       @default(now()) @db.Timestamptz(3)
+  updated_at       DateTime       @updatedAt @db.Timestamptz(3)
+  requested_by     User?          @relation("brand_requester", fields: [requested_by_id], references: [id], onDelete: SetNull)
+  reviewed_by      User?          @relation("brand_reviewer", fields: [reviewed_by_id], references: [id], onDelete: SetNull)
+  models           VehicleModel[]
+
+  @@index([status, is_active])
+  @@map("vehicle_brands")
+}
+
+model VehicleModel {
+  id               String        @id @default(uuid())
+  brand_id         String
+  name             String
+  normalized_name  String
+  description      String?
+  vehicle_type     VehicleType
+  fuel_type        String
+  seating_capacity Int
+  year_from        Int?
+  year_to          Int?
+  logo_url         String?
+  status           CatalogStatus @default(VERIFIED)
+  is_active        Boolean       @default(true)
+  requested_by_id  String?
+  reviewed_by_id   String?
+  reviewed_at      DateTime?     @db.Timestamptz(3)
+  rejection_reason String?
+  created_at       DateTime      @default(now()) @db.Timestamptz(3)
+  updated_at       DateTime      @updatedAt @db.Timestamptz(3)
+  brand            VehicleBrand  @relation(fields: [brand_id], references: [id], onDelete: Restrict)
+  requested_by     User?         @relation("model_requester", fields: [requested_by_id], references: [id], onDelete: SetNull)
+  reviewed_by      User?         @relation("model_reviewer", fields: [reviewed_by_id], references: [id], onDelete: SetNull)
+
+  @@unique([brand_id, normalized_name])
+  @@index([brand_id, status, is_active])
+  @@map("vehicle_models")
+}
+
+model RequirementCategory {
+  id              String               @id @default(uuid())
+  name            String
+  normalized_name String               @unique
+  description     String?
+  sort_order      Int                  @default(0)
+  is_active       Boolean              @default(true)
+  created_at      DateTime             @default(now()) @db.Timestamptz(3)
+  updated_at      DateTime             @updatedAt @db.Timestamptz(3)
+  fields          PartnerRequirement[]
+
+  @@map("requirement_categories")
+}
+
+model PartnerRequirement {
+  id                 String               @id @default(uuid())
+  category_id        String
+  key                String               @unique
+  label              String
+  field_type         RequirementFieldType
+  description        String?
+  placeholder        String?
+  is_required        Boolean              @default(true)
+  is_active          Boolean              @default(true)
+  sort_order         Int                  @default(0)
+  min_value          Float?
+  max_value          Float?
+  max_length         Int?
+  max_file_size_mb   Int?
+  allowed_extensions String[]             @default([])
+  allow_multiple     Boolean              @default(false)
+  created_at         DateTime             @default(now()) @db.Timestamptz(3)
+  updated_at         DateTime             @updatedAt @db.Timestamptz(3)
+  category           RequirementCategory  @relation(fields: [category_id], references: [id], onDelete: Restrict)
+
+  @@index([category_id, is_active, sort_order])
+  @@map("partner_requirements")
 }

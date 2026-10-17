@@ -47,7 +47,7 @@ async function mockWorkspace(page: Page, options: { empty?: boolean } = {}) {
       ];
   let expire = false;
   let refreshes = 0;
-  await page.route("**/api/v1/**", async (route) => {
+  await page.route("**/api/v2/**", async (route) => {
     const request = route.request();
     const endpoint = new URL(request.url()).pathname;
     const respond = (data: unknown, status = 200) =>
@@ -179,7 +179,7 @@ test("expired access token refreshes and retries without browser token storage",
 });
 
 test("unauthenticated direct route returns to login", async ({ page }) => {
-  await page.route("**/api/v1/admin/auth/refresh", (route) =>
+  await page.route("**/api/v2/admin/auth/refresh", (route) =>
     route.fulfill({
       status: 401,
       json: { status: "error", message: "Session ended" },
@@ -220,7 +220,7 @@ test("Google denial can be retried, successful login opens the workspace, and lo
     };
   });
   let attempts = 0;
-  await page.route("**/api/v1/**", (route) => {
+  await page.route("**/api/v2/**", (route) => {
     const endpoint = new URL(route.request().url()).pathname;
     if (endpoint.endsWith("/auth/google")) {
       attempts++;
@@ -315,7 +315,7 @@ test("catalog requests retain their timeout when cancellation is enabled", async
   await page.clock.install();
   await mockWorkspace(page);
   let pending = false;
-  await page.route("**/api/v1/admin/vehicle-categories", () => {
+  await page.route("**/api/v2/admin/vehicle-categories", () => {
     pending = true;
   });
   await page.goto(path);
@@ -332,7 +332,7 @@ test("a second unauthorized response ends the session after one retry", async ({
 }) => {
   await mockWorkspace(page);
   let calls = 0;
-  await page.route("**/api/v1/admin/vehicle-categories", (route) => {
+  await page.route("**/api/v2/admin/vehicle-categories", (route) => {
     calls++;
     return route.fulfill({
       status: 401,
@@ -374,7 +374,7 @@ test("successful saves keep hierarchy consistent if the follow-up refresh fails"
 }) => {
   await mockWorkspace(page);
   let saved = false;
-  await page.route("**/api/v1/admin/vehicle-categories", (route) => {
+  await page.route("**/api/v2/admin/vehicle-categories", (route) => {
     if (route.request().method() === "POST") saved = true;
     if (saved && route.request().method() === "GET")
       return route.fulfill({ status: 503, json: { status: "error" } });
@@ -401,7 +401,7 @@ test("rapid form submissions create a category once", async ({ page }) => {
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  await page.route("**/api/v1/admin/vehicle-categories", async (route) => {
+  await page.route("**/api/v2/admin/vehicle-categories", async (route) => {
     if (route.request().method() === "POST") {
       posts++;
       await gate;
@@ -429,7 +429,7 @@ test("conflicting edits offer a deliberate reload of server state", async ({
   page,
 }) => {
   await mockWorkspace(page);
-  await page.route("**/api/v1/admin/vehicle-categories/sedan", (route) =>
+  await page.route("**/api/v2/admin/vehicle-categories/sedan", (route) =>
     route.fulfill({
       status: 409,
       json: {
@@ -467,12 +467,12 @@ test("logout waits for an in-flight refresh and remains signed out", async ({
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  await page.route("**/api/v1/admin/auth/refresh", async (route) => {
+  await page.route("**/api/v2/admin/auth/refresh", async (route) => {
     refreshes++;
     if (refreshes > 1) await gate;
     return route.fallback();
   });
-  await page.route("**/api/v1/admin/auth/logout", (route) => {
+  await page.route("**/api/v2/admin/auth/logout", (route) => {
     logouts++;
     return route.fallback();
   });
@@ -501,7 +501,7 @@ test("malformed response envelopes produce a recoverable error", async ({
   page,
 }) => {
   await mockWorkspace(page);
-  await page.route("**/api/v1/admin/vehicle-categories", (route) =>
+  await page.route("**/api/v2/admin/vehicle-categories", (route) =>
     route.fulfill({ json: null }),
   );
   await page.goto(path);
@@ -513,7 +513,7 @@ test("malformed response envelopes produce a recoverable error", async ({
 
 test("invalid catalog records cannot crash the workspace", async ({ page }) => {
   await mockWorkspace(page);
-  await page.route("**/api/v1/admin/vehicle-categories", (route) =>
+  await page.route("**/api/v2/admin/vehicle-categories", (route) =>
     route.fulfill({ json: { status: "success", data: [{ id: "broken" }] } }),
   );
   await page.goto(path);
@@ -526,7 +526,7 @@ test("invalid catalog records cannot crash the workspace", async ({ page }) => {
 test("invalid session data never grants access to the workspace", async ({
   page,
 }) => {
-  await page.route("**/api/v1/admin/auth/refresh", (route) =>
+  await page.route("**/api/v2/admin/auth/refresh", (route) =>
     route.fulfill({
       json: {
         status: "success",
@@ -535,13 +535,9 @@ test("invalid session data never grants access to the workspace", async ({
     }),
   );
   await page.goto(path);
+  await expect(page).toHaveURL(/\/login$/);
   await expect(
-    page.getByRole("heading", { name: "Could not restore your workspace" }),
-  ).toBeVisible();
-  await expect(
-    page.getByText(
-      "1More Admin returned an unexpected response. Please try again.",
-    ),
+    page.getByRole("heading", { name: "Welcome to 1More Admin" }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Add category", exact: true }),
@@ -550,7 +546,7 @@ test("invalid session data never grants access to the workspace", async ({
 
 test("an inactive account ends the browser session", async ({ page }) => {
   await mockWorkspace(page);
-  await page.route("**/api/v1/admin/vehicle-categories", (route) =>
+  await page.route("**/api/v2/admin/vehicle-categories", (route) =>
     route.fulfill({
       status: 403,
       json: {

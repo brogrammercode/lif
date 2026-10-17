@@ -12,6 +12,9 @@
     "format": "prettier --write src tests *.ts *.json index.html",
     "format:check": "prettier --check src tests *.ts *.json index.html"
   },
+  "engines": {
+    "node": "24.x"
+  },
   "dependencies": {
     "lucide-react": "^1.58.0",
     "react": "^19.3.1",

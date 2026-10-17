@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { admin_access_router } from '../features/admin_access/admin_access.route.js';
 import { admin_router } from '../features/admin/admin.route.js';
 import { admin_user_router } from '../features/admin_user/admin_user.route.js';
 import { auth_router } from '../features/auth/auth.route.js';
@@ -15,6 +16,7 @@ import { vehicle_category_router } from '../features/vehicle_category/vehicle_ca
 
 export const api_router = Router();
 api_router.use(health_router);
+api_router.use(admin_access_router);
 api_router.use(admin_auth_router);
 api_router.use(vehicle_category_router);
 api_router.use(admin_user_router);

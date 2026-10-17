@@ -41,6 +41,8 @@ export class AuthController {
       identity,
       this.request_data(request),
     );
+    if (result.user.role === 'ADMIN' && typeof result.user.id === 'string')
+      request.admin_actor_id = result.user.id;
     return send_success(response, result, LOGIN_SUCCESS_MESSAGE);
   }
 
@@ -55,6 +57,8 @@ export class AuthController {
       input.refresh_token,
       this.request_data(request),
     );
+    if (result.user.role === 'ADMIN' && typeof result.user.id === 'string')
+      request.admin_actor_id = result.user.id;
     return send_success(response, result, REFRESH_SUCCESS_MESSAGE);
   }
 

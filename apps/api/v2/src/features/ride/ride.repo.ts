@@ -5,6 +5,7 @@ import { create_user_log } from '../../infra/database/user_log.js';
 import { DEFAULT_CURRENCY } from '../../core/constants.js';
 import { ROUTE_PROVIDER } from './ride.constant.js';
 import { AppError } from '../../core/error.js';
+import { require_active_account } from '../../infra/database/account_lifecycle.js';
 import { CATEGORY_MESSAGES } from '../vehicle_category/vehicle_category.constant.js';
 import type {
   CancelRideInput,
@@ -37,6 +38,7 @@ export class RideRepository {
   ) =>
     this.prismaService.client.$transaction(
       async (tx) => {
+        await require_active_account(tx, user_id);
         await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(720041)`;
         const available = await tx.vehicleCategory.findMany({
           where: {
@@ -129,6 +131,7 @@ export class RideRepository {
   readonly request_ride = async (user_id: string, input: CreateRideInput) =>
     this.prismaService.client.$transaction(
       async (tx) => {
+        await require_active_account(tx, user_id);
         await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(720041)`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720044, hashtext(${input.draft_ride_id}))`;
         const ride = await tx.ride.findFirst({

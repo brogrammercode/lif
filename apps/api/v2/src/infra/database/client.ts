@@ -1,7 +1,10 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import { DATABASE_TRANSACTION_OPTIONS } from '../../core/constants.js';
 import { prepare_entity_data } from './entity_id.js';
+import { config } from '../../core/config.js';
+import { database_connection_url } from './connection_url.js';
 const prisma_base = new PrismaClient({
+  datasourceUrl: database_connection_url(config.DB_STRING),
   transactionOptions: DATABASE_TRANSACTION_OPTIONS,
 });
 export const prisma = prisma_base.$extends(

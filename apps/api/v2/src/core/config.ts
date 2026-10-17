@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { z } from 'zod';
+import { isIP } from 'node:net';
 import {
   DEVELOPMENT_WEBHOOK_SECRET,
   EXAMPLE_JWT_SECRET,
@@ -47,6 +48,28 @@ const CONFIG_SCHEMA = z
       .default('15m'),
     REFRESH_TOKEN_DAYS: z.coerce.number().int().positive().default(30),
     CORS_ORIGIN: z.union([z.literal('*'), origin_list]).default('*'),
+    TRUSTED_PROXY_CIDRS: z
+      .string()
+      .trim()
+      .default('')
+      .transform((value) =>
+        value ? value.split(',').map((entry) => entry.trim()) : [],
+      )
+      .refine(
+        (entries) =>
+          entries.every((entry) => {
+            const [address, prefix, extra] = entry.split('/');
+            const version = isIP(address ?? '');
+            return (
+              version !== 0 &&
+              extra === undefined &&
+              (prefix === undefined ||
+                (/^\d+$/.test(prefix) &&
+                  Number(prefix) <= (version === 4 ? 32 : 128)))
+            );
+          }),
+        'TRUSTED_PROXY_CIDRS must contain explicit proxy IP addresses or CIDR subnets.',
+      ),
     GOOGLE_CLIENT_ID: z.string().default(''),
     GOOGLE_WEB_CLIENT_ID: z.string().default(''),
     CLOUDINARY_CLOUD_NAME: z

@@ -14,8 +14,9 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "tsx prisma/seed.ts",
     "admin:grant": "tsx src/scripts/grant_admin.ts",
-    "test:integration": "tsx --test src/tests/admin.integration.test.ts",
-    "test:unit": "tsx --test src/tests/geocode.test.ts src/tests/config.test.ts"
+    "test:integration": "tsx --test --test-concurrency=1 src/tests/admin.integration.test.ts src/tests/admin_identity.integration.test.ts",
+    "test:identity": "tsx --test src/tests/admin_identity.integration.test.ts",
+    "test:unit": "tsx --test src/tests/geocode.test.ts src/tests/config.test.ts src/tests/auth_identity.test.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",

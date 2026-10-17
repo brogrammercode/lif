@@ -19,7 +19,7 @@ import type { CookieOptions, Request, Response } from 'express';
 import { config } from '../../core/config.js';
 import { AppError } from '../../core/error.js';
 import { send_success } from '../../core/response.js';
-import { external_login_schema } from '../auth/auth.type.js';
+import { admin_login_schema } from './admin_auth.type.js';
 import {
   ADMIN_AUTH_MESSAGES,
   ADMIN_COOKIE,
@@ -72,12 +72,15 @@ export class AdminAuthController {
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ) {
+    const input = admin_login_schema.parse(request.body);
+    const session = await this.adminAuthService.login_admin(input.id_token, {
+      ...this.request_data(request),
+      browser_location: input.browser_location,
+    });
+    request.admin_actor_id = session.user.id;
     return this.browser_response(
       response,
-      await this.adminAuthService.login_admin(
-        external_login_schema.parse(request.body).id_token,
-        this.request_data(request),
-      ),
+      session,
       ADMIN_AUTH_MESSAGES.SIGNED_IN,
     );
   }
@@ -93,12 +96,14 @@ export class AdminAuthController {
       const token = this.refresh_cookie(request);
       if (!token)
         throw new AppError(401, 'INVALID_SESSION', ADMIN_AUTH_MESSAGES.EXPIRED);
+      const session = await this.adminAuthService.refresh_admin(
+        token,
+        this.request_data(request),
+      );
+      request.admin_actor_id = session.user.id;
       return this.browser_response(
         response,
-        await this.adminAuthService.refresh_admin(
-          token,
-          this.request_data(request),
-        ),
+        session,
         ADMIN_AUTH_MESSAGES.RESTORED,
       );
     } catch (error) {
@@ -116,7 +121,9 @@ export class AdminAuthController {
     @Res({ passthrough: true }) response: Response,
   ) {
     const token = this.refresh_cookie(request);
-    if (token) await this.adminAuthService.logout_admin(token);
+    if (token)
+      request.admin_actor_id =
+        (await this.adminAuthService.logout_admin(token)) ?? undefined;
     response.clearCookie(ADMIN_COOKIE, this.cookie_options);
     response.setHeader('Cache-Control', 'no-store');
     return send_success(response, null, ADMIN_AUTH_MESSAGES.SIGNED_OUT);

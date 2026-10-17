@@ -56,8 +56,8 @@ export const create_driver_profile = async (
       const profile = await tx.driverProfile.create({
         data: { user_id, license_number: input.license_number },
       });
-      await tx.user.update({
-        where: { id: user_id },
+      await tx.user.updateMany({
+        where: { id: user_id, role: 'RIDER' },
         data: { role: 'DRIVER' },
       });
       await create_user_log(tx, {

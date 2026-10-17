@@ -33,6 +33,7 @@ export class AuthGuard implements CanActivate {
       select: {
         role: true,
         status: true,
+        deleted_at: true,
         sessions: auth.session_family_id
           ? {
               where: {
@@ -48,7 +49,8 @@ export class AuthGuard implements CanActivate {
     });
     if (!user)
       throw new AppError(401, 'INVALID_SESSION', SESSION_EXPIRED_MESSAGE);
-    if (user.status !== 'ACTIVE')
+    if (user.role === 'ADMIN') request.admin_actor_id = auth.user_id;
+    if (user.status !== 'ACTIVE' || user.deleted_at)
       throw new AppError(403, 'USER_INACTIVE', ACCOUNT_INACTIVE_MESSAGE);
     if (auth.session_family_id && !user.sessions?.length)
       throw new AppError(401, 'INVALID_SESSION', SESSION_EXPIRED_MESSAGE);
@@ -63,12 +65,22 @@ export class AdminGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<Request>();
     if (!request.auth)
       throw new AppError(401, 'UNAUTHORIZED', ADMIN_AUTH_MESSAGES.EXPIRED);
-    if (request.auth.role !== 'ADMIN')
+    if (request.auth.role !== 'ADMIN') {
+      console.warn({
+        request_id: request.request_id,
+        admin_access_denied: {
+          user_id: request.auth.user_id,
+          current_role: request.auth.role,
+          method: request.method,
+          path: request.path,
+        },
+      });
       throw new AppError(
         403,
         'ADMIN_ACCESS_DENIED',
         ADMIN_AUTH_MESSAGES.DENIED,
       );
+    }
     return true;
   }
 }

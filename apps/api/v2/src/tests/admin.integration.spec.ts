@@ -19,6 +19,7 @@ import { RideRepository } from '../features/ride/ride.repo.js';
 const { create_quote, request_ride } = new RideRepository(new PrismaService());
 import { config } from '../core/config.js';
 import { AuthRepository } from '../features/auth/auth.repo.js';
+import { OAuth2Client } from 'google-auth-library';
 const { resolve_external_user } = new AuthRepository(new PrismaService());
 
 describe(
@@ -67,9 +68,31 @@ describe(
         },
         body: data ? JSON.stringify(data) : undefined,
       });
+      const body = (await response.json()) as {
+        data: any;
+        error_code?: string;
+      };
+      if (
+        response.status === 403 &&
+        token === admin_token &&
+        body.error_code === 'ADMIN_ACCESS_DENIED'
+      ) {
+        const actor = await prisma.user.findUnique({
+          where: { id: admin_id },
+          select: { role: true, status: true },
+        });
+        console.warn({
+          integration_permission_failure: {
+            path,
+            method,
+            actor,
+            request_id: response.headers.get('x-request-id'),
+          },
+        });
+      }
       return {
         response,
-        body: (await response.json()) as { data: any; error_code?: string },
+        body,
       };
     };
     before(async () => {
@@ -154,6 +177,81 @@ describe(
       await prisma.$disconnect();
     });
     afterEach(() => mock.restoreAll());
+
+    it('issues and refreshes a browser session through verified Google login on both API prefixes', async () => {
+      const email = `${prefix}-browser-login@example.test`;
+      const granted = await request(
+        '/admin/access/1more-admin',
+        admin_token,
+        'POST',
+        { email },
+      );
+      assert.equal(granted.response.status, 200);
+      const id = granted.body.data.admin.id as string;
+      extra_user_ids.push(id);
+      mock.method(OAuth2Client.prototype, 'verifyIdToken', async () => ({
+        getPayload: () => ({
+          sub: `${prefix}-browser-google`,
+          email_verified: true,
+          email,
+          name: 'Browser Admin',
+        }),
+      }));
+      for (const version of ['v1', 'v2']) {
+        const browserBase = base.replace('/api/v2', `/api/${version}`);
+        const login = await fetch(`${browserBase}/admin/auth/google`, {
+          method: 'POST',
+          headers: { Origin: origin, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id_token: 'verified-google-fixture-token' }),
+        });
+        assert.equal(login.status, 200);
+        const loginBody = (await login.json()) as {
+          data: {
+            access_token: string;
+            user: { id: string; first_name: string };
+          };
+        };
+        assert.equal(loginBody.data.user.id, id);
+        assert.equal(loginBody.data.user.first_name, 'Browser');
+        assert.ok(loginBody.data.access_token);
+        assert.equal(login.headers.get('cache-control'), 'no-store');
+        const cookie = login.headers.get('set-cookie') ?? '';
+        assert.ok(cookie.startsWith(`${ADMIN_COOKIE}=`));
+        assert.ok(
+          cookie.includes('HttpOnly') &&
+            cookie.includes('SameSite=Strict') &&
+            cookie.includes('Path=/api'),
+        );
+        const refreshed = await fetch(`${browserBase}/admin/auth/refresh`, {
+          method: 'POST',
+          headers: { Origin: origin, Cookie: cookie.split(';')[0]! },
+        });
+        assert.equal(refreshed.status, 200);
+        const refreshBody = (await refreshed.json()) as {
+          data: { user: { id: string } };
+        };
+        assert.equal(refreshBody.data.user.id, id);
+        const rotatedCookie = (refreshed.headers.get('set-cookie') ?? '').split(
+          ';',
+        )[0]!;
+        const logout = await fetch(`${browserBase}/admin/auth/logout`, {
+          method: 'POST',
+          headers: { Origin: origin, Cookie: rotatedCookie },
+        });
+        assert.equal(logout.status, 200);
+        const ended = await fetch(`${browserBase}/admin/auth/refresh`, {
+          method: 'POST',
+          headers: { Origin: origin, Cookie: rotatedCookie },
+        });
+        assert.equal(ended.status, 401);
+      }
+      assert.equal(
+        await prisma.authAccount.count({
+          where: { user_id: id, provider: 'GOOGLE' },
+        }),
+        1,
+      );
+    });
 
     it('maintains driver rating counts and rounded averages across concurrent reviews', async () => {
       const user = await prisma.user.create({

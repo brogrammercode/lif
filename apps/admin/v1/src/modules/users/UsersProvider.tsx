@@ -37,6 +37,12 @@ export function UsersProvider({
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     if (!active) return;
+    const refresh = () => setRevision((value) => value + 1);
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [active]);
+  useEffect(() => {
+    if (!active) return;
     const controller = new AbortController();
     setLoading(true);
     setError(null);
