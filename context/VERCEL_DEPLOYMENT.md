@@ -11,6 +11,8 @@ Import this repository as **two separate Vercel projects**:
 
 Both roots have `vercel.json`, an npm lockfile and `npm ci` installation. Gym's configurations were reviewed. API V2 uses Vercel's native NestJS support and existing `src/main.ts`, adapting Gym's single-entry API approach. Admin uses Gym's SPA fallback pattern and preserves the local Google popup header.
 
+The API install command is `npm ci --include=dev`: Nest CLI, TypeScript and Prisma CLI are build dependencies. This explicitly includes them even with `NODE_ENV=production` or an npm omit setting. Keep the API Root Directory set to `apps/api/v2` so Vercel reads this configuration. If a previous deployment failed with `nest: command not found`, redeploy the updated commit without the old build cache. [npm include behavior](https://docs.npmjs.com/cli/v11/commands/npm-ci/#include).
+
 ## API environment and Prisma
 
 Configure the API project's Production/Preview environment:
