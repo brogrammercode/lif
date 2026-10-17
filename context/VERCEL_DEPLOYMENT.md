@@ -13,6 +13,8 @@ Both roots have `vercel.json`, an npm lockfile and `npm ci` installation. Gym's 
 
 The API install command is `npm ci --include=dev`: Nest CLI, TypeScript and Prisma CLI are build dependencies. This explicitly includes them even with `NODE_ENV=production` or an npm omit setting. Keep the API Root Directory set to `apps/api/v2` so Vercel reads this configuration. If a previous deployment failed with `nest: command not found`, redeploy the updated commit without the old build cache. [npm include behavior](https://docs.npmjs.com/cli/v11/commands/npm-ci/#include).
 
+`src/main.ts` creates the Nest application with a direct `@nestjs/core` import, then applies the shared configuration from `bootstrap.ts`. This import also survives compilation into `dist/src/main.js`. Vercel's Nest builder checks the entry file itself for that import; delegating all Nest creation to another module caused `No entrypoint found which imports nestjs`. The existing `create_application` helper uses the same configuration for other callers. [Nest builder source](https://github.com/vercel/vercel/blob/main/packages/nestjs/src/build.ts).
+
 ## API environment and Prisma
 
 Configure the API project's Production/Preview environment:

@@ -16,6 +16,11 @@ export const create_application = async (
     bodyParser: false,
     ...options,
   });
+  return configure_application(app);
+};
+export const configure_application = (
+  app: NestExpressApplication,
+): NestExpressApplication => {
   app.disable(HTTP_CONFIG.POWERED_BY_HEADER);
   app.set(
     'trust proxy',
