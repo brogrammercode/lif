@@ -1,8 +1,12 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PageHeading } from "../../components/layout/PageHeading";
 import { Button } from "../../components/ui/Button";
 import { Field } from "../../components/ui/Field";
-import { InlineError, LoadingState } from "../../components/feedback/StateCard";
+import { InlineError, StateCard } from "../../components/feedback/StateCard";
+import { Toast } from "../../components/feedback/Toast";
+import { CatalogPanel, TableLoading } from "../../components/ui/CatalogPanel";
+import { Badge } from "../../components/ui/Badge";
+import { Icon } from "../../components/ui/Icon";
 import { RichDocumentEditor } from "../../components/ui/RichDocumentEditor";
 import { DocumentPreview } from "../../components/ui/DocumentPreview";
 import { apiRequest, safeMessage } from "../../lib/api-client";
@@ -29,6 +33,8 @@ export function PartnerDocumentPage({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
+  const dismissNotice = useCallback(() => setNotice(""), []);
+  const pending = useRef(false);
   const [dirty, setDirty] = useState(false);
   useEffect(() => {
     if (resource.data) {
@@ -69,7 +75,8 @@ export function PartnerDocumentPage({
     };
   }, [dirty]);
   async function save(publish: boolean) {
-    if (busy) return;
+    if (pending.current || resource.loading || resource.error) return;
+    pending.current = true;
     setBusy(true);
     setError(null);
     setNotice("");
@@ -101,12 +108,12 @@ export function PartnerDocumentPage({
     } catch (cause) {
       setError(safeMessage(cause));
     } finally {
+      pending.current = false;
       setBusy(false);
     }
   }
-  if (resource.loading) return <LoadingState />;
   return (
-    <>
+    <div className="catalog-page">
       <PageHeading
         eyebrow="Partner program"
         context="Requirements"
@@ -114,8 +121,8 @@ export function PartnerDocumentPage({
         description="Write, preview and publish the document applicants will read. Existing submissions retain their accepted version."
       >
         <Button
-          variant="ghost"
-          disabled={busy}
+          variant="secondary"
+          disabled={busy || resource.loading}
           onClick={() => {
             if (
               !dirty ||
@@ -126,65 +133,101 @@ export function PartnerDocumentPage({
               resource.refresh();
           }}
         >
+          <Icon
+            name={resource.loading ? "spinner" : "refresh"}
+            size={16}
+            className={resource.loading ? "animate-spin" : ""}
+          />
           Reload
         </Button>
-        <Button variant="secondary" onClick={() => setPreview(!preview)}>
+        <Button
+          variant="secondary"
+          disabled={resource.loading || !!resource.error}
+          onClick={() => setPreview(!preview)}
+        >
           {preview ? "Edit document" : "Preview"}
         </Button>
         <Button
           variant="secondary"
           busy={busy}
+          disabled={resource.loading || !!resource.error || !dirty}
           onClick={() => void save(false)}
         >
           Save draft
         </Button>
-        <Button busy={busy} onClick={() => void save(true)}>
+        <Button
+          busy={busy}
+          disabled={resource.loading || !!resource.error || !title.trim()}
+          onClick={() => void save(true)}
+        >
           Publish
         </Button>
       </PageHeading>
       {(resource.error || error) && (
         <InlineError message={error ?? resource.error!} />
       )}
-      {notice && (
-        <p className="notice" role="status">
-          {notice}
-        </p>
-      )}
-      <section className="panel document-panel">
-        <div className="p-5 border-b border-line">
-          <Field id="partner-document-title" label="Document title">
-            <input
-              id="partner-document-title"
-              className="input"
-              value={title}
-              maxLength={200}
-              disabled={busy}
-              onChange={(event) => {
-                setTitle(event.target.value);
-                setDirty(true);
-              }}
-            />
-          </Field>
-          <p className="field-hint mt-2">
-            {dirty ? "Unsaved changes · " : ""}Draft revision {revision} ·{" "}
-            {resource.data?.published_at
-              ? `Published version ${resource.data.published_version}`
-              : "Not published yet"}
-          </p>
-        </div>
-        {preview ? (
-          <DocumentPreview html={html} />
+      {notice && <Toast message={notice} onDismiss={dismissNotice} />}
+      <CatalogPanel
+        title={kind === "POLICY" ? "Policy document" : "Confirmation document"}
+        description="Save a draft while editing. Publish when the document is ready for applicants."
+        busy={busy || resource.loading}
+        actions={
+          <Badge tone={resource.data?.published_at ? "active" : "inactive"}>
+            {resource.data?.published_at ? "Published" : "Draft"}
+          </Badge>
+        }
+        className="document-panel"
+      >
+        {resource.loading ? (
+          <TableLoading label="Loading document" rows={5} />
+        ) : resource.error ? (
+          <StateCard
+            error
+            title="Document could not be loaded"
+            message={resource.error}
+          >
+            <Button variant="secondary" onClick={resource.refresh}>
+              Try again
+            </Button>
+          </StateCard>
         ) : (
-          <RichDocumentEditor
-            value={html}
-            disabled={busy}
-            onChange={(value) => {
-              setHtml(value);
-              setDirty(true);
-            }}
-          />
+          <>
+            <div className="document-metadata">
+              <Field id="partner-document-title" label="Document title">
+                <input
+                  id="partner-document-title"
+                  className="field"
+                  value={title}
+                  maxLength={200}
+                  disabled={busy || resource.loading}
+                  onChange={(event) => {
+                    setTitle(event.target.value);
+                    setDirty(true);
+                  }}
+                />
+              </Field>
+              <p className="field-hint mt-2">
+                {dirty ? "Unsaved changes · " : ""}Draft revision {revision} ·{" "}
+                {resource.data?.published_at
+                  ? `Published version ${resource.data.published_version}`
+                  : "Not published yet"}
+              </p>
+            </div>
+            {preview ? (
+              <DocumentPreview html={html} />
+            ) : (
+              <RichDocumentEditor
+                value={html}
+                disabled={busy}
+                onChange={(value) => {
+                  setHtml(value);
+                  setDirty(true);
+                }}
+              />
+            )}
+          </>
         )}
-      </section>
-    </>
+      </CatalogPanel>
+    </div>
   );
 }

@@ -210,6 +210,17 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       final answers = <Map<String, dynamic>>[];
       for (final definition in _definitions) {
         final id = '${definition['id']}';
+        final approved = _answers
+            .where(
+              (answer) =>
+                  answer['requirement_id'] == id &&
+                  answer['status'] == 'APPROVED',
+            )
+            .firstOrNull;
+        if (approved != null) {
+          answers.add({'requirement_id': id, 'value': approved['value']});
+          continue;
+        }
         final type = '${definition['field_type']}';
         dynamic value;
         if (['FILE', 'IMAGE', 'PDF'].contains(type)) {
@@ -550,9 +561,10 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
             final text = value?.trim() ?? '';
             if (required && text.isEmpty) return 'This field is required.';
             if (text.isEmpty) return null;
-            if (definition['max_length'] != null &&
-                text.length > (definition['max_length'] as num)) {
-              return 'Maximum ${definition['max_length']} characters.';
+            final maxLength =
+                (definition['max_length'] as num?)?.toInt() ?? 10000;
+            if (text.length > maxLength) {
+              return 'Maximum $maxLength characters.';
             }
             if (type == 'NUMBER') {
               final number = num.tryParse(text);

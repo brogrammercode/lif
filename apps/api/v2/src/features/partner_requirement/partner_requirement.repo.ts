@@ -7,6 +7,7 @@ import { AppError } from '../../core/error.js';
 import {
   DOCUMENT_TYPES,
   DETAIL_TYPES,
+  MAX_PARTNER_FIELDS,
   type CategoryInput,
   type RequirementInput,
   type RequirementQuery,
@@ -120,6 +121,20 @@ export class PartnerRequirementRepository {
         sort_order: input.sort_order,
         is_active: input.is_active,
       };
+      if (before && !before.is_active && input.is_active) {
+        const active_fields = await tx.partnerRequirement.count({
+          where: {
+            is_active: true,
+            OR: [{ category: { is_active: true } }, { category_id: before.id }],
+          },
+        });
+        if (active_fields > MAX_PARTNER_FIELDS)
+          throw new AppError(
+            422,
+            'PARTNER_FIELD_LIMIT',
+            'The partner form supports up to 200 active fields. Disable some fields before enabling this category.',
+          );
+      }
       const row = before
         ? await tx.requirementCategory.update({ where: { id }, data })
         : await tx.requirementCategory.create({ data });
@@ -194,6 +209,25 @@ export class PartnerRequirementRepository {
           'FILE_TYPES_REQUIRED',
           'Choose the permitted file extensions.',
         );
+      if (
+        input.is_active &&
+        category.is_active &&
+        (!before?.is_active || before.category_id !== category.id)
+      ) {
+        const other_fields = await tx.partnerRequirement.count({
+          where: {
+            is_active: true,
+            category: { is_active: true },
+            ...(id ? { id: { not: id } } : {}),
+          },
+        });
+        if (other_fields >= MAX_PARTNER_FIELDS)
+          throw new AppError(
+            422,
+            'PARTNER_FIELD_LIMIT',
+            'The partner form supports up to 200 active fields. Disable another field before adding this one.',
+          );
+      }
       const data = {
         category_id: input.category_id,
         key: input.key,
@@ -210,7 +244,7 @@ export class PartnerRequirementRepository {
         max_length: ['STRING', 'TEXT'].includes(input.field_type)
           ? input.max_length
           : null,
-        max_file_size_mb: document ? (input.max_file_size_mb ?? 5) : null,
+        max_file_size_mb: document ? (input.max_file_size_mb ?? 3) : null,
         allowed_extensions:
           input.field_type === 'IMAGE'
             ? ['.jpg', '.jpeg', '.png', '.webp']

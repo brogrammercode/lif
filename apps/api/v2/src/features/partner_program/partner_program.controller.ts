@@ -11,6 +11,7 @@ import type { Request, Response } from 'express';
 import { waitUntil } from '@vercel/functions';
 import { AuthGuard, AdminGuard } from '../../core/guards.js';
 import { send_success } from '../../core/response.js';
+import { AppError } from '../../core/error.js';
 import { require_active_admin } from '../../infra/database/account_lifecycle.js';
 import { create_user_log } from '../../infra/database/user_log.js';
 import { PrismaService } from '../../infra/database/prisma.service.js';
@@ -128,6 +129,18 @@ export class AdminPartnerProgramController {
     private readonly delivery: PartnerDeliveryService,
     private readonly database: PrismaService,
   ) {}
+  private queue_email(id: string) {
+    waitUntil(
+      this.delivery.send_email(id).catch(() => {
+        console.error({
+          event: 'PARTNER_EMAIL_JOB_FAILED',
+          application_id: id,
+          message:
+            'Email delivery could not finish. Check its status and retry from admin.',
+        });
+      }),
+    );
+  }
   @Get('documents/:kind') async document(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -212,7 +225,7 @@ export class AdminPartnerProgramController {
       id,
       review_input.parse(req.body),
     );
-    if (result.status === 'COMPLETED') waitUntil(this.delivery.send_email(id));
+    if (result.status === 'COMPLETED') this.queue_email(id);
     return send_success(res, result, 'Confirmation reviewed');
   }
   @Post('assets') async upload(
@@ -236,6 +249,25 @@ export class AdminPartnerProgramController {
     const id = id_input.parse(req.params.id);
     await this.database.client.$transaction(async (tx) => {
       await require_active_admin(tx, req.auth!.user_id);
+      const application = await tx.partnerApplication.findUnique({
+        where: { id },
+        select: { status: true, final_pdf_id: true },
+      });
+      if (!application)
+        throw new AppError(
+          404,
+          'APPLICATION_NOT_FOUND',
+          'Application not found.',
+        );
+      if (
+        !['COMPLETED', 'ACTIVATED'].includes(application.status) ||
+        !application.final_pdf_id
+      )
+        throw new AppError(
+          409,
+          'PARTNER_EMAIL_NOT_READY',
+          'Approve the final PDF before retrying email delivery.',
+        );
       await create_user_log(tx, {
         actor_id: req.auth!.user_id,
         entity_type: 'PartnerApplication',
@@ -243,7 +275,7 @@ export class AdminPartnerProgramController {
         action: 'RETRY_PARTNER_EMAIL',
       });
     });
-    waitUntil(this.delivery.send_email(id));
+    this.queue_email(id);
     return send_success(res, { queued: true }, 'Email retry queued');
   }
   @Post('applications/:id/shared') async shared(

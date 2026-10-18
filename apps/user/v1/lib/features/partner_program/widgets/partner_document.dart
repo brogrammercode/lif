@@ -27,7 +27,19 @@ class PartnerDocument extends StatelessWidget {
       const SizedBox(height: 12),
       Html(
         data: '${document['html'] ?? ''}',
-        extensions: [TableHtmlExtension()],
+        extensions: [
+          TableHtmlExtension(),
+          TagExtension(
+            tagsToExtend: {'input'},
+            builder: (extension) => Icon(
+              extension.attributes.containsKey('checked')
+                  ? Icons.check_box_outlined
+                  : Icons.check_box_outline_blank,
+              size: 18,
+              color: AppColors.primaryGreen,
+            ),
+          ),
+        ],
         style: {
           'body': Style(
             margin: Margins.zero,
@@ -46,8 +58,14 @@ class PartnerDocument extends StatelessWidget {
           if (uri == null || !['https', 'mailto', 'tel'].contains(uri.scheme)) {
             return;
           }
-          if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
-              context.mounted) {
+          try {
+            if (await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+              return;
+            }
+          } catch (_) {
+            // Missing platform handlers are shown as a recoverable message.
+          }
+          if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('This link could not be opened.')),
             );

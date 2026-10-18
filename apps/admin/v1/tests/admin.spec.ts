@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import type { VehicleCategory } from "../src/types/domain";
 
 const path = "/app/user/vehicle-categories";

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 export const DOCUMENT_TYPES = ['FILE', 'IMAGE', 'PDF'] as const;
+export const MAX_PARTNER_FIELDS = 200;
 export const DETAIL_TYPES = [
   'STRING',
   'TEXT',

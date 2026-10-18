@@ -162,9 +162,13 @@ fieldset {
   background: white;
   border-radius: 8px;
   padding: 12px;
+  opacity: 0;
+  pointer-events: none;
 }
 .skip-link:focus {
   top: 12px;
+  opacity: 1;
+  pointer-events: auto;
 }
 .workspace {
   display: grid;
@@ -398,11 +402,25 @@ fieldset {
   align-items: center;
   gap: 10px;
   padding: 12px;
-  background: var(--color-brand-soft);
+  background: transparent;
   border-radius: 8px;
-  color: var(--color-brand);
+  color: var(--color-muted);
   font-size: 13px;
+  font-weight: 500;
+}
+.secondary-nav-item:hover {
+  background: #fafafa;
+  color: var(--color-ink);
+}
+.secondary-nav-item.active {
+  background: var(--color-brand-soft);
+  color: var(--color-brand);
   font-weight: 600;
+}
+.secondary-rail > nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .secondary-nav-item span {
   flex: 1;

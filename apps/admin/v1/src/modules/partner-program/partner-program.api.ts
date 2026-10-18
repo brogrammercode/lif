@@ -31,15 +31,24 @@ export function downloadFile(file: File) {
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
-export async function uploadFinalPdf(applicationId: string, file: File) {
-  if (file.type !== "application/pdf" || file.size > 3_000_000)
+export async function validateFinalPdf(file: File): Promise<File> {
+  if (
+    !/\.pdf$/i.test(file.name) ||
+    !file.size ||
+    file.size > 3_000_000 ||
+    (await file.slice(0, 5).text()) !== "%PDF-"
+  )
     throw new Error("Choose a PDF up to 3 MB.");
+  return new File([file], file.name, { type: "application/pdf" });
+}
+export async function uploadFinalPdf(applicationId: string, file: File) {
+  const validated = await validateFinalPdf(file);
   return apiRequest<PartnerAsset>(`${PARTNER_API}/assets`, {
     method: "POST",
     data: {
       application_id: applicationId,
       file_name: file.name,
-      data_url: await fileDataUrl(file),
+      data_url: await fileDataUrl(validated),
     },
     timeoutMs: 90000,
   });

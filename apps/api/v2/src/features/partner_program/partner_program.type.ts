@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_PARTNER_FIELDS } from '../partner_requirement/partner_requirement.type.js';
 
 export const document_kind = z.enum(['POLICY', 'CONFIRMATION']);
 export const document_input = z
@@ -28,7 +29,7 @@ export const application_input = z
           value: z.json(),
         }),
       )
-      .max(200),
+      .max(MAX_PARTNER_FIELDS),
   })
   .strict();
 export const review_input = z

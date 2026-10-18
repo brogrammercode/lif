@@ -11,6 +11,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { fileDataUrl } from "../../modules/partner-program/partner-program.api";
 import { InlineError } from "../feedback/StateCard";
 import "../../styles/partner-program.css";
+import "../../styles/document-content.css";
 
 const DocumentImage = Image.extend({
   addAttributes() {
@@ -35,8 +36,11 @@ export function RichDocumentEditor({
   disabled?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
+  const unavailable = useRef(disabled);
+  unavailable.current = disabled;
   const [error, setError] = useState<string | null>(null);
   async function addImage(editor: Editor, file: File) {
+    if (unavailable.current || editor.isDestroyed) return;
     try {
       if (
         !["image/jpeg", "image/png", "image/webp"].includes(file.type) ||
@@ -44,6 +48,7 @@ export function RichDocumentEditor({
       )
         throw new Error("Choose a JPEG, PNG or WebP image up to 2 MB.");
       const src = await fileDataUrl(file);
+      if (unavailable.current || editor.isDestroyed) return;
       editor.chain().focus().setImage({ src, alt: file.name }).run();
       setError(null);
     } catch (cause) {
@@ -102,15 +107,21 @@ export function RichDocumentEditor({
       editor.commands.setContent(value, { emitUpdate: false });
   }, [editor, value]);
   useEffect(() => {
-    editor?.setEditable(!disabled);
+    editor?.setEditable(!disabled, false);
   }, [editor, disabled]);
   if (!editor) return null;
-  const tool = (label: string, action: () => unknown, active = false) => (
+  const tool = (
+    label: string,
+    action: () => unknown,
+    active?: boolean,
+    blocked = false,
+  ) => (
     <button
+      key={label}
       type="button"
       aria-pressed={active}
       className={`editor-tool${active ? " is-active" : ""}`}
-      disabled={disabled}
+      disabled={disabled || blocked}
       onMouseDown={(event) => event.preventDefault()}
       onClick={() => action()}
     >
@@ -120,7 +131,11 @@ export function RichDocumentEditor({
   return (
     <div className="document-editor">
       {error && <InlineError message={error} />}
-      <div className="document-toolbar" aria-label="Document formatting">
+      <div
+        className="document-toolbar"
+        role="group"
+        aria-label="Document formatting; scroll for more tools on small screens"
+      >
         <select
           aria-label="Paragraph style"
           disabled={disabled}
@@ -154,10 +169,13 @@ export function RichDocumentEditor({
           aria-label="Font family"
           disabled={disabled}
           onChange={(event) =>
-            editor.chain().focus().setFontFamily(event.target.value).run()
+            event.target.value
+              ? editor.chain().focus().setFontFamily(event.target.value).run()
+              : editor.chain().focus().unsetFontFamily().run()
           }
-          defaultValue="Arial"
+          value={String(editor.getAttributes("textStyle").fontFamily ?? "")}
         >
+          <option value="">Default (Space Grotesk)</option>
           <option>Arial</option>
           <option>Georgia</option>
           <option>Times New Roman</option>
@@ -167,7 +185,9 @@ export function RichDocumentEditor({
         <select
           aria-label="Font size"
           disabled={disabled}
-          defaultValue="14"
+          value={String(
+            editor.getAttributes("textStyle").fontSize ?? "14px",
+          ).replace("px", "")}
           onChange={(event) =>
             editor
               .chain()
@@ -316,12 +336,23 @@ export function RichDocumentEditor({
         {tool("Clear style", () =>
           editor.chain().focus().unsetAllMarks().clearNodes().run(),
         )}
-        {tool("Undo", () => editor.chain().focus().undo().run())}
-        {tool("Redo", () => editor.chain().focus().redo().run())}
+        {tool(
+          "Undo",
+          () => editor.chain().focus().undo().run(),
+          undefined,
+          !editor.can().undo(),
+        )}
+        {tool(
+          "Redo",
+          () => editor.chain().focus().redo().run(),
+          undefined,
+          !editor.can().redo(),
+        )}
       </div>
       <input
         ref={input}
         type="file"
+        disabled={disabled}
         accept="image/jpeg,image/png,image/webp"
         hidden
         onChange={(event) => {

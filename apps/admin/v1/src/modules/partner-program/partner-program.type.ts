@@ -63,6 +63,7 @@ export type PartnerApplication = {
     attempts: number;
     last_error: string | null;
     sent_at: string | null;
+    claimed_at?: string | null;
   }[];
 };
 export const partnerStatus = (value: string) =>
@@ -70,3 +71,51 @@ export const partnerStatus = (value: string) =>
     .toLowerCase()
     .replaceAll("_", " ")
     .replace(/^./, (s) => s.toUpperCase());
+
+export type PartnerApplicationSummary = Pick<
+  PartnerApplication,
+  | "id"
+  | "user_id"
+  | "status"
+  | "version"
+  | "contact_email"
+  | "whatsapp_phone"
+  | "submitted_at"
+  | "completed_at"
+  | "activation_issued_at"
+  | "activation_attempts"
+  | "user"
+  | "deliveries"
+>;
+
+export const partnerTone = (
+  status: string,
+): "active" | "inactive" | "warning" | "danger" =>
+  status === "REJECTED" ||
+  status === "FAILED" ||
+  status.includes("CHANGES_REQUESTED")
+    ? "danger"
+    : [
+          "APPROVED",
+          "ACTIVATED",
+          "COMPLETED",
+          "SENT",
+          "MANUALLY_SHARED",
+        ].includes(status)
+      ? "active"
+      : "warning";
+
+export const canApproveApplication = (app: PartnerApplication) =>
+  ["SUBMITTED", "CHANGES_REQUESTED"].includes(app.status) &&
+  app.fields.every((field) => {
+    if (field.status === "REJECTED") return false;
+    const provided =
+      field.value !== null &&
+      field.value !== undefined &&
+      field.value !== "" &&
+      (!Array.isArray(field.value) || field.value.length > 0);
+    return (
+      (!field.definition.is_required && !provided) ||
+      field.status === "APPROVED"
+    );
+  });

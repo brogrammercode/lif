@@ -9,4 +9,6 @@ Object.assign(process.env, {
   ADMIN_WEB_ORIGIN: 'http://localhost:5173',
   CORS_ORIGIN: '*',
   PAYMENT_WEBHOOK_SECRET: 'unit-test-webhook-secret',
+  MAIL_USER: '',
+  GOOGLE_APP_PASSWORD: '',
 });

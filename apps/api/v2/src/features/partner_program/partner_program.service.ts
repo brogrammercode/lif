@@ -321,7 +321,7 @@ export class PartnerProgramService {
           purpose: 'APPLICATION_DOCUMENT',
           field_id: definition.id,
         },
-        select: { id: true, mime_type: true },
+        select: { id: true, mime_type: true, file_name: true, size: true },
       });
       if (
         assets.length !== new Set(value).size ||
@@ -338,6 +338,42 @@ export class PartnerProgramService {
         )
       )
         throw fail(`Wrong file type for ${label}.`);
+      const allowed =
+        definition.allowed_extensions?.map((extension) =>
+          extension.toLowerCase(),
+        ) ?? [];
+      if (
+        assets.some(
+          (asset) =>
+            asset.size >
+            Math.min(
+              3_000_000,
+              (definition.max_file_size_mb ?? 3) * 1024 * 1024,
+            ),
+        )
+      )
+        throw fail(
+          `The file for ${label} exceeds its size limit. Upload a smaller file.`,
+        );
+      if (
+        allowed.length &&
+        assets.some((asset) => {
+          // Accepted images are centrally normalized to WebP, including JPEG/PNG inputs.
+          if (
+            asset.mime_type === 'image/webp' &&
+            allowed.some((extension) =>
+              ['.jpg', '.jpeg', '.png', '.webp'].includes(extension),
+            )
+          )
+            return false;
+          const extension =
+            '.' + (asset.file_name.split('.').pop()?.toLowerCase() ?? '');
+          return !allowed.includes(extension);
+        })
+      )
+        throw fail(
+          `The file types for ${label} changed. Upload a permitted file.`,
+        );
     } else if (definition.field_type === 'NUMBER') {
       if (
         typeof value !== 'number' ||
@@ -572,9 +608,10 @@ export class PartnerProgramService {
       if (
         app.fields.some(
           (f) =>
-            ((f.definition as unknown as Definition).is_required ||
+            f.status === 'REJECTED' ||
+            (((f.definition as unknown as Definition).is_required ||
               !empty(f.value)) &&
-            f.status !== 'APPROVED',
+              f.status !== 'APPROVED'),
         )
       )
         throw fail(
@@ -851,6 +888,13 @@ export class PartnerProgramService {
       throw fail('This field requires a PDF.');
     if (definition?.field_type === 'IMAGE' && !mime.startsWith('image/'))
       throw fail('This field requires an image.');
+    if (
+      bytes.length >
+      Math.min(3_000_000, (definition?.max_file_size_mb ?? 3) * 1024 * 1024)
+    )
+      throw fail(
+        'The converted file exceeds the upload limit. Choose a smaller image.',
+      );
     return this.database.client.$transaction(async (tx) => {
       if (admin) await require_active_admin(tx, actor_id);
       await require_active_account(tx, owner_id);
@@ -987,8 +1031,9 @@ export class PartnerProgramService {
   }
   async activate(user_id: string, code: string) {
     const result = await this.database.client.$transaction(async (tx) => {
-      const user = await require_active_account(tx, user_id);
+      await require_active_account(tx, user_id);
       await partner_lock(tx, user_id);
+      const user = await require_active_account(tx, user_id);
       const app = await tx.partnerApplication.findUnique({
         where: { user_id },
       });
@@ -1024,10 +1069,19 @@ export class PartnerProgramService {
             'Incorrect activation code. Please check the code sent by your administrator.',
         };
       }
-      await tx.user.update({
-        where: { id: user_id },
+      const promoted = await tx.user.updateMany({
+        where: {
+          id: user_id,
+          role: 'RIDER',
+          status: 'ACTIVE',
+          deleted_at: null,
+        },
         data: { role: 'DRIVER', partner_activated_at: new Date() },
       });
+      if (promoted.count !== 1)
+        return {
+          error: 'This account changed. Sign in again before continuing.',
+        };
       await tx.driverProfile.upsert({
         where: { user_id },
         create: {
