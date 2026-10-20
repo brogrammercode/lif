@@ -7,9 +7,19 @@ import { PrismaService } from '../../infra/database/prisma.service.js';
 export class PartnerDeliveryService {
   private mailer?: Transporter;
   constructor(private readonly database: PrismaService) {}
-  async send_email(application_id: string) {
+  send_email(application_id: string) {
+    return this.send_document(application_id, 'EMAIL');
+  }
+  send_exit_email(application_id: string) {
+    return this.send_document(application_id, 'EXIT_EMAIL');
+  }
+  private async send_document(
+    application_id: string,
+    channel: 'EMAIL' | 'EXIT_EMAIL',
+  ) {
+    const is_exit = channel === 'EXIT_EMAIL';
     const delivery = await this.database.client.partnerDelivery.findUnique({
-      where: { application_id_channel: { application_id, channel: 'EMAIL' } },
+      where: { application_id_channel: { application_id, channel } },
     });
     if (!delivery || delivery.status === 'SENT') return;
     const now = new Date();
@@ -40,6 +50,7 @@ export class PartnerDeliveryService {
       const app = await this.database.client.partnerApplication.findUnique({
         where: { id: application_id },
         include: {
+          exit_request: true,
           user: {
             select: { status: true, deleted_at: true, first_name: true },
           },
@@ -47,19 +58,24 @@ export class PartnerDeliveryService {
       });
       if (
         !app ||
-        !['COMPLETED', 'ACTIVATED'].includes(app.status) ||
+        !(is_exit
+          ? app.status === 'EXITED' && app.exit_request?.status === 'COMPLETED'
+          : ['COMPLETED', 'ACTIVATED'].includes(app.status)) ||
         app.user.status !== 'ACTIVE' ||
         app.user.deleted_at ||
-        !app.final_pdf_id
+        !(is_exit ? app.exit_request?.settlement_pdf_id : app.final_pdf_id)
       )
         throw new Error(
           'The approved application or its recipient is no longer available.',
         );
       const asset = await this.database.client.partnerAsset.findFirst({
         where: {
-          id: app.final_pdf_id,
+          id: (is_exit
+            ? app.exit_request?.settlement_pdf_id
+            : app.final_pdf_id)!,
           owner_id: app.user_id,
-          purpose: 'FINAL_PDF',
+          purpose: is_exit ? 'EXIT_PDF' : 'FINAL_PDF',
+          ...(is_exit ? { field_id: app.exit_request!.id } : {}),
           mime_type: 'application/pdf',
         },
       });
@@ -81,8 +97,12 @@ export class PartnerDeliveryService {
       const result = await this.mailer.sendMail({
         from: { name: config.MAIL_FROM_NAME, address: config.MAIL_USER },
         to: app.contact_email,
-        subject: 'Your 1More Partner Program confirmation',
-        text: `Hello ${app.user.first_name ?? 'there'},\n\nYour Partner Program confirmation has been approved. Your final document is attached and is also available in the 1More app.\n\nSign out and sign in again to begin driver activation. Your administrator will send your activation code separately.\n\n1More Partner Program`,
+        subject: is_exit
+          ? 'Your 1More partner exit settlement'
+          : 'Your 1More Partner Program confirmation',
+        text: is_exit
+          ? `Hello ${app.user.first_name ?? 'there'},\n\nYour Partner Program exit is complete. Your settlement PDF is attached and available in the 1More app under Exit Request & Dues. Driver operations are now disabled. Your account and history remain available. Please refer to the attached document for dues and settlement details.\n\n1More Partner Program`
+          : `Hello ${app.user.first_name ?? 'there'},\n\nYour Partner Program confirmation has been approved. Your final document is attached and is also available in the 1More app.\n\nSign out and sign in again to begin driver activation. Your administrator will send your activation code separately.\n\n1More Partner Program`,
         attachments: [
           {
             filename: asset.file_name,

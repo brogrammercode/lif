@@ -1,3 +1,4 @@
+import { CatalogImport } from "./CatalogImport";
 import { PageHeading } from "../../components/layout/PageHeading";
 import { CatalogPanel, TableLoading } from "../../components/ui/CatalogPanel";
 import { EntityImage } from "../../components/ui/EntityImage";
@@ -57,6 +58,9 @@ export function VehicleModelsPage() {
   const [modelPage, setModelPage] = useState(1);
   const [selected, setSelected] = useState<Brand | null>(null);
   const [editor, setEditor] = useState<CatalogEditorTarget | null>(null);
+  const [importKind, setImportKind] = useState<"brands" | "models" | null>(
+    null,
+  );
   const [toast, setToast] = useState<string | null>(null);
   const dismiss = useCallback(() => setToast(null), []);
   const brands = useAdminResource<Paged<Brand>>(
@@ -87,10 +91,18 @@ export function VehicleModelsPage() {
         title="Vehicle models"
         description="Manage brands and models. Review driver suggestions before making them available."
       >
-        <Button onClick={() => setEditor({ kind: "brand", record: null })}>
-          <Icon name="plus" size={18} />
-          Add brand
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => setImportKind("brands")}>
+            Import brands CSV
+          </Button>
+          <Button variant="secondary" onClick={() => setImportKind("models")}>
+            Import models CSV
+          </Button>
+          <Button onClick={() => setEditor({ kind: "brand", record: null })}>
+            <Icon name="plus" size={18} />
+            Add brand
+          </Button>
+        </div>
       </PageHeading>
       <div className="catalog-split">
         <CatalogPanel
@@ -367,6 +379,16 @@ export function VehicleModelsPage() {
           )}
         </CatalogPanel>
       </div>
+      {importKind && (
+        <CatalogImport
+          kind={importKind}
+          onClose={() => setImportKind(null)}
+          onImported={() => {
+            brands.refresh();
+            models.refresh();
+          }}
+        />
+      )}
       {editor && (
         <CatalogEditor
           target={editor}

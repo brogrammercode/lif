@@ -60,6 +60,26 @@ export class AuthGuard implements CanActivate {
   }
 }
 @Injectable()
+export class DriverAccessGuard implements CanActivate {
+  constructor(private readonly database: PrismaService) {}
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const req = context.switchToHttp().getRequest<Request>();
+    if (!req.auth)
+      throw new AppError(401, 'UNAUTHORIZED', UNAUTHORIZED_ERROR_MESSAGE);
+    const app = await this.database.client.partnerApplication.findUnique({
+      where: { user_id: req.auth.user_id },
+      select: { status: true },
+    });
+    if (app?.status === 'EXITED')
+      throw new AppError(
+        403,
+        'DRIVER_EXITED',
+        'Your partner exit is complete. Driver operations are disabled.',
+      );
+    return true;
+  }
+}
+@Injectable()
 export class AdminGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<Request>();

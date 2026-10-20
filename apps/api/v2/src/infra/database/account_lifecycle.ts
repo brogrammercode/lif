@@ -2,6 +2,23 @@ import { AppError } from '../../core/error.js';
 import type { TransactionClient } from './client.js';
 import { ADMIN_ACCESS_LOCK } from '../../features/admin_access/admin_access.constant.js';
 export const ACCOUNT_LIFECYCLE_LOCK = 720050;
+// Call again inside driver write locks, so an in-flight request cannot restore
+// availability or accept a ride after the exit transaction completes.
+export const require_driver_participation = async (
+  tx: TransactionClient,
+  user_id: string,
+) => {
+  const app = await tx.partnerApplication.findUnique({
+    where: { user_id },
+    select: { status: true },
+  });
+  if (app?.status === 'EXITED')
+    throw new AppError(
+      403,
+      'DRIVER_EXITED',
+      'Your partner exit is complete. Driver operations are disabled; your settlement document remains available.',
+    );
+};
 export const require_active_account = async (
   tx: TransactionClient,
   user_id: string,

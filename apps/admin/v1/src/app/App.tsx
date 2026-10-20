@@ -23,6 +23,12 @@ const PartnerApplicationsPage = lazy(() =>
   ),
 );
 
+const PartnerExitsPage = lazy(() =>
+  import("../modules/partner-program/PartnerExitsPage").then((module) => ({
+    default: module.PartnerExitsPage,
+  })),
+);
+
 export function App() {
   const auth = useAuth();
   if (!auth.ready) return <LoadingState />;
@@ -80,6 +86,14 @@ export function App() {
                 key="confirmations"
                 section="confirmations"
               />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/partner-program/applications/exit-requests"
+          element={
+            <Suspense fallback={<LoadingState />}>
+              <PartnerExitsPage />
             </Suspense>
           }
         />

@@ -56,6 +56,21 @@ function application(status = "SUBMITTED"): PartnerApplication {
         status: "PENDING",
         rejection_reason: null,
       },
+      {
+        id: "selfie-answer",
+        requirement_id: "__live_selfie__",
+        definition: {
+          id: "__live_selfie__",
+          label: "Live selfie",
+          field_type: "IMAGE",
+          is_required: true,
+          capture_mode: "CAMERA",
+          category: { name: "Identity verification" },
+        },
+        value: ["selfie-asset"],
+        status: "APPROVED",
+        rejection_reason: null,
+      },
     ],
     confirmation:
       status === "CONFIRMATION_SUBMITTED"
@@ -122,6 +137,13 @@ async function workspace(page: Page, initialStatus = "SUBMITTED") {
       request.method() === "GET"
     )
       return send({ application: state.app, assets: [] });
+    if (path.endsWith("/assets/selfie-asset"))
+      return send({
+        file_name: "selfie.webp",
+        mime_type: "image/webp",
+        data_url:
+          "data:image/webp;base64,UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA",
+      });
     if (path.endsWith("/assets") && request.method() === "POST") {
       state.writes.push({ path, body: request.postDataJSON() });
       return send({ id: "final-pdf", file_name: "final.pdf" });
@@ -234,15 +256,15 @@ test("review requires field approval and retains rejection reasons with the shar
     exact: true,
   });
   await expect(approve).toBeDisabled();
-  const reason = page.getByLabel("Rejection reason", { exact: true });
+  const reason = page.getByLabel("Rejection reason", { exact: true }).first();
   await expect(reason).toHaveClass("field");
   const reject = page.getByRole("button", {
     name: "Request correction",
     exact: true,
   });
-  await expect(reject).toBeDisabled();
+  await expect(reject.first()).toBeDisabled();
   await reason.fill("Please enter your full legal name.");
-  await reject.click();
+  await reject.first().click();
   await expect.poll(() => state.app.fields[0]!.status).toBe("REJECTED");
   await expect(
     page
@@ -251,6 +273,7 @@ test("review requires field approval and retains rejection reasons with the shar
   ).toBeVisible();
   await page
     .getByRole("button", { name: "Approve field", exact: true })
+    .first()
     .click();
   await expect(approve).toBeEnabled();
   await approve.click();
@@ -370,6 +393,7 @@ test("list failures stay recoverable and editor/review stay within desktop and m
     ).toBeVisible();
     const background = await page
       .locator(".partner-answer-grid .catalog-card")
+      .first()
       .evaluate((node) => getComputedStyle(node).backgroundColor);
     expect(background).toBe("rgb(255, 255, 255)");
     await page.screenshot({

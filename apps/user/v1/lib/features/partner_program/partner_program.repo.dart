@@ -25,6 +25,18 @@ class PartnerProgramRepository {
     await _client.postData('$base/activate', data: {'code': code});
   }
 
+  Future<Map<String, dynamic>?> exitRequest() async {
+    final data = ApiResult.unwrap(await _client.getData('$base/exit-request'));
+    return data is Map ? Map<String, dynamic>.from(data) : null;
+  }
+
+  Future<void> requestExit(String reason, int version) async {
+    await _client.postData(
+      '$base/exit-request',
+      data: {'reason': reason, 'version': version},
+    );
+  }
+
   Future<Map<String, dynamic>> upload(
     String fieldId,
     String fileName,
@@ -46,6 +58,7 @@ class PartnerProgramRepository {
         '$base/assets',
         data: {
           'field_id': fieldId,
+          if (fieldId == '__live_selfie__') 'capture_source': 'CAMERA',
           'file_name': fileName,
           'data_url': 'data:$mime;base64,${base64Encode(bytes)}',
         },

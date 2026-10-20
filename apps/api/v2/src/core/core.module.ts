@@ -6,6 +6,7 @@ import { PrismaService } from '../infra/database/prisma.service.js';
 import { CloudinaryService } from '../infra/media/cloudinary.js';
 import {
   AuthGuard,
+  DriverAccessGuard,
   AdminGuard,
   AdminOriginGuard,
   AdminSignInGuard,
@@ -19,6 +20,7 @@ const PROVIDERS = [
   PrismaService,
   CloudinaryService,
   AuthGuard,
+  DriverAccessGuard,
   AdminGuard,
   AdminOriginGuard,
   AdminSignInGuard,

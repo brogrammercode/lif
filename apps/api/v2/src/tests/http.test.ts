@@ -39,6 +39,7 @@ const users = new Map([
   ],
 ]);
 const fake = {
+  partnerApplication: { findUnique: async () => null },
   adminActivity: {
     create: async () => ({ id: randomUUID() }),
     update: async () => ({}),
@@ -218,7 +219,7 @@ it('registers and protects every authenticated route on both URI versions', asyn
     path: string;
     guards: string[];
   }[];
-  assert.equal(routes.length, 116);
+  assert.equal(routes.length, 127);
   for (const version of ['1', '2'])
     for (const route of routes.filter((value) =>
       value.guards.includes('AuthGuard'),

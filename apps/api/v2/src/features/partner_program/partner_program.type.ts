@@ -29,7 +29,7 @@ export const application_input = z
           value: z.json(),
         }),
       )
-      .max(MAX_PARTNER_FIELDS),
+      .max(MAX_PARTNER_FIELDS + 1),
   })
   .strict();
 export const review_input = z
@@ -67,6 +67,7 @@ export const asset_input = z
     data_url: z.string().max(4_200_000),
     field_id: z.string().max(100).optional(),
     application_id: z.string().max(100).optional(),
+    capture_source: z.literal('CAMERA').optional(),
   })
   .strict();
 export const list_input = z.object({
@@ -82,6 +83,7 @@ export const list_input = z.object({
       'CONFIRMATION_CHANGES_REQUESTED',
       'COMPLETED',
       'ACTIVATED',
+      'EXITED',
     ])
     .default('all'),
   section: z.enum(['applications', 'confirmations']).default('applications'),

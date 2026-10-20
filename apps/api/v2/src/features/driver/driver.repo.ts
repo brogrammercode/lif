@@ -1,3 +1,4 @@
+import { require_driver_participation } from '../../infra/database/account_lifecycle.js';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../infra/database/prisma.service.js';
 import { Prisma } from '@prisma/client';
@@ -46,6 +47,7 @@ export class DriverRepository {
     this.prismaService.client.$transaction(
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
+        await require_driver_participation(tx, user_id);
         const applicant = await tx.user.findUnique({
           where: { id: user_id },
           select: { role: true, partner_activated_at: true },
@@ -101,6 +103,7 @@ export class DriverRepository {
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(720041)`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
+        await require_driver_participation(tx, user_id);
         const profile = await tx.driverProfile.findUnique({
           where: { user_id },
           include: {
@@ -188,6 +191,7 @@ export class DriverRepository {
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(720041)`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
+        await require_driver_participation(tx, user_id);
         const profile = await tx.driverProfile.findUnique({
           where: { user_id },
         });
@@ -263,6 +267,7 @@ export class DriverRepository {
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(720041)`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
+        await require_driver_participation(tx, user_id);
         const vehicle = await tx.vehicle.findFirst({
           where: { id: vehicle_id, driver: { user_id } },
         });
@@ -338,6 +343,7 @@ export class DriverRepository {
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(720041)`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
+        await require_driver_participation(tx, user_id);
         const vehicle = await tx.vehicle.findFirst({
           where: {
             id: vehicle_id,
@@ -428,6 +434,7 @@ export class DriverRepository {
         if (!initial_offer) return { kind: 'not_found' as const };
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720044, hashtext(${initial_offer.ride_id}))`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
+        await require_driver_participation(tx, user_id);
         const profile = await tx.driverProfile.findUnique({
           where: { user_id },
           include: {
@@ -531,6 +538,7 @@ export class DriverRepository {
     this.prismaService.client.$transaction(
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
+        await require_driver_participation(tx, user_id);
         const offer = await tx.rideOffer.findFirst({
           where: { id: offer_id, driver: { user_id } },
         });
@@ -562,51 +570,58 @@ export class DriverRepository {
     );
 
   readonly record_location = async (user_id: string, input: LocationInput) =>
-    this.prismaService.client.$transaction(async (tx) => {
-      const profile = await tx.driverProfile.findUnique({ where: { user_id } });
-      if (!profile) return null;
-      const updated = await tx.driverProfile.update({
-        where: { id: profile.id },
-        data: {
-          current_latitude: input.latitude,
-          current_longitude: input.longitude,
-          last_location_at: new Date(),
-        },
-      });
-      const active_ride = await tx.ride.findFirst({
-        where: {
-          driver_id: profile.id,
-          status: {
-            in: [
-              'DRIVER_ASSIGNED',
-              'DRIVER_ARRIVING',
-              'DRIVER_WAITING',
-              'IN_PROGRESS',
-            ],
-          },
-        },
-        orderBy: { created_at: 'desc' },
-      });
-      if (active_ride) {
-        await tx.rideLocation.create({
+    this.prismaService.client.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
+        await require_driver_participation(tx, user_id);
+        const profile = await tx.driverProfile.findUnique({
+          where: { user_id },
+        });
+        if (!profile) return null;
+        const updated = await tx.driverProfile.update({
+          where: { id: profile.id },
           data: {
-            ride_id: active_ride.id,
-            driver_id: profile.id,
-            latitude: input.latitude,
-            longitude: input.longitude,
-            heading: input.heading,
-            speed_kph: input.speed_kph,
+            current_latitude: input.latitude,
+            current_longitude: input.longitude,
+            last_location_at: new Date(),
           },
         });
-      }
-      await create_user_log(tx, {
-        actor_id: user_id,
-        entity_type: 'DriverProfile',
-        entity_id: profile.id,
-        action: 'UPDATE_DRIVER_LOCATION',
-      });
-      return updated;
-    });
+        const active_ride = await tx.ride.findFirst({
+          where: {
+            driver_id: profile.id,
+            status: {
+              in: [
+                'DRIVER_ASSIGNED',
+                'DRIVER_ARRIVING',
+                'DRIVER_WAITING',
+                'IN_PROGRESS',
+              ],
+            },
+          },
+          orderBy: { created_at: 'desc' },
+        });
+        if (active_ride) {
+          await tx.rideLocation.create({
+            data: {
+              ride_id: active_ride.id,
+              driver_id: profile.id,
+              latitude: input.latitude,
+              longitude: input.longitude,
+              heading: input.heading,
+              speed_kph: input.speed_kph,
+            },
+          });
+        }
+        await create_user_log(tx, {
+          actor_id: user_id,
+          entity_type: 'DriverProfile',
+          entity_id: profile.id,
+          action: 'UPDATE_DRIVER_LOCATION',
+        });
+        return updated;
+      },
+      { maxWait: 10000, timeout: 15000 },
+    );
 
   readonly transition_ride = async (
     user_id: string,
@@ -617,6 +632,7 @@ export class DriverRepository {
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720044, hashtext(${ride_id}))`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
+        await require_driver_participation(tx, user_id);
         const profile = await tx.driverProfile.findUnique({
           where: { user_id },
           include: { user: { select: { status: true } } },

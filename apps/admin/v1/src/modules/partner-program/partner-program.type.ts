@@ -24,6 +24,7 @@ export type PartnerDefinition = {
   is_required: boolean;
   description?: string;
   category?: { name: string };
+  capture_mode?: "CAMERA";
 };
 export type PartnerAnswer = {
   id: string;
@@ -44,6 +45,7 @@ export type PartnerApplication = {
   submitted_at: string;
   completed_at: string | null;
   final_pdf_id: string | null;
+  exit_request?: { id: string; status: string; version: number } | null;
   activation_issued_at: string | null;
   activation_attempts: number;
   user: { first_name: string | null; last_name: string | null; email?: string };
@@ -91,22 +93,25 @@ export type PartnerApplicationSummary = Pick<
 export const partnerTone = (
   status: string,
 ): "active" | "inactive" | "warning" | "danger" =>
-  status === "REJECTED" ||
-  status === "FAILED" ||
-  status.includes("CHANGES_REQUESTED")
-    ? "danger"
-    : [
-          "APPROVED",
-          "ACTIVATED",
-          "COMPLETED",
-          "SENT",
-          "MANUALLY_SHARED",
-        ].includes(status)
-      ? "active"
-      : "warning";
+  status === "EXITED"
+    ? "inactive"
+    : status === "REJECTED" ||
+        status === "FAILED" ||
+        status.includes("CHANGES_REQUESTED")
+      ? "danger"
+      : [
+            "APPROVED",
+            "ACTIVATED",
+            "COMPLETED",
+            "SENT",
+            "MANUALLY_SHARED",
+          ].includes(status)
+        ? "active"
+        : "warning";
 
 export const canApproveApplication = (app: PartnerApplication) =>
   ["SUBMITTED", "CHANGES_REQUESTED"].includes(app.status) &&
+  app.fields.some((field) => field.requirement_id === "__live_selfie__") &&
   app.fields.every((field) => {
     if (field.status === "REJECTED") return false;
     const provided =
@@ -114,6 +119,7 @@ export const canApproveApplication = (app: PartnerApplication) =>
       field.value !== undefined &&
       field.value !== "" &&
       (!Array.isArray(field.value) || field.value.length > 0);
+    if (field.definition.is_required && !provided) return false;
     return (
       (!field.definition.is_required && !provided) ||
       field.status === "APPROVED"

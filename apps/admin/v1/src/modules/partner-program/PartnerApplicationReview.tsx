@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+import { PrivateSelfie } from "./PrivateSelfie";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PageHeading } from "../../components/layout/PageHeading";
 import { Button } from "../../components/ui/Button";
@@ -133,15 +135,29 @@ export function PartnerApplicationReview({
     }
   }
   async function sharePdf() {
-    if (!shareFile || !app) return;
+    if (
+      !shareFile ||
+      !app ||
+      pending.current ||
+      resource.loading ||
+      resource.error
+    )
+      return;
+    pending.current = true;
+    setBusy(true);
+    setError(null);
+    setNotice("");
     try {
-      if (navigator.canShare?.({ files: [shareFile] }))
+      if (navigator.canShare?.({ files: [shareFile] })) {
         await navigator.share({
           files: [shareFile],
           title: "1More Partner Program",
           text: "Your approved Partner Program confirmation is attached.",
         });
-      else {
+        setNotice(
+          "PDF shared. Record the manual share below once you have sent it to the applicant.",
+        );
+      } else {
         downloadFile(shareFile);
         window.open(
           `https://wa.me/${app.whatsapp_phone.replace(/\D/g, "")}?text=${encodeURIComponent("Your 1More Partner Program confirmation is ready. I am attaching your approved PDF.")}`,
@@ -149,12 +165,15 @@ export function PartnerApplicationReview({
           "noopener,noreferrer",
         );
         setNotice(
-          "PDF downloaded and WhatsApp opened. Attach the downloaded PDF, send it, then record the manual share below.",
+          "PDF downloaded. Attach it in WhatsApp, send it, then record the manual share below. Open WhatsApp manually if a new tab did not open.",
         );
       }
     } catch (cause) {
       if (!(cause instanceof DOMException && cause.name === "AbortError"))
         setError(safeMessage(cause));
+    } finally {
+      pending.current = false;
+      setBusy(false);
     }
   }
   async function copyCode() {
@@ -224,6 +243,20 @@ export function PartnerApplicationReview({
         <div className="review-panel-body">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Badge tone={tone(app.status)}>{partnerStatus(app.status)}</Badge>
+            {app.status === "ACTIVATED" && (
+              <Link
+                className="button button-secondary"
+                to={
+                  app.exit_request
+                    ? `/partner-program/applications/exit-requests?request_id=${encodeURIComponent(app.exit_request.id)}`
+                    : `/partner-program/applications/exit-requests?application_id=${encodeURIComponent(app.id)}`
+                }
+              >
+                {app.exit_request
+                  ? "Review exit request"
+                  : "Start exit request"}
+              </Link>
+            )}
             <span className="text-sm text-muted">
               User {app.user_id} · Revision {app.version}
             </span>
@@ -236,6 +269,31 @@ export function PartnerApplicationReview({
           </div>
         </div>
       </CatalogPanel>
+      {reviewing &&
+        !app.fields.some((f) => f.requirement_id === "__live_selfie__") && (
+          <CatalogPanel
+            title="Live selfie required"
+            description="This application predates camera capture. Request a selfie before approving it."
+          >
+            <div className="review-panel-body">
+              <Button
+                disabled={busy || resource.loading}
+                onClick={() =>
+                  void action(
+                    () =>
+                      apiRequest(
+                        PARTNER_API + "/applications/" + id + "/request-selfie",
+                        { method: "POST", data: { version: app.version } },
+                      ),
+                    "Live selfie requested.",
+                  )
+                }
+              >
+                Request live selfie
+              </Button>
+            </div>
+          </CatalogPanel>
+        )}
       <div className="partner-answer-grid">
         {app.fields.map((field) => {
           const fileIds = Array.isArray(field.value)
@@ -243,6 +301,12 @@ export function PartnerApplicationReview({
                 (item): item is string => typeof item === "string",
               )
             : [];
+          const missingRequiredValue =
+            field.definition.is_required &&
+            (field.value === null ||
+              field.value === undefined ||
+              field.value === "" ||
+              (Array.isArray(field.value) && !field.value.length));
           return (
             <CatalogPanel
               key={field.id}
@@ -259,6 +323,9 @@ export function PartnerApplicationReview({
             >
               <div className="review-panel-body">
                 <div className="partner-answer-value">
+                  {field.definition.capture_mode === "CAMERA" && fileIds[0] && (
+                    <PrivateSelfie assetId={fileIds[0]} />
+                  )}
                   {["FILE", "IMAGE", "PDF"].includes(
                     field.definition.field_type,
                   ) ? (
@@ -322,7 +389,8 @@ export function PartnerApplicationReview({
                         disabled={
                           busy ||
                           resource.loading ||
-                          field.status === "APPROVED"
+                          field.status === "APPROVED" ||
+                          missingRequiredValue
                         }
                         onClick={() =>
                           void action(
@@ -500,6 +568,28 @@ export function PartnerApplicationReview({
                 </div>
               </div>
             )}
+          </div>
+        </CatalogPanel>
+      )}
+      {app.status === "EXITED" && (
+        <CatalogPanel
+          title="Driver exit completed"
+          description="Driver operations are disabled. Application history and the original approval document are retained."
+        >
+          <div className="review-panel-body flex flex-wrap gap-3">
+            <Button
+              variant="secondary"
+              disabled={busy || !app.final_pdf_id}
+              onClick={() => void openAsset(app.final_pdf_id!)}
+            >
+              Download original approval PDF
+            </Button>
+            <Link
+              className="button button-secondary"
+              to="/partner-program/applications/exit-requests"
+            >
+              Exit Request &amp; Dues
+            </Link>
           </div>
         </CatalogPanel>
       )}

@@ -1,3 +1,4 @@
+import 'package:user/features/partner_program/pages/driver_exit_page.dart';
 import 'package:flutter/material.dart';
 import 'package:user/features/auth/pages/login_page.dart';
 import 'package:user/features/home/pages/home_page.dart';
@@ -37,6 +38,7 @@ class AppRoutes {
   static const String partnerProgram = '/partner-program';
   static const String partnerActivation = '/partner-program/activation';
   static const String driverHome = '/driver/home';
+  static const String driverExit = '/driver/exit';
 
   static Map<String, WidgetBuilder> get routes => {
     gate: (context) => const SessionGate(),
@@ -56,5 +58,6 @@ class AppRoutes {
     partnerProgram: (context) => const PartnerProgramPage(),
     partnerActivation: (context) => const PartnerActivationPage(),
     driverHome: (context) => const DriverHomePage(),
+    driverExit: (context) => const DriverExitPage(),
   };
 }

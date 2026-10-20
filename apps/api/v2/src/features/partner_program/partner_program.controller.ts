@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import {
   Controller,
   Get,
@@ -199,6 +200,24 @@ export class AdminPartnerProgramController {
         review_input.parse(req.body),
       ),
       'Field reviewed',
+    );
+  }
+  @Post('applications/:id/request-selfie') async request_selfie(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const input = z
+      .object({ version: z.number().int().positive() })
+      .strict()
+      .parse(req.body);
+    return send_success(
+      res,
+      await this.service.request_selfie(
+        req.auth!.user_id,
+        id_input.parse(req.params.id),
+        input.version,
+      ),
+      'Live selfie requested',
     );
   }
   @Post('applications/:id/approve') async approve(

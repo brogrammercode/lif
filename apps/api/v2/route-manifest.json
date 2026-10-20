@@ -68,7 +68,7 @@
     "handler": "request_brand",
     "method": "post",
     "path": "driver/vehicle-brands/requests",
-    "guards": ["AuthGuard"],
+    "guards": ["AuthGuard", "DriverAccessGuard"],
     "idempotent": false
   },
   {
@@ -76,7 +76,7 @@
     "handler": "request_model",
     "method": "post",
     "path": "driver/vehicle-models/requests",
-    "guards": ["AuthGuard"],
+    "guards": ["AuthGuard", "DriverAccessGuard"],
     "idempotent": false
   },
   {
@@ -300,7 +300,7 @@
     "handler": "profile",
     "method": "get",
     "path": "driver/profile",
-    "guards": ["AuthGuard"],
+    "guards": ["AuthGuard", "DriverAccessGuard"],
     "idempotent": false
   },
   {
@@ -308,7 +308,7 @@
     "handler": "profile",
     "method": "get",
     "path": "driver/me",
-    "guards": ["AuthGuard"],
+    "guards": ["AuthGuard", "DriverAccessGuard"],
     "idempotent": false
   },
   {
@@ -316,7 +316,7 @@
     "handler": "create_profile",
     "method": "post",
     "path": "driver/profile",
-    "guards": ["AuthGuard"],
+    "guards": ["AuthGuard", "DriverAccessGuard"],
     "idempotent": false
   },
   {
@@ -324,7 +324,7 @@
     "handler": "availability",
     "method": "patch",
     "path": "driver/availability",
-    "guards": ["AuthGuard"],
+    "guards": ["AuthGuard", "DriverAccessGuard"],
     "idempotent": false
   },
   {
@@ -332,7 +332,7 @@
     "handler": "vehicle",
     "method": "post",
     "path": "driver/vehicles",
-    "guards": ["AuthGuard"],
+    "guards": ["AuthGuard", "DriverAccessGuard"],
     "idempotent": false
   },
   {
@@ -340,7 +340,7 @@
     "handler": "change_category",
     "method": "patch",
     "path": "driver/vehicles/:id/category",
-    "guards": ["AuthGuard"],
+    "guards": ["AuthGuard", "DriverAccessGuard"],
     "idempotent": false
   },
   {
@@ -348,7 +348,7 @@
     "handler": "active_vehicle",
     "method": "patch",
     "path": "driver/vehicles/:id/active",
-    "guards": ["AuthGuard"],
+    "guards": ["AuthGuard", "DriverAccessGuard"],
     "idempotent": false
   },
   {
@@ -356,7 +356,7 @@
     "handler": "offers",
     "method": "get",
     "path": "driver/offers",
-    "guards": ["AuthGuard"],
+    "guards": ["AuthGuard", "DriverAccessGuard"],
     "idempotent": false
   },
   {
@@ -364,7 +364,7 @@
     "handler": "accept",
     "method": "post",
     "path": "driver/offers/:id/accept",
-    "guards": ["AuthGuard"],
+    "guards": ["AuthGuard", "DriverAccessGuard"],
     "idempotent": false
   },
   {
@@ -372,7 +372,7 @@
     "handler": "reject",
     "method": "post",
     "path": "driver/offers/:id/reject",
-    "guards": ["AuthGuard"],
+    "guards": ["AuthGuard", "DriverAccessGuard"],
     "idempotent": false
   },
   {
@@ -380,7 +380,7 @@
     "handler": "location",
     "method": "post",
     "path": "driver/location",
-    "guards": ["AuthGuard"],
+    "guards": ["AuthGuard", "DriverAccessGuard"],
     "idempotent": false
   },
   {
@@ -388,7 +388,7 @@
     "handler": "arrive",
     "method": "post",
     "path": "driver/rides/:id/arrive",
-    "guards": ["AuthGuard"],
+    "guards": ["AuthGuard", "DriverAccessGuard"],
     "idempotent": false
   },
   {
@@ -396,7 +396,7 @@
     "handler": "start",
     "method": "post",
     "path": "driver/rides/:id/start",
-    "guards": ["AuthGuard"],
+    "guards": ["AuthGuard", "DriverAccessGuard"],
     "idempotent": false
   },
   {
@@ -404,7 +404,7 @@
     "handler": "complete",
     "method": "post",
     "path": "driver/rides/:id/complete",
-    "guards": ["AuthGuard"],
+    "guards": ["AuthGuard", "DriverAccessGuard"],
     "idempotent": false
   },
   {
@@ -924,6 +924,94 @@
     "handler": "unlock",
     "method": "post",
     "path": "admin/partner-program/applications/:id/activation-unlock",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_catalog",
+    "handler": "import_catalog",
+    "method": "post",
+    "path": "admin/vehicle-catalog/import",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "admin_partner_program",
+    "handler": "request_selfie",
+    "method": "post",
+    "path": "admin/partner-program/applications/:id/request-selfie",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "partner_exit",
+    "handler": "mine",
+    "method": "get",
+    "path": "partner-program/exit-request",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "partner_exit",
+    "handler": "create",
+    "method": "post",
+    "path": "partner-program/exit-request",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "admin_partner_exit",
+    "handler": "list",
+    "method": "get",
+    "path": "admin/partner-program/exit-requests",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "admin_partner_exit",
+    "handler": "create",
+    "method": "post",
+    "path": "admin/partner-program/exit-requests",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "admin_partner_exit",
+    "handler": "detail",
+    "method": "get",
+    "path": "admin/partner-program/exit-requests/:id",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "admin_partner_exit",
+    "handler": "review",
+    "method": "patch",
+    "path": "admin/partner-program/exit-requests/:id",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "admin_partner_exit",
+    "handler": "upload",
+    "method": "post",
+    "path": "admin/partner-program/exit-requests/:id/assets",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "admin_partner_exit",
+    "handler": "shared",
+    "method": "post",
+    "path": "admin/partner-program/exit-requests/:id/shared",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "admin_partner_exit",
+    "handler": "retry",
+    "method": "post",
+    "path": "admin/partner-program/exit-requests/:id/email-retry",
     "guards": ["AuthGuard", "AdminGuard"],
     "idempotent": false
   }

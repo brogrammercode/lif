@@ -4,6 +4,7 @@ import { PrismaService } from '../../infra/database/prisma.service.js';
 import { create_user_log } from '../../infra/database/user_log.js';
 import {
   require_active_account,
+  require_driver_participation,
   require_active_admin,
 } from '../../infra/database/account_lifecycle.js';
 import { AppError } from '../../core/error.js';
@@ -159,8 +160,11 @@ export class VehicleCatalogRepository {
     driver_request = false,
   ) {
     return this.database.client.$transaction(async (tx) => {
-      if (driver_request) await require_active_account(tx, actor_id);
-      else await require_active_admin(tx, actor_id);
+      if (driver_request) {
+        await require_active_account(tx, actor_id);
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${actor_id}))`;
+        await require_driver_participation(tx, actor_id);
+      } else await require_active_admin(tx, actor_id);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(720049)`;
       if (
         driver_request &&
@@ -243,8 +247,11 @@ export class VehicleCatalogRepository {
     driver_request = false,
   ) {
     return this.database.client.$transaction(async (tx) => {
-      if (driver_request) await require_active_account(tx, actor_id);
-      else await require_active_admin(tx, actor_id);
+      if (driver_request) {
+        await require_active_account(tx, actor_id);
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${actor_id}))`;
+        await require_driver_participation(tx, actor_id);
+      } else await require_active_admin(tx, actor_id);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(720049)`;
       if (
         driver_request &&

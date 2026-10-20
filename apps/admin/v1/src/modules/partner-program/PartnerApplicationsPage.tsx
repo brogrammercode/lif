@@ -32,6 +32,7 @@ const statuses = [
   "CONFIRMATION_CHANGES_REQUESTED",
   "COMPLETED",
   "ACTIVATED",
+  "EXITED",
 ];
 
 export function PartnerApplicationsPage({

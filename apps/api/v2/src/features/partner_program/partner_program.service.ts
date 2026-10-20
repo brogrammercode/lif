@@ -1,3 +1,4 @@
+import { LIVE_SELFIE, LIVE_SELFIE_ID } from './partner_selfie.constant.js';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
@@ -39,6 +40,7 @@ const asset_select = {
 const application_include = {
   fields: { orderBy: { created_at: 'asc' as const } },
   confirmation: true,
+  exit_request: { select: { id: true, status: true, version: true } },
   deliveries: true,
   user: {
     select: {
@@ -217,7 +219,15 @@ export class PartnerProgramService {
       policy: app?.policy_snapshot ?? published_document(policy),
       confirmation:
         app?.confirmation_document ?? published_document(confirmation),
-      requirements: app ? app.fields.map((f) => f.definition) : requirements,
+      requirements: app
+        ? [
+            ...app.fields.map((f) => f.definition),
+            ...(['SUBMITTED', 'CHANGES_REQUESTED'].includes(app.status) &&
+            !app.fields.some((f) => f.requirement_id === LIVE_SELFIE_ID)
+              ? [LIVE_SELFIE]
+              : []),
+          ]
+        : [...requirements, LIVE_SELFIE],
       assets,
       activation_required:
         app?.status === 'COMPLETED' && !!app.activation_issued_at,
@@ -318,7 +328,10 @@ export class PartnerProgramService {
         where: {
           id: { in: value as string[] },
           owner_id: user_id,
-          purpose: 'APPLICATION_DOCUMENT',
+          purpose:
+            definition.id === LIVE_SELFIE_ID
+              ? 'APPLICATION_SELFIE'
+              : 'APPLICATION_DOCUMENT',
           field_id: definition.id,
         },
         select: { id: true, mime_type: true, file_name: true, size: true },
@@ -339,8 +352,8 @@ export class PartnerProgramService {
       )
         throw fail(`Wrong file type for ${label}.`);
       const allowed =
-        definition.allowed_extensions?.map((extension) =>
-          extension.toLowerCase(),
+        definition.allowed_extensions?.map(
+          (extension) => '.' + extension.replace(/^\./, '').toLowerCase(),
         ) ?? [];
       if (
         assets.some(
@@ -443,6 +456,11 @@ export class PartnerProgramService {
               { id: 'asc' },
             ],
           });
+      if (!definitions.some((d) => d.id === LIVE_SELFIE_ID))
+        definitions.push({
+          ...LIVE_SELFIE,
+          allowed_extensions: [...LIVE_SELFIE.allowed_extensions],
+        });
       const values = new Map(
         input.answers.map((a) => [a.requirement_id, a.value]),
       );
@@ -562,6 +580,13 @@ export class PartnerProgramService {
           'FIELD_NOT_FOUND',
           'Submitted field not found.',
         );
+      if (input.decision === 'APPROVED')
+        await this.validate_answer(
+          tx,
+          app.user_id,
+          field.definition as unknown as Definition,
+          field.value,
+        );
       await tx.partnerApplicationField.update({
         where: { id: field_id },
         data: {
@@ -597,6 +622,41 @@ export class PartnerProgramService {
       return { version: updated.version, status: updated.status };
     }, transaction_options);
   }
+  async request_selfie(actor_id: string, id: string, version: number) {
+    return this.database.client.$transaction(async (tx) => {
+      const app = await this.locked(tx, actor_id, id, version);
+      if (
+        !['SUBMITTED', 'CHANGES_REQUESTED'].includes(app.status) ||
+        app.fields.some((f) => f.requirement_id === LIVE_SELFIE_ID)
+      )
+        throw conflict();
+      await tx.partnerApplicationField.create({
+        data: {
+          application_id: id,
+          requirement_id: LIVE_SELFIE_ID,
+          definition: json(LIVE_SELFIE),
+          value: Prisma.JsonNull,
+          status: 'REJECTED',
+          rejection_reason:
+            'Take a fresh live selfie and resubmit your application.',
+          reviewed_by_id: actor_id,
+          reviewed_at: new Date(),
+        },
+      });
+      await tx.partnerApplication.update({
+        where: { id },
+        data: { status: 'CHANGES_REQUESTED', version: { increment: 1 } },
+      });
+      await this.audit(tx, actor_id, id, 'REQUEST_PARTNER_SELFIE');
+      await this.notify(
+        tx,
+        app.user_id,
+        'Live selfie required',
+        'Take a fresh selfie in your Partner Program application and resubmit. Approved fields are preserved.',
+      );
+      return { requested: true };
+    }, transaction_options);
+  }
   async approve_application(actor_id: string, id: string, input: ReviewInput) {
     return this.database.client.$transaction(async (tx) => {
       const app = await this.locked(tx, actor_id, id, input.version);
@@ -605,9 +665,15 @@ export class PartnerProgramService {
         input.decision !== 'APPROVED'
       )
         throw conflict();
+      if (!app.fields.some((f) => f.requirement_id === LIVE_SELFIE_ID))
+        throw fail(
+          'Request and approve a live selfie before approving this application.',
+        );
       if (
         app.fields.some(
           (f) =>
+            ((f.definition as unknown as Definition).is_required &&
+              empty(f.value)) ||
             f.status === 'REJECTED' ||
             (((f.definition as unknown as Definition).is_required ||
               !empty(f.value)) &&
@@ -617,6 +683,18 @@ export class PartnerProgramService {
         throw fail(
           'Approve every required or provided field before approving the application.',
         );
+      const selfie = app.fields.find(
+        (f) => f.requirement_id === LIVE_SELFIE_ID,
+      )!;
+      await this.validate_answer(
+        tx,
+        app.user_id,
+        {
+          ...LIVE_SELFIE,
+          allowed_extensions: [...LIVE_SELFIE.allowed_extensions],
+        },
+        selfie.value,
+      );
       const confirmation = published_document(
         await tx.partnerDocument.findUnique({
           where: { kind: 'CONFIRMATION' },
@@ -778,6 +856,11 @@ export class PartnerProgramService {
     if (!admin) {
       if (!input.field_id)
         throw fail('Choose the requirement this upload belongs to.');
+      if (
+        input.field_id === LIVE_SELFIE_ID &&
+        input.capture_source !== 'CAMERA'
+      )
+        throw fail('Take your live selfie using the application camera.');
       const existing = await this.database.client.partnerApplication.findUnique(
         { where: { user_id: actor_id }, include: { fields: true } },
       );
@@ -793,13 +876,18 @@ export class PartnerProgramService {
         throw fail('This field is already approved.');
       definition = previous
         ? (previous.definition as unknown as Definition)
-        : await this.database.client.partnerRequirement.findFirst({
-            where: {
-              id: input.field_id,
-              is_active: true,
-              category: { is_active: true },
-            },
-          });
+        : input.field_id === LIVE_SELFIE_ID
+          ? {
+              ...LIVE_SELFIE,
+              allowed_extensions: [...LIVE_SELFIE.allowed_extensions],
+            }
+          : await this.database.client.partnerRequirement.findFirst({
+              where: {
+                id: input.field_id,
+                is_active: true,
+                category: { is_active: true },
+              },
+            });
       if (
         !definition ||
         !['FILE', 'IMAGE', 'PDF'].includes(definition.field_type)
@@ -919,7 +1007,11 @@ export class PartnerProgramService {
       const duplicate = await tx.partnerAsset.findFirst({
         where: {
           owner_id,
-          purpose: admin ? 'FINAL_PDF' : 'APPLICATION_DOCUMENT',
+          purpose: admin
+            ? 'FINAL_PDF'
+            : input.field_id === LIVE_SELFIE_ID
+              ? 'APPLICATION_SELFIE'
+              : 'APPLICATION_DOCUMENT',
           field_id: admin ? null : input.field_id,
           sha256: digest,
           file_name: name,
@@ -942,7 +1034,11 @@ export class PartnerProgramService {
       const asset = await tx.partnerAsset.create({
         data: {
           owner_id,
-          purpose: admin ? 'FINAL_PDF' : 'APPLICATION_DOCUMENT',
+          purpose: admin
+            ? 'FINAL_PDF'
+            : input.field_id === LIVE_SELFIE_ID
+              ? 'APPLICATION_SELFIE'
+              : 'APPLICATION_DOCUMENT',
           field_id: admin ? null : input.field_id,
           file_name: name,
           mime_type: mime,
@@ -985,9 +1081,20 @@ export class PartnerProgramService {
       });
       if (
         app?.final_pdf_id !== id ||
-        !['COMPLETED', 'ACTIVATED'].includes(app.status)
+        !['COMPLETED', 'ACTIVATED', 'EXITED'].includes(app.status)
       )
         throw new AppError(404, 'FILE_NOT_FOUND', 'File not found.');
+    }
+    if (actor.role !== 'ADMIN' && asset.purpose === 'EXIT_PDF') {
+      const exit = await this.database.client.partnerExitRequest.findFirst({
+        where: {
+          settlement_pdf_id: id,
+          status: 'COMPLETED',
+          application: { user_id: actor_id },
+        },
+        select: { id: true },
+      });
+      if (!exit) throw new AppError(404, 'FILE_NOT_FOUND', 'File not found.');
     }
     return asset;
   }

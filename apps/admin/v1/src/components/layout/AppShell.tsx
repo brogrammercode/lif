@@ -241,6 +241,9 @@ function WorkspaceShell() {
                 <NavLink to="/partner-program/applications/confirmations">
                   Confirmations
                 </NavLink>
+                <NavLink to="/partner-program/applications/exit-requests">
+                  Exit Request &amp; Dues
+                </NavLink>
               </>
             ) : (
               <>

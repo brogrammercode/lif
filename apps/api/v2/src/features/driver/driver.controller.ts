@@ -9,7 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { DriverService } from './driver.service.js';
-import { AuthGuard } from '../../core/guards.js';
+import { AuthGuard, DriverAccessGuard } from '../../core/guards.js';
 import { DRIVER_ROUTES } from './driver.route.js';
 import type { Request, Response } from 'express';
 import { vehicle_category_selection_schema } from './driver.type.js';
@@ -49,7 +49,7 @@ export class DriverController {
 
   @Get(DRIVER_ROUTES.PROFILE)
   @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, DriverAccessGuard)
   async profile(
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
@@ -65,7 +65,7 @@ export class DriverController {
 
   @Post(DRIVER_ROUTES.CREATE_PROFILE)
   @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, DriverAccessGuard)
   async create_profile(
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
@@ -83,7 +83,7 @@ export class DriverController {
 
   @Patch(DRIVER_ROUTES.AVAILABILITY)
   @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, DriverAccessGuard)
   async availability(
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
@@ -100,7 +100,7 @@ export class DriverController {
 
   @Post(DRIVER_ROUTES.VEHICLE)
   @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, DriverAccessGuard)
   async vehicle(
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
@@ -118,7 +118,7 @@ export class DriverController {
 
   @Patch(DRIVER_ROUTES.CHANGE_CATEGORY)
   @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, DriverAccessGuard)
   async change_category(
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
@@ -137,7 +137,7 @@ export class DriverController {
 
   @Patch(DRIVER_ROUTES.ACTIVE_VEHICLE)
   @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, DriverAccessGuard)
   async active_vehicle(
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
@@ -154,7 +154,7 @@ export class DriverController {
 
   @Get(DRIVER_ROUTES.OFFERS)
   @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, DriverAccessGuard)
   async offers(
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
@@ -168,7 +168,7 @@ export class DriverController {
 
   @Post(DRIVER_ROUTES.ACCEPT)
   @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, DriverAccessGuard)
   async accept(
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
@@ -187,7 +187,7 @@ export class DriverController {
 
   @Post(DRIVER_ROUTES.REJECT)
   @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, DriverAccessGuard)
   async reject(
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
@@ -201,7 +201,7 @@ export class DriverController {
 
   @Post(DRIVER_ROUTES.LOCATION)
   @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, DriverAccessGuard)
   async location(
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
@@ -218,7 +218,7 @@ export class DriverController {
 
   @Post(DRIVER_ROUTES.ARRIVE)
   @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, DriverAccessGuard)
   async arrive(
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
@@ -236,7 +236,7 @@ export class DriverController {
 
   @Post(DRIVER_ROUTES.START)
   @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, DriverAccessGuard)
   async start(
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
@@ -254,7 +254,7 @@ export class DriverController {
 
   @Post(DRIVER_ROUTES.COMPLETE)
   @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, DriverAccessGuard)
   async complete(
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,

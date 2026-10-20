@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -30,6 +32,9 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
   Map<String, dynamic>? _workflow;
   bool _loading = true;
   bool _saving = false;
+  bool _capturingSelfie = false;
+  bool _pickingFiles = false;
+  bool _checkedLostSelfie = false;
   bool _acceptPolicy = false;
   bool _acceptConfirmation = false;
   bool _showForm = false;
@@ -39,6 +44,9 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
   int _loadRequest = 0;
   Map<String, dynamic>? get _application =>
       _workflow?['application'] as Map<String, dynamic>?;
+  bool get _needsSelfie =>
+      ['SUBMITTED', 'CHANGES_REQUESTED'].contains(_status) &&
+      !_answers.any((a) => a['requirement_id'] == '__live_selfie__');
   String get _status => '${_application?['status'] ?? ''}';
   List<Map<String, dynamic>> get _definitions =>
       _maps(_workflow?['requirements']);
@@ -145,6 +153,10 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         _dirty = false;
         _acceptConfirmation = false;
       });
+      if (!_checkedLostSelfie) {
+        _checkedLostSelfie = true;
+        unawaited(_recoverSelfie());
+      }
     } catch (error) {
       if (mounted && request == _loadRequest && !(background && _dirty)) {
         setState(() {
@@ -194,6 +206,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
   }
 
   Future<void> _submit() async {
+    if (_saving || _pickingFiles || _capturingSelfie) return;
     if (!(_form.currentState?.validate() ?? false)) return;
     for (final definition in _definitions) {
       final id = '${definition['id']}';
@@ -260,7 +273,89 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     });
   }
 
+  Future<void> _recoverSelfie() async {
+    if (!Platform.isAndroid) return;
+    if (!mounted) return;
+    setState(() => _capturingSelfie = true);
+    try {
+      final recovered = await ImagePicker().retrieveLostData();
+      if (!mounted || recovered.isEmpty) return;
+      if (recovered.exception != null) throw recovered.exception!;
+      final file = recovered.files?.firstOrNull;
+      if (file != null) await _useSelfie(file);
+    } catch (error) {
+      if (mounted) setState(() => _error = ApiResult.errorMessage(error));
+    } finally {
+      if (mounted) setState(() => _capturingSelfie = false);
+    }
+  }
+
+  Future<void> _useSelfie(XFile file) async {
+    const id = '__live_selfie__';
+    if (!_definitions.any((d) => d['id'] == id) ||
+        (_application != null &&
+            _status != 'CHANGES_REQUESTED' &&
+            !_needsSelfie)) {
+      return;
+    }
+    if (_answers.any(
+      (a) => a['requirement_id'] == id && a['status'] == 'APPROVED',
+    )) {
+      return;
+    }
+    final bytes = await file.readAsBytes();
+    if (bytes.isEmpty || bytes.length > 3000000) {
+      throw StateError('Retake a smaller selfie (up to 3 MB).');
+    }
+    if (!mounted) return;
+    setState(() {
+      _files[id] = [_PartnerFile(name: 'live_selfie.jpg', bytes: bytes)];
+      _dirty = true;
+      _error = null;
+    });
+  }
+
+  Future<void> _captureSelfie() async {
+    if (_saving || _capturingSelfie || _pickingFiles) return;
+    final wasDirty = _dirty;
+    var captured = false;
+    _markDirty();
+    setState(() => _capturingSelfie = true);
+    try {
+      final image = await ImagePicker().pickImage(
+        source: ImageSource.camera,
+        preferredCameraDevice: CameraDevice.front,
+        maxWidth: 1600,
+        maxHeight: 1600,
+        imageQuality: 85,
+        requestFullMetadata: false,
+      );
+      if (image != null && mounted) {
+        await _useSelfie(image);
+        captured = true;
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = ApiResult.errorMessage(error));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _capturingSelfie = false;
+          if (!captured) _dirty = wasDirty;
+        });
+      }
+    }
+  }
+
   Future<void> _pick(Map<String, dynamic> definition) async {
+    if (_saving || _pickingFiles || _capturingSelfie) return;
+    if (definition['capture_mode'] == 'CAMERA') {
+      await _captureSelfie();
+      return;
+    }
+    final wasDirty = _dirty;
+    var selectedFiles = false;
+    _markDirty();
+    setState(() => _pickingFiles = true);
     try {
       final extensions = (definition['allowed_extensions'] as List? ?? [])
           .map((value) => '$value'.replaceFirst('.', '').toLowerCase())
@@ -330,8 +425,16 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         _dirty = true;
         _error = null;
       });
+      selectedFiles = true;
     } catch (error) {
       if (mounted) setState(() => _error = ApiResult.errorMessage(error));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _pickingFiles = false;
+          if (!selectedFiles) _dirty = wasDirty;
+        });
+      }
     }
   }
 
@@ -393,7 +496,12 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     final answer = _answers
         .where((item) => item['requirement_id'] == id)
         .firstOrNull;
-    final enabled = editing && !_saving && answer?['status'] != 'APPROVED';
+    final enabled =
+        editing &&
+        !_saving &&
+        !_pickingFiles &&
+        !_capturingSelfie &&
+        answer?['status'] != 'APPROVED';
     final label = '${definition['label']}${required ? ' *' : ''}';
     final children = <Widget>[
       Row(
@@ -479,9 +587,23 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       if (enabled) {
         children.add(
           OutlinedButton.icon(
-            onPressed: () => _pick(definition),
-            icon: const Icon(Icons.upload_file),
-            label: Text(files.isEmpty ? 'Choose files' : 'Add / replace files'),
+            onPressed: _capturingSelfie ? null : () => _pick(definition),
+            icon: Icon(
+              definition['capture_mode'] == 'CAMERA'
+                  ? Icons.photo_camera_outlined
+                  : Icons.upload_file,
+            ),
+            label: Text(
+              definition['capture_mode'] == 'CAMERA'
+                  ? (_capturingSelfie
+                        ? 'Opening camera?'
+                        : files.isEmpty
+                        ? 'Take live selfie'
+                        : 'Retake selfie')
+                  : files.isEmpty
+                  ? 'Choose files'
+                  : 'Add / replace files',
+            ),
           ),
         );
       }
@@ -612,7 +734,8 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
   }
 
   List<Widget> _formContents() {
-    final editing = _application == null || _status == 'CHANGES_REQUESTED';
+    final editing =
+        _application == null || _status == 'CHANGES_REQUESTED' || _needsSelfie;
     final widgets = <Widget>[
       if (_application != null)
         AppCard(
@@ -622,7 +745,9 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
               _statusBadge(_status),
               const SizedBox(height: 10),
               Text(
-                _status == 'CHANGES_REQUESTED'
+                _needsSelfie
+                    ? 'Please add a live selfie and resubmit. Your approved fields are preserved.'
+                    : _status == 'CHANGES_REQUESTED'
                     ? 'Please correct the rejected fields below. Approved fields are preserved.'
                     : 'Your application is under review. Each field’s status and feedback appear below.',
                 style: const TextStyle(
@@ -641,7 +766,8 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           children: [
             TextFormField(
               controller: _email,
-              enabled: editing && !_saving,
+              enabled:
+                  editing && !_saving && !_pickingFiles && !_capturingSelfie,
               keyboardType: TextInputType.emailAddress,
               decoration: const InputDecoration(
                 labelText: 'Email for final PDF *',
@@ -658,7 +784,8 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
             const SizedBox(height: 14),
             TextFormField(
               controller: _phone,
-              enabled: editing && !_saving,
+              enabled:
+                  editing && !_saving && !_pickingFiles && !_capturingSelfie,
               keyboardType: TextInputType.phone,
               decoration: const InputDecoration(
                 labelText: 'WhatsApp number with country code *',
@@ -702,7 +829,9 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           text: _application == null
               ? 'Submit application'
               : 'Submit corrections',
-          onPressed: _saving ? null : _submit,
+          onPressed: _saving || _capturingSelfie || _pickingFiles
+              ? null
+              : _submit,
           isLoading: _saving,
         ),
       );
@@ -728,6 +857,21 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
 
   List<Widget> _contents() {
     if (_workflow == null) return [];
+    if (_status == 'EXITED') {
+      return [
+        const SizedBox(height: 24),
+        const AppCard(
+          child: Text(
+            'Your partner exit is complete. Driver operations are disabled. Your settlement PDF and account history remain available.',
+          ),
+        ),
+        const SizedBox(height: 20),
+        AppButton(
+          text: 'Exit Request & Dues',
+          onPressed: () => Navigator.pushNamed(context, AppRoutes.driverExit),
+        ),
+      ];
+    }
     if (['COMPLETED', 'ACTIVATED'].contains(_status)) {
       return [
         const SizedBox(height: 20),
@@ -925,16 +1069,16 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
 
   @override
   Widget build(BuildContext context) => PopScope(
-    canPop: !_dirty && !_saving,
+    canPop: !_dirty && !_saving && !_pickingFiles && !_capturingSelfie,
     onPopInvokedWithResult: (didPop, result) async {
-      if (didPop || _saving) return;
+      if (didPop || _saving || _pickingFiles || _capturingSelfie) return;
       if (await _discard() && context.mounted) Navigator.pop(context);
     },
     child: AppPage(
       title: 'Partner Program',
       action: IconButton(
         tooltip: 'Refresh partner status',
-        onPressed: _saving
+        onPressed: _saving || _pickingFiles || _capturingSelfie
             ? null
             : () async {
                 if (_dirty && !await _discard()) return;
@@ -953,7 +1097,12 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
             )
           : RefreshIndicator(
               onRefresh: () async {
-                if (!_dirty) await _load(background: true);
+                if (!_dirty &&
+                    !_saving &&
+                    !_pickingFiles &&
+                    !_capturingSelfie) {
+                  await _load(background: true);
+                }
               },
               color: AppColors.primaryGreen,
               child: Form(

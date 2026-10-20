@@ -47,5 +47,9 @@
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>This app needs access to location when open.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Take a live selfie for your Partner Program application.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Access photos for your Partner Program documents.</string>
 </dict>
 </plist>
