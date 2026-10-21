@@ -72,10 +72,10 @@ const model: Record<string, CsvFieldGuide> = {
     type: "string",
     description:
       "Use an existing active, verified brand's name. Import and verify/enable the brand first; model import never creates its brand.",
-    example: "Choose from active-verified-brands.json",
+    example: "Choose from the eligible brand reference rows in this CSV",
     max_length: 100,
     dependency:
-      "active-verified-brands.json; matched by normalized brand name, then linked using the existing database brand ID",
+      "Eligible brand reference rows in this CSV; matched by normalized brand name, then linked using the existing database brand ID",
   },
   vehicle_type: {
     field: "vehicle_type",
@@ -132,8 +132,9 @@ export const fieldGuides = (kind: ImportKind) =>
 export const importChecklist = (kind: ImportKind) => [
   "Format: UTF-8 CSV, 1–100 data rows, up to 1 MB. Keep the template headers; no extra columns.",
   "Values: fill required fields; leave unknown optional cells blank. Quote commas/newlines; escape a double quote as two double quotes.",
+  "Sample: replace the example's first cell with a real brand/name and fill its data, or add your own rows. Marked example and reference rows are ignored during import.",
   kind === "models"
-    ? "Dependency: import brands first. brand_name must match an active, verified brand in the pack’s reference."
+    ? "Dependency: import brands first. brand_name must match an active, verified brand listed in the sample CSV's reference rows."
     : "Dependencies: none. Country is free text; an optional website must use HTTPS.",
   "IDs & logos: IDs are automatic; upload logos in the editor. Do not add ID, status, enablement or logo columns.",
   kind === "models"

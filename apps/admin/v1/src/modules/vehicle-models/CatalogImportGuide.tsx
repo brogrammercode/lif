@@ -2,12 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { InlineError } from "../../components/feedback/StateCard";
 import { safeMessage } from "../../lib/api-client";
-import {
-  columns,
-  csvDownload,
-  requiredColumns,
-  type ImportKind,
-} from "./catalog-csv";
+import { requiredColumns, type ImportKind } from "./catalog-csv";
 import {
   fieldGuides,
   fieldRules,
@@ -93,20 +88,20 @@ export function CatalogImportGuide({
       </details>
       <div className="border-t border-line pt-3 space-y-3">
         <p>
-          Share the <strong>whole template pack</strong> with whoever generates
-          or refines your sheet. It contains a blank CSV, field guide, allowed
-          values and a machine-readable import specification
+          Download <strong>one sample CSV</strong> to share with whoever
+          prepares your sheet. It includes dummy rows, field rules and allowed
+          values
           {kind === "models"
-            ? ", plus the current active, verified brand names"
+            ? ", plus current eligible brand names and configured category references"
             : ""}
           .
         </p>
         <p className="text-muted">
-          Extract the ZIP, fill <code>vehicle-{kind}.csv</code>, then import
-          that CSV only.{" "}
+          Fill <code>vehicle-{kind}-sample.csv</code> and import it directly.
+          Marked example and reference rows are skipped.{" "}
           {kind === "models"
-            ? "Download a fresh pack after changing brands."
-            : "The blank file contains no example records."}
+            ? "Download a fresh sample after changing brands or categories."
+            : "Replace dummy values with your real brand details."}
         </p>
         {error && <InlineError message={error} />}
         <div className="flex flex-wrap gap-2">
@@ -116,14 +111,7 @@ export function CatalogImportGuide({
             busy={downloading}
             onClick={() => void download()}
           >
-            Download template pack
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={disabled}
-            onClick={() => csvDownload(`vehicle-${kind}.csv`, [columns[kind]])}
-          >
-            Blank CSV only
+            Download sample CSV
           </Button>
         </div>
       </div>

@@ -1,10 +1,10 @@
-import { strToU8, zipSync } from "fflate";
 import { apiRequest } from "../../lib/api-client";
+import { getCategories } from "../vehicle-categories/vehicle-categories.api";
 import {
   columns,
-  csvFuelTypes,
-  csvText,
-  csvVehicleTypes,
+  csvDownload,
+  csvExamplePrefix,
+  csvReferenceMarker,
   requiredColumns,
   type ImportKind,
 } from "./catalog-csv";
@@ -38,15 +38,14 @@ async function eligibleBrands(signal: AbortSignal): Promise<string[]> {
       !("page_size" in data) ||
       data.page_size !== 100 ||
       data.rows.length > 100
-    ) {
+    )
       throw new Error(
-        "Could not read the eligible brand reference. Retry downloading the template pack.",
+        "Could not read the eligible brand reference. Retry downloading the sample CSV.",
       );
-    }
     total ??= data.total;
     if (total !== data.total)
       throw new Error(
-        "The brand catalog changed while preparing the template. Download the pack again.",
+        "The brand catalog changed while preparing the sample. Download it again.",
       );
     for (const row of data.rows as unknown[]) {
       if (
@@ -62,7 +61,7 @@ async function eligibleBrands(signal: AbortSignal): Promise<string[]> {
         brands.has(row.id)
       )
         throw new Error(
-          "The brand reference changed or is incomplete. Retry downloading the template pack.",
+          "The brand reference changed or is incomplete. Retry downloading the sample CSV.",
         );
       const brand = row as BrandReference;
       brands.set(brand.id, brand.name);
@@ -70,7 +69,7 @@ async function eligibleBrands(signal: AbortSignal): Promise<string[]> {
     if (page * 100 >= total) break;
     if (!data.rows.length)
       throw new Error(
-        "The brand reference is incomplete. Retry downloading the template pack.",
+        "The brand reference is incomplete. Retry downloading the sample CSV.",
       );
   }
   if (brands.size !== total)
@@ -84,194 +83,98 @@ export async function downloadCatalogTemplate(
   kind: ImportKind,
   signal: AbortSignal,
 ) {
-  const brands = kind === "models" ? await eligibleBrands(signal) : [];
+  const [brands, categories] =
+    kind === "models"
+      ? await Promise.all([eligibleBrands(signal), getCategories(signal)])
+      : [[], []];
   signal.throwIfAborted();
-  const capturedAt = new Date().toISOString();
   const fields = fieldGuides(kind);
-  const fileName = `vehicle-${kind}.csv`;
-  const readme = [
-    `# 1More vehicle ${kind} import template`,
-    "",
-    "## Give this whole pack to the person or tool preparing your sheet",
-    "",
-    `- Fill **${fileName}** with your data. It contains only the accepted headers; no example records will be imported by accident.`,
-    "- The field guide, allowed-values sheet and import-spec.json describe the actual supported fields and dependencies.",
-    ...(kind === "models"
+  const headers = columns[kind];
+  // Every row has the same columns; only explicit first-cell markers are skipped.
+  const reference = (text: string) =>
+    headers.map((field, index) =>
+      index === 0 ? csvReferenceMarker : field === "description" ? text : "",
+    );
+  const example = (values: Record<string, string>) =>
+    headers.map((field, index) =>
+      index === 0
+        ? csvExamplePrefix + (values[field] ?? "")
+        : (values[field] ?? ""),
+    );
+  const sampleBrand = brands[0] ?? "Example Motors";
+  const examples =
+    kind === "brands"
       ? [
-          "- active-verified-brands.json contains the exact eligible brand names. Use those names in brand_name; the API resolves the database ID.",
-        ]
-      : []),
-    "- Return only the filled data CSV for import. Do not upload the ZIP, guide/reference files, extra sheets, comments or instruction rows.",
-    "- If a required value or dependency is unknown, flag it for review. Do not invent brand names, IDs, category links or enum values.",
-    "",
-    "## Import checklist",
-    "",
-    ...importChecklist(kind).map((rule) => `- ${rule}`),
-    "",
-    `- Required columns: ${requiredColumns[kind].join(", ")}.`,
-    `- Header row: ${columns[kind].join(",")}`,
-    "",
-    "## Field reference",
-    "",
-    ...fields.flatMap((field) => [
-      `### ${field.field} (${field.required ? "required" : "optional"})`,
-      `- Type: ${field.type}. ${field.description}`,
-      ...(fieldRules(field) ? [`- Rules: ${fieldRules(field)}.`] : []),
-      ...(field.dependency ? [`- Depends on: ${field.dependency}.`] : []),
-      `- Example: ${field.example}.`,
-      "",
-    ]),
-    "## Dependencies and IDs",
-    "",
-    ...(kind === "models"
-      ? [
-          "1. Create/import the brands first. Requested, rejected or disabled brands cannot be used by model imports.",
-          "2. Download this pack again after changing brands. Use brand_name from active-verified-brands.json; models do not create brands automatically.",
-          "3. vehicle_type is a fixed vehicle family (for example SEDAN). A ride category named Economy or Premium is not a vehicle_type.",
-          "4. Categories/subcategories are configured separately. This import has no category relationship; do not add category, category_id or subcategory columns.",
-          `- Eligible brands in this snapshot: ${brands.length}.`,
-          ...(brands.length
-            ? []
-            : [
-                "- No eligible brands were found. Import/verify/enable brands, then download a fresh pack before preparing model rows.",
-              ]),
-          `- Reference captured at ${capturedAt}. The API rechecks availability at import time.`,
+          example({
+            name: "Example Motors",
+            country: "India",
+            description:
+              "Dummy brand for reference; replace with real details.",
+            website_url: "https://example.com",
+          }),
+          example({
+            name: "Sample Electric Mobility",
+            country: "India",
+            description: "Dummy brand showing that website_url may be blank.",
+          }),
         ]
       : [
-          "- Brand imports have no required brand, model, category or country catalog dependency.",
-          "- Import brands before preparing their model CSVs.",
-        ]),
-    "- Brand/model IDs are generated UUIDs. Imported model rows keep the existing brand ID resolved from brand_name.",
-    "- Brand names are unique across brands; model names are unique within each brand. Case and normalized whitespace do not create a second record.",
-    "- Existing entries are skipped, including their IDs and existing review/enablement state. This is a create-only import, not a bulk editor.",
-    "- logo_url, image_upload, status, is_active, id, brand_id and category IDs are not accepted CSV fields. Upload logos or edit existing records through the admin editor.",
-    "",
-  ].join("\n");
-  const spec = {
-    format_version: 1,
-    kind,
-    import_file: fileName,
-    encoding: "UTF-8",
-    delimiter: ",",
-    limits: { max_data_rows: 100, max_file_bytes: 1000000 },
-    column_order: columns[kind],
-    fields,
-    blank_optional_value: "",
-    ids: {
-      generated: "UUID",
-      accepted_csv_id_columns: [],
-      model_brand_link:
-        kind === "models"
-          ? "brand_name -> existing active, verified brand ID"
-          : null,
-    },
-    dependencies: {
-      brands:
-        kind === "models"
-          ? {
-              reference_file: "active-verified-brands.json",
-              required_status: "VERIFIED",
-              required_is_active: true,
-              automatically_created: false,
-              captured_at: capturedAt,
-            }
-          : null,
-      categories: { required: false, linked_by_this_import: false },
-      subcategories: { required: false, linked_by_this_import: false },
-    },
-    matching: {
-      names:
-        "Trim leading/trailing whitespace, collapse internal whitespace, lowercase; punctuation/accents/spelling remain significant.",
-      headers: "Case-insensitive; no additional columns.",
-      duplicates: "Skip and preserve existing IDs/data; no updates.",
-    },
-    defaults_for_new_records: {
-      status: "VERIFIED",
-      is_active: true,
-      logo_url: null,
-    },
-    rules: importChecklist(kind),
-  };
-  const files: Record<string, Uint8Array> = {
-    [fileName]: strToU8("\uFEFF" + csvText([columns[kind]])),
-    "README.md": strToU8(readme),
-    "import-spec.json": strToU8(JSON.stringify(spec, null, 2) + "\n"),
-    "field-guide.csv": strToU8(
-      "\uFEFF" +
-        csvText([
-          [
-            "field",
-            "required",
-            "type",
-            "rules",
-            "description",
-            "dependency",
-            "example",
-          ],
-          ...fields.map((field) => [
-            field.field,
-            field.required ? "Yes" : "No",
-            field.type,
-            fieldRules(field),
-            field.description,
-            field.dependency ?? "None",
-            field.example,
-          ]),
-        ]),
+          example({
+            brand_name: sampleBrand,
+            name: "Example City Model",
+            vehicle_type: "SEDAN",
+            fuel_type: "PETROL",
+            seating_capacity: "4",
+            year_from: "2020",
+            year_to: "2025",
+            description:
+              "Dummy model; verify all specifications before import.",
+          }),
+          example({
+            brand_name: sampleBrand,
+            name: "Example Electric Model",
+            vehicle_type: "SCOOTER",
+            fuel_type: "ELECTRIC",
+            seating_capacity: "2",
+            description: "Dummy model showing optional years left blank.",
+          }),
+        ];
+  const notes = [
+    "HOW TO USE: Give this single CSV to the person or AI preparing the sheet. Keep the header row unchanged; add real data rows below it.",
+    `EXAMPLES: Rows whose first cell starts with '${csvExamplePrefix}' are dummy data and ignored. Replace that entire cell with a real ${kind === "models" ? "brand_name" : "name"} and replace the other dummy values to use a row.`,
+    `REFERENCE: Rows whose first cell is exactly '${csvReferenceMarker}' are ignored. Keep these markers intact or delete the reference/example rows before import. Do not copy them into real data cells.`,
+    `REQUIRED COLUMNS: ${requiredColumns[kind].join(", ")}.`,
+    ...importChecklist(kind),
+    "UNKNOWN VALUES: Leave optional values blank. Flag unknown required values for review; never invent IDs, brand names, category relationships or vehicle specifications.",
+    "DEFAULTS: New records are VERIFIED and active. This is a create-only import; existing records are skipped without changing their IDs or data.",
+    ...fields.map(
+      (field) =>
+        `FIELD ${field.field}: ${field.required ? "Required" : "Optional"}; ${field.type}. ${field.description} ${fieldRules(field)}. Example: ${field.example}.${field.dependency ? ` Dependency: ${field.dependency}.` : ""}`,
     ),
-    "allowed-values.csv": strToU8(
-      "\uFEFF" +
-        csvText([
-          ["field", "allowed_value", "meaning"],
-          ...(kind === "models"
-            ? [
-                ...csvVehicleTypes.map((value) => [
-                  "vehicle_type",
-                  value,
-                  "Fixed vehicle family; not a ride category",
-                ]),
-                ...csvFuelTypes.map((value) => [
-                  "fuel_type",
-                  value,
-                  "Fixed fuel value",
-                ]),
-              ]
+    ...(kind === "models"
+      ? [
+          `BRAND REFERENCE: ${brands.length} active, VERIFIED brands captured at ${new Date().toISOString()}. Use these exact names in brand_name; the API resolves their IDs and rechecks eligibility at import time.`,
+          ...(brands.length
+            ? brands.map((name) => `ELIGIBLE BRAND | brand_name: ${name}`)
             : [
-                ["country", "Free text", "No country catalog required"],
-                [
-                  "website_url",
-                  "https://...",
-                  "Optional complete HTTPS website URL",
-                ],
+                "NO ELIGIBLE BRANDS: Import/verify/enable brands first, then download a fresh sample. Example Motors is fictional and cannot be used until a real eligible brand is selected.",
               ]),
+          "CATEGORY REFERENCE: The following are your configured categories/subcategories for context only. Model imports do not link categories. Use the fixed vehicle_type values above, not a category name or code. Do not add category/category_id/subcategory columns.",
+          ...(categories.length
+            ? categories.map(
+                (category) =>
+                  `CONFIGURED ${category.parent_id ? "SUBCATEGORY" : "CATEGORY"} | name: ${category.name} | code: ${category.code} | vehicle_type: ${category.vehicle_type} | parent: ${category.parent_name ?? "None"} | effectively active: ${category.effective_active ? "Yes" : "No"}`,
+              )
+            : ["No vehicle categories are currently configured."]),
+        ]
+      : [
+          "DEPENDENCIES: No existing brand, category or country catalog is required. Import brands first, then download a model sample to see their eligible names.",
         ]),
-    ),
-  };
-  if (kind === "models")
-    files["active-verified-brands.json"] = strToU8(
-      JSON.stringify(
-        {
-          captured_at: capturedAt,
-          required_status: "VERIFIED",
-          required_is_active: true,
-          matching:
-            "Case-insensitive with normalized whitespace; IDs are resolved by the API.",
-          brands: brands.map((name) => ({ brand_name: name })),
-        },
-        null,
-        2,
-      ) + "\n",
-    );
-  const zip = zipSync(files, { level: 6 });
+  ];
   signal.throwIfAborted();
-  const buffer = new ArrayBuffer(zip.length);
-  new Uint8Array(buffer).set(zip);
-  const url = URL.createObjectURL(
-    new Blob([buffer], { type: "application/zip" }),
-  );
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `vehicle-${kind}-template-pack.zip`;
-  link.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+  csvDownload(`vehicle-${kind}-sample.csv`, [
+    headers,
+    ...examples,
+    ...notes.map(reference),
+  ]);
 }

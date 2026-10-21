@@ -43,6 +43,10 @@ export const requiredColumns = {
   ],
 };
 
+// Reserved first-cell markers used only by the downloadable sample CSV.
+export const csvReferenceMarker = "# 1MORE REFERENCE";
+export const csvExamplePrefix = "# 1MORE EXAMPLE: ";
+
 // RFC 4180 quotes, commas, embedded newlines, BOM and CRLF; never execute cells.
 export function parseCatalogCsv(text: string, kind: ImportKind): CsvRow[] {
   const records: { cells: string[]; line: number }[] = [];
@@ -90,8 +94,6 @@ export function parseCatalogCsv(text: string, kind: ImportKind): CsvRow[] {
       row();
       line++;
       recordLine = line;
-      if (records.length > 101)
-        throw new Error("Import up to 100 data rows at a time.");
     } else {
       if (closed && char?.trim())
         throw new Error("Put a comma or newline after a closing quote.");
@@ -116,9 +118,18 @@ export function parseCatalogCsv(text: string, kind: ImportKind): CsvRow[] {
         .filter(Boolean)
         .join(" "),
     );
-  if (!records.length || records.length > 100)
+  const dataRecords = records.filter(
+    ({ cells }) =>
+      cells[0] !== csvReferenceMarker &&
+      !cells[0]?.startsWith(csvExamplePrefix),
+  );
+  if (records.length && !dataRecords.length)
+    throw new Error(
+      "This file contains only examples and reference notes. Replace an example's first cell with a real brand/name and fill its data, or add your own data rows.",
+    );
+  if (!dataRecords.length || dataRecords.length > 100)
     throw new Error("Choose a CSV with 1–100 data rows.");
-  return records.map(({ cells, line: sourceLine }) => {
+  return dataRecords.map(({ cells, line: sourceLine }) => {
     const values = Object.fromEntries(
       headers.map((h, i) => [h, cells[i] ?? ""]),
     );
