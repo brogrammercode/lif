@@ -4,6 +4,21 @@ export type CsvRow = {
   values: Record<string, string>;
   errors: string[];
 };
+export const csvVehicleTypes = [
+  "BIKE",
+  "SCOOTER",
+  "AUTO",
+  "SEDAN",
+  "SUV",
+] as const;
+export const csvFuelTypes = [
+  "PETROL",
+  "DIESEL",
+  "CNG",
+  "ELECTRIC",
+  "HYBRID",
+  "OTHER",
+] as const;
 export const columns = {
   brands: ["name", "country", "description", "website_url"],
   models: [
@@ -135,17 +150,9 @@ export function parseCatalogCsv(text: string, kind: ImportKind): CsvRow[] {
     if (kind === "models") {
       values.vehicle_type = values.vehicle_type?.toUpperCase() ?? "";
       values.fuel_type = values.fuel_type?.toUpperCase() ?? "";
-      if (
-        !["BIKE", "SCOOTER", "AUTO", "SEDAN", "SUV"].includes(
-          values.vehicle_type,
-        )
-      )
+      if (!csvVehicleTypes.some((type) => type === values.vehicle_type))
         errors.push("Choose a supported vehicle_type.");
-      if (
-        !["PETROL", "DIESEL", "CNG", "ELECTRIC", "HYBRID", "OTHER"].includes(
-          values.fuel_type,
-        )
-      )
+      if (!csvFuelTypes.some((type) => type === values.fuel_type))
         errors.push("Choose a supported fuel_type.");
       if (
         !/^\d+$/.test(values.seating_capacity ?? "") ||
@@ -172,8 +179,8 @@ export function parseCatalogCsv(text: string, kind: ImportKind): CsvRow[] {
   });
 }
 
-export function csvDownload(name: string, rows: string[][]) {
-  const content = rows
+export function csvText(rows: string[][]) {
+  return rows
     .map((row) =>
       row
         .map(
@@ -183,8 +190,11 @@ export function csvDownload(name: string, rows: string[][]) {
         .join(","),
     )
     .join("\r\n");
+}
+
+export function csvDownload(name: string, rows: string[][]) {
   const url = URL.createObjectURL(
-    new Blob(["\uFEFF" + content], { type: "text/csv;charset=utf-8" }),
+    new Blob(["\uFEFF" + csvText(rows)], { type: "text/csv;charset=utf-8" }),
   );
   const link = document.createElement("a");
   link.href = url;

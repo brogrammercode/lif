@@ -1,3 +1,4 @@
+import { CatalogImportGuide } from "./CatalogImportGuide";
 import { useRef, useState } from "react";
 import { Dialog } from "../../components/ui/Dialog";
 import { Button } from "../../components/ui/Button";
@@ -8,7 +9,6 @@ import {
   columns,
   csvDownload,
   parseCatalogCsv,
-  requiredColumns,
   type CsvRow,
   type ImportKind,
 } from "./catalog-csv";
@@ -146,57 +146,7 @@ export function CatalogImport({
       onClose={onClose}
     >
       <div className="space-y-4">
-        <div className="rounded-xl border border-line bg-white p-4 text-sm space-y-2">
-          <strong>CSV guidelines</strong>
-          <p>
-            UTF-8, comma separated, maximum 100 rows / 1 MB. Required columns:{" "}
-            {requiredColumns[kind].join(", ")}. Quote cells containing commas or
-            newlines.
-          </p>
-          {kind === "models" && (
-            <>
-              <p>
-                Import brands first. brand_name must match an active, verified
-                brand. Vehicle types: BIKE, SCOOTER, AUTO, SEDAN, SUV. Fuel:
-                PETROL, DIESEL, CNG, ELECTRIC, HYBRID, OTHER. Seats: 1–8. Years:
-                1900–2050.
-              </p>
-              <p>Models are unique within their brand.</p>
-            </>
-          )}
-          <p>
-            New records are verified and active. Existing records are skipped
-            without changes. Logos can be uploaded through the existing editor
-            after import.
-          </p>
-          <Button
-            variant="secondary"
-            onClick={() =>
-              csvDownload(`vehicle-${kind}-template.csv`, [
-                columns[kind],
-                kind === "brands"
-                  ? [
-                      "Example Motors",
-                      "India",
-                      "Example brand",
-                      "https://example.com",
-                    ]
-                  : [
-                      "Example Motors",
-                      "City",
-                      "SEDAN",
-                      "PETROL",
-                      "4",
-                      "2020",
-                      "",
-                      "Example model",
-                    ],
-              ])
-            }
-          >
-            Download template
-          </Button>
-        </div>
+        <CatalogImportGuide kind={kind} disabled={busy || reading} />
         {error && <InlineError message={error} />}
         <input
           ref={picker}
