@@ -56,7 +56,7 @@ Shorebird's default updater checks for patches in the background on launch and u
 
 1. Run `flutter pub get` and `flutter analyze`.
 2. Set the local `.env` to the intended environment. For production, use `API_BASE_URL=https://apionemore.vercel.app/api/v2` and the matching public Google web client ID. This file is bundled into the app; it must contain only public client configuration.
-3. Check the version in `pubspec.yaml` (`1.0.0+1` initially). Each new base release needs a new version/build number, for example `1.0.1+2`.
+3. Check the version in `pubspec.yaml` (`0.1.1+1` currently). Each new base release needs a new version/build number, for example `0.1.2+2`.
 4. Build and publish the Shorebird base release:
 
 ```powershell
@@ -65,7 +65,22 @@ shorebird release android --artifact apk --flutter-version 3.47.7
 
 The APK is normally written to `build/app/outputs/flutter-apk/app-release.apk`; use the artifact path printed by the CLI. Keep the exact commit, lockfile, environment and version used for this release. This command uploads release artifacts to Shorebird; distribute the APK to users separately. See [release commands](https://docs.shorebird.dev/code-push/release/).
 
-The current Android release configuration uses this machine's **debug signing key**, suitable for internal installation. Google sign-in requires that certificate's SHA-1 to be registered in Firebase/Google OAuth. Before store distribution, configure a private release keystore and register its certificate (and the Play app-signing certificate when applicable). Keep the same signing identity for updates to existing installations; never commit keystores or signing passwords.
+Android releases use the private keystore configured in `android/key.properties`. Place `onemore.jks` in `android/` and configure:
+
+```properties
+storeFile=onemore.jks
+storePassword=YOUR_STORE_PASSWORD
+keyAlias=upload
+keyPassword=YOUR_KEY_PASSWORD
+```
+
+Relative keystore paths resolve from `android/`; absolute paths are also accepted. Matching surrounding quotes are accepted, so `storeFile="./onemore.jks"` also works. All four properties are required for release signing. The properties file and keystore are ignored by Git. Google sign-in requires the signing certificate's SHA-1 to be registered in Firebase/Google OAuth (and the Play app-signing certificate when applicable). Keep the same signing identity for updates to existing installations.
+
+Validate signing without compiling an APK, from `apps/user/v1/android`:
+
+```powershell
+.\gradlew.bat :app:validateSigningRelease --console=plain
+```
 
 Install the generated APK on a connected device:
 
@@ -78,10 +93,10 @@ adb install -r build/app/outputs/flutter-apk/app-release.apk
 Keep `pubspec.yaml` at the target release's version and use its original environment/build settings. For the initial release:
 
 ```powershell
-shorebird patch android --release-version 1.0.0+1 --track stable
+shorebird patch android --release-version 0.1.1+1 --track stable
 ```
 
-This publishes to installed users of that release. Use the actual version you released in place of `1.0.0+1`. A Dart-only patch keeps the base version unchanged. Changes to native plugins, Gradle, permissions, assets (including `.env`), or Flutter itself need a new base release and APK. Follow [Shorebird patch guidance](https://docs.shorebird.dev/code-push/patch/).
+This publishes to installed users of that release. Use the actual version you released in place of `0.1.1+1`. A Dart-only patch keeps the base version unchanged. Changes to native plugins, Gradle, permissions, assets (including `.env`), or Flutter itself need a new base release and APK. Follow [Shorebird patch guidance](https://docs.shorebird.dev/code-push/patch/).
 
 ### Maintenance and checks
 

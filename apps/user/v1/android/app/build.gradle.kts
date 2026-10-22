@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // START: FlutterFire Configuration
@@ -7,6 +9,25 @@ plugins {
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
+}
+
+// Java properties retain surrounding quotes. Accept quoted or unquoted values
+// for the signing path, alias and passwords.
+fun keystoreValue(name: String): String? =
+    keystoreProperties.getProperty(name)?.trim()?.let { value ->
+        if (value.length >= 2 &&
+            ((value.first() == '"' && value.last() == '"') ||
+                (value.first() == '\'' && value.last() == '\''))) {
+            value.substring(1, value.length - 1)
+        } else {
+            value
+        }
+    }
 
 android {
     namespace = "com.brogrammer.onemore"
@@ -33,11 +54,19 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            keyAlias = keystoreValue("keyAlias")
+            keyPassword = keystoreValue("keyPassword")
+            // Relative paths in android/key.properties resolve from android/.
+            storeFile = keystoreValue("storeFile")?.let { rootProject.file(it) }
+            storePassword = keystoreValue("storePassword")
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }
