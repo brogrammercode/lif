@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { PageHeading } from "../../components/layout/PageHeading";
 import { CatalogPanel, TableLoading } from "../../components/ui/CatalogPanel";
 import {
@@ -44,7 +45,15 @@ export function PartnerApplicationsPage({
   const text = useDebouncedText(query);
   const [status, setStatus] = useState("all");
   const [page, setPage] = useState(1);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selected = searchParams.get("application_id");
+  const setSelected = (id: string | null) =>
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current);
+      if (id) params.set("application_id", id);
+      else params.delete("application_id");
+      return params;
+    });
   const resource = useAdminResource<Paged<PartnerApplicationSummary>>(
     PARTNER_API +
       "/applications?" +
@@ -54,8 +63,9 @@ export function PartnerApplicationsPage({
   if (selected)
     return (
       <PartnerApplicationReview
-        key={selected}
+        key={`${section}:${selected}`}
         id={selected}
+        section={section}
         onBack={() => {
           setSelected(null);
           resource.refresh();

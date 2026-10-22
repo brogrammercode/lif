@@ -89,6 +89,7 @@ function application(status = "SUBMITTED"): PartnerApplication {
 async function workspace(page: Page, initialStatus = "SUBMITTED") {
   const state = {
     app: application(initialStatus),
+    assetRequests: [] as string[],
     writes: [] as { path: string; body: Record<string, unknown> }[],
     documentError: false,
     listError: false,
@@ -137,6 +138,8 @@ async function workspace(page: Page, initialStatus = "SUBMITTED") {
       request.method() === "GET"
     )
       return send({ application: state.app, assets: [] });
+    if (request.method() === "GET" && path.includes("/assets/"))
+      state.assetRequests.push(path);
     if (path.endsWith("/assets/selfie-asset"))
       return send({
         file_name: "selfie.webp",
@@ -167,6 +170,15 @@ async function workspace(page: Page, initialStatus = "SUBMITTED") {
     if (path.endsWith("/confirmation-review")) {
       const body = request.postDataJSON();
       state.writes.push({ path, body });
+      if (body.decision === "REJECTED") {
+        state.app.status = "CONFIRMATION_CHANGES_REQUESTED";
+        state.app.confirmation!.status = "REJECTED";
+        state.app.confirmation!.rejection_reason = String(
+          body.rejection_reason,
+        );
+        state.app.version++;
+        return send({ version: state.app.version });
+      }
       state.app.status = "COMPLETED";
       state.app.final_pdf_id = String(body.final_pdf_id);
       state.app.version++;
@@ -256,23 +268,35 @@ test("review requires field approval and retains rejection reasons with the shar
     exact: true,
   });
   await expect(approve).toBeDisabled();
-  const reason = page.getByLabel("Rejection reason", { exact: true }).first();
+  await expect(
+    page.getByRole("textbox", { name: "Rejection reason", exact: true }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", {
+      name: "Request correction: Legal name",
+      exact: true,
+    })
+    .click();
+  const dialog = page.getByRole("dialog", {
+    name: /Request correction.*Legal name/,
+  });
+  const reason = dialog.getByLabel("Rejection reason", { exact: true });
   await expect(reason).toHaveClass("field");
-  const reject = page.getByRole("button", {
+  const reject = dialog.getByRole("button", {
     name: "Request correction",
     exact: true,
   });
-  await expect(reject.first()).toBeDisabled();
+  await expect(reject).toBeDisabled();
   await reason.fill("Please enter your full legal name.");
-  await reject.first().click();
+  await reject.click();
   await expect.poll(() => state.app.fields[0]!.status).toBe("REJECTED");
   await expect(
     page
-      .getByRole("paragraph")
+      .getByRole("note")
       .filter({ hasText: "Please enter your full legal name." }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Approve field", exact: true })
+    .getByRole("button", { name: "Approve field: Legal name", exact: true })
     .first()
     .click();
   await expect(approve).toBeEnabled();
@@ -348,7 +372,7 @@ test("a rejected optional blank answer blocks approval until reviewed again", as
     page.getByRole("button", { name: "Approve application", exact: true }),
   ).toBeDisabled();
   await page
-    .getByRole("button", { name: "Approve field", exact: true })
+    .getByRole("button", { name: "Approve field: Legal name", exact: true })
     .click();
   await expect(
     page.getByRole("button", { name: "Approve application", exact: true }),
@@ -389,10 +413,10 @@ test("list failures stay recoverable and editor/review stay within desktop and m
       .getByRole("button", { name: "Review application partner-123" })
       .click();
     await expect(
-      page.getByRole("heading", { name: "Legal name *", exact: true }),
+      page.getByText("Legal name", { exact: false }).first(),
     ).toBeVisible();
     const background = await page
-      .locator(".partner-answer-grid .catalog-card")
+      .locator(".application-form")
       .first()
       .evaluate((node) => getComputedStyle(node).backgroundColor);
     expect(background).toBe("rgb(255, 255, 255)");
@@ -415,4 +439,85 @@ test("list failures stay recoverable and editor/review stay within desktop and m
     page.getByRole("heading", { name: "No matching applications" }),
   ).toHaveCount(0);
   expect(errors).toEqual([]);
+});
+
+test("confirmation review shows acceptance only and never loads submitted field assets", async ({
+  page,
+}) => {
+  const state = await workspace(page, "CONFIRMATION_SUBMITTED");
+  await page.goto(
+    base + "/applications/confirmations?application_id=partner-123",
+  );
+  await expect(
+    page.getByRole("heading", { name: "Confirmation details", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Signed by", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Document version", { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".application-form")).toHaveCount(0);
+  await expect(page.getByText("Legal name", { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("img", { name: "Applicant live selfie" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", {
+      name: "Approve field: Legal name",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  expect(state.assetRequests).toEqual([]);
+  await page
+    .getByRole("button", { name: "Read accepted confirmation" })
+    .click();
+  await expect(
+    page
+      .frameLocator('iframe[title="Document preview"]')
+      .getByText("Policy accepted by the applicant."),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Close dialog" }).click();
+  await page
+    .getByRole("button", { name: "Request correction", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", {
+    name: "Request confirmation correction",
+  });
+  await dialog
+    .getByLabel("Confirmation rejection reason")
+    .fill("Please confirm the registered name.");
+  await dialog
+    .getByRole("button", { name: "Request correction", exact: true })
+    .click();
+  await expect
+    .poll(() => state.app.status)
+    .toBe("CONFIRMATION_CHANGES_REQUESTED");
+  await expect(
+    page.getByText("Please confirm the registered name.", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Back to list" }).click();
+  await expect(page).not.toHaveURL(/application_id=/);
+});
+
+test("confirmation review remains compact within desktop and mobile viewports", async ({
+  page,
+}) => {
+  await workspace(page, "CONFIRMATION_SUBMITTED");
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(
+      base + "/applications/confirmations?application_id=partner-123",
+    );
+    await expect(
+      page.getByRole("button", { name: "Read accepted confirmation" }),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page.screenshot({
+      path: "test-results/partner-confirmation-" + width + ".png",
+      fullPage: true,
+    });
+  }
 });

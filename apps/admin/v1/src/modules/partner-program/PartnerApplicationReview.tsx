@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
-import { PrivateSelfie } from "./PrivateSelfie";
+import { ApplicationFieldsReview } from "./ApplicationFieldsReview";
+import { PartnerReviewDetails, reviewDate } from "./PartnerReviewDetails";
 import { PrivateAssetPreview } from "./PrivateAssetPreview";
 import { openWhatsAppWeb } from "./partner-sharing";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -39,7 +40,9 @@ const name = (app: PartnerApplication) =>
 export function PartnerApplicationReview({
   id,
   onBack,
+  section,
 }: {
+  section: "applications" | "confirmations";
   id: string;
   onBack: () => void;
 }) {
@@ -66,7 +69,8 @@ export function PartnerApplicationReview({
   const [selectingPdf, setSelectingPdf] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
   const [shareRevision, setShareRevision] = useState(0);
-  const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [showConfirmationCorrection, setShowConfirmationCorrection] =
+    useState(false);
   const [confirmationReason, setConfirmationReason] = useState("");
   const [finalFile, setFinalFile] = useState<File | null>(null);
   const [pdfPreview, setPdfPreview] = useState("");
@@ -81,6 +85,11 @@ export function PartnerApplicationReview({
   const [code, setCode] = useState<string | null>(null);
   useEffect(() => {
     if (app?.status !== "COMPLETED") setCode(null);
+    if (app?.status && app.status !== "CONFIRMATION_SUBMITTED") {
+      setFinalFile(null);
+      setUploadedId(null);
+      setShowConfirmationCorrection(false);
+    }
   }, [app?.status]);
   const [shareFile, setShareFile] = useState<File | null>(null);
   useEffect(() => {
@@ -96,7 +105,7 @@ export function PartnerApplicationReview({
     let active = true;
     setShareFile(null);
     setShareError(null);
-    if (app?.final_pdf_id)
+    if (section === "confirmations" && app?.final_pdf_id)
       void privateFile(app.final_pdf_id)
         .then((file) => {
           if (active) setShareFile(file);
@@ -107,9 +116,9 @@ export function PartnerApplicationReview({
     return () => {
       active = false;
     };
-  }, [app?.final_pdf_id, shareRevision]);
+  }, [app?.final_pdf_id, shareRevision, section]);
   async function action(task: () => Promise<unknown>, message = "Saved") {
-    if (pending.current || resource.loading || resource.error) return;
+    if (pending.current || resource.loading || resource.error) return false;
     pending.current = true;
     setBusy(true);
     setError(null);
@@ -119,8 +128,10 @@ export function PartnerApplicationReview({
       setNotice(message);
       setApproval(null);
       resource.refresh();
+      return true;
     } catch (cause) {
       setError(safeMessage(cause));
+      return false;
     } finally {
       pending.current = false;
       setBusy(false);
@@ -187,11 +198,25 @@ export function PartnerApplicationReview({
   if (resource.loading && !app)
     return (
       <CatalogPanel
-        title="Application review"
-        description="Loading the applicant's details and documents."
+        title={
+          section === "confirmations"
+            ? "Confirmation review"
+            : "Application review"
+        }
+        description={
+          section === "confirmations"
+            ? "Loading acceptance and delivery details."
+            : "Loading the submitted application."
+        }
         busy
       >
-        <TableLoading label="Loading application" />
+        <TableLoading
+          label={
+            section === "confirmations"
+              ? "Loading confirmation"
+              : "Loading application"
+          }
+        />
       </CatalogPanel>
     );
   if (!app)
@@ -207,33 +232,24 @@ export function PartnerApplicationReview({
         </Button>
       </StateCard>
     );
-  const groups = new Map<string, typeof app.fields>();
-  for (const field of [...app.fields].sort(
-    (left, right) =>
-      Number(left.requirement_id === "__live_selfie__") -
-        Number(right.requirement_id === "__live_selfie__") ||
-      (left.definition.category?.sort_order ?? 0) -
-        (right.definition.category?.sort_order ?? 0) ||
-      (left.definition.category?.name ?? "").localeCompare(
-        right.definition.category?.name ?? "",
-      ) ||
-      (left.definition.sort_order ?? 0) - (right.definition.sort_order ?? 0) ||
-      left.requirement_id.localeCompare(right.requirement_id),
-  )) {
-    const category = field.definition.category?.name ?? "Other requirements";
-    const group = groups.get(category) ?? [];
-    group.push(field);
-    groups.set(category, group);
-  }
-  const reviewing = ["SUBMITTED", "CHANGES_REQUESTED"].includes(app.status);
+  const confirmationView = section === "confirmations";
+  const reviewing =
+    !confirmationView &&
+    ["SUBMITTED", "CHANGES_REQUESTED"].includes(app.status);
   const final = ["COMPLETED", "ACTIVATED"].includes(app.status);
   return (
     <div className="catalog-page partner-review-page">
       <PageHeading
         eyebrow="Partner program"
-        context={app.id}
+        context={
+          confirmationView ? "Confirmation review" : "Application review"
+        }
         title={name(app)}
-        description={`${app.contact_email} · ${app.whatsapp_phone}`}
+        description={
+          confirmationView
+            ? "Review acceptance, the final document and delivery."
+            : "Review the submitted form and request corrections where needed."
+        }
       >
         <Button variant="secondary" disabled={busy} onClick={onBack}>
           <Icon name="arrowLeft" size={16} />
@@ -253,38 +269,84 @@ export function PartnerApplicationReview({
       )}
       {notice && <Toast message={notice} onDismiss={dismissNotice} />}
       <CatalogPanel
-        title="Application overview"
-        description="Current review progress and the policy accepted by this applicant."
+        title={confirmationView ? "Confirmation details" : "Applicant details"}
+        description="Account and review information."
         busy={resource.loading}
+        actions={
+          <Badge tone={tone(app.status)}>{partnerStatus(app.status)}</Badge>
+        }
       >
         <div className="review-panel-body">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <Badge tone={tone(app.status)}>{partnerStatus(app.status)}</Badge>
-            {app.status === "ACTIVATED" && (
-              <Link
-                className="button button-secondary"
-                to={
-                  app.exit_request
-                    ? `/partner-program/applications/exit-requests?request_id=${encodeURIComponent(app.exit_request.id)}`
-                    : `/partner-program/applications/exit-requests?application_id=${encodeURIComponent(app.id)}`
-                }
+          <PartnerReviewDetails
+            items={[
+              { label: "Email", value: app.contact_email },
+              { label: "WhatsApp", value: app.whatsapp_phone },
+              { label: "Application ID", value: app.id },
+              {
+                label: "User",
+                value: (
+                  <Link
+                    className="review-text-link"
+                    to={
+                      "/users/" + encodeURIComponent(app.user_id) + "/personal"
+                    }
+                  >
+                    {app.user_id}
+                    <Icon name="arrowRight" size={13} />
+                  </Link>
+                ),
+              },
+              {
+                label: confirmationView ? "Final approval" : "Submitted",
+                value: reviewDate(
+                  confirmationView ? app.completed_at : app.submitted_at,
+                ),
+              },
+              {
+                label: "Review status",
+                value: partnerStatus(
+                  confirmationView
+                    ? (app.confirmation?.status ?? "Awaiting acceptance")
+                    : app.status,
+                ),
+              },
+            ]}
+          />
+          {!confirmationView && (
+            <div className="partner-review-links">
+              <Button
+                variant="ghost"
+                className="review-small-button"
+                disabled={!app.policy_snapshot}
+                onClick={() => setSnapshot(app.policy_snapshot)}
               >
-                {app.exit_request
-                  ? "Review exit request"
-                  : "Start exit request"}
-              </Link>
-            )}
-            <span className="text-sm text-muted">
-              User {app.user_id} · Revision {app.version}
-            </span>
-            <Button
-              variant="secondary"
-              disabled={!app.policy_snapshot}
-              onClick={() => setSnapshot(app.policy_snapshot)}
-            >
-              Accepted policy v{app.policy_snapshot?.version ?? "unavailable"}
-            </Button>
-          </div>
+                Accepted policy{" "}
+                {app.policy_snapshot
+                  ? "v" + app.policy_snapshot.version
+                  : "unavailable"}
+                <Icon name="arrowRight" size={14} />
+              </Button>
+              {[
+                "APPROVED",
+                "CONFIRMATION_SUBMITTED",
+                "CONFIRMATION_CHANGES_REQUESTED",
+                "COMPLETED",
+                "ACTIVATED",
+                "EXITED",
+              ].includes(app.status) && (
+                <Link
+                  className="review-text-link"
+                  to={
+                    "/partner-program/applications/confirmations?application_id=" +
+                    encodeURIComponent(id)
+                  }
+                >
+                  Open confirmation
+                  <Icon name="arrowRight" size={14} />
+                </Link>
+              )}
+            </div>
+          )}
         </div>
       </CatalogPanel>
       {reviewing &&
@@ -312,172 +374,36 @@ export function PartnerApplicationReview({
             </div>
           </CatalogPanel>
         )}
-      <div className="partner-answer-groups">
-        {[...groups].map(([category, fields]) => (
-          <section key={category} className="partner-answer-group">
-            <header className="partner-answer-group-header">
-              <div>
-                <h2>{category}</h2>
-                <p>
-                  {fields.length} fields ?{" "}
-                  {fields.filter((field) => field.status === "APPROVED").length}{" "}
-                  approved ?{" "}
-                  {fields.filter((field) => field.status === "REJECTED").length}{" "}
-                  need correction
-                </p>
-              </div>
-            </header>
-            <div className="partner-answer-grid">
-              {fields.map((field) => {
-                const fileIds = Array.isArray(field.value)
-                  ? field.value.filter(
-                      (item): item is string => typeof item === "string",
-                    )
-                  : [];
-                const missingRequiredValue =
-                  field.definition.is_required &&
-                  (field.value === null ||
-                    field.value === undefined ||
-                    field.value === "" ||
-                    (Array.isArray(field.value) && !field.value.length));
-                return (
-                  <CatalogPanel
-                    key={field.id}
-                    title={
-                      field.definition.label +
-                      (field.definition.is_required ? " *" : "")
-                    }
-                    description={field.definition.category?.name ?? "Details"}
-                    actions={
-                      <Badge tone={tone(field.status)}>
-                        {partnerStatus(field.status)}
-                      </Badge>
-                    }
-                  >
-                    <div className="review-panel-body">
-                      <div className="partner-answer-value">
-                        {field.definition.capture_mode === "CAMERA" &&
-                          fileIds[0] && <PrivateSelfie assetId={fileIds[0]} />}
-                        {["FILE", "IMAGE", "PDF"].includes(
-                          field.definition.field_type,
-                        ) ? (
-                          fileIds.length ? (
-                            fileIds.map((assetId) => (
-                              <Button
-                                key={assetId}
-                                variant="secondary"
-                                disabled={busy}
-                                onClick={() => void openAsset(assetId)}
-                              >
-                                {assets.find((a) => a.id === assetId)
-                                  ?.file_name ?? "Preview document"}
-                              </Button>
-                            ))
-                          ) : (
-                            <span className="text-muted">Not provided</span>
-                          )
-                        ) : typeof field.value === "boolean" ? (
-                          field.value ? (
-                            "Yes"
-                          ) : (
-                            "No"
-                          )
-                        ) : field.value === null || field.value === "" ? (
-                          <span className="text-muted">Not provided</span>
-                        ) : (
-                          String(field.value)
-                        )}
-                      </div>
-                      {field.rejection_reason && (
-                        <p className="text-sm text-red-600 mt-3">
-                          {field.rejection_reason}
-                        </p>
-                      )}
-                      {reviewing && (
-                        <div className="mt-4 space-y-3">
-                          <Field
-                            id={`reason-${field.id}`}
-                            label="Rejection reason"
-                            hint="Required when rejecting this field; visible to the applicant."
-                          >
-                            <textarea
-                              id={`reason-${field.id}`}
-                              className="field"
-                              rows={2}
-                              maxLength={2000}
-                              value={reasons[field.id] ?? ""}
-                              disabled={blocked}
-                              onChange={(event) =>
-                                setReasons({
-                                  ...reasons,
-                                  [field.id]: event.target.value,
-                                })
-                              }
-                            />
-                          </Field>
-                          <div className="flex flex-wrap gap-2">
-                            <Button
-                              variant="secondary"
-                              disabled={
-                                blocked ||
-                                field.status === "APPROVED" ||
-                                missingRequiredValue
-                              }
-                              onClick={() =>
-                                void action(
-                                  () =>
-                                    apiRequest(
-                                      `${PARTNER_API}/applications/${id}/fields/${field.id}`,
-                                      {
-                                        method: "PATCH",
-                                        data: {
-                                          version: app.version,
-                                          decision: "APPROVED",
-                                        },
-                                      },
-                                    ),
-                                  "Field approved",
-                                )
-                              }
-                            >
-                              Approve field
-                            </Button>
-                            <Button
-                              variant="danger"
-                              disabled={
-                                blocked || !(reasons[field.id] ?? "").trim()
-                              }
-                              onClick={() =>
-                                void action(
-                                  () =>
-                                    apiRequest(
-                                      `${PARTNER_API}/applications/${id}/fields/${field.id}`,
-                                      {
-                                        method: "PATCH",
-                                        data: {
-                                          version: app.version,
-                                          decision: "REJECTED",
-                                          rejection_reason: reasons[field.id],
-                                        },
-                                      },
-                                    ),
-                                  "Correction requested",
-                                )
-                              }
-                            >
-                              Request correction
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </CatalogPanel>
-                );
-              })}
-            </div>
-          </section>
-        ))}
-      </div>
+      {!confirmationView && (
+        <ApplicationFieldsReview
+          fields={app.fields}
+          assets={assets}
+          reviewing={reviewing}
+          blocked={blocked}
+          busy={busy}
+          error={error ?? resource.error}
+          onPreview={openAsset}
+          onReview={(fieldId, decision, reason) =>
+            action(
+              () =>
+                apiRequest(
+                  PARTNER_API + "/applications/" + id + "/fields/" + fieldId,
+                  {
+                    method: "PATCH",
+                    data: {
+                      version: app.version,
+                      decision,
+                      ...(reason ? { rejection_reason: reason } : {}),
+                    },
+                  },
+                ),
+              decision === "APPROVED"
+                ? "Field approved"
+                : "Correction requested",
+            )
+          }
+        />
+      )}
       {reviewing && (
         <CatalogPanel
           title="Application decision"
@@ -498,7 +424,7 @@ export function PartnerApplicationReview({
           </div>
         </CatalogPanel>
       )}
-      {app.confirmation && (
+      {confirmationView && app.confirmation && (
         <CatalogPanel
           title="Confirmation"
           description="The applicant's named acceptance of the published confirmation."
@@ -509,23 +435,41 @@ export function PartnerApplicationReview({
           }
         >
           <div className="review-panel-body editor-form">
-            <div className="flex flex-wrap gap-3 items-center justify-between">
-              <Button
-                variant="secondary"
-                disabled={!app.confirmation.document_snapshot}
-                onClick={() => setSnapshot(app.confirmation!.document_snapshot)}
-              >
-                Read accepted confirmation
-              </Button>
-            </div>
-            <p className="my-3 text-sm">
-              Accepted by <strong>{app.confirmation.signature_name}</strong> on{" "}
-              {new Date(app.confirmation.accepted_at).toLocaleString()}.
-            </p>
+            <PartnerReviewDetails
+              items={[
+                { label: "Signed by", value: app.confirmation.signature_name },
+                {
+                  label: "Accepted",
+                  value: reviewDate(app.confirmation.accepted_at),
+                },
+                {
+                  label: "Document",
+                  value:
+                    app.confirmation.document_snapshot?.title ??
+                    "Snapshot unavailable",
+                },
+                {
+                  label: "Document version",
+                  value: app.confirmation.document_snapshot
+                    ? "Version " + app.confirmation.document_snapshot.version
+                    : "Not recorded",
+                },
+              ]}
+            />
+            <Button
+              variant="secondary"
+              className="confirmation-read-button"
+              disabled={!app.confirmation.document_snapshot}
+              onClick={() => setSnapshot(app.confirmation!.document_snapshot)}
+            >
+              <Icon name="search" size={14} />
+              Read accepted confirmation
+            </Button>
             {app.confirmation.rejection_reason && (
-              <p className="text-sm text-red-600">
-                {app.confirmation.rejection_reason}
-              </p>
+              <div className="application-correction">
+                <strong>Correction requested</strong>
+                <p>{app.confirmation.rejection_reason}</p>
+              </div>
             )}
             {app.status === "CONFIRMATION_SUBMITTED" && (
               <div className="space-y-4">
@@ -548,49 +492,22 @@ export function PartnerApplicationReview({
                     src={pdfPreview}
                   />
                 )}
-                <Field
-                  id="confirmation-reason"
-                  label="Confirmation rejection reason"
-                >
-                  <textarea
-                    id="confirmation-reason"
-                    className="field"
-                    disabled={blocked}
-                    maxLength={2000}
-                    rows={3}
-                    value={confirmationReason}
-                    onChange={(event) =>
-                      setConfirmationReason(event.target.value)
-                    }
-                  />
-                </Field>
                 <div className="flex flex-wrap gap-3">
                   <Button
-                    disabled={blocked || selectingPdf || !finalFile}
+                    disabled={
+                      blocked ||
+                      selectingPdf ||
+                      !finalFile ||
+                      !app.confirmation.document_snapshot
+                    }
                     onClick={() => setApproval("confirmation")}
                   >
                     Approve confirmation and send PDF
                   </Button>
                   <Button
-                    variant="danger"
-                    disabled={blocked || !confirmationReason.trim()}
-                    onClick={() =>
-                      void action(
-                        () =>
-                          apiRequest(
-                            `${PARTNER_API}/applications/${id}/confirmation-review`,
-                            {
-                              method: "POST",
-                              data: {
-                                version: app.version,
-                                decision: "REJECTED",
-                                rejection_reason: confirmationReason,
-                              },
-                            },
-                          ),
-                        "Confirmation correction requested",
-                      )
-                    }
+                    variant="secondary"
+                    disabled={blocked}
+                    onClick={() => setShowConfirmationCorrection(true)}
                   >
                     Request correction
                   </Button>
@@ -600,7 +517,7 @@ export function PartnerApplicationReview({
           </div>
         </CatalogPanel>
       )}
-      {app.status === "EXITED" && (
+      {confirmationView && app.status === "EXITED" && (
         <CatalogPanel
           title="Driver exit completed"
           description="Driver operations are disabled. Application history and the original approval document are retained."
@@ -622,7 +539,7 @@ export function PartnerApplicationReview({
           </div>
         </CatalogPanel>
       )}
-      {final && (
+      {confirmationView && final && (
         <CatalogPanel
           title="Final document and delivery"
           description="Download the approved document, check email delivery and share it manually."
@@ -669,62 +586,64 @@ export function PartnerApplicationReview({
                 Record as manually shared
               </Button>
             </div>
-            {app.deliveries.map((delivery) => (
-              <div key={delivery.channel} className="partner-delivery">
-                <div>
-                  <strong>
-                    {delivery.channel === "ACTIVATION_EMAIL"
-                      ? "Activation email"
-                      : delivery.channel === "ACTIVATION_WHATSAPP"
-                        ? "Activation WhatsApp (manual)"
-                        : delivery.channel === "EXIT_EMAIL"
-                          ? "Exit settlement email"
-                          : delivery.channel === "EMAIL"
-                            ? "Confirmation email"
-                            : "Manual WhatsApp share"}
-                  </strong>
-                  <p className="field-hint">
-                    {delivery.attempts} attempts
-                    {delivery.sent_at
-                      ? ` · ${new Date(delivery.sent_at).toLocaleString()}`
-                      : ""}
-                  </p>
-                  {delivery.last_error && (
-                    <p className="text-sm text-red-600 mt-1">
-                      {delivery.last_error}
+            {app.deliveries
+              .filter((delivery) => !delivery.channel.startsWith("EXIT_"))
+              .map((delivery) => (
+                <div key={delivery.channel} className="partner-delivery">
+                  <div>
+                    <strong>
+                      {delivery.channel === "ACTIVATION_EMAIL"
+                        ? "Activation email"
+                        : delivery.channel === "ACTIVATION_WHATSAPP"
+                          ? "Activation WhatsApp (manual)"
+                          : delivery.channel === "EXIT_EMAIL"
+                            ? "Exit settlement email"
+                            : delivery.channel === "EMAIL"
+                              ? "Confirmation email"
+                              : "Manual WhatsApp share"}
+                    </strong>
+                    <p className="field-hint">
+                      {delivery.attempts} attempts
+                      {delivery.sent_at
+                        ? ` · ${new Date(delivery.sent_at).toLocaleString()}`
+                        : ""}
                     </p>
-                  )}
+                    {delivery.last_error && (
+                      <p className="text-sm text-red-600 mt-1">
+                        {delivery.last_error}
+                      </p>
+                    )}
+                  </div>
+                  <Badge tone={tone(delivery.status)}>
+                    {partnerStatus(delivery.status)}
+                  </Badge>
+                  {(delivery.channel === "EMAIL" ||
+                    (delivery.channel === "ACTIVATION_EMAIL" &&
+                      app.status === "COMPLETED")) &&
+                    delivery.status !== "SENT" && (
+                      <Button
+                        variant="secondary"
+                        disabled={
+                          blocked ||
+                          !!resource.error ||
+                          deliveryIsSending(delivery)
+                        }
+                        onClick={() =>
+                          void action(
+                            () =>
+                              apiRequest(
+                                `${PARTNER_API}/applications/${id}/${delivery.channel === "ACTIVATION_EMAIL" ? "activation-email" : "email-retry"}`,
+                                { method: "POST" },
+                              ),
+                            "Email queued. Refresh shortly for delivery status.",
+                          )
+                        }
+                      >
+                        Retry email
+                      </Button>
+                    )}
                 </div>
-                <Badge tone={tone(delivery.status)}>
-                  {partnerStatus(delivery.status)}
-                </Badge>
-                {(delivery.channel === "EMAIL" ||
-                  (delivery.channel === "ACTIVATION_EMAIL" &&
-                    app.status === "COMPLETED")) &&
-                  delivery.status !== "SENT" && (
-                    <Button
-                      variant="secondary"
-                      disabled={
-                        blocked ||
-                        !!resource.error ||
-                        deliveryIsSending(delivery)
-                      }
-                      onClick={() =>
-                        void action(
-                          () =>
-                            apiRequest(
-                              `${PARTNER_API}/applications/${id}/${delivery.channel === "ACTIVATION_EMAIL" ? "activation-email" : "email-retry"}`,
-                              { method: "POST" },
-                            ),
-                          "Email queued. Refresh shortly for delivery status.",
-                        )
-                      }
-                    >
-                      Retry email
-                    </Button>
-                  )}
-              </div>
-            ))}
+              ))}
             <p className="field-hint">
               WhatsApp Web opens in your browser. Attach the downloaded PDF
               manually. Record sharing only after sending; this is not a
@@ -733,7 +652,7 @@ export function PartnerApplicationReview({
           </div>
         </CatalogPanel>
       )}
-      {app.status === "COMPLETED" && (
+      {confirmationView && app.status === "COMPLETED" && (
         <CatalogPanel
           title="Driver activation"
           description="One code is generated when the approved applicant first signs in again."
@@ -786,6 +705,88 @@ export function PartnerApplicationReview({
             )}
           </div>
         </CatalogPanel>
+      )}
+      {confirmationView && !app.confirmation && (
+        <StateCard
+          title="Awaiting confirmation"
+          message="The applicant has not submitted their confirmation yet. Their acceptance and final document will appear here."
+        />
+      )}
+      {showConfirmationCorrection && (
+        <Dialog
+          small
+          title="Request confirmation correction"
+          description="Explain what the applicant needs to correct before submitting again."
+          busy={busy}
+          onClose={() => setShowConfirmationCorrection(false)}
+        >
+          <form
+            className="editor-form"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              if (
+                !blocked &&
+                confirmationReason.trim() &&
+                (await action(
+                  () =>
+                    apiRequest(
+                      PARTNER_API +
+                        "/applications/" +
+                        id +
+                        "/confirmation-review",
+                      {
+                        method: "POST",
+                        data: {
+                          version: app.version,
+                          decision: "REJECTED",
+                          rejection_reason: confirmationReason.trim(),
+                        },
+                      },
+                    ),
+                  "Confirmation correction requested",
+                ))
+              ) {
+                setShowConfirmationCorrection(false);
+                setConfirmationReason("");
+              }
+            }}
+          >
+            {error && <InlineError message={error} />}
+            <Field
+              id="confirmation-reason"
+              label="Confirmation rejection reason"
+            >
+              <textarea
+                autoFocus
+                id="confirmation-reason"
+                className="field"
+                required
+                disabled={blocked}
+                maxLength={2000}
+                rows={3}
+                value={confirmationReason}
+                onChange={(event) => setConfirmationReason(event.target.value)}
+              />
+            </Field>
+            <div className="dialog-footer">
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={() => setShowConfirmationCorrection(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="danger"
+                busy={busy}
+                disabled={blocked || !confirmationReason.trim()}
+              >
+                Request correction
+              </Button>
+            </div>
+          </form>
+        </Dialog>
       )}
       {previewAsset && (
         <PrivateAssetPreview
@@ -896,7 +897,7 @@ export function PartnerApplicationReview({
             <Button
               busy={busy}
               disabled={
-                resource.loading ||
+                blocked ||
                 (approval === "application" && !canApproveApplication(app))
               }
               onClick={() =>

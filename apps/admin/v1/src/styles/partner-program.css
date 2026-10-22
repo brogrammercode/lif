@@ -53,56 +53,9 @@
   border: 0;
   background: white;
 }
-.partner-review-page > .catalog-card,
-.partner-review-page > .partner-answer-grid {
-  margin-bottom: 24px;
-}
 .review-panel-body {
   padding: 0 24px 24px;
   min-width: 0;
-}
-.partner-answer-grid .catalog-card-header {
-  align-items: flex-start;
-}
-.partner-answer-grid .catalog-card-header h2 {
-  overflow-wrap: anywhere;
-}
-.partner-answer-grid .catalog-card-header .badge {
-  flex-shrink: 0;
-}
-.partner-answer-grid .partner-answer-value {
-  margin-top: 0;
-}
-.partner-answer-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 24px;
-}
-.partner-answer-groups {
-  display: grid;
-  gap: 24px;
-  margin-bottom: 24px;
-}
-.partner-answer-group {
-  min-width: 0;
-}
-.partner-answer-group-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-.partner-answer-group-header h2 {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--color-ink);
-}
-.partner-answer-group-header p {
-  font-size: 13px;
-  color: var(--color-muted);
-  margin-top: 4px;
 }
 .attachment-preview-image {
   display: block;
@@ -122,20 +75,6 @@
   background: var(--color-canvas);
   font-size: 13px;
 }
-.partner-answer-value {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 16px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-size: 14px;
-}
-.partner-answer-value .button {
-  max-width: 100%;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
 .partner-delivery {
   display: flex;
   align-items: center;
@@ -153,10 +92,211 @@
   padding: 24px 0;
   color: var(--color-brand);
 }
-@media (max-width: 1279px) {
-  .partner-answer-grid {
-    grid-template-columns: minmax(0, 1fr);
+.partner-review-page {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.partner-review-page > .catalog-card,
+.partner-review-page > .application-form {
+  margin-bottom: 16px;
+}
+.partner-review-page .catalog-card-header {
+  padding: 20px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.partner-review-page .catalog-card-header h2 {
+  font-size: 14px;
+}
+.partner-review-page .catalog-card-header p {
+  font-size: 12px;
+}
+.partner-review-page .review-panel-body {
+  padding: 0 20px 20px;
+}
+.partner-review-page .document-preview {
+  min-height: 300px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+}
+.partner-review-details {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px 20px;
+}
+.partner-review-details > div,
+.application-field {
+  min-width: 0;
+}
+.partner-review-details dt {
+  font-size: 11px;
+  color: var(--color-muted);
+  margin-bottom: 5px;
+}
+.partner-review-details dd {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.partner-review-links,
+.review-text-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.partner-review-links {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-line);
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.review-text-link {
+  display: inline-flex;
+  color: var(--color-brand);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.review-text-link:hover {
+  text-decoration: underline;
+}
+.application-form {
+  padding: 20px;
+}
+.partner-form-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.partner-form-heading .field-hint {
+  margin-top: 4px;
+}
+.application-form .editor-section-heading {
+  margin: 16px 0 0;
+  padding-top: 16px;
+}
+.application-fields {
+  gap: 16px 24px;
+  align-items: start;
+}
+.application-field dt {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.application-field dt > span:first-child {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.application-field .badge {
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.partner-read-value {
+  min-height: 38px;
+  padding: 9px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: var(--color-canvas);
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.application-field-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 5px;
+}
+.partner-review-page .review-small-button {
+  min-height: 30px;
+  font-size: 11px;
+  padding: 5px 8px;
+  gap: 5px;
+}
+.application-files {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.application-files > * {
+  min-width: 0;
+  max-width: 100%;
+}
+.application-field-selfie {
+  width: 100%;
+}
+.application-file {
+  justify-content: flex-start;
+  text-align: left;
+  font-size: 12px;
+}
+.application-file > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.application-field-selfie img {
+  max-height: 160px;
+  border-radius: 8px;
+}
+.application-field-selfie .field-hint {
+  font-size: 11px;
+}
+.application-correction {
+  margin-top: 8px;
+  color: var(--color-danger, #b42318);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.confirmation-read-button {
+  align-self: flex-start;
+}
+.partner-review-page .image-dropzone {
+  flex-direction: row;
+  padding: 16px;
+  gap: 12px;
+}
+.partner-review-page .image-upload-preview {
+  width: 48px;
+  height: 56px;
+  flex-shrink: 0;
+  border-radius: 8px;
+}
+.partner-review-page .image-upload-copy {
+  min-width: 0;
+}
+.partner-review-page .partner-delivery {
+  padding-top: 12px;
+  gap: 10px;
+  font-size: 12px;
+}
+@media (max-width: 899px) {
+  .partner-review-details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+@media (max-width: 639px) {
+  .partner-review-details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .application-form {
+    padding: 16px;
+  }
+  .partner-review-page .catalog-card-header {
+    padding: 16px;
+  }
+  .partner-review-page .review-panel-body {
+    padding: 0 16px 16px;
+  }
+}
+@media (max-width: 1279px) {
   .rich-document {
     padding: 20px;
   }
@@ -176,11 +316,5 @@
   }
   .document-metadata {
     padding: 16px;
-  }
-  .partner-answer-grid .catalog-card-header {
-    flex-wrap: wrap;
-  }
-  .partner-answer-grid .catalog-card-header .badge {
-    white-space: normal;
   }
 }
