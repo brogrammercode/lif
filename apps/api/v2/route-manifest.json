@@ -1014,5 +1014,45 @@
     "path": "admin/partner-program/exit-requests/:id/email-retry",
     "guards": ["AuthGuard", "AdminGuard"],
     "idempotent": false
+  },
+  {
+    "feature": "partner_program",
+    "handler": "geography",
+    "method": "get",
+    "path": "partner-program/geography",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "admin_partner_program",
+    "handler": "activation_email",
+    "method": "post",
+    "path": "admin/partner-program/applications/:id/activation-email",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "admin_partner_program",
+    "handler": "activation_shared",
+    "method": "post",
+    "path": "admin/partner-program/applications/:id/activation-shared",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "partner_requirement",
+    "handler": "delete_category",
+    "method": "delete",
+    "path": "admin/partner-program/requirement-categories/:id",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "partner_requirement",
+    "handler": "delete_field",
+    "method": "delete",
+    "path": "admin/partner-program/requirements/:id",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
   }
 ]

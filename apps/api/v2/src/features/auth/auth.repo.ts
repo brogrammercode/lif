@@ -1,3 +1,7 @@
+import {
+  queue_new_user_emails,
+  schedule_new_user_emails,
+} from '../../infra/mail/new_user_email.js';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../infra/database/prisma.service.js';
 import type { AuthProvider, Prisma } from '@prisma/client';
@@ -30,8 +34,8 @@ export class AuthRepository {
   readonly resolve_external_user = async (
     provider: AuthProvider,
     input: ExternalLoginInput,
-  ) =>
-    this.prismaService.client.$transaction(async (tx) => {
+  ) => {
+    const result = await this.prismaService.client.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${input.provider_account_id}))`;
       const account = await tx.authAccount.findUnique({
         where: {
@@ -116,6 +120,8 @@ export class AuthRepository {
             provider_email: input.provider_email,
           },
         });
+      if (!existing)
+        await queue_new_user_emails(tx, user, `${provider} sign-in`);
       await create_user_log(tx, {
         actor_id: user.id,
         entity_type: 'User',
@@ -128,6 +134,9 @@ export class AuthRepository {
       });
       return user;
     });
+    schedule_new_user_emails();
+    return result;
+  };
 
   readonly create_session = async (
     user_id: string,

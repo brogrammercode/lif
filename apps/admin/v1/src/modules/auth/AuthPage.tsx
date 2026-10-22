@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { Button } from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
 import { InlineError } from "../../components/feedback/StateCard";
 import { safeMessage } from "../../lib/api-client";
 import { useAuth } from "./AuthProvider";
 import { signInWithGoogle } from "./auth.api";
-import { AUTH_COPY, WORKSPACE_PATH } from "./auth.constant";
+import { AUTH_COPY } from "./auth.constant";
+import { loginDestination } from "./auth-redirect";
 import { loadGoogleIdentity } from "./google";
 
 export function AuthPage() {
   const auth = useAuth();
+  const location = useLocation();
   const host = useRef<HTMLDivElement>(null);
   const signingIn = useRef(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +82,8 @@ export function AuthPage() {
       cancelled = true;
     };
   }, [attempt, auth.setUser]);
-  if (auth.user) return <Navigate to={WORKSPACE_PATH} replace />;
+  if (auth.user)
+    return <Navigate to={loginDestination(location.state)} replace />;
   return (
     <main className="auth-page">
       <div className="auth-orbit orbit-one" />

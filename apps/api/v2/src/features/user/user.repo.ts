@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { visible_notification_filter } from '../../infra/mail/new_user_email.js';
 import { PrismaService } from '../../infra/database/prisma.service.js';
 import { Prisma } from '@prisma/client';
 import { create_user_log } from '../../infra/database/user_log.js';
@@ -152,7 +153,7 @@ export class UserRepository {
 
   readonly list_notifications = async (user_id: string) =>
     this.prismaService.client.notification.findMany({
-      where: { user_id },
+      where: { user_id, ...visible_notification_filter },
       orderBy: { created_at: 'desc' },
       take: 50,
     });
@@ -164,7 +165,7 @@ export class UserRepository {
   ) =>
     this.prismaService.client.$transaction(async (tx) => {
       const notification = await tx.notification.findFirst({
-        where: { id: notification_id, user_id },
+        where: { id: notification_id, user_id, ...visible_notification_filter },
       });
       if (!notification) return null;
       const updated = await tx.notification.update({

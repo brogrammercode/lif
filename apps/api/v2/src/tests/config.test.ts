@@ -6,6 +6,7 @@ for (const [key, value] of Object.entries({
   PORT: '70000',
   JWT_EXPIRES_IN: 'invalid-duration',
   ADMIN_WEB_ORIGIN: 'null',
+  ADMIN_NOTIFICATION_ORIGIN: 'https://one.test,https://two.test',
   CORS_ORIGIN: 'https://example.test/private/path',
 })) {
   it(`rejects invalid ${key} at startup`, () => {

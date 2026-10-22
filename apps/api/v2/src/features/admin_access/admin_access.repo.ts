@@ -1,3 +1,7 @@
+import {
+  queue_new_user_emails,
+  schedule_new_user_emails,
+} from '../../infra/mail/new_user_email.js';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/database/prisma.service.js';
@@ -123,8 +127,8 @@ export class AdminAccessRepository {
       },
     );
 
-  readonly grant_access = (actor_id: string, input: GrantAccessInput) =>
-    this.prismaService.client.$transaction(async (tx) => {
+  readonly grant_access = async (actor_id: string, input: GrantAccessInput) => {
+    const result = await this.prismaService.client.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ADMIN_ACCESS_LOCK})`;
       const actor = await tx.user.findUnique({
         where: { id: actor_id },
@@ -174,6 +178,8 @@ export class AdminAccessRepository {
             data: { role: 'ADMIN' },
           })
         : await tx.user.create({ data: { email: input.email, role: 'ADMIN' } });
+      if (!existing)
+        await queue_new_user_emails(tx, user, 'Admin access provisioning');
       const record = await tx.adminAccess.findUnique({
         where: { user_id: user.id },
         select: { id: true },
@@ -211,6 +217,9 @@ export class AdminAccessRepository {
         }),
       };
     }, ADMIN_ACCESS_TRANSACTION);
+    schedule_new_user_emails();
+    return result;
+  };
 
   readonly revoke_access = (
     actor_id: string,

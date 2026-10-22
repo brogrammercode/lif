@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { schedule_new_user_emails } from '../../infra/mail/new_user_email.js';
 import { AdminAuthRepository } from './admin_auth.repo.js';
 import { config } from '../../core/config.js';
 import { verify_google_identity } from '../auth/auth.security.js';
@@ -19,10 +20,15 @@ export class AdminAuthService {
       request_data.ip_address,
       request_data.browser_location,
     );
-    return this.adminAuthRepository.create_admin_session(identity, {
-      ...request_data,
-      login_location,
-    });
+    const session = await this.adminAuthRepository.create_admin_session(
+      identity,
+      {
+        ...request_data,
+        login_location,
+      },
+    );
+    schedule_new_user_emails();
+    return session;
   };
 
   readonly refresh_admin = (token: string, request_data: SessionRequest) =>

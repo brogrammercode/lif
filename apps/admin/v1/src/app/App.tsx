@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppShell } from "../components/layout/AppShell";
 import { LoadingState, StateCard } from "../components/feedback/StateCard";
 import { AuthPage } from "../modules/auth/AuthPage";
@@ -31,12 +31,25 @@ const PartnerExitsPage = lazy(() =>
 
 export function App() {
   const auth = useAuth();
+  const location = useLocation();
   if (!auth.ready) return <LoadingState />;
   return (
     <Routes>
       <Route path="/login" element={<AuthPage />} />
       <Route
-        element={auth.user ? <AppShell /> : <Navigate to="/login" replace />}
+        element={
+          auth.user ? (
+            <AppShell />
+          ) : (
+            <Navigate
+              to="/login"
+              replace
+              state={{
+                returnTo: location.pathname + location.search + location.hash,
+              }}
+            />
+          )
+        }
       >
         <Route path={WORKSPACE_PATH} element={<VehicleCategoriesPage />} />
         <Route

@@ -1,6 +1,6 @@
 # 1More API v2 — NestJS
 
-Standalone NestJS 12 implementation: 17 feature modules, 116 method/path combinations, injected services/repositories, and Prisma/PostgreSQL persistence. See [route-manifest.json](./route-manifest.json) for every route and its guards/idempotency policy.
+Standalone NestJS 12 implementation: 17 feature modules, 132 method/path combinations, injected services/repositories, and Prisma/PostgreSQL persistence. See [route-manifest.json](./route-manifest.json) for every route and its guards/idempotency policy.
 
 Partner onboarding adds published rich documents, private assets, dynamic application reviews, confirmation/final PDF approval, SMTP delivery and first-login driver activation. See [PARTNER_ONBOARDING_IMPLEMENTATION.md](../../../context/PARTNER_ONBOARDING_IMPLEMENTATION.md) for routes, operator setup and delivery behavior.
 
@@ -165,3 +165,19 @@ Migration 0005 adds brand/model moderation, shared partner requirement categorie
 Access removal uses `expected_access_version` from the directory, avoiding unrelated profile/location/login conflicts. Missing/already-removed access is idempotent. Users can be deactivated with confirmation while retaining history; sessions/devices are revoked and active rides block deactivation. Recognized admin requests are centrally audited alongside transactional business logs.
 
 See [ADMIN_EXPANSION_IMPLEMENTATION.md](../../../context/ADMIN_EXPANSION_IMPLEMENTATION.md) for all new endpoints, future driver proposal integration, dynamic field configuration, concurrency protections and audit/check limits. No automated tests were run for the expansion.
+
+## New-user admin emails
+
+Every new account created through app sign-in, admin access provisioning, or the admin grant command queues an email for each existing active admin with an email address. Repeat sign-ins and linking Google to an existing account do not create another signup email. The new account itself is excluded from the recipient list; recipient emails are deduplicated without case sensitivity.
+
+Emails include user ID, name, email, phone (or Not provided), role, account status, creation time in India time, registration source, and a button linking directly to the user's Personal page. HTML values are escaped. The link requires normal admin authentication; after signing in, the admin returns to the linked user profile.
+
+- SMTP uses the existing MAIL_USER and GOOGLE_APP_PASSWORD settings. Sender display name is 1More Admin.
+- ADMIN_NOTIFICATION_ORIGIN optionally changes the link destination. Its default is https://adminonemore.vercel.app; configure one origin with no path.
+- The existing notifications table's EMAIL channel stores the delivery queue in the same transaction as user creation. No schema migration is needed. These records are excluded from the mobile notification feed.
+- Delivery starts after commit in a background task, including Vercel waitUntil. SMTP failures do not fail login. If SMTP credentials are missing, deliveries stay pending.
+- Sign-ins, admin sign-ins, access grants, and visits to the admin Users list drain up to 10 queued deliveries per invocation. Failed or abandoned delivery claims become eligible again after five minutes. Recipients' current admin status and email are checked before sending; revoked/deactivated admins and changed addresses are skipped.
+- Delivery state and attempts are recorded in notifications.data, with sent_at for processed records. SKIPPED means the recipient lost access or changed their email. SMTP acceptance does not guarantee inbox delivery; an interruption after SMTP acceptance can cause a retry even with a stable Message-ID.
+- For an operator retry of an eligible batch, run npm run notifications:retry from this folder. Repeat for larger backlogs. Existing users are not backfilled.
+
+Implementation checks use mocked SMTP; they do not send real customer or administrator email.

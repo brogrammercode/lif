@@ -75,6 +75,9 @@ const CONFIG_SCHEMA = z.object({
   MAIL_USER: z.union([z.literal(''), z.email()]).default(''),
   GOOGLE_APP_PASSWORD: z.string().default(''),
   MAIL_FROM_NAME: z.string().trim().min(1).default('1More Partner Program'),
+  ADMIN_NOTIFICATION_ORIGIN: origin_list
+    .refine((value) => !value.includes(','), 'Provide one admin panel origin.')
+    .default(PRODUCTION_ADMIN_WEB_ORIGIN),
   GOOGLE_WEB_CLIENT_ID: z.string().default(''),
   CLOUDINARY_CLOUD_NAME: z
     .string()

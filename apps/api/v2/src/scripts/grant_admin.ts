@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import {
+  queue_new_user_emails,
+  deliver_new_user_emails,
+} from '../infra/mail/new_user_email.js';
 import { prisma } from '../infra/database/client.js';
 import { create_user_log } from '../infra/database/user_log.js';
 import {
@@ -39,6 +43,8 @@ const run = async () => {
       where: { user_id: admin.id },
       select: { id: true },
     });
+    if (!existing)
+      await queue_new_user_emails(tx, admin, 'Admin provisioning command');
     const data = {
       previous_role,
       granted_by_id: null,
@@ -65,6 +71,13 @@ const run = async () => {
   process.stdout.write(
     `Admin access provisioned for ${user.email}. Sign in with that Google account.\n`,
   );
+  try {
+    await deliver_new_user_emails();
+  } catch {
+    process.stderr.write(
+      'Admin access is provisioned; signup emails remain queued for retry.\n',
+    );
+  }
 };
 run()
   .catch((error: unknown) => {

@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AdminUserRepository } from './admin_user.repo.js';
+import { schedule_new_user_emails } from '../../infra/mail/new_user_email.js';
 import { AdminUserService } from './admin_user.service.js';
 import { AuthGuard, AdminGuard } from '../../core/guards.js';
 import { ADMIN_USER_ROUTES } from './admin_user.route.js';
@@ -58,6 +59,7 @@ export class AdminUserController {
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ) {
+    schedule_new_user_emails();
     return send_success(
       response,
       await this.adminUserRepository.list_admin_users(
