@@ -44,3 +44,4 @@ flutter:
     - assets/images/logo.png
     - assets/images/login-tennis-bg.png
     - .env
+    - shorebird.yaml

@@ -36,3 +36,60 @@ For iOS Google sign-in, create an iOS OAuth client for `com.brogrammer.onemore` 
 - Profile editing, saved places, notifications, payment methods, emergency contacts, and support conversations.
 
 Cash checkout is recorded as pending until collection is confirmed. Digital methods are intentionally unavailable until a payment-provider adapter and credentials are configured; cash collection confirmation/reconciliation also needs an operator or driver workflow.
+
+## Shorebird setup
+
+Run the following commands from `apps/user/v1`.
+
+```powershell
+shorebird account whoami
+# Only if this machine is not authenticated:
+shorebird login
+shorebird doctor
+```
+
+The app is registered as **1More User** (`47a2ff06-8ca3-41a1-b62a-6ab5ebcb52a7`). Its identity is in `shorebird.yaml`, which is included in the Flutter asset bundle and should be committed. After cloning, use the existing file; do not run `shorebird init --force` and create another app identity. Login credentials remain in Shorebird's local configuration, outside this repository. See [Shorebird initialization](https://docs.shorebird.dev/code-push/initialize/).
+
+Shorebird's default updater checks for patches in the background on launch and uses a downloaded patch on the next full app launch. No startup dialog or Dart updater package is needed for this behavior. Normal `flutter run --debug` remains available for development; installed users need a **Shorebird release build** to receive patches. See [update strategies](https://docs.shorebird.dev/code-push/update-strategies/).
+
+### Create the release APK
+
+1. Run `flutter pub get` and `flutter analyze`.
+2. Set the local `.env` to the intended environment. For production, use `API_BASE_URL=https://apionemore.vercel.app/api/v2` and the matching public Google web client ID. This file is bundled into the app; it must contain only public client configuration.
+3. Check the version in `pubspec.yaml` (`1.0.0+1` initially). Each new base release needs a new version/build number, for example `1.0.1+2`.
+4. Build and publish the Shorebird base release:
+
+```powershell
+shorebird release android --artifact apk --flutter-version 3.47.7
+```
+
+The APK is normally written to `build/app/outputs/flutter-apk/app-release.apk`; use the artifact path printed by the CLI. Keep the exact commit, lockfile, environment and version used for this release. This command uploads release artifacts to Shorebird; distribute the APK to users separately. See [release commands](https://docs.shorebird.dev/code-push/release/).
+
+The current Android release configuration uses this machine's **debug signing key**, suitable for internal installation. Google sign-in requires that certificate's SHA-1 to be registered in Firebase/Google OAuth. Before store distribution, configure a private release keystore and register its certificate (and the Play app-signing certificate when applicable). Keep the same signing identity for updates to existing installations; never commit keystores or signing passwords.
+
+Install the generated APK on a connected device:
+
+```powershell
+adb install -r build/app/outputs/flutter-apk/app-release.apk
+```
+
+### Publish a Dart fix to an existing release
+
+Keep `pubspec.yaml` at the target release's version and use its original environment/build settings. For the initial release:
+
+```powershell
+shorebird patch android --release-version 1.0.0+1 --track stable
+```
+
+This publishes to installed users of that release. Use the actual version you released in place of `1.0.0+1`. A Dart-only patch keeps the base version unchanged. Changes to native plugins, Gradle, permissions, assets (including `.env`), or Flutter itself need a new base release and APK. Follow [Shorebird patch guidance](https://docs.shorebird.dev/code-push/patch/).
+
+### Maintenance and checks
+
+```powershell
+shorebird upgrade
+shorebird flutter versions list
+shorebird doctor
+flutter analyze
+```
+
+Use Flutter `3.47.7` for this project's documented base release command; check that it appears in Shorebird's supported versions. When changing Flutter, update the documented version and publish a new base release. SDK downloads during CLI setup are expected. Building an APK is a deliberate release step, not a routine analysis check.
