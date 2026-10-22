@@ -163,7 +163,7 @@ export class AuthRepository {
           where: { user_id },
         });
         if (
-          login_user.role === 'RIDER' &&
+          login_user.role !== 'DRIVER' &&
           application?.status === 'COMPLETED' &&
           !application.activation_issued_at
         ) {

@@ -418,14 +418,17 @@ export class PartnerProgramService {
   }
   async submit(user_id: string, input: ApplicationInput) {
     return this.database.client.$transaction(async (tx) => {
+      await require_active_account(tx, user_id);
+      await partner_lock(tx, user_id);
       const user = await require_active_account(tx, user_id);
-      if (user.role !== 'RIDER')
+      // Staff use the same personal account in the rider app. Their staff role
+      // must not prevent onboarding or be replaced by a driver role later.
+      if (user.role === 'DRIVER')
         throw new AppError(
           403,
           'PARTNER_NOT_ELIGIBLE',
-          'Partner onboarding is available to rider accounts.',
+          'This account is already a driver and cannot submit a new partner application.',
         );
-      await partner_lock(tx, user_id);
       const old = await tx.partnerApplication.findUnique({
         where: { user_id },
         include: application_include,
@@ -1144,8 +1147,7 @@ export class PartnerProgramService {
       const app = await tx.partnerApplication.findUnique({
         where: { user_id },
       });
-      if (app?.status === 'ACTIVATED' && user.role === 'DRIVER')
-        return { status: 'ACTIVATED' };
+      if (app?.status === 'ACTIVATED') return { status: 'ACTIVATED' };
       if (
         !app ||
         app.status !== 'COMPLETED' ||
@@ -1156,7 +1158,7 @@ export class PartnerProgramService {
           error:
             'Sign out and sign in again after final approval before entering your code.',
         };
-      if (user.role !== 'RIDER')
+      if (user.role === 'DRIVER')
         return { error: 'This account cannot be activated as a driver.' };
       if (app.activation_attempts >= 5)
         return {
@@ -1179,11 +1181,14 @@ export class PartnerProgramService {
       const promoted = await tx.user.updateMany({
         where: {
           id: user_id,
-          role: 'RIDER',
+          role: user.role,
           status: 'ACTIVE',
           deleted_at: null,
         },
-        data: { role: 'DRIVER', partner_activated_at: new Date() },
+        data: {
+          ...(user.role === 'RIDER' ? { role: 'DRIVER' as const } : {}),
+          partner_activated_at: new Date(),
+        },
       });
       if (promoted.count !== 1)
         return {

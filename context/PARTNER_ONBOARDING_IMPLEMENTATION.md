@@ -9,7 +9,7 @@
 5. Application approval snapshots the published confirmation. The user reads that version, enters their legal name and explicitly accepts. Confirmations have a separate admin tab and review decision.
 6. Confirmation approval requires the complete final PDF uploaded by the administrator. It is preserved exactly, made available privately in-app, queued for SMTP email and made available for manual media sharing from admin. No PDF is fabricated and no WhatsApp Cloud API is used.
 7. The user sees the final PDF page and “Sign out and re-login as Driver”. Their first fresh Google login after final approval generates one six-digit activation code. An administrator retrieves it and sends it manually. There is no expiry or regeneration on later logins.
-8. Five wrong attempts require an admin unlock of the same code. Correct verification consumes the code, removes its stored hash/encrypted copy, promotes the rider to DRIVER and verifies their driver profile. Existing activated drivers go directly to the blank “Driver home page” after normal login.
+8. Five wrong attempts require an admin unlock of the same code. Correct verification consumes the code, removes its stored hash/encrypted copy, promotes the rider to DRIVER and verifies their driver profile. Staff accounts can apply through the same personal account: activation preserves their ADMIN/SUPPORT role and uses the application status to open the driver UI. Existing activated drivers go directly to the blank “Driver home page” after normal login. Exited partners retain access to their settlement page while driver operations remain disabled.
 
 ## Admin document editor
 

@@ -15,6 +15,8 @@ Home avatar opens Settings, including profile and Partner Program. The program i
 
 Android builds need JDK 21 for the MapLibre native plugin. Flutter currently selects Android Studio's JDK automatically; check `flutter doctor -v` if the build reports a Java version error.
 
+The `html` dependency is pinned to `0.15.6`: `flutter_html 3.0.0` uses a selector function removed in `html 0.15.7`. Keep this compatibility pin when updating dependencies until the renderer supports the newer API. After pulling dependency changes, run `flutter pub get` before starting the app.
+
 The default API URL, `http://10.0.2.2:4001/api/v2`, works from the Android emulator. Use `http://localhost:4001/api/v2` for an iOS simulator, or the computer's LAN address for a physical device. Use HTTPS for deployed builds.
 
 For a physical phone, open `http://<computer-LAN-IP>:4001/api/v2/health` on the phone before signing in. It should report `database: connected`. A request timeout usually means the API is stopped or the phone cannot reach the computer.

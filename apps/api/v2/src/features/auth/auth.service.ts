@@ -50,7 +50,7 @@ export class AuthService {
     driver_profile: user.driver_profile,
     partner_status: user.partner_application?.status ?? null,
     partner_activation_required:
-      user.role === 'RIDER' &&
+      user.role !== 'DRIVER' &&
       user.partner_application?.status === 'COMPLETED' &&
       !!user.partner_application.activation_issued_at,
   });

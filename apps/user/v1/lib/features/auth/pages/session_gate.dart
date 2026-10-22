@@ -21,7 +21,11 @@ class _SessionGateState extends State<SessionGate> {
     if (!await DioClient().hasSession()) return AppRoutes.login;
     try {
       final user = await AuthRepository().currentUser();
-      if (user.role == 'DRIVER') return AppRoutes.driverHome;
+      if (user.role == 'DRIVER' ||
+          user.partnerStatus == 'ACTIVATED' ||
+          user.partnerStatus == 'EXITED') {
+        return AppRoutes.driverHome;
+      }
       if (user.partnerActivationRequired) return AppRoutes.partnerActivation;
       return AppRoutes.home;
     } catch (_) {
