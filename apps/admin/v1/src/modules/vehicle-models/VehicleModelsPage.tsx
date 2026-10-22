@@ -186,7 +186,11 @@ export function VehicleModelsPage() {
                       setModelPage(1);
                     }}
                   >
-                    <EntityImage src={brand.logo_url} contain />
+                    <EntityImage
+                      src={brand.logo_url}
+                      fallback="layers"
+                      contain
+                    />
                     <span>
                       <strong>{brand.name}</strong>
                       <small>
@@ -296,7 +300,11 @@ export function VehicleModelsPage() {
                     <tr key={model.id}>
                       <td>
                         <div className="entity-cell">
-                          <EntityImage src={model.logo_url} contain />
+                          <EntityImage
+                            src={model.logo_url}
+                            family={model.vehicle_type}
+                            contain
+                          />
                           <div>
                             <strong>{model.name}</strong>
                             <small>{model.brand.name}</small>

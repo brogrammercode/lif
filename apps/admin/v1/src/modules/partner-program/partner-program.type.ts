@@ -23,7 +23,8 @@ export type PartnerDefinition = {
   field_type: string;
   is_required: boolean;
   description?: string;
-  category?: { name: string };
+  category?: { id?: string; name: string; sort_order?: number };
+  sort_order?: number;
   capture_mode?: "CAMERA";
 };
 export type PartnerAnswer = {
@@ -49,7 +50,7 @@ export type PartnerApplication = {
   activation_issued_at: string | null;
   activation_attempts: number;
   user: { first_name: string | null; last_name: string | null; email?: string };
-  policy_snapshot: DocumentSnapshot;
+  policy_snapshot: DocumentSnapshot | null;
   confirmation_document: DocumentSnapshot | null;
   fields: PartnerAnswer[];
   confirmation: {
@@ -57,7 +58,7 @@ export type PartnerApplication = {
     signature_name: string;
     accepted_at: string;
     rejection_reason: string | null;
-    document_snapshot: DocumentSnapshot;
+    document_snapshot: DocumentSnapshot | null;
   } | null;
   deliveries: {
     channel: string;
@@ -66,10 +67,19 @@ export type PartnerApplication = {
     last_error: string | null;
     sent_at: string | null;
     claimed_at?: string | null;
+    updated_at?: string | null;
   }[];
 };
-export const partnerStatus = (value: string) =>
-  value
+export const deliveryIsSending = (delivery: {
+  status: string;
+  claimed_at?: string | null;
+  updated_at?: string | null;
+}) =>
+  delivery.status === "SENDING" &&
+  Date.now() - Date.parse(delivery.claimed_at ?? delivery.updated_at ?? "") <
+    300000;
+export const partnerStatus = (value: string | null | undefined) =>
+  (value ?? "Unknown")
     .toLowerCase()
     .replaceAll("_", " ")
     .replace(/^./, (s) => s.toUpperCase());
@@ -110,6 +120,7 @@ export const partnerTone = (
         : "warning";
 
 export const canApproveApplication = (app: PartnerApplication) =>
+  !!app.policy_snapshot &&
   ["SUBMITTED", "CHANGES_REQUESTED"].includes(app.status) &&
   app.fields.some((field) => field.requirement_id === "__live_selfie__") &&
   app.fields.every((field) => {

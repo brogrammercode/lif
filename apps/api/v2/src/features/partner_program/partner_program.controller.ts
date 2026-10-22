@@ -30,11 +30,72 @@ import {
   list_input,
   review_input,
 } from './partner_program.type.js';
+import { postal_directory } from './postal-directory.data.js';
 
 @Controller('partner-program')
 @UseGuards(AuthGuard)
 export class PartnerProgramController {
   constructor(private readonly service: PartnerProgramService) {}
+  @Get('geography') async geography(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const input = z
+      .object({
+        state: z.string().trim().max(120).optional(),
+        city: z.string().trim().max(120).optional(),
+        pincode: z
+          .string()
+          .regex(/^[1-9]\d{5}$/)
+          .optional(),
+      })
+      .parse(req.query);
+    const matches = Object.entries(postal_directory).flatMap(
+      ([state, cities]) =>
+        input.state && input.state !== state
+          ? []
+          : Object.entries(cities)
+              .filter(
+                ([city, pins]) =>
+                  (!input.city || input.city === city) &&
+                  (!input.pincode || pins.includes(input.pincode)),
+              )
+              .map(([city]) => ({ state, city })),
+    );
+    if (!matches.length)
+      throw new AppError(
+        422,
+        'ADDRESS_SELECTION_INVALID',
+        'Choose matching state, city and PIN code values from the available options.',
+      );
+    // Restore saved city/PIN answers only when their geography is unambiguous.
+    const states = [...new Set(matches.map((match) => match.state))];
+    const state = input.state ?? (states.length === 1 ? states[0] : undefined);
+    const city_names = [
+      ...new Set(
+        matches
+          .filter((match) => match.state === state)
+          .map((match) => match.city),
+      ),
+    ];
+    const city =
+      input.city ??
+      (city_names.length === 1 && input.pincode ? city_names[0] : undefined);
+    const cities = state ? postal_directory[state] : undefined;
+    return send_success(
+      res,
+      {
+        states: Object.keys(postal_directory),
+        cities: cities ? Object.keys(cities) : [],
+        pincodes:
+          city && cities && Object.hasOwn(cities, city) ? cities[city] : [],
+        selected_state: state ?? null,
+        selected_city: state ? (city ?? null) : null,
+        matching_states: states,
+      },
+      'Postal address options loaded',
+    );
+  }
   @Get('me') async me(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -322,6 +383,38 @@ export class AdminPartnerProgramController {
         id_input.parse(req.params.id),
       ),
       'Activation code retrieved',
+    );
+  }
+  @Post('applications/:id/activation-email') async activation_email(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const id = id_input.parse(req.params.id);
+    const result = await this.service.queue_activation_email(
+      req.auth!.user_id,
+      id,
+    );
+    waitUntil(
+      this.delivery.send_activation_email(id).catch(() =>
+        console.error({
+          event: 'PARTNER_ACTIVATION_EMAIL_JOB_FAILED',
+          application_id: id,
+        }),
+      ),
+    );
+    return send_success(res, result, 'Activation email queued');
+  }
+  @Post('applications/:id/activation-shared') async activation_shared(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return send_success(
+      res,
+      await this.service.mark_activation_shared(
+        req.auth!.user_id,
+        id_input.parse(req.params.id),
+      ),
+      'Manual activation sharing recorded',
     );
   }
   @Post('applications/:id/activation-unlock') async unlock(

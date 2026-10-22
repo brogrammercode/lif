@@ -55,7 +55,7 @@ export function RequirementEditor({
 }) {
   const [label, setLabel] = useState(record?.label ?? "");
   const [key, setKey] = useState(record?.key ?? "");
-  const [keyEdited, setKeyEdited] = useState(Boolean(record));
+  const [keyEdited, setKeyEdited] = useState(false);
   const [category, setCategory] = useState(
     record?.category_id ?? categories.find((item) => item.is_active)?.id ?? "",
   );
@@ -150,14 +150,13 @@ export function RequirementEditor({
               <Field
                 id="requirement-key"
                 label="Field key"
-                hint="Stable identifier, 2–64 lowercase letters, numbers or underscores. Cannot change after creation."
+                hint="Generated from the label; you can customize it. Existing application snapshots keep their original keys and answers."
               >
                 <input
                   className="field"
                   id="requirement-key"
                   required
                   pattern="[a-z][a-z0-9_]{1,63}"
-                  readOnly={Boolean(record)}
                   maxLength={64}
                   value={key}
                   onChange={(event) => {

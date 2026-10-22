@@ -23,6 +23,7 @@ export type PartnerExit = {
       attempts: number;
       sent_at: string | null;
       claimed_at: string | null;
+      updated_at?: string | null;
       last_error: string | null;
     }[];
   };

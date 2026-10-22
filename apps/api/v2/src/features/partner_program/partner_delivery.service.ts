@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import nodemailer, { type Transporter } from 'nodemailer';
 import { config } from '../../core/config.js';
 import { PrismaService } from '../../infra/database/prisma.service.js';
+import { reveal_activation } from './partner_program.security.js';
+import { claimable_delivery } from './partner_delivery.constant.js';
 
 @Injectable()
 export class PartnerDeliveryService {
@@ -13,11 +15,15 @@ export class PartnerDeliveryService {
   send_exit_email(application_id: string) {
     return this.send_document(application_id, 'EXIT_EMAIL');
   }
+  send_activation_email(application_id: string) {
+    return this.send_document(application_id, 'ACTIVATION_EMAIL');
+  }
   private async send_document(
     application_id: string,
-    channel: 'EMAIL' | 'EXIT_EMAIL',
+    channel: 'EMAIL' | 'EXIT_EMAIL' | 'ACTIVATION_EMAIL',
   ) {
     const is_exit = channel === 'EXIT_EMAIL';
+    const is_activation = channel === 'ACTIVATION_EMAIL';
     const delivery = await this.database.client.partnerDelivery.findUnique({
       where: { application_id_channel: { application_id, channel } },
     });
@@ -26,13 +32,7 @@ export class PartnerDeliveryService {
     const claimed = await this.database.client.partnerDelivery.updateMany({
       where: {
         id: delivery.id,
-        OR: [
-          { status: { in: ['PENDING', 'FAILED'] } },
-          {
-            status: 'SENDING',
-            claimed_at: { lt: new Date(Date.now() - 300000) },
-          },
-        ],
+        ...claimable_delivery(now),
       },
       data: {
         status: 'SENDING',
@@ -63,6 +63,8 @@ export class PartnerDeliveryService {
           : ['COMPLETED', 'ACTIVATED'].includes(app.status)) ||
         app.user.status !== 'ACTIVE' ||
         app.user.deleted_at ||
+        (is_activation &&
+          (app.status !== 'COMPLETED' || !app.activation_ciphertext)) ||
         !(is_exit ? app.exit_request?.settlement_pdf_id : app.final_pdf_id)
       )
         throw new Error(
@@ -97,12 +99,16 @@ export class PartnerDeliveryService {
       const result = await this.mailer.sendMail({
         from: { name: config.MAIL_FROM_NAME, address: config.MAIL_USER },
         to: app.contact_email,
-        subject: is_exit
-          ? 'Your 1More partner exit settlement'
-          : 'Your 1More Partner Program confirmation',
-        text: is_exit
-          ? `Hello ${app.user.first_name ?? 'there'},\n\nYour Partner Program exit is complete. Your settlement PDF is attached and available in the 1More app under Exit Request & Dues. Driver operations are now disabled. Your account and history remain available. Please refer to the attached document for dues and settlement details.\n\n1More Partner Program`
-          : `Hello ${app.user.first_name ?? 'there'},\n\nYour Partner Program confirmation has been approved. Your final document is attached and is also available in the 1More app.\n\nSign out and sign in again to begin driver activation. Your administrator will send your activation code separately.\n\n1More Partner Program`,
+        subject: is_activation
+          ? 'Your 1More driver activation code'
+          : is_exit
+            ? 'Your 1More partner exit settlement'
+            : 'Your 1More Partner Program confirmation',
+        text: is_activation
+          ? `Hello ${app.user.first_name ?? 'there'},\n\nYour 1More driver activation code is ${reveal_activation(app.activation_ciphertext!)}.\n\nEnter this code in the 1More app after signing in. This code has no expiry and can be used once. Do not share it with anyone. Your approved confirmation PDF is attached for reference.\n\n1More Partner Program`
+          : is_exit
+            ? `Hello ${app.user.first_name ?? 'there'},\n\nYour Partner Program exit is complete. Your settlement PDF is attached and available in the 1More app under Exit Request & Dues. Driver operations are now disabled. Your account and history remain available. Please refer to the attached document for dues and settlement details.\n\n1More Partner Program`
+            : `Hello ${app.user.first_name ?? 'there'},\n\nYour Partner Program confirmation has been approved. Your final document is attached and is also available in the 1More app.\n\nSign out and sign in again to begin driver activation. Your administrator will send your activation code separately.\n\n1More Partner Program`,
         attachments: [
           {
             filename: asset.file_name,

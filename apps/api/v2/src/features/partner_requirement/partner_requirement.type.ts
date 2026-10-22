@@ -27,6 +27,9 @@ export const category_input = z
 export const category_update = category_input.extend({
   expected_updated_at: z.iso.datetime(),
 });
+export const requirement_delete = z
+  .object({ expected_updated_at: z.iso.datetime() })
+  .strict();
 export const requirement_input = z
   .object({
     category_id: requirement_id,

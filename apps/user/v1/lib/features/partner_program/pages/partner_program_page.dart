@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
-import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:user/features/partner_program/widgets/partner_address_input.dart';
+import 'package:user/features/partner_program/widgets/partner_upload_tile.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/button.dart';
 import 'package:user/core/color.dart';
@@ -87,6 +89,13 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     for (final controller in _controllers.values) {
       controller.dispose();
     }
+    for (final files in _files.values) {
+      for (final file in files) {
+        if (file.bytes != null) {
+          unawaited(PartnerUploadTile.previewImage(file.bytes!).evict());
+        }
+      }
+    }
     super.dispose();
   }
 
@@ -122,6 +131,13 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       _signature.text =
           '${_map(_application?['confirmation'])?['signature_name'] ?? legalName ?? _signature.text}';
       _values.clear();
+      for (final files in _files.values) {
+        for (final file in files) {
+          if (file.bytes != null) {
+            unawaited(PartnerUploadTile.previewImage(file.bytes!).evict());
+          }
+        }
+      }
       _files.clear();
       for (final definition in _definitions) {
         final id = '${definition['id']}';
@@ -142,9 +158,12 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
             );
           }).toList();
         } else {
-          (_controllers[id] ??= TextEditingController()).text = value == null
-              ? ''
-              : '$value';
+          final text = value == null ? '' : '$value';
+          (_controllers[id] ??= TextEditingController()).text =
+              definition['input_kind'] == 'IFSC' &&
+                  answer?['status'] != 'APPROVED'
+              ? text.toUpperCase()
+              : text;
         }
       }
       setState(() {
@@ -245,7 +264,23 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
                 file.name,
                 file.bytes!,
               );
-              file.assetId = '${uploaded['id']}';
+              final assetId = uploaded['id'];
+              if (assetId is! String || assetId.isEmpty) {
+                throw StateError(
+                  'File upload did not return a valid file ID. Please try again.',
+                );
+              }
+              file.assetId = assetId;
+              if (type == 'IMAGE') {
+                await PartnerUploadTile.previewImage(file.bytes!).evict();
+              }
+              // Rebuild immediately so neither the tile nor ImageCache retains
+              // the local image while the remaining documents are uploaded.
+              if (mounted) {
+                setState(() => file.bytes = null);
+              } else {
+                file.bytes = null;
+              }
             }
           }
           value = selected.map((file) => file.assetId!).toSet().toList();
@@ -303,9 +338,18 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     )) {
       return;
     }
+    if (await file.length() > 3000000) {
+      throw StateError('Retake a smaller selfie (up to 3 MB).');
+    }
     final bytes = await file.readAsBytes();
     if (bytes.isEmpty || bytes.length > 3000000) {
       throw StateError('Retake a smaller selfie (up to 3 MB).');
+    }
+    if (!mounted) return;
+    for (final previous in _files[id] ?? <_PartnerFile>[]) {
+      if (previous.bytes != null) {
+        await PartnerUploadTile.previewImage(previous.bytes!).evict();
+      }
     }
     if (!mounted) return;
     setState(() {
@@ -322,12 +366,21 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     _markDirty();
     setState(() => _capturingSelfie = true);
     try {
+      // Android may reclaim this process while the external camera is open.
+      // Remove our offscreen preview cache before giving the camera memory.
+      for (final files in _files.values) {
+        for (final file in files) {
+          if (file.bytes != null) {
+            await PartnerUploadTile.previewImage(file.bytes!).evict();
+          }
+        }
+      }
       final image = await ImagePicker().pickImage(
         source: ImageSource.camera,
         preferredCameraDevice: CameraDevice.front,
-        maxWidth: 1600,
-        maxHeight: 1600,
-        imageQuality: 85,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 80,
         requestFullMetadata: false,
       );
       if (image != null && mounted) {
@@ -489,9 +542,47 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     );
   }
 
+  String? _linkedAddressValue(Map<String, dynamic> definition, String kind) {
+    final group = definition['address_group'];
+    if (group == null || definition['input_kind'] == kind) return null;
+    final siblings = _definitions
+        .where(
+          (field) =>
+              field['address_group'] == group && field['input_kind'] == kind,
+        )
+        .toList();
+    return siblings.length == 1
+        ? _controllers['${siblings.single['id']}']?.text ?? ''
+        : null;
+  }
+
+  void _addressChanged(Map<String, dynamic> definition) {
+    final kind = definition['input_kind'];
+    final group = definition['address_group'];
+    if (group != null && (kind == 'STATE' || kind == 'CITY')) {
+      for (final field in _definitions) {
+        if (field['address_group'] != group ||
+            field['id'] == definition['id']) {
+          continue;
+        }
+        final clear =
+            field['input_kind'] == 'PINCODE' ||
+            (kind == 'STATE' && field['input_kind'] == 'CITY');
+        final approved = _answers.any(
+          (answer) =>
+              answer['requirement_id'] == field['id'] &&
+              answer['status'] == 'APPROVED',
+        );
+        if (clear && !approved) _controllers['${field['id']}']?.clear();
+      }
+    }
+    setState(() => _dirty = true);
+  }
+
   Widget _field(Map<String, dynamic> definition, bool editing) {
     final id = '${definition['id']}';
     final type = '${definition['field_type']}';
+    final kind = '${definition['input_kind'] ?? 'DEFAULT'}';
     final required = definition['is_required'] == true;
     final answer = _answers
         .where((item) => item['requirement_id'] == id)
@@ -531,88 +622,99 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     ];
     if (['FILE', 'IMAGE', 'PDF'].contains(type)) {
       final files = _files[id] ?? [];
-      for (final file in files) {
-        children.add(
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (type == 'IMAGE' && file.bytes != null)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: Image.memory(
-                      file.bytes!,
-                      height: 140,
-                      width: double.infinity,
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, error, stack) =>
-                          const Icon(Icons.broken_image_outlined),
-                    ),
-                  ),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.description_outlined,
-                      color: AppColors.primaryGreen,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(file.name, overflow: TextOverflow.ellipsis),
-                    ),
-                    if (file.assetId != null)
-                      IconButton(
-                        tooltip: 'Download file',
-                        onPressed: _saving
-                            ? null
-                            : () => _download(file.assetId!),
-                        icon: const Icon(Icons.download_outlined),
-                      ),
-                    if (enabled)
-                      IconButton(
-                        tooltip: 'Remove selected file',
-                        onPressed: () => setState(() {
+      children.add(
+        PartnerUploadTile(
+          files: files
+              .map(
+                (file) => PartnerUploadFile(
+                  name: file.name,
+                  bytes: file.bytes,
+                  onOpen: file.assetId == null
+                      ? null
+                      : () => _download(file.assetId!),
+                  onRemove: !enabled
+                      ? null
+                      : () => setState(() {
+                          if (type == 'IMAGE' && file.bytes != null) {
+                            unawaited(
+                              PartnerUploadTile.previewImage(
+                                file.bytes!,
+                              ).evict(),
+                            );
+                          }
                           files.remove(file);
                           _dirty = true;
                         }),
-                        icon: const Icon(Icons.close),
-                      ),
-                  ],
                 ),
-              ],
-            ),
-          ),
-        );
-      }
-      if (enabled) {
-        children.add(
-          OutlinedButton.icon(
-            onPressed: _capturingSelfie ? null : () => _pick(definition),
-            icon: Icon(
-              definition['capture_mode'] == 'CAMERA'
-                  ? Icons.photo_camera_outlined
-                  : Icons.upload_file,
-            ),
-            label: Text(
-              definition['capture_mode'] == 'CAMERA'
-                  ? (_capturingSelfie
-                        ? 'Opening camera?'
-                        : files.isEmpty
-                        ? 'Take live selfie'
-                        : 'Retake selfie')
-                  : files.isEmpty
-                  ? 'Choose files'
-                  : 'Add / replace files',
-            ),
-          ),
-        );
-      }
-      children.add(
-        Text(
-          'Files are uploaded when you submit. Maximum 3 MB per file${definition['max_file_size_mb'] != null ? ' or the configured ${definition['max_file_size_mb']} MB limit, whichever is smaller' : ''}.',
-          style: const TextStyle(fontSize: 11, color: AppColors.textTertiary),
+              )
+              .toList(),
+          image: type == 'IMAGE',
+          camera: definition['capture_mode'] == 'CAMERA',
+          busy: _saving || _pickingFiles || _capturingSelfie,
+          onChoose: editing && answer?['status'] != 'APPROVED'
+              ? () => _pick(definition)
+              : null,
+          limitText:
+              'Files are uploaded when you submit. Maximum 3 MB per file (or the configured smaller limit).',
         ),
       );
+    } else if (['ADDRESS', 'STATE', 'CITY', 'PINCODE'].contains(kind)) {
+      final linkedState = _linkedAddressValue(definition, 'STATE');
+      final linkedCity = kind == 'PINCODE'
+          ? _linkedAddressValue(definition, 'CITY')
+          : null;
+      children.add(
+        PartnerAddressInput(
+          key: ValueKey(
+            '$id-${_application?['version'] ?? 0}-$linkedState-$linkedCity',
+          ),
+          controller: _controllers[id]!,
+          kind: kind,
+          enabled: enabled,
+          required: required,
+          linkedState: linkedState,
+          linkedCity: linkedCity,
+          onChanged: () => _addressChanged(definition),
+        ),
+      );
+    } else if (kind == 'GENDER' || kind == 'OWNERSHIP') {
+      final options = List<String>.from(definition['options'] as List? ?? []);
+      final existing = _controllers[id]?.text ?? '';
+      final selection = options
+          .where((option) => option.toLowerCase() == existing.toLowerCase())
+          .firstOrNull;
+      if (!enabled) {
+        children.add(Text(existing.isEmpty ? 'Not provided' : existing));
+      } else {
+        children.add(
+          DropdownButtonFormField<String>(
+            key: ValueKey('$id-$selection-$enabled'),
+            initialValue: selection,
+            isExpanded: true,
+            decoration: InputDecoration(
+              border: const OutlineInputBorder(),
+              hintText: 'Select ${definition['label']}',
+            ),
+            items: [
+              if (!required)
+                const DropdownMenuItem(value: '', child: Text('Not provided')),
+              ...options.map(
+                (option) =>
+                    DropdownMenuItem(value: option, child: Text(option)),
+              ),
+            ],
+            onChanged: (value) => setState(() {
+              _controllers[id]!.text = value ?? '';
+              _dirty = true;
+            }),
+            validator: (value) =>
+                (required || existing.isNotEmpty) &&
+                    (value == null || (required && value.isEmpty))
+                ? 'Choose an option.'
+                : null,
+          ),
+        );
+      }
     } else if (type == 'BOOLEAN') {
       children.add(
         DropdownButtonFormField<bool>(
@@ -641,7 +743,22 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         TextFormField(
           controller: _controllers[id],
           enabled: enabled,
-          readOnly: type == 'DATE',
+          readOnly: type == 'DATE' || kind == 'DOB',
+          textCapitalization: kind == 'IFSC'
+              ? TextCapitalization.characters
+              : TextCapitalization.none,
+          inputFormatters: kind == 'IFSC'
+              ? [
+                  FilteringTextInputFormatter.allow(RegExp('[a-zA-Z0-9]')),
+                  LengthLimitingTextInputFormatter(11),
+                  TextInputFormatter.withFunction(
+                    (oldValue, newValue) => newValue.copyWith(
+                      text: newValue.text.toUpperCase(),
+                      composing: TextRange.empty,
+                    ),
+                  ),
+                ]
+              : null,
           maxLines: type == 'TEXT' ? 4 : 1,
           keyboardType: type == 'NUMBER'
               ? const TextInputType.numberWithOptions(
@@ -652,21 +769,31 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           decoration: InputDecoration(
             border: const OutlineInputBorder(),
             hintText: '${definition['placeholder'] ?? ''}',
-            suffixIcon: type == 'DATE'
+            suffixIcon: type == 'DATE' || kind == 'DOB'
                 ? const Icon(Icons.calendar_today_outlined)
                 : null,
           ),
           onChanged: (_) => _markDirty(),
-          onTap: type == 'DATE' && enabled
+          onTap: (type == 'DATE' || kind == 'DOB') && enabled
               ? () async {
                   final parsed = DateTime.tryParse(
                     _controllers[id]?.text ?? '',
                   );
+                  final now = DateTime.now();
+                  final first = DateTime(1900);
+                  final last = kind == 'DOB'
+                      ? DateTime(now.year, now.month, now.day)
+                      : DateTime(2100);
+                  final initial = parsed == null || parsed.isAfter(last)
+                      ? last
+                      : parsed.isBefore(first)
+                      ? first
+                      : parsed;
                   final date = await showDatePicker(
                     context: context,
-                    initialDate: parsed ?? DateTime.now(),
-                    firstDate: DateTime(1900),
-                    lastDate: DateTime(2100),
+                    initialDate: initial,
+                    firstDate: first,
+                    lastDate: last,
                   );
                   if (date != null && mounted) {
                     setState(() {
@@ -683,6 +810,28 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
             final text = value?.trim() ?? '';
             if (required && text.isEmpty) return 'This field is required.';
             if (text.isEmpty) return null;
+            if (enabled && kind == 'DOB') {
+              final date = DateTime.tryParse(text);
+              final now = DateTime.now();
+              if (date == null ||
+                  date.year < 1900 ||
+                  date.isAfter(DateTime(now.year, now.month, now.day)) ||
+                  date.toIso8601String().substring(0, 10) != text) {
+                return 'Choose a date of birth on or before today.';
+              }
+            }
+            if (enabled &&
+                kind == 'IFSC' &&
+                !RegExp(r'^[A-Z]{4}0[A-Z0-9]{6}$').hasMatch(text)) {
+              return 'Enter a valid 11-character IFSC code.';
+            }
+            if (enabled &&
+                kind == 'UPI' &&
+                !RegExp(
+                  r'^[a-zA-Z0-9][a-zA-Z0-9._-]{0,255}@[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,62}[a-zA-Z0-9])$',
+                ).hasMatch(text)) {
+              return 'Enter a valid UPI ID, for example name@bank.';
+            }
             final maxLength =
                 (definition['max_length'] as num?)?.toInt() ?? 10000;
             if (text.length > maxLength) {
@@ -1130,7 +1279,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
 
 class _PartnerFile {
   final String name;
-  final Uint8List? bytes;
+  Uint8List? bytes;
   String? assetId;
   _PartnerFile({required this.name, this.bytes, this.assetId});
 }

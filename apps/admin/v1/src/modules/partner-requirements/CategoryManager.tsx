@@ -10,6 +10,7 @@ import { EditorSection, SettingRow } from "../../components/ui/EditorSection";
 import { apiRequest } from "../../lib/api-client";
 import { useAdminSave } from "../../lib/useAdminResource";
 import type { RequirementCategory } from "./partner-requirements.type";
+import { DeleteRequirementDialog } from "./DeleteRequirementDialog";
 
 export function CategoryManager({
   categories,
@@ -26,9 +27,24 @@ export function CategoryManager({
   onSaved: () => void;
   onRefresh: () => void;
 }) {
+  const [deleting, setDeleting] = useState<RequirementCategory | null>(null);
   const [editor, setEditor] = useState<{
     record: RequirementCategory | null;
   } | null>(null);
+  if (deleting)
+    return (
+      <DeleteRequirementDialog
+        category
+        id={deleting.id}
+        name={deleting.name}
+        updatedAt={deleting.updated_at}
+        onClose={() => setDeleting(null)}
+        onDeleted={() => {
+          setDeleting(null);
+          onSaved();
+        }}
+      />
+    );
   if (editor)
     return (
       <CategoryEditor
@@ -96,6 +112,15 @@ export function CategoryManager({
                     {category.is_active ? "Active" : "Disabled"}
                   </Badge>
                   <div className="row-actions">
+                    <button
+                      className="icon-button"
+                      disabled={loading}
+                      onClick={() => setDeleting(category)}
+                      aria-label={`Delete section ${category.name}`}
+                      title="Delete section and its fields"
+                    >
+                      <Icon name="trash" size={16} />
+                    </button>
                     <button
                       className="icon-button"
                       onClick={() => setEditor({ record: category })}

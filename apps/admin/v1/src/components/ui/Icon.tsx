@@ -26,6 +26,7 @@ import {
   CornerDownRight,
   Grid2X2,
   Upload,
+  Trash2,
 } from "lucide-react";
 const icons = {
   app: AppWindow,
@@ -55,6 +56,7 @@ const icons = {
   child: CornerDownRight,
   grid: Grid2X2,
   upload: Upload,
+  trash: Trash2,
 };
 export type IconName = keyof typeof icons;
 export function Icon({

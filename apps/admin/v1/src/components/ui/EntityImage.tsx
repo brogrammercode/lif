@@ -3,16 +3,29 @@ import { Icon, type IconName } from "./Icon";
 
 export function EntityImage({
   src,
-  fallback = "car",
+  fallback,
+  family,
   contain = false,
 }: {
   src: string | null;
   fallback?: IconName;
+  family?: string;
   contain?: boolean;
 }) {
+  const normalizedFamily = family?.trim().toUpperCase();
   // Keying the image by its source resets a failed URL when a new image is saved.
   return (
-    <ImageContent key={src} src={src} fallback={fallback} contain={contain} />
+    <ImageContent
+      key={src}
+      src={src}
+      fallback={
+        fallback ??
+        (normalizedFamily === "BIKE" || normalizedFamily === "SCOOTER"
+          ? "bike"
+          : "car")
+      }
+      contain={contain}
+    />
   );
 }
 function ImageContent({

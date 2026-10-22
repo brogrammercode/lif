@@ -412,10 +412,16 @@ class DioClient {
     String path, {
     Object? data,
     Map<String, dynamic>? headers,
+    Duration? receiveTimeout,
+    Duration? sendTimeout,
   }) async => (await dio.post(
     path,
     data: data,
-    options: Options(headers: headers),
+    options: Options(
+      headers: headers,
+      receiveTimeout: receiveTimeout,
+      sendTimeout: sendTimeout,
+    ),
   )).data;
 
   Future<dynamic> patchData(String path, {Object? data}) async =>

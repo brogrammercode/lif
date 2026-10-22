@@ -78,6 +78,50 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 24px;
 }
+.partner-answer-groups {
+  display: grid;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+.partner-answer-group {
+  min-width: 0;
+}
+.partner-answer-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.partner-answer-group-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.partner-answer-group-header p {
+  font-size: 13px;
+  color: var(--color-muted);
+  margin-top: 4px;
+}
+.attachment-preview-image {
+  display: block;
+  width: 100%;
+  max-height: 65vh;
+  object-fit: contain;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+}
+.attachment-preview-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 65vh;
+  overflow: auto;
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--color-canvas);
+  font-size: 13px;
+}
 .partner-answer-value {
   display: flex;
   flex-wrap: wrap;

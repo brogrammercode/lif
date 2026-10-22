@@ -13,6 +13,16 @@ class PartnerProgramRepository {
       Map<String, dynamic>.from(ApiResult.unwrap(response) as Map);
   Future<Map<String, dynamic>> workflow() async =>
       _map(await _client.getData('$base/me'));
+  Future<Map<String, dynamic>> geography({
+    String? state,
+    String? city,
+    String? pincode,
+  }) async => _map(
+    await _client.getData(
+      '$base/geography',
+      queryParameters: {'state': ?state, 'city': ?city, 'pincode': ?pincode},
+    ),
+  );
   Future<void> submit(Map<String, dynamic> input) async {
     await _client.postData('$base/applications', data: input);
   }
@@ -56,6 +66,8 @@ class PartnerProgramRepository {
     return _map(
       await _client.postData(
         '$base/assets',
+        receiveTimeout: const Duration(seconds: 90),
+        sendTimeout: const Duration(seconds: 90),
         data: {
           'field_id': fieldId,
           if (fieldId == '__live_selfie__') 'capture_source': 'CAMERA',

@@ -18,6 +18,7 @@ import {
 } from "../../lib/useAdminResource";
 import { CategoryManager } from "./CategoryManager";
 import { RequirementEditor } from "./RequirementEditor";
+import { DeleteRequirementDialog } from "./DeleteRequirementDialog";
 import {
   typeLabels,
   type PartnerRequirement,
@@ -32,6 +33,7 @@ export function RequirementsPage({ section }: { section: RequirementSection }) {
   const [status, setStatus] = useState("all");
   const [page, setPage] = useState(1);
   const [manageCategories, setManageCategories] = useState(false);
+  const [deleting, setDeleting] = useState<PartnerRequirement | null>(null);
   const [editor, setEditor] = useState<{
     record: PartnerRequirement | null;
   } | null>(null);
@@ -214,6 +216,15 @@ export function RequirementsPage({ section }: { section: RequirementSection }) {
                       <div className="row-actions">
                         <button
                           className="icon-button"
+                          disabled={fields.loading}
+                          onClick={() => setDeleting(field)}
+                          aria-label={`Delete field ${field.label}`}
+                          title="Delete field"
+                        >
+                          <Icon name="trash" size={16} />
+                        </button>
+                        <button
+                          className="icon-button"
                           disabled={
                             categories.loading || Boolean(categories.error)
                           }
@@ -232,6 +243,21 @@ export function RequirementsPage({ section }: { section: RequirementSection }) {
           </div>
         )}
       </CatalogPanel>
+      {deleting && (
+        <DeleteRequirementDialog
+          id={deleting.id}
+          name={deleting.label}
+          updatedAt={deleting.updated_at}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            setDeleting(null);
+            refresh();
+            setToast(
+              "Requirement deleted. Submitted applications are preserved.",
+            );
+          }}
+        />
+      )}
       {manageCategories && (
         <CategoryManager
           categories={categories.data ?? []}

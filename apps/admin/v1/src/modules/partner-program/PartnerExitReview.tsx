@@ -9,7 +9,12 @@ import { FileUpload } from "../../components/ui/FileUpload";
 import { InlineError } from "../../components/feedback/StateCard";
 import { ApiError, apiRequest, safeMessage } from "../../lib/api-client";
 import { useAdminResource } from "../../lib/useAdminResource";
-import { partnerStatus, partnerTone } from "./partner-program.type";
+import { openWhatsAppWeb } from "./partner-sharing";
+import {
+  partnerStatus,
+  partnerTone,
+  deliveryIsSending,
+} from "./partner-program.type";
 import {
   fileDataUrl,
   privateFile,
@@ -179,38 +184,18 @@ export function PartnerExitReview({
     setBusy(true);
     setError(null);
     setNotice("");
-    let shared = false;
     try {
-      if (navigator.canShare?.({ files: [shareFile] })) {
-        await navigator.share({
-          files: [shareFile],
-          title: "1More partner settlement",
-          text: "Your exit settlement document is attached.",
-        });
-        shared = true;
-        await apiRequest(`${base}/${encodeURIComponent(id)}/shared`, {
-          method: "POST",
-        });
-        setNotice("Manual sharing recorded.");
-        resource.refresh();
-      } else {
-        downloadFile(shareFile);
-        window.open(
-          `https://wa.me/${row.application.whatsapp_phone.replace(/\D/g, "")}?text=${encodeURIComponent("Your 1More exit settlement PDF is ready. I will attach the downloaded PDF here.")}`,
-          "_blank",
-          "noopener,noreferrer",
-        );
-        setNotice(
-          "PDF downloaded. Attach it manually in WhatsApp, then mark it as shared.",
-        );
-      }
+      openWhatsAppWeb(
+        row.application.whatsapp_phone,
+        "Your 1More exit settlement PDF is ready. I will attach the downloaded PDF here.",
+        shareFile,
+      );
+      setNotice(
+        "PDF downloaded and WhatsApp Web opened. Attach it manually and send, then mark it as shared.",
+      );
     } catch (cause) {
       if (!(cause instanceof DOMException && cause.name === "AbortError"))
-        setError(
-          shared
-            ? `PDF shared, but its audit record could not be saved. Use Mark as shared after refreshing. ${safeMessage(cause)}`
-            : safeMessage(cause),
-        );
+        setError(safeMessage(cause));
     } finally {
       lock.current = false;
       setBusy(false);
@@ -241,9 +226,7 @@ export function PartnerExitReview({
     resource.refresh();
   }
   const email = row.application.deliveries?.[0];
-  const emailSending =
-    email?.status === "SENDING" &&
-    (!email.claimed_at || Date.now() - Date.parse(email.claimed_at) < 300000);
+  const emailSending = email ? deliveryIsSending(email) : false;
   return (
     <div className="catalog-page">
       <PageHeading
@@ -504,7 +487,7 @@ export function PartnerExitReview({
                   disabled={!shareFile || busy}
                   onClick={() => void share()}
                 >
-                  Share PDF / WhatsApp
+                  WhatsApp Web + PDF
                 </Button>
                 <Button
                   variant="secondary"
@@ -525,7 +508,7 @@ export function PartnerExitReview({
               <p className="field-hint">
                 {row.manually_shared_at
                   ? `Shared ${new Date(row.manually_shared_at).toLocaleString()}`
-                  : "On browsers without file sharing, attach the downloaded PDF in WhatsApp manually."}
+                  : "Attach the downloaded PDF manually in WhatsApp Web, send it, then record the share."}
               </p>
             </>
           )}

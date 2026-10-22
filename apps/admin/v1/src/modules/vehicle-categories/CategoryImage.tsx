@@ -7,10 +7,5 @@ export function CategoryImage({
   src: string | null;
   family: VehicleFamily;
 }) {
-  return (
-    <EntityImage
-      src={src}
-      fallback={family === "BIKE" || family === "SCOOTER" ? "bike" : "car"}
-    />
-  );
+  return <EntityImage src={src} family={family} />;
 }

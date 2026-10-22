@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Req,
   Res,
   HttpCode,
@@ -19,10 +20,44 @@ import {
   category_update,
   requirement_input,
   requirement_update,
+  requirement_delete,
 } from './partner_requirement.type.js';
 @Controller()
 export class PartnerRequirementController {
   constructor(private readonly repo: PartnerRequirementRepository) {}
+  @Delete('admin/partner-program/requirement-categories/:id')
+  @UseGuards(AuthGuard, AdminGuard)
+  async delete_category(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return send_success(
+      res,
+      await this.repo.remove(
+        req.auth!.user_id,
+        requirement_id.parse(req.params.id),
+        requirement_delete.parse(req.body).expected_updated_at,
+        true,
+      ),
+      'Category and its fields deleted',
+    );
+  }
+  @Delete('admin/partner-program/requirements/:id')
+  @UseGuards(AuthGuard, AdminGuard)
+  async delete_field(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return send_success(
+      res,
+      await this.repo.remove(
+        req.auth!.user_id,
+        requirement_id.parse(req.params.id),
+        requirement_delete.parse(req.body).expected_updated_at,
+      ),
+      'Requirement deleted',
+    );
+  }
   @Get('admin/partner-program/requirement-categories')
   @UseGuards(AuthGuard, AdminGuard)
   async categories(

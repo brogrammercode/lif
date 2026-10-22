@@ -4,6 +4,7 @@ import { PrismaService } from '../../infra/database/prisma.service.js';
 import { create_user_log } from '../../infra/database/user_log.js';
 import { require_active_admin } from '../../infra/database/account_lifecycle.js';
 import { AppError } from '../../core/error.js';
+import { input_kind } from '../partner_program/partner_field.rules.js';
 import {
   DOCUMENT_TYPES,
   DETAIL_TYPES,
@@ -173,11 +174,29 @@ export class PartnerRequirementRepository {
           'REQUIREMENT_CONFLICT',
           'This field changed. Reload it before saving.',
         );
-      if (before && before.key !== input.key)
+      const key =
+        before && before.label !== input.label && before.key === input.key
+          ? input.label
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '_')
+              .replace(/^[^a-z]+|_+$/g, '')
+              .slice(0, 64)
+          : input.key;
+      if (!/^[a-z][a-z0-9_]{1,63}$/.test(key))
         throw new AppError(
           422,
-          'FIELD_KEY_IMMUTABLE',
-          'The field key cannot change. Create a new field if a different key is needed.',
+          'FIELD_KEY_INVALID',
+          'Use a label that generates a valid field key, or provide a key of 2–64 lowercase letters, numbers and underscores.',
+        );
+      const duplicate = await tx.partnerRequirement.findUnique({
+        where: { key },
+        select: { id: true },
+      });
+      if (duplicate && duplicate.id !== id)
+        throw new AppError(
+          409,
+          'FIELD_KEY_EXISTS',
+          'Another requirement already uses this field key. Choose a distinct label or key.',
         );
       const category = await tx.requirementCategory.findUnique({
         where: { id: input.category_id },
@@ -192,6 +211,20 @@ export class PartnerRequirementRepository {
           'Choose an active field category.',
         );
       const document = DOCUMENT_TYPES.some((type) => type === input.field_type);
+      const kind = input_kind({ ...input, key });
+      if (
+        (kind === 'DOB' && input.field_type !== 'DATE') ||
+        (kind !== 'DOB' &&
+          kind !== 'DEFAULT' &&
+          !['STRING', 'TEXT'].includes(input.field_type))
+      )
+        throw new AppError(
+          422,
+          'FIELD_TYPE_INCOMPATIBLE',
+          kind === 'DOB'
+            ? 'Use the Date field type for date of birth.'
+            : 'Use the String or Text field type for this selection or formatted identifier.',
+        );
       if (
         input.field_type === 'NUMBER' &&
         input.min_value !== null &&
@@ -230,7 +263,7 @@ export class PartnerRequirementRepository {
       }
       const data = {
         category_id: input.category_id,
-        key: input.key,
+        key,
         label: input.label,
         field_type: input.field_type,
         description: input.description,
@@ -265,6 +298,21 @@ export class PartnerRequirementRepository {
             data,
             include: { category: true },
           });
+      // A section revision includes its field collection, so a stale category
+      // delete cannot silently remove another administrator's new/edited field.
+      await tx.requirementCategory.updateMany({
+        where: {
+          id: {
+            in: [
+              ...new Set([
+                input.category_id,
+                ...(before ? [before.category_id] : []),
+              ]),
+            ],
+          },
+        },
+        data: { updated_at: new Date() },
+      });
       await create_user_log(tx, {
         actor_id,
         entity_type: 'PartnerRequirement',
@@ -276,6 +324,58 @@ export class PartnerRequirementRepository {
         after_data: row,
       });
       return row;
+    }, options);
+  }
+  remove(
+    actor_id: string,
+    id: string,
+    expected_updated_at: string,
+    category = false,
+  ) {
+    return this.database.client.$transaction(async (tx) => {
+      await require_active_admin(tx, actor_id);
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(720051)`;
+      const before = category
+        ? await tx.requirementCategory.findUnique({
+            where: { id },
+            include: { fields: true },
+          })
+        : await tx.partnerRequirement.findUnique({ where: { id } });
+      if (!before)
+        throw new AppError(
+          404,
+          'REQUIREMENT_NOT_FOUND',
+          'This section or field no longer exists. Refresh the list.',
+        );
+      if (before.updated_at.toISOString() !== expected_updated_at)
+        throw new AppError(
+          409,
+          'REQUIREMENT_CONFLICT',
+          'This section or field changed. Refresh before deleting.',
+        );
+      // Submitted applications contain immutable definition snapshots, not foreign
+      // keys to the editable configuration. Keep their answers and assets intact.
+      if (category) {
+        await tx.partnerRequirement.deleteMany({ where: { category_id: id } });
+        await tx.requirementCategory.delete({ where: { id } });
+      } else {
+        await tx.partnerRequirement.delete({ where: { id } });
+        if ('category_id' in before)
+          await tx.requirementCategory.update({
+            where: { id: before.category_id },
+            data: { updated_at: new Date() },
+          });
+      }
+      await create_user_log(tx, {
+        actor_id,
+        entity_type: category ? 'RequirementCategory' : 'PartnerRequirement',
+        entity_id: id,
+        action: category
+          ? 'DELETE_REQUIREMENT_CATEGORY'
+          : 'DELETE_PARTNER_REQUIREMENT',
+        before_data: before,
+      });
+      return { deleted: true, id };
     }, options);
   }
 }

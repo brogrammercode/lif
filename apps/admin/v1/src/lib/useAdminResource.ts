@@ -6,7 +6,10 @@ export type Paged<T> = {
   page: number;
   page_size: number;
 };
-export function useAdminResource<T>(path: string | null) {
+export function useAdminResource<T>(
+  path: string | null,
+  decode?: (value: unknown) => T,
+) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +25,8 @@ export function useAdminResource<T>(path: string | null) {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
-    void apiRequest<T>(path, { signal: controller.signal })
+    void apiRequest<unknown>(path, { signal: controller.signal })
+      .then((value) => (decode ? decode(value) : (value as T)))
       .then((value) => {
         if (!controller.signal.aborted) setData(value);
       })
@@ -33,7 +37,7 @@ export function useAdminResource<T>(path: string | null) {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [path, revision]);
+  }, [path, revision, decode]);
   return { data, loading, error, refresh, setData };
 }
 export function useDebouncedText(value: string) {

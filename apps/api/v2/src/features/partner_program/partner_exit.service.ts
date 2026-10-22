@@ -32,6 +32,7 @@ const application = {
         attempts: true,
         sent_at: true,
         claimed_at: true,
+        updated_at: true,
         last_error: true,
       },
     },

@@ -1,4 +1,5 @@
 import { LIVE_SELFIE, LIVE_SELFIE_ID } from './partner_selfie.constant.js';
+import { claimable_delivery } from './partner_delivery.constant.js';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
@@ -25,6 +26,12 @@ import type {
   ListInput,
   ReviewInput,
 } from './partner_program.type.js';
+import {
+  field_value_error,
+  address_values_error,
+  normalize_field_value,
+  with_field_rules,
+} from './partner_field.rules.js';
 
 const transaction_options = { maxWait: 10000, timeout: 30000 };
 const asset_select = {
@@ -60,10 +67,12 @@ type Application = Prisma.PartnerApplicationGetPayload<{
 }>;
 type Definition = {
   id: string;
+  key?: string;
   label: string;
   field_type: string;
   is_required: boolean;
-  category?: { name: string };
+  category?: { name: string; sort_order?: number };
+  sort_order?: number;
   min_value?: number | null;
   max_value?: number | null;
   max_length?: number | null;
@@ -73,6 +82,13 @@ type Definition = {
 };
 const json = (value: unknown) =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+const definition_order = (left: Definition, right: Definition) =>
+  (left.id === LIVE_SELFIE_ID ? 1 : 0) -
+    (right.id === LIVE_SELFIE_ID ? 1 : 0) ||
+  (left.category?.sort_order ?? 0) - (right.category?.sort_order ?? 0) ||
+  (left.category?.name ?? '').localeCompare(right.category?.name ?? '') ||
+  (left.sort_order ?? 0) - (right.sort_order ?? 0) ||
+  left.id.localeCompare(right.id);
 const empty = (value: unknown) =>
   value === null ||
   value === undefined ||
@@ -221,13 +237,19 @@ export class PartnerProgramService {
         app?.confirmation_document ?? published_document(confirmation),
       requirements: app
         ? [
-            ...app.fields.map((f) => f.definition),
+            ...app.fields
+              .map((f) => f.definition as unknown as Definition)
+              .sort(definition_order)
+              .map(with_field_rules),
             ...(['SUBMITTED', 'CHANGES_REQUESTED'].includes(app.status) &&
             !app.fields.some((f) => f.requirement_id === LIVE_SELFIE_ID)
               ? [LIVE_SELFIE]
               : []),
           ]
-        : [...requirements, LIVE_SELFIE],
+        : [
+            ...requirements.sort(definition_order).map(with_field_rules),
+            LIVE_SELFIE,
+          ],
       assets,
       activation_required:
         app?.status === 'COMPLETED' && !!app.activation_issued_at,
@@ -311,12 +333,17 @@ export class PartnerProgramService {
     user_id: string,
     definition: Definition,
     value: unknown,
+    validate_semantics = true,
   ) {
     const label = definition.label;
     if (empty(value)) {
       if (definition.is_required) throw fail(`${label} is required.`);
       return;
     }
+    const field_error = validate_semantics
+      ? field_value_error(definition, value)
+      : null;
+    if (field_error) throw fail(field_error);
     if (['FILE', 'IMAGE', 'PDF'].includes(definition.field_type)) {
       if (
         !Array.isArray(value) ||
@@ -465,7 +492,19 @@ export class PartnerProgramService {
           allowed_extensions: [...LIVE_SELFIE.allowed_extensions],
         });
       const values = new Map(
-        input.answers.map((a) => [a.requirement_id, a.value]),
+        input.answers.map((a) => {
+          const definition = definitions.find((d) => d.id === a.requirement_id);
+          const approved = old?.fields.some(
+            (f) =>
+              f.requirement_id === a.requirement_id && f.status === 'APPROVED',
+          );
+          return [
+            a.requirement_id,
+            definition && !approved
+              ? normalize_field_value(definition, a.value)
+              : a.value,
+          ] as const;
+        }),
       );
       if (
         values.size !== input.answers.length ||
@@ -476,9 +515,15 @@ export class PartnerProgramService {
         throw fail('The form contains unknown or duplicate fields.');
       for (const definition of definitions) {
         const value = values.get(definition.id) ?? null;
-        await this.validate_answer(tx, user_id, definition, value);
         const previous = old?.fields.find(
           (f) => f.requirement_id === definition.id,
+        );
+        await this.validate_answer(
+          tx,
+          user_id,
+          definition,
+          value,
+          previous?.status !== 'APPROVED',
         );
         if (
           previous?.status === 'APPROVED' &&
@@ -491,6 +536,16 @@ export class PartnerProgramService {
         )
           throw fail(`Correct ${definition.label} before resubmitting.`);
       }
+      const address_error = address_values_error(
+        definitions,
+        values,
+        new Set(
+          old?.fields
+            .filter((field) => field.status === 'APPROVED')
+            .map((field) => field.requirement_id) ?? [],
+        ),
+      );
+      if (address_error) throw fail(address_error);
       const app = old
         ? await tx.partnerApplication.update({
             where: { id: old.id },
@@ -1100,6 +1155,116 @@ export class PartnerProgramService {
       if (!exit) throw new AppError(404, 'FILE_NOT_FOUND', 'File not found.');
     }
     return asset;
+  }
+  async mark_activation_shared(actor_id: string, id: string) {
+    return this.database.client.$transaction(async (tx) => {
+      await require_active_admin(tx, actor_id);
+      const initial = await tx.partnerApplication.findUnique({
+        where: { id },
+        select: { user_id: true },
+      });
+      if (!initial)
+        throw new AppError(
+          404,
+          'APPLICATION_NOT_FOUND',
+          'Application not found.',
+        );
+      await require_active_account(tx, initial.user_id);
+      await partner_lock(tx, initial.user_id);
+      const app = await tx.partnerApplication.findUnique({ where: { id } });
+      if (
+        !app ||
+        !['COMPLETED', 'ACTIVATED'].includes(app.status) ||
+        !app.activation_issued_at
+      )
+        throw fail(
+          'An activation code must be issued before recording its delivery.',
+        );
+      await tx.partnerDelivery.upsert({
+        where: {
+          application_id_channel: {
+            application_id: id,
+            channel: 'ACTIVATION_WHATSAPP',
+          },
+        },
+        create: {
+          application_id: id,
+          channel: 'ACTIVATION_WHATSAPP',
+          status: 'MANUALLY_SHARED',
+          sent_at: new Date(),
+          attempts: 1,
+        },
+        update: {
+          status: 'MANUALLY_SHARED',
+          sent_at: new Date(),
+          attempts: { increment: 1 },
+        },
+      });
+      await this.audit(tx, actor_id, id, 'MANUALLY_SHARE_PARTNER_ACTIVATION');
+      return { recorded: true };
+    }, transaction_options);
+  }
+  async queue_activation_email(actor_id: string, id: string) {
+    return this.database.client.$transaction(async (tx) => {
+      await require_active_admin(tx, actor_id);
+      const initial = await tx.partnerApplication.findUnique({
+        where: { id },
+        select: { user_id: true },
+      });
+      if (!initial)
+        throw new AppError(
+          404,
+          'APPLICATION_NOT_FOUND',
+          'Application not found.',
+        );
+      await require_active_account(tx, initial.user_id);
+      await partner_lock(tx, initial.user_id);
+      const app = await tx.partnerApplication.findUnique({ where: { id } });
+      if (
+        !app ||
+        app.status !== 'COMPLETED' ||
+        !app.activation_ciphertext ||
+        !app.final_pdf_id
+      )
+        throw fail(
+          'The applicant must sign in after final approval before their activation code can be sent.',
+        );
+      const existing = await tx.partnerDelivery.findUnique({
+        where: {
+          application_id_channel: {
+            application_id: id,
+            channel: 'ACTIVATION_EMAIL',
+          },
+        },
+      });
+      if (existing) {
+        const queued = await tx.partnerDelivery.updateMany({
+          where: {
+            id: existing.id,
+            OR: [claimable_delivery(), { status: 'SENT' }],
+          },
+          data: {
+            status: 'PENDING',
+            last_error: null,
+            claimed_at: null,
+            sent_at: null,
+            provider_id: null,
+          },
+        });
+        if (!queued.count)
+          throw new AppError(
+            409,
+            'EMAIL_ALREADY_SENDING',
+            'Activation email is already being sent. Refresh its delivery status.',
+          );
+      } else {
+        await tx.partnerDelivery.create({
+          data: { application_id: id, channel: 'ACTIVATION_EMAIL' },
+        });
+      }
+      await this.audit(tx, actor_id, id, 'QUEUE_PARTNER_ACTIVATION_EMAIL');
+      return { queued: true };
+    }, transaction_options);
   }
   async activation_code(actor_id: string, id: string, reset = false) {
     return this.database.client.$transaction(async (tx) => {

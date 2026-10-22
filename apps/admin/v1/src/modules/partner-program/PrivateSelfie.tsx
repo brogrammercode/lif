@@ -16,7 +16,7 @@ export function PrivateSelfie({ assetId }: { assetId: string }) {
     void privateFile(assetId)
       .then((file) => {
         if (!active) return;
-        if (file.type !== "image/webp")
+        if (!["image/webp", "image/jpeg", "image/png"].includes(file.type))
           throw new Error("This selfie has an unsupported image type.");
         objectUrl = URL.createObjectURL(file);
         setUrl(objectUrl);
