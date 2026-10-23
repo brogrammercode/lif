@@ -2140,3 +2140,35 @@ tbody tr:hover {
     padding: 16px;
   }
 }
+
+.users-type-filter {
+  display: grid;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.users-type-filter .field {
+  padding: 9px;
+  font-size: 12px;
+}
+.user-nav-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.user-nav-heading .user-nav-name {
+  min-width: 0;
+  flex: 1;
+}
+.vehicle-review-list {
+  display: grid;
+  gap: 12px;
+}
+.vehicle-review-select {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}

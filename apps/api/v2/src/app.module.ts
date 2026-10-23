@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { VehicleVerificationModule } from './features/vehicle_verification/vehicle_verification.module.js';
 import { PartnerProgramModule } from './features/partner_program/partner_program.module.js';
 import { VehicleCatalogModule } from './features/vehicle_catalog/vehicle_catalog.module.js';
 import { PartnerRequirementModule } from './features/partner_requirement/partner_requirement.module.js';
@@ -19,6 +20,7 @@ import { UserModule } from './features/user/user.module.js';
 import { VehicleCategoryModule } from './features/vehicle_category/vehicle_category.module.js';
 @Module({
   imports: [
+    VehicleVerificationModule,
     PartnerProgramModule,
     VehicleCatalogModule,
     PartnerRequirementModule,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:user/features/driver_vehicles/widgets/driver_vehicle_gate.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/core/color.dart';
 import 'package:user/core/network/api_result.dart';
@@ -9,10 +10,22 @@ import 'package:user/features/auth/models/user.model.dart';
 class DriverHomePage extends StatefulWidget {
   const DriverHomePage({super.key});
   @override
-  State<DriverHomePage> createState() => _DriverHomePageState();
+  State<DriverHomePage> createState() => _DriverHomeGateState();
 }
 
-class _DriverHomePageState extends State<DriverHomePage>
+class _DriverHomeGateState extends State<DriverHomePage> {
+  @override
+  Widget build(BuildContext context) =>
+      const DriverVehicleGate(child: DriverHomeContent());
+}
+
+class DriverHomeContent extends StatefulWidget {
+  const DriverHomeContent({super.key});
+  @override
+  State<DriverHomeContent> createState() => _DriverHomePageState();
+}
+
+class _DriverHomePageState extends State<DriverHomeContent>
     with WidgetsBindingObserver {
   late Future<UserModel> _profile = AuthRepository().currentUser();
   @override
@@ -30,7 +43,9 @@ class _DriverHomePageState extends State<DriverHomePage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
-      setState(() => _profile = AuthRepository().currentUser());
+      setState(() {
+        _profile = AuthRepository().currentUser();
+      });
     }
   }
 
@@ -48,8 +63,9 @@ class _DriverHomePageState extends State<DriverHomePage>
         if (snapshot.hasError) {
           return AppLoadError(
             message: ApiResult.errorMessage(snapshot.error!),
-            onRetry: () =>
-                setState(() => _profile = AuthRepository().currentUser()),
+            onRetry: () => setState(() {
+              _profile = AuthRepository().currentUser();
+            }),
           );
         }
         if (!snapshot.hasData) {
@@ -79,6 +95,27 @@ class _DriverHomePageState extends State<DriverHomePage>
               child: ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(
+                  Icons.directions_car_outlined,
+                  color: AppColors.primaryGreen,
+                ),
+                title: const Text('My vehicles'),
+                subtitle: const Text(
+                  'Register vehicles and track verification',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: exited
+                    ? null
+                    : () => Navigator.pushNamed(
+                        context,
+                        AppRoutes.driverVehicles,
+                      ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            AppCard(
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(
                   Icons.description_outlined,
                   color: AppColors.primaryGreen,
                 ),
@@ -92,7 +129,9 @@ class _DriverHomePageState extends State<DriverHomePage>
                 onTap: () async {
                   await Navigator.pushNamed(context, AppRoutes.driverExit);
                   if (mounted) {
-                    setState(() => _profile = AuthRepository().currentUser());
+                    setState(() {
+                      _profile = AuthRepository().currentUser();
+                    });
                   }
                 },
               ),

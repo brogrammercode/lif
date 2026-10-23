@@ -1,8 +1,10 @@
 # 1More API v2 — NestJS
 
-Standalone NestJS 12 implementation: 17 feature modules, 132 method/path combinations, injected services/repositories, and Prisma/PostgreSQL persistence. See [route-manifest.json](./route-manifest.json) for every route and its guards/idempotency policy.
+Standalone NestJS 12 implementation: 18 feature modules, 141 method/path combinations, injected services/repositories, and Prisma/PostgreSQL persistence. See [route-manifest.json](./route-manifest.json) for every route and its guards/idempotency policy.
 
 Partner onboarding adds published rich documents, private assets, dynamic application reviews, confirmation/final PDF approval, SMTP delivery and first-login driver activation. See [PARTNER_ONBOARDING_IMPLEMENTATION.md](../../../context/PARTNER_ONBOARDING_IMPLEMENTATION.md) for routes, operator setup and delivery behavior.
+
+Driver vehicle verification adds private WebP document uploads, requested catalog choices, multiple vehicle submissions, and versioned admin field reviews. See [VEHICLE_VERIFICATION_PLAN.md](../../../context/VEHICLE_VERIFICATION_PLAN.md) for the completed checklist and operator flow.
 
 ## Start
 

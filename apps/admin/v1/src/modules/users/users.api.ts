@@ -3,9 +3,15 @@ import { USERS_API, USERS_PAGE_SIZE } from "./users.constant";
 import type { PersonalInput, UserDetails, UserList } from "./users.type";
 import { IMAGE_SAVE_TIMEOUT_MS } from "../../lib/network.constant";
 
-export const getUsers = (query: string, page: number, signal: AbortSignal) => {
+export const getUsers = (
+  query: string,
+  page: number,
+  signal: AbortSignal,
+  accountType = "all",
+) => {
   const params = new URLSearchParams({
     query,
+    account_type: accountType,
     page: String(page),
     page_size: String(USERS_PAGE_SIZE),
   });

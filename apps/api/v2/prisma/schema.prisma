@@ -310,30 +310,52 @@ model VehicleCategory {
 }
 
 model Vehicle {
-  id                  String        @id @default(uuid())
-  driver_id           String
-  type                VehicleType
-  status              VehicleStatus @default(UNDER_REVIEW)
-  make                String
-  model               String
-  color               String?
-  plate_number        String        @unique
-  capacity            Int           @default(1)
-  photo_url           String?
-  metadata            Json?
-  vehicle_category_id String?
-  created_at          DateTime      @default(now()) @db.Timestamptz(3)
-  updated_at          DateTime      @updatedAt @db.Timestamptz(3)
+  id                   String        @id @default(uuid())
+  driver_id            String
+  type                 VehicleType
+  status               VehicleStatus @default(UNDER_REVIEW)
+  make                 String
+  model                String
+  color                String?
+  plate_number         String        @unique
+  capacity             Int           @default(1)
+  photo_url            String?
+  metadata             Json?
+  vehicle_category_id  String?
+  brand_id             String?
+  model_id             String?
+  registration_key     String?       @unique
+  verification_fields  Json          @default("[]")
+  verification_version Int           @default(0)
+  created_at           DateTime      @default(now()) @db.Timestamptz(3)
+  updated_at           DateTime      @updatedAt @db.Timestamptz(3)
 
-  driver           DriverProfile    @relation("driver_vehicles", fields: [driver_id], references: [id], onDelete: Cascade)
-  active_for       DriverProfile?   @relation("active_vehicle")
-  rides            Ride[]           @relation("ride_vehicles")
-  vehicle_category VehicleCategory? @relation(fields: [vehicle_category_id], references: [id], onDelete: Restrict)
+  driver              DriverProfile              @relation("driver_vehicles", fields: [driver_id], references: [id], onDelete: Cascade)
+  active_for          DriverProfile?             @relation("active_vehicle")
+  rides               Ride[]                     @relation("ride_vehicles")
+  vehicle_category    VehicleCategory?           @relation(fields: [vehicle_category_id], references: [id], onDelete: Restrict)
+  brand               VehicleBrand?              @relation(fields: [brand_id], references: [id], onDelete: Restrict)
+  catalog_model       VehicleModel?              @relation(fields: [model_id], references: [id], onDelete: Restrict)
+  verification_assets VehicleVerificationAsset[]
 
   @@index([driver_id, status])
   @@index([type, status])
   @@index([vehicle_category_id])
   @@map("vehicles")
+}
+
+model VehicleVerificationAsset {
+  id         String   @id @default(uuid())
+  owner_id   String
+  vehicle_id String?
+  field_key  String
+  file_name  String
+  bytes      Bytes
+  created_at DateTime @default(now()) @db.Timestamptz(3)
+  vehicle    Vehicle? @relation(fields: [vehicle_id], references: [id], onDelete: Cascade)
+
+  @@index([owner_id, vehicle_id, created_at])
+  @@map("vehicle_verification_assets")
 }
 
 model SavedPlace {
@@ -749,6 +771,7 @@ model VehicleBrand {
   requested_by     User?          @relation("brand_requester", fields: [requested_by_id], references: [id], onDelete: SetNull)
   reviewed_by      User?          @relation("brand_reviewer", fields: [reviewed_by_id], references: [id], onDelete: SetNull)
   models           VehicleModel[]
+  vehicles         Vehicle[]
 
   @@index([status, is_active])
   @@map("vehicle_brands")
@@ -777,6 +800,7 @@ model VehicleModel {
   brand            VehicleBrand  @relation(fields: [brand_id], references: [id], onDelete: Restrict)
   requested_by     User?         @relation("model_requester", fields: [requested_by_id], references: [id], onDelete: SetNull)
   reviewed_by      User?         @relation("model_reviewer", fields: [reviewed_by_id], references: [id], onDelete: SetNull)
+  vehicles         Vehicle[]
 
   @@unique([brand_id, normalized_name])
   @@index([brand_id, status, is_active])

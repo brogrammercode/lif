@@ -219,7 +219,7 @@ it('registers and protects every authenticated route on both URI versions', asyn
     path: string;
     guards: string[];
   }[];
-  assert.equal(routes.length, 132);
+  assert.equal(routes.length, 141);
   for (const version of ['1', '2'])
     for (const route of routes.filter((value) =>
       value.guards.includes('AuthGuard'),
@@ -322,6 +322,18 @@ it('keeps the larger image-body allowance on both versions and route casing', as
       json({ ...category, description: large }, token('admin', 'ADMIN')),
     );
     assert.equal(result.response.status, 422, version);
+    const vehicle_upload = await request(
+      `/api/${version}/driver/vehicle-verification/assets`,
+      json({
+        field_key: 'insurance',
+        image_upload: { file_name: 'insurance.jpg', data_url: large },
+      }),
+    );
+    assert.equal(
+      vehicle_upload.response.status,
+      422,
+      `vehicle images on ${version}`,
+    );
   }
 });
 

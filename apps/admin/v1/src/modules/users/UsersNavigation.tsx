@@ -1,4 +1,5 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
+import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
 import { InlineError } from "../../components/feedback/StateCard";
@@ -7,9 +8,33 @@ import { useUsers } from "./UsersProvider";
 import { userName } from "./users.type";
 
 export function UsersNavigation() {
-  const { result, loading, error, query, search, reload, setPage } = useUsers();
+  const {
+    result,
+    loading,
+    error,
+    query,
+    search,
+    reload,
+    setPage,
+    accountType,
+    filter,
+  } = useUsers();
+  const location = useLocation();
+  const vehicles = location.pathname.endsWith("/vehicle-verification");
   return (
     <div className="users-directory">
+      <label className="users-type-filter">
+        Account type
+        <select
+          className="field"
+          value={accountType}
+          onChange={(e) => filter(e.target.value)}
+        >
+          <option value="all">All accounts</option>
+          <option value="user">Users</option>
+          <option value="driver">Drivers</option>
+        </select>
+      </label>
       <div className="users-search">
         <label htmlFor="users-search" className="sr-only">
           Search users by ID, name, email, or phone
@@ -48,11 +73,28 @@ export function UsersNavigation() {
           result.users.map((user) => (
             <NavLink
               key={user.id}
-              to={personalPath(user.id)}
+              to={
+                vehicles
+                  ? `/users/${encodeURIComponent(user.id)}/vehicle-verification`
+                  : personalPath(user.id)
+              }
               className="user-nav-item"
             >
-              <span className="user-nav-name" title={userName(user)}>
-                {userName(user)}
+              <span className="user-nav-heading">
+                <span className="user-nav-name" title={userName(user)}>
+                  {userName(user)}
+                </span>
+                <Badge
+                  tone={
+                    user.role === "DRIVER" || user.partner_activated_at
+                      ? "active"
+                      : "inactive"
+                  }
+                >
+                  {user.role === "DRIVER" || user.partner_activated_at
+                    ? "Driver"
+                    : "User"}
+                </Badge>
               </span>
               <span className="user-nav-id" title={user.id}>
                 {user.id}

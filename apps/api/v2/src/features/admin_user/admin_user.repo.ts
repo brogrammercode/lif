@@ -166,6 +166,7 @@ export class AdminUserRepository {
     email: true,
     avatar_url: true,
     role: true,
+    partner_activated_at: true,
     status: true,
   } satisfies Prisma.UserSelect;
 
@@ -183,6 +184,16 @@ export class AdminUserRepository {
   readonly list_admin_users = async (input: UserListInput) => {
     const where: Prisma.UserWhereInput = {
       ...this.visible_user,
+      ...(input.account_type === 'driver'
+        ? {
+            OR: [
+              { role: 'DRIVER' as const },
+              { partner_activated_at: { not: null } },
+            ],
+          }
+        : input.account_type === 'user'
+          ? { role: { not: 'DRIVER' as const }, partner_activated_at: null }
+          : {}),
       ...(input.query
         ? {
             AND: input.query.split(/\s+/).map((term) => ({

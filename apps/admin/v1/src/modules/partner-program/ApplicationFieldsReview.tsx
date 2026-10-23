@@ -15,6 +15,8 @@ import {
 } from "./partner-program.type";
 
 export function ApplicationFieldsReview({
+  title = "Submitted application",
+  reasonLimit = 2000,
   fields,
   assets,
   reviewing,
@@ -24,6 +26,8 @@ export function ApplicationFieldsReview({
   onPreview,
   onReview,
 }: {
+  title?: string;
+  reasonLimit?: number;
   fields: PartnerAnswer[];
   assets: PartnerAsset[];
   reviewing: boolean;
@@ -63,7 +67,7 @@ export function ApplicationFieldsReview({
       <div className="personal-card application-form">
         <div className="partner-form-heading">
           <div>
-            <h2>Submitted application</h2>
+            <h2>{title}</h2>
             <p className="field-hint">
               Review details and documents by section.
             </p>
@@ -240,7 +244,7 @@ export function ApplicationFieldsReview({
                 className="field"
                 required
                 rows={3}
-                maxLength={2000}
+                maxLength={reasonLimit}
                 disabled={blocked}
                 value={correction.reason}
                 onChange={(event) =>

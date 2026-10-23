@@ -1054,5 +1054,77 @@
     "path": "admin/partner-program/requirements/:id",
     "guards": ["AuthGuard", "AdminGuard"],
     "idempotent": false
+  },
+  {
+    "feature": "vehicle_verification",
+    "handler": "mine",
+    "method": "get",
+    "path": "driver/vehicle-verification",
+    "guards": ["AuthGuard", "DriverAccessGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_verification",
+    "handler": "catalog",
+    "method": "get",
+    "path": "driver/vehicle-verification/catalog",
+    "guards": ["AuthGuard", "DriverAccessGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_verification",
+    "handler": "upload",
+    "method": "post",
+    "path": "driver/vehicle-verification/assets",
+    "guards": ["AuthGuard", "DriverAccessGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_verification",
+    "handler": "submit",
+    "method": "post",
+    "path": "driver/vehicle-verification",
+    "guards": ["AuthGuard", "DriverAccessGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_verification",
+    "handler": "correct",
+    "method": "patch",
+    "path": "driver/vehicle-verification/:id",
+    "guards": ["AuthGuard", "DriverAccessGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_verification",
+    "handler": "asset",
+    "method": "get",
+    "path": "vehicle-verification/assets/:id",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_verification",
+    "handler": "list",
+    "method": "get",
+    "path": "admin/users/:id/vehicle-verification",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_verification",
+    "handler": "review",
+    "method": "patch",
+    "path": "admin/users/:id/vehicle-verification/:vehicle_id/review",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_verification",
+    "handler": "discard",
+    "method": "delete",
+    "path": "driver/vehicle-verification/assets/:id",
+    "guards": ["AuthGuard", "DriverAccessGuard"],
+    "idempotent": false
   }
 ]

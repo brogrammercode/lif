@@ -236,7 +236,9 @@ export class DriverRepository {
             make: input.make,
             model: input.model,
             color: input.color,
-            plate_number: input.plate_number.toUpperCase(),
+            plate_number: input.plate_number
+              .toUpperCase()
+              .replace(/[\s-]+/g, ''),
             capacity: input.capacity ?? category.capacity,
             photo_url: input.photo_url,
           },
@@ -276,6 +278,12 @@ export class DriverRepository {
             404,
             'VEHICLE_NOT_FOUND',
             VEHICLE_NOT_FOUND_MESSAGE,
+          );
+        if (vehicle.verification_version > 0)
+          throw new AppError(
+            409,
+            'VEHICLE_FIELD_LOCKED',
+            'Use the vehicle verification form to request a category correction.',
           );
         const active_ride = await tx.ride.findFirst({
           where: {

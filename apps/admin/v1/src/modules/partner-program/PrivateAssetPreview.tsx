@@ -8,8 +8,10 @@ import { privateFile, downloadFile } from "./partner-program.api";
 export function PrivateAssetPreview({
   assetId,
   onClose,
+  loadFile = privateFile,
 }: {
   assetId: string;
+  loadFile?: (id: string, signal?: AbortSignal) => Promise<File>;
   onClose: () => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
@@ -24,7 +26,7 @@ export function PrivateAssetPreview({
     setUrl("");
     setText("");
     setError(null);
-    void privateFile(assetId, controller.signal)
+    void loadFile(assetId, controller.signal)
       .then(async (value) => {
         const content = value.type.startsWith("text/")
           ? await value.text()
@@ -42,7 +44,7 @@ export function PrivateAssetPreview({
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [assetId, revision]);
+  }, [assetId, revision, loadFile]);
   return (
     <Dialog
       title={file?.name ?? "Attachment preview"}

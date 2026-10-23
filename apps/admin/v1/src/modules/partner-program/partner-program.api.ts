@@ -159,12 +159,13 @@ export const fileDataUrl = (file: File): Promise<string> =>
 export async function privateFile(
   id: string,
   signal?: AbortSignal,
+  basePath = "/partner-program/assets",
 ): Promise<File> {
   const data = await apiRequest<{
     file_name: string;
     mime_type: string;
     data_url: string;
-  }>(`/partner-program/assets/${encodeURIComponent(id)}`, {
+  }>(`${basePath}/${encodeURIComponent(id)}`, {
     signal,
     timeoutMs: 90000,
   });

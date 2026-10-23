@@ -4,6 +4,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:user/constants/app.constant.dart';
 import 'package:user/core/routes.dart';
+import 'package:user/core/route_observer.dart';
 import 'package:user/core/theme.dart';
 import 'package:user/firebase_options.dart';
 
@@ -30,6 +31,7 @@ class MyApp extends StatelessWidget {
           theme: AppTheme.lightTheme,
           initialRoute: AppRoutes.gate,
           routes: AppRoutes.routes,
+          navigatorObservers: [appRouteObserver],
         );
       },
     );

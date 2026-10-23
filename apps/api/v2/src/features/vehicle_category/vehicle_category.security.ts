@@ -1,7 +1,20 @@
 import type { FareQuote, Prisma } from '@prisma/client';
+import { has_approved_vehicle_fields } from '../vehicle_verification/vehicle_verification.type.js';
 export const MATCHING_VEHICLE_INCLUDE = {
   vehicle_category: {
     include: { parent: true, _count: { select: { children: true } } },
+  },
+  brand: { select: { id: true, name: true, status: true, is_active: true } },
+  catalog_model: {
+    select: {
+      id: true,
+      name: true,
+      brand_id: true,
+      status: true,
+      is_active: true,
+      vehicle_type: true,
+      seating_capacity: true,
+    },
   },
 } as const;
 type MatchingVehicle = Prisma.VehicleGetPayload<{
@@ -24,6 +37,18 @@ export const is_vehicle_eligible = (
   )
     return false;
   const category = vehicle.vehicle_category;
+  if (
+    vehicle.verification_version > 0 &&
+    (!has_approved_vehicle_fields(vehicle.verification_fields) ||
+      !vehicle.brand?.is_active ||
+      vehicle.brand.status !== 'VERIFIED' ||
+      !vehicle.catalog_model?.is_active ||
+      vehicle.catalog_model.status !== 'VERIFIED' ||
+      vehicle.catalog_model.brand_id !== vehicle.brand_id ||
+      vehicle.catalog_model.vehicle_type !== vehicle.type ||
+      vehicle.catalog_model.seating_capacity < vehicle.capacity)
+  )
+    return false;
   if (
     !category ||
     !category.is_active ||

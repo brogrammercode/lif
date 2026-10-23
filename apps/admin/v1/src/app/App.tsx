@@ -6,6 +6,7 @@ import { AuthPage } from "../modules/auth/AuthPage";
 import { useAuth } from "../modules/auth/AuthProvider";
 import { WORKSPACE_PATH } from "../modules/auth/auth.constant";
 import { VehicleCategoriesPage } from "../modules/vehicle-categories/VehicleCategoriesPage";
+import { VehicleVerificationPage } from "../modules/users/VehicleVerificationPage";
 import { PersonalPage } from "../modules/users/PersonalPage";
 import { AdminAccessPage } from "../modules/admin-access/AdminAccessPage";
 import { ADMIN_ACCESS_PATH } from "../modules/admin-access/admin-access.constant";
@@ -58,6 +59,10 @@ export function App() {
         />
         <Route path="/users" element={<PersonalPage />} />
         <Route path="/users/:userId/personal" element={<PersonalPage />} />
+        <Route
+          path="/users/:userId/vehicle-verification"
+          element={<VehicleVerificationPage />}
+        />
         <Route path={ADMIN_ACCESS_PATH} element={<AdminAccessPage />} />
         <Route path="/admin/access/activity" element={<AdminActivityPage />} />
         <Route

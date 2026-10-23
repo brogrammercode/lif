@@ -56,7 +56,7 @@ Shorebird's default updater checks for patches in the background on launch and u
 
 1. Run `flutter pub get` and `flutter analyze`.
 2. Set the local `.env` to the intended environment. For production, use `API_BASE_URL=https://apionemore.vercel.app/api/v2` and the matching public Google web client ID. This file is bundled into the app; it must contain only public client configuration.
-3. Check the version in `pubspec.yaml` (`0.1.1+1` currently). Each new base release needs a new version/build number, for example `0.1.2+2`.
+3. Check the version in `pubspec.yaml` (`0.1.2+2` currently). Each new base release needs a new version/build number, for example `0.1.3+3` after releasing `0.1.2+2`.
 4. Build and publish the Shorebird base release:
 
 ```powershell
@@ -90,13 +90,15 @@ adb install -r build/app/outputs/flutter-apk/app-release.apk
 
 ### Publish a Dart fix to an existing release
 
-Keep `pubspec.yaml` at the target release's version and use its original environment/build settings. For the initial release:
+Use the target release's original environment/build settings. The repository is prepared for the next base release, `0.1.2+2`; the existing Android base release is `0.1.1+1`. Explicitly override both build values when patching that installed release:
 
 ```powershell
-shorebird patch android --release-version 0.1.1+1 --track stable
+shorebird patch android --release-version 0.1.1+1 --build-name 0.1.1 --build-number 1 --track stable
 ```
 
-This publishes to installed users of that release. Use the actual version you released in place of `0.1.1+1`. A Dart-only patch keeps the base version unchanged. Changes to native plugins, Gradle, permissions, assets (including `.env`), or Flutter itself need a new base release and APK. Follow [Shorebird patch guidance](https://docs.shorebird.dev/code-push/patch/).
+This publishes to installed users of that release. Use the actual released version in all three version arguments. A Dart-only patch keeps the installed base version unchanged and receives its own Shorebird patch number; bumping `pubspec.yaml` does not upgrade installed APK metadata. Changes to native plugins, Gradle, permissions, assets (including `.env`), or Flutter itself need a new base release and APK. Follow [Shorebird patch guidance](https://docs.shorebird.dev/code-push/patch/).
+
+When a patch depends on new API endpoints, publish it to `--track staging` first, deploy the matching API V2 changes, and verify those routes before promoting the patch with `shorebird patches set-track --release-version 0.1.1+1 --patch-number <number> --track stable`.
 
 ### Maintenance and checks
 

@@ -15,6 +15,8 @@ type DirectoryState = {
   loading: boolean;
   error: string | null;
   query: string;
+  accountType: string;
+  filter: (value: string) => void;
   search: (query: string) => void;
   setPage: (page: number) => void;
   reload: () => void;
@@ -33,6 +35,7 @@ export function UsersProvider({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [accountType, setAccountType] = useState("all");
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
@@ -48,7 +51,7 @@ export function UsersProvider({
     setError(null);
     setResult(null);
     const timer = window.setTimeout(() => {
-      void getUsers(query.trim(), page, controller.signal)
+      void getUsers(query.trim(), page, controller.signal, accountType)
         .then((value) => {
           if (!controller.signal.aborted) setResult(value);
         })
@@ -63,7 +66,7 @@ export function UsersProvider({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [active, query, page, revision]);
+  }, [active, query, page, revision, accountType]);
   const updateUser = useCallback((user: UserSummary) => {
     setResult((current) =>
       current
@@ -83,6 +86,11 @@ export function UsersProvider({
         loading,
         error,
         query,
+        accountType,
+        filter: (value) => {
+          setAccountType(value);
+          setPage(1);
+        },
         search: (value) => {
           setQuery(value);
           setPage(1);

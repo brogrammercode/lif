@@ -229,9 +229,18 @@ function WorkspaceShell() {
           }
         >
           {usersSection ? (
-            <NavLink to={selectedId ? personalPath(selectedId) : USERS_PATH}>
-              Personal
-            </NavLink>
+            <>
+              <NavLink to={selectedId ? personalPath(selectedId) : USERS_PATH}>
+                Personal
+              </NavLink>
+              {selectedId && (
+                <NavLink
+                  to={`/users/${encodeURIComponent(selectedId)}/vehicle-verification`}
+                >
+                  Vehicle Verification
+                </NavLink>
+              )}
+            </>
           ) : partnerSection ? (
             partnerApplications ? (
               <>

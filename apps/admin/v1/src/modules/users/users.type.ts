@@ -6,6 +6,7 @@ export type UserSummary = {
   last_name: string | null;
   email: string | null;
   avatar_url: string | null;
+  partner_activated_at?: string | null;
   role: "RIDER" | "DRIVER" | "SUPPORT" | "ADMIN";
   status: "ACTIVE" | "SUSPENDED";
 };
