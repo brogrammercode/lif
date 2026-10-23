@@ -100,6 +100,14 @@ This publishes to installed users of that release. Use the actual released versi
 
 When a patch depends on new API endpoints, publish it to `--track staging` first, deploy the matching API V2 changes, and verify those routes before promoting the patch with `shorebird patches set-track --release-version 0.1.1+1 --patch-number <number> --track stable`.
 
+### Published updates
+
+| Date | Platform | Installed base release | Patch | Track | Changes |
+| --- | --- | --- | --- | --- | --- |
+| 2026-10-23 | Android | `0.1.1+1` | `1` | stable | Driver vehicle registration, review feedback, draft recovery, and eligibility gate. |
+
+Patch 1 passed Shorebird's native-code and asset compatibility checks. The vehicle screens reuse the car and image icons already bundled in the base release; adding new tree-shaken icon glyphs would require a new base APK. The required API V2 routes were deployed before stable promotion. The repository's `0.1.2+2` version is prepared for a future base release and is not a newly published APK.
+
 ### Maintenance and checks
 
 ```powershell

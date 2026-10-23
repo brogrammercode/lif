@@ -347,7 +347,7 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
               onTap: () => Navigator.pop(context, ImageSource.camera),
             ),
             ListTile(
-              leading: const Icon(Icons.photo_library_outlined),
+              leading: const Icon(Icons.image_outlined),
               title: const Text('Choose image'),
               onTap: () => Navigator.pop(context, ImageSource.gallery),
             ),

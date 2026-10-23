@@ -122,3 +122,15 @@ Backend changes are limited to `apps/api/v2`; the matching screens are in `apps/
 - **25 Flutter tests passed**, including background/route-return eligibility checks, preserving registration during capture navigation, review-list refresh, image-signature detection, and unsupported-image rejection.
 - API compilation and Prisma schema validation passed. Flutter analysis reports **no issues**.
 - No APK was built. Real-device camera behavior remains a manual verification step.
+
+## Shorebird publication — 2026-10-23
+
+- [x] Confirm existing Android release `0.1.1+1` and authenticated Shorebird account.
+- [x] Increment repository version/build to `0.1.2+2` for the next base release; explicitly build this OTA patch as `0.1.1+1`.
+- [x] Reuse existing bundled car/image icons after the initial patch attempt detected two new Material Icons glyphs. The rebuilt font matches the base release byte for byte.
+- [x] Pass Shorebird's native-code and asset checks without compatibility override flags.
+- [x] Publish patch **1** (ID `743868`) for Android arm32, arm64, and x86_64 to staging, then promote to **stable**.
+- [x] Push API/admin feature changes and confirm the production driver/admin verification routes return authentication errors rather than missing-route errors before promoting the patch.
+- [x] Record the patch commands, version distinction, and publication in the user-app README.
+
+The OTA patch updates existing Shorebird installations of `0.1.1+1`. No new `0.1.2+2` base APK was published. Shorebird compiled the Android app bundle as part of producing and validating the patch; this was a publication build.

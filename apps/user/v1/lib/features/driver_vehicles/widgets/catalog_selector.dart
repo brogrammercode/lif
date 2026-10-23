@@ -112,8 +112,6 @@ class _CatalogSelectorState extends State<CatalogSelector> {
                                       'SCOOTER',
                                     ].contains(row['vehicle_type'])
                                     ? Icons.two_wheeler
-                                    : widget.brand == null
-                                    ? Icons.factory_outlined
                                     : Icons.directions_car_outlined,
                               ),
                         title: Text('${row['name']}'),
