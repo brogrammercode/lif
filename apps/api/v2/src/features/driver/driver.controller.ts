@@ -1,3 +1,5 @@
+import { DriverOperationsService } from '../driver_operations/driver_operations.service.js';
+import { trip_code_input } from '../driver_operations/driver_operations.type.js';
 import {
   Controller,
   HttpCode,
@@ -40,7 +42,10 @@ import {
 } from './driver.type.js';
 @Controller()
 export class DriverController {
-  constructor(private readonly driverService: DriverService) {}
+  constructor(
+    private readonly driverService: DriverService,
+    private readonly operations: DriverOperationsService,
+  ) {}
   readonly current_user_id = (request: Request): string => {
     if (!request.auth)
       throw new AppError(401, 'UNAUTHORIZED', 'Authentication is required');
@@ -225,10 +230,9 @@ export class DriverController {
   ) {
     return send_success(
       response,
-      await this.driverService.transition_driver_ride(
+      await this.operations.arrive(
         this.current_user_id(request),
         request.params.id as string,
-        'DRIVER_WAITING',
       ),
       DRIVER_ARRIVED_MESSAGE,
     );
@@ -243,10 +247,10 @@ export class DriverController {
   ) {
     return send_success(
       response,
-      await this.driverService.transition_driver_ride(
+      await this.operations.start_proof(
         this.current_user_id(request),
         request.params.id as string,
-        'IN_PROGRESS',
+        trip_code_input.parse(request.body).code,
       ),
       RIDE_STARTED_MESSAGE,
     );
@@ -261,10 +265,9 @@ export class DriverController {
   ) {
     return send_success(
       response,
-      await this.driverService.transition_driver_ride(
+      await this.operations.complete(
         this.current_user_id(request),
         request.params.id as string,
-        'COMPLETED',
       ),
       RIDE_COMPLETED_MESSAGE,
     );

@@ -1,3 +1,6 @@
+import 'package:user/features/rides/widgets/booking_review_sheet.dart';
+import 'package:user/features/rides/ride_display.dart';
+import 'package:user/core/route_observer.dart';
 import 'dart:ui';
 import 'dart:math' as math;
 import 'dart:async';
@@ -24,9 +27,18 @@ class HomePage extends StatefulWidget {
 
 enum SearchField { none, from, to }
 
-class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
+class _HomePageState extends State<HomePage>
+    with WidgetsBindingObserver, RouteAware {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   LatLng _fromLocation = HomeConstants.DEFAULT_LOCATION;
+  bool _hasPickupLocation = false;
+  bool _pickupChosenManually = false;
+  bool _rebookRestored = false;
+  ModalRoute<dynamic>? _homeRoute;
+  Timer? _travelTimer;
+  Map<String, dynamic>? _activeRide;
+  bool _resumeDriver = false, _checkingTravel = false;
+  Completer<void>? _travelDone;
   LatLng? _currentDeviceLocation;
   LatLng? _toLocation;
 
@@ -42,9 +54,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // Search State
   SearchField _activeField = SearchField.none;
   SearchField? _mapPickField;
-  final TextEditingController _fromController = TextEditingController(
-    text: HomeConstants.TEXT_HOME,
-  );
+  final TextEditingController _fromController = TextEditingController();
   final TextEditingController _toController = TextEditingController();
   final FocusNode _fromFocus = FocusNode();
   final FocusNode _toFocus = FocusNode();
@@ -53,12 +63,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   List<LatLng> _routePoints = [];
   double? _routeDistance;
   double? _routeDuration;
-  TimeOfDay? _selectedRideTime;
+  String? _routeError;
 
+  String _bookingMethod = 'CASH';
   bool _isSelectingVehicle = false;
   int? _selectedVehicleIndex = 0;
   bool _isSearchingDriver = false;
-  final bool _isDriverFound = false;
   bool _isProgrammaticTextChange = false;
   final UserAppRepository _userRepository = UserAppRepository();
   String? _profileAvatarUrl;
@@ -87,12 +97,53 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _initializeLocation();
     unawaited(_loadSavedPlaces());
     unawaited(_loadProfileAvatar());
+    unawaited(_checkTravel());
+    _travelTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (_homeRoute?.isCurrent == true &&
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+        unawaited(_checkTravel());
+      }
+    });
     _fromController.addListener(_onSearchChanged);
     _toController.addListener(_onSearchChanged);
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route != _homeRoute) {
+      appRouteObserver.unsubscribe(this);
+      _homeRoute = route;
+      if (route != null) appRouteObserver.subscribe(this, route);
+    }
+    if (_rebookRestored) return;
+    _rebookRestored = true;
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is! Map || args['rebook'] is! Map) return;
+    final trip = Map<String, dynamic>.from(args['rebook'] as Map);
+    final pickup = ridePoint(trip['pickup_latitude'], trip['pickup_longitude']);
+    final dropoff = ridePoint(
+      trip['dropoff_latitude'],
+      trip['dropoff_longitude'],
+    );
+    if (pickup == null || dropoff == null) return;
+    _fromLocation = pickup;
+    _toLocation = dropoff;
+    _hasPickupLocation = true;
+    _pickupChosenManually = true;
+    _hasExpandedSearch = true;
+    _setSearchText(_fromController, '${trip['pickup_address']}');
+    _setSearchText(_toController, '${trip['dropoff_address']}');
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_fetchRoute());
+    });
+  }
+
+  @override
   void dispose() {
+    _travelTimer?.cancel();
+    appRouteObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     _fromController.dispose();
     _toController.dispose();
@@ -106,6 +157,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _homeRoute?.isCurrent == true) {
+      unawaited(_checkTravel());
+    }
     if (state != AppLifecycleState.resumed ||
         !_waitingForLocationSettingsReturn) {
       return;
@@ -119,6 +173,49 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         showSettingsDialog: false,
       ),
     );
+  }
+
+  @override
+  void didPopNext() {
+    unawaited(_checkTravel());
+    unawaited(_loadSavedPlaces());
+  }
+
+  Future<void> _checkTravel() async {
+    if (!mounted) return;
+    if (_checkingTravel) {
+      await _travelDone?.future;
+      return;
+    }
+    _checkingTravel = true;
+    final done = _travelDone = Completer<void>();
+    try {
+      final data = await _userRepository.travelContext();
+      if (mounted) {
+        setState(() {
+          _resumeDriver = data['active_driver_ride'] is Map;
+          final ride =
+              data[_resumeDriver ? 'active_driver_ride' : 'active_rider_ride'];
+          _activeRide = ride is Map ? Map<String, dynamic>.from(ride) : null;
+        });
+      }
+    } catch (_) {
+      /* Keep the last confirmed active trip available for recovery. */
+    } finally {
+      _checkingTravel = false;
+      done.complete();
+      _travelDone = null;
+    }
+  }
+
+  void _resumeActive() {
+    if (_activeRide != null) {
+      Navigator.pushNamed(
+        context,
+        _resumeDriver ? AppRoutes.driverRideDetail : AppRoutes.rideDetail,
+        arguments: _activeRide!['id'],
+      );
+    }
   }
 
   @override
@@ -160,13 +257,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     } catch (_) {}
 
     if (!mounted) return;
-    if (cachedLocation != null) {
+    if (cachedLocation != null && !_pickupChosenManually) {
       final location = LatLng(
         cachedLocation['latitude']!,
         cachedLocation['longitude']!,
       );
       setState(() {
         _fromLocation = location;
+        _hasPickupLocation = true;
+        _setSearchText(
+          _fromController,
+          '${location.latitude.toStringAsFixed(5)}, ${location.longitude.toStringAsFixed(5)}',
+        );
         _currentDeviceLocation = location;
       });
       _animatedMapMove(location, HomeConstants.DEFAULT_ZOOM, 0);
@@ -227,16 +329,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (mounted) {
         final location = LatLng(position.latitude, position.longitude);
         setState(() {
-          _fromLocation = location;
+          if (!_pickupChosenManually) {
+            _invalidateRouteChoice();
+            _fromLocation = location;
+            _hasPickupLocation = true;
+            _setSearchText(
+              _fromController,
+              '${location.latitude.toStringAsFixed(5)}, ${location.longitude.toStringAsFixed(5)}',
+            );
+          }
           _currentDeviceLocation = location;
           _isLoading = false;
         });
         _scheduleMapDataSync();
         unawaited(_syncUserLocationPuck());
-        unawaited(_saveLastKnownLocation(_fromLocation));
+        unawaited(_saveLastKnownLocation(location));
         double heading = position.heading > 0 ? position.heading : 0;
-        _animatedMapMove(_fromLocation, HomeConstants.DEFAULT_ZOOM, heading);
-        _reverseGeocode(_fromLocation, overrideField: SearchField.from);
+        if (!_pickupChosenManually) {
+          if (_activeField == SearchField.none &&
+              _mapPickField == null &&
+              !_isMapDragging) {
+            _animatedMapMove(location, HomeConstants.DEFAULT_ZOOM, heading);
+          }
+          _reverseGeocode(location, overrideField: SearchField.from);
+          if (_toLocation != null) unawaited(_fetchRoute());
+        }
         return true;
       }
     } catch (e) {
@@ -297,9 +414,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     setState(() => _isRefreshing = true);
     try {
       Position position = await Geolocator.getCurrentPosition();
+      if (!mounted) return;
       final newLocation = LatLng(position.latitude, position.longitude);
       setState(() {
+        _invalidateRouteChoice();
         _fromLocation = newLocation;
+        _hasPickupLocation = true;
+        _pickupChosenManually = false;
+        _setSearchText(
+          _fromController,
+          '${newLocation.latitude.toStringAsFixed(5)}, ${newLocation.longitude.toStringAsFixed(5)}',
+        );
         _currentDeviceLocation = newLocation;
       });
       _scheduleMapDataSync();
@@ -308,6 +433,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // Reset rotation to default (0.0) alongside default zoom
       _animatedMapMove(newLocation, HomeConstants.DEFAULT_ZOOM, 0.0);
       _reverseGeocode(newLocation, overrideField: SearchField.from);
+      if (_toLocation != null) unawaited(_fetchRoute());
     } catch (e) {
       // ignore
     } finally {
@@ -315,6 +441,27 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         setState(() => _isRefreshing = false);
       }
     }
+  }
+
+  void _setSearchText(TextEditingController controller, String text) {
+    final previous = _isProgrammaticTextChange;
+    _isProgrammaticTextChange = true;
+    controller.text = text;
+    _isProgrammaticTextChange = previous;
+  }
+
+  // Call inside setState whenever an endpoint changes. A displayed quote must
+  // never survive a different pickup/destination or a pending map selection.
+  void _invalidateRouteChoice() {
+    _routeRequestGeneration++;
+    _routePoints = [];
+    _routeDistance = null;
+    _routeDuration = null;
+    _routeError = null;
+    _isFetchingRoute = false;
+    _isSelectingVehicle = false;
+    _quoteDraftId = null;
+    _rideQuotes = [];
   }
 
   void _onSearchChanged() {
@@ -330,9 +477,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _pendingSuggestionField = null;
     if (mounted) {
       setState(() {
+        _routeSettleTimer?.cancel();
+        _invalidateRouteChoice();
+        if (field == SearchField.from) {
+          _hasPickupLocation = false;
+          _pickupChosenManually = true;
+        } else {
+          _toLocation = null;
+        }
         _suggestions = [];
         _isFetchingSuggestions = false;
       });
+      _scheduleMapDataSync();
     }
     if (query.length < 3) return;
 
@@ -434,15 +590,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
       final data = ApiResult.unwrap(response);
       if (data is Map && mounted) {
+        final current = targetField == SearchField.from
+            ? _fromLocation
+            : _toLocation;
+        if ((targetField == SearchField.from && !_hasPickupLocation) ||
+            current?.latitude != location.latitude ||
+            current?.longitude != location.longitude) {
+          return;
+        }
         final displayName = data['display_name'] ?? '';
-        final shortName = displayName.split(',').first;
+        final shortName = displayName.split(',').first.trim();
+        if (shortName.isEmpty) return;
 
         _isProgrammaticTextChange = true;
         setState(() {
           if (targetField == SearchField.from) {
-            _fromController.text = shortName;
+            _setSearchText(_fromController, shortName);
           } else if (targetField == SearchField.to) {
-            _toController.text = shortName;
+            _setSearchText(_toController, shortName);
           }
         });
         _scheduleMapDataSync();
@@ -453,22 +618,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _selectRideTime() async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: _selectedRideTime ?? TimeOfDay.now(),
-    );
-    if (picked != null) {
+  Future<void> _fetchRoute() async {
+    if (!_hasPickupLocation || _toLocation == null) return;
+    final generation = ++_routeRequestGeneration;
+    if (mounted) {
       setState(() {
-        _selectedRideTime = picked;
+        _isFetchingRoute = true;
+        _routeError = null;
       });
     }
-  }
-
-  Future<void> _fetchRoute() async {
-    if (_toLocation == null) return;
-    final generation = ++_routeRequestGeneration;
-    if (mounted) setState(() => _isFetchingRoute = true);
     try {
       final route = await _userRepository.drivingRoute(
         fromLatitude: _fromLocation.latitude,
@@ -478,6 +636,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
       final geometry = route['geometry'] as List? ?? const [];
       if (geometry.length < 2) throw StateError('Route geometry is empty.');
+      final distance = (route['distance_m'] as num?)?.toDouble();
+      final duration = (route['duration_s'] as num?)?.toDouble();
+      if (distance == null ||
+          duration == null ||
+          !distance.isFinite ||
+          !duration.isFinite ||
+          distance <= 0 ||
+          duration <= 0) {
+        throw StateError('Route measurements are unavailable.');
+      }
       if (!mounted || generation != _routeRequestGeneration) return;
       setState(() {
         _routePoints = geometry.map((coordinate) {
@@ -487,35 +655,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             (pair[0] as num).toDouble(),
           );
         }).toList();
-        _routeDistance =
-            (route['distance_m'] as num?)?.toDouble() ??
-            Geolocator.distanceBetween(
-              _fromLocation.latitude,
-              _fromLocation.longitude,
-              _toLocation!.latitude,
-              _toLocation!.longitude,
-            );
-        _routeDuration =
-            (route['duration_s'] as num?)?.toDouble() ??
-            _routeDistance! / (25 * 1000 / 3600);
+        _routeDistance = distance;
+        _routeDuration = duration;
       });
       _scheduleMapDataSync();
       _animateCameraToBounds();
     } catch (e) {
       if (mounted && generation == _routeRequestGeneration) {
         setState(() {
-          _routePoints = [_fromLocation, _toLocation!];
-          _routeDistance = Geolocator.distanceBetween(
-            _fromLocation.latitude,
-            _fromLocation.longitude,
-            _toLocation!.latitude,
-            _toLocation!.longitude,
-          );
-          // Show a useful approximate ETA if the routing service is offline.
-          _routeDuration = _routeDistance! / (25 * 1000 / 3600);
+          _routePoints = [];
+          _routeDistance = null;
+          _routeDuration = null;
+          _routeError =
+              'Route unavailable. Retry to get road distance and travel time.';
         });
         _scheduleMapDataSync();
-        _animateCameraToBounds();
       }
     } finally {
       if (mounted && generation == _routeRequestGeneration) {
@@ -525,11 +679,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _loadRideQuotes() async {
-    if (_toLocation == null ||
+    if (_isRequestingQuote) return;
+    if (_isMapDragging ||
+        !_hasPickupLocation ||
+        _toLocation == null ||
         _fromController.text.trim().isEmpty ||
         _toController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Choose a pickup and destination from search or on the map.',
+          ),
+        ),
+      );
       return;
     }
+    final generation = _routeRequestGeneration;
     setState(() => _isRequestingQuote = true);
     try {
       final quote = await _userRepository.requestQuote({
@@ -544,6 +709,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           'longitude': _toLocation!.longitude,
         },
       });
+      if (!mounted || generation != _routeRequestGeneration) return;
       final quoteItems = List<Map<String, dynamic>>.from(
         (quote['quotes'] as List? ?? []).map(
           (item) => Map<String, dynamic>.from(item as Map),
@@ -554,6 +720,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _quoteDraftId = '${quote['id']}';
         _rideQuotes = quoteItems;
         _selectedVehicleIndex = 0;
+        _routeError = null;
+        _routeDistance = (quoteItems.first['distance_m'] as num?)?.toDouble();
+        _routeDuration = (quoteItems.first['duration_s'] as num?)?.toDouble();
+        final policy =
+            (quoteItems.first['category_snapshot'] as Map?)?['payment_policy']
+                as Map?;
+        _bookingMethod = policy?['cash_enabled'] == false ? 'UPI' : 'CASH';
         _isSelectingVehicle = true;
       });
     } catch (error) {
@@ -569,32 +742,60 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _bookSelectedRide() async {
     if (_isRequestingQuote) return;
+    setState(() => _isRequestingQuote = true);
+    await _checkTravel();
+    if (!mounted) return;
+    if (_activeRide != null) {
+      setState(() => _isRequestingQuote = false);
+      _resumeActive();
+      return;
+    }
     final selected = _selectedVehicleIndex;
     if (_quoteDraftId == null ||
         selected == null ||
         selected >= _rideQuotes.length) {
+      setState(() => _isRequestingQuote = false);
       return;
     }
     setState(() => _isRequestingQuote = true);
+    BookingReviewResult? result;
     try {
-      final requestedRide = await _userRepository.requestRide(
-        _quoteDraftId!,
-        '${_rideQuotes[selected]['id']}',
+      result = await showModalBottomSheet<BookingReviewResult>(
+        context: context,
+        isScrollControlled: true,
+        isDismissible: false,
+        enableDrag: false,
+        useSafeArea: true,
+        builder: (_) => BookingReviewSheet(
+          draftId: _quoteDraftId!,
+          pickup: _fromController.text.trim(),
+          dropoff: _toController.text.trim(),
+          method: _bookingMethod,
+          quote: _rideQuotes[selected],
+          repository: _userRepository,
+        ),
       );
-      if (!mounted) return;
+    } finally {
+      if (mounted) setState(() => _isRequestingQuote = false);
+    }
+    if (!mounted) return;
+    if (result == null) {
+      setState(
+        () => _isSelectingVehicle =
+            _quoteDraftId != null && _rideQuotes.isNotEmpty,
+      );
+      return;
+    }
+    if (result.refresh) {
+      await _loadRideQuotes();
+      return;
+    }
+    if (result.rideId != null) {
       Navigator.pushNamed(
         context,
         AppRoutes.rideDetail,
-        arguments: '${requestedRide['id']}',
+        arguments: result.rideId,
       );
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
-      }
-    } finally {
-      if (mounted) setState(() => _isRequestingQuote = false);
     }
   }
 
@@ -665,37 +866,43 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final displayName = suggestion['display_name'] ?? '';
     final shortName = displayName.split(',').first;
 
-    final lat = double.tryParse(suggestion['lat'] ?? '0') ?? 0;
-    final lon = double.tryParse(suggestion['lon'] ?? '0') ?? 0;
-    final newLoc = (lat != 0 && lon != 0) ? LatLng(lat, lon) : null;
+    final lat = _coordinateValue(suggestion['lat']);
+    final lon = _coordinateValue(suggestion['lon']);
+    if (lat == null ||
+        lon == null ||
+        !lat.isFinite ||
+        !lon.isFinite ||
+        lat.abs() > 90 ||
+        lon.abs() > 180) {
+      return;
+    }
+    final newLoc = LatLng(lat, lon);
 
     setState(() {
       _suggestions = [];
-      _routePoints = [];
-      _routeDistance = null;
-      _routeDuration = null;
-      _isFetchingRoute = false;
+      _invalidateRouteChoice();
       _isMapDragging = false;
       if (_activeField == SearchField.from) {
-        _fromController.text = shortName;
-        if (newLoc != null) _fromLocation = newLoc;
+        _setSearchText(_fromController, shortName);
+        _fromLocation = newLoc;
+        _hasPickupLocation = true;
+        _pickupChosenManually = true;
         _fromFocus.unfocus();
       } else if (_activeField == SearchField.to) {
         _hasExpandedSearch = true;
-        _toController.text = shortName;
-        if (newLoc != null) _toLocation = newLoc;
+        _setSearchText(_toController, shortName);
+        _toLocation = newLoc;
         _toFocus.unfocus();
       }
       _activeField = SearchField.none;
     });
     _scheduleMapDataSync();
 
-    if (newLoc != null &&
-        !(_fromLocation.latitude != 0 && _toLocation != null)) {
+    if (!(_hasPickupLocation && _toLocation != null)) {
       _animatedMapMove(newLoc, 16.0, 0.0);
     }
 
-    if (_fromLocation.latitude != 0 && _toLocation != null) {
+    if (_hasPickupLocation && _toLocation != null) {
       _fetchRoute();
     }
   }
@@ -873,11 +1080,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!_isMapDragging && mounted) {
       setState(() {
         _isMapDragging = true;
+        _invalidateRouteChoice();
+        if (pickField == SearchField.from) {
+          _hasPickupLocation = false;
+          _pickupChosenManually = true;
+        }
         _suggestions = [];
-        _routePoints = [];
-        _routeDistance = null;
-        _routeDuration = null;
-        _isFetchingRoute = false;
       });
       _scheduleMapDataSync();
     }
@@ -893,8 +1101,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _isMapDragging = false;
         if (settledField == SearchField.from) {
           _fromLocation = center;
+          _hasPickupLocation = true;
+          _pickupChosenManually = true;
+          _setSearchText(
+            _fromController,
+            '${center.latitude.toStringAsFixed(5)}, ${center.longitude.toStringAsFixed(5)}',
+          );
         } else if (settledField == SearchField.to) {
           _toLocation = center;
+          _setSearchText(
+            _toController,
+            '${center.latitude.toStringAsFixed(5)}, ${center.longitude.toStringAsFixed(5)}',
+          );
         }
         _activeField = SearchField.none;
       });
@@ -930,7 +1148,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             },
           ];
     final markerSymbols = <SymbolOptions>[];
-    if (!(_isMapDragging && _mapPickField == SearchField.from)) {
+    if (_hasPickupLocation &&
+        !(_isMapDragging && _mapPickField == SearchField.from)) {
       markerSymbols.add(
         _markerSymbol(
           _fromLocation,
@@ -1056,6 +1275,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
             // Layer 1: Top Action Buttons
             _buildLayer1(context),
+            if (_activeRide != null)
+              Positioned(
+                top: MediaQuery.paddingOf(context).top + 80.r,
+                left: 20.r,
+                right: 80.r,
+                child: FilledButton.icon(
+                  onPressed: _resumeActive,
+                  icon: const Icon(Icons.directions_car_outlined),
+                  label: const Text('Resume your active trip'),
+                ),
+              ),
 
             // Refresh Location Button (Layer 0 actions)
             if (!_isLoading)
@@ -1168,11 +1398,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
           // Notification Button
           AppLogo(width: 112.r, height: 44.r),
-          _buildGlassButton(
-            child: Icon(
-              Iconsax.notification,
-              color: Colors.black87,
-              size: 24.r,
+          GestureDetector(
+            onTap: () => Navigator.pushNamed(context, AppRoutes.notifications),
+            child: _buildGlassButton(
+              child: Icon(
+                Iconsax.notification,
+                color: Colors.black87,
+                size: 24.r,
+              ),
             ),
           ),
         ],
@@ -1319,9 +1552,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   HomeConstants.VEHICLE_IMAGE_URLS['BIKE'],
       };
     }).toList();
-    final hasSelectedRoute = _toLocation != null && !isSearching;
-    final showRouteClock =
-        hasSelectedRoute && !_isSelectingVehicle && !_isDriverFound;
+    final hasSelectedRoute =
+        _hasPickupLocation && _toLocation != null && !isSearching;
+    final showRouteClock = hasSelectedRoute && !_isSelectingVehicle;
 
     return Positioned(
       bottom: MediaQuery.paddingOf(context).bottom + 10.r,
@@ -1336,719 +1569,538 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 15.r, sigmaY: 15.r),
               child: Container(
-                padding: _isDriverFound
-                    ? EdgeInsets.zero
-                    : EdgeInsets.fromLTRB(
-                        24.r,
-                        showRouteClock ? 44.r : 24.r,
-                        24.r,
-                        24.r,
-                      ),
+                padding: EdgeInsets.fromLTRB(
+                  24.r,
+                  showRouteClock ? 44.r : 24.r,
+                  24.r,
+                  24.r,
+                ),
                 decoration: BoxDecoration(
-                  color: _isDriverFound
-                      ? Colors.white
-                      : Colors.black.withValues(alpha: 0.25),
+                  color: Colors.black.withValues(alpha: 0.25),
                   borderRadius: BorderRadius.circular(28.r),
-                  border: _isDriverFound
-                      ? null
-                      : Border.all(
-                          color: Colors.white.withValues(alpha: 0.3),
-                          width: 1.5.r,
-                        ),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.3),
+                    width: 1.5.r,
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (_isDriverFound) ...[
-                      // Driver Found Profile
-                      Container(
-                        padding: EdgeInsets.all(24.r),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Center(
-                              child: Text(
-                                "Driver will arrive in ~4 min.",
-                                style: TextStyle(
-                                  fontSize: 20.r,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            SizedBox(height: 20.r),
-                            Row(
-                              children: [
-                                Column(
-                                  children: [
-                                    ClipOval(
-                                      child: Image.network(
-                                        'https://images.unsplash.com/photo-1599566150163-29194dcaad36?auto=format&fit=crop&w=100&q=80',
-                                        width: 60.r,
-                                        height: 60.r,
-                                        fit: BoxFit.cover,
-                                      ),
-                                    ),
-                                    SizedBox(height: 8.r),
-                                    Text(
-                                      "Kairatbek",
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 14.r,
-                                      ),
-                                    ),
-                                    Row(
-                                      children: [
-                                        Icon(
-                                          Icons.star,
-                                          color: Colors.greenAccent,
-                                          size: 16.r,
-                                        ),
-                                        SizedBox(width: 4.r),
-                                        Text(
-                                          "5.0",
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 12.r,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                                const Spacer(),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      "Grey Honda Activa",
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 16.r,
-                                      ),
-                                    ),
-                                    SizedBox(height: 8.r),
-                                    Container(
-                                      padding: EdgeInsets.symmetric(
-                                        horizontal: 8.r,
-                                        vertical: 4.r,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.greenAccent.shade200,
-                                        borderRadius: BorderRadius.circular(
-                                          8.r,
-                                        ),
-                                      ),
-                                      child: Text(
-                                        "08KG1152",
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                            SizedBox(height: 16.r),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                              children: [
-                                Column(
-                                  children: [
-                                    Icon(
-                                      Icons.verified_user_outlined,
-                                      color: Colors.grey.shade400,
-                                    ),
-                                    SizedBox(height: 4.r),
-                                    Text(
-                                      "Safe",
-                                      style: TextStyle(
-                                        color: Colors.grey.shade500,
-                                        fontSize: 12.r,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                Container(
-                                  width: 1.r,
-                                  height: 30.r,
-                                  color: Colors.grey.shade300,
-                                ),
-                                Column(
-                                  children: [
-                                    Icon(
-                                      Icons.motorcycle,
-                                      color: Colors.grey.shade400,
-                                    ),
-                                    SizedBox(height: 4.r),
-                                    Text(
-                                      "Economy",
-                                      style: TextStyle(
-                                        color: Colors.grey.shade500,
-                                        fontSize: 12.r,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                Container(
-                                  width: 1.r,
-                                  height: 30.r,
-                                  color: Colors.grey.shade300,
-                                ),
-                                Column(
-                                  children: [
-                                    Icon(
-                                      Icons.password,
-                                      color: Colors.grey.shade400,
-                                    ),
-                                    SizedBox(height: 4.r),
-                                    Text(
-                                      "OTP: 1254",
-                                      style: TextStyle(
-                                        color: Colors.black,
-                                        fontSize: 12.r,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                            SizedBox(height: 20.r),
-                            Container(
-                              padding: EdgeInsets.symmetric(vertical: 16.r),
+                    if (_isSelectingVehicle) ...[
+                      SizedBox(
+                        height: 220.r,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: vehicles.length,
+                          separatorBuilder: (context, index) =>
+                              SizedBox(width: 12.r),
+                          itemBuilder: (context, index) {
+                            final vehicle = vehicles[index];
+                            final isSelected = _selectedVehicleIndex == index;
+
+                            final cardContent = Container(
+                              width: 140.r,
+                              padding: EdgeInsets.all(10.r),
                               decoration: BoxDecoration(
-                                color: Colors.black87,
+                                color: isSelected
+                                    ? Colors.white
+                                    : Colors.white.withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(15.r),
+                                border: isSelected
+                                    ? Border.all(
+                                        color: Colors.white,
+                                        width: 2.r,
+                                      )
+                                    : Border.all(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.3,
+                                        ),
+                                      ),
                               ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    "Contact driver",
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 16.r,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  SizedBox(width: 8.r),
-                                  Icon(
-                                    Icons.phone_outlined,
-                                    color: Colors.white,
-                                    size: 20.r,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ] else ...[
-                      if (_isSelectingVehicle) ...[
-                        SizedBox(
-                          height: 220.r,
-                          child: ListView.separated(
-                            scrollDirection: Axis.horizontal,
-                            itemCount: vehicles.length,
-                            separatorBuilder: (context, index) =>
-                                SizedBox(width: 12.r),
-                            itemBuilder: (context, index) {
-                              final vehicle = vehicles[index];
-                              final isSelected = _selectedVehicleIndex == index;
-
-                              final cardContent = Container(
-                                width: 140.r,
-                                padding: EdgeInsets.all(10.r),
-                                decoration: BoxDecoration(
-                                  color: isSelected
-                                      ? Colors.white
-                                      : Colors.white.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(15.r),
-                                  border: isSelected
-                                      ? Border.all(
-                                          color: Colors.white,
-                                          width: 2.r,
-                                        )
-                                      : Border.all(
-                                          color: Colors.white.withValues(
-                                            alpha: 0.3,
-                                          ),
-                                        ),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(10.r),
-                                      child: Image.network(
-                                        vehicle['image'] as String,
-                                        height: 64.r,
-                                        width: double.infinity,
-                                        fit: BoxFit.cover,
-                                        errorBuilder:
-                                            (
-                                              context,
-                                              error,
-                                              stackTrace,
-                                            ) => SizedBox(
-                                              height: 64.r,
-                                              child: Center(
-                                                child: Icon(
-                                                  vehicle['family'] == 'BIKE' ||
-                                                          vehicle['family'] ==
-                                                              'SCOOTER'
-                                                      ? Icons.two_wheeler
-                                                      : Icons.directions_car,
-                                                  size: 36.r,
-                                                  color: isSelected
-                                                      ? Colors.black54
-                                                      : Colors.white70,
-                                                ),
-                                              ),
-                                            ),
-                                      ),
-                                    ),
-                                    SizedBox(height: 8.r),
-                                    Text(
-                                      vehicle['name'] as String,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: isSelected
-                                            ? Colors.black
-                                            : Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 15.r,
-                                      ),
-                                    ),
-                                    SizedBox(height: 4.r),
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Icon(
-                                              Icons.person,
-                                              size: 11.r,
-                                              color: isSelected
-                                                  ? Colors.black54
-                                                  : Colors.white70,
-                                            ),
-                                            SizedBox(width: 4.r),
-                                            Text(
-                                              '${vehicle['capacity']}',
-                                              style: TextStyle(
-                                                color: isSelected
-                                                    ? Colors.black54
-                                                    : Colors.white70,
-                                                fontSize: 11.r,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        Text(
-                                          vehicle['time'] as String,
-                                          style: TextStyle(
-                                            color: isSelected
-                                                ? Colors.black54
-                                                : Colors.white70,
-                                            fontSize: 11.r,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const Spacer(),
-                                    Text(
-                                      '₹${(vehicle['price'] as num).toStringAsFixed(0)}',
-                                      style: TextStyle(
-                                        color: isSelected
-                                            ? Colors.black
-                                            : Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 17.r,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-
-                              return GestureDetector(
-                                onTap: () => setState(
-                                  () => _selectedVehicleIndex = index,
-                                ),
-                                child: isSelected
-                                    ? Container(
-                                        decoration: BoxDecoration(
-                                          color: Colors.white,
-                                          borderRadius: BorderRadius.circular(
-                                            15.r,
-                                          ),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black.withValues(
-                                                alpha: 0.2,
-                                              ),
-                                              blurRadius: 10.r,
-                                              offset: Offset(0, 5.r),
-                                            ),
-                                          ],
-                                        ),
-                                        clipBehavior: Clip.antiAlias,
-                                        child: Column(
-                                          children: [
-                                            Expanded(child: cardContent),
-                                            GestureDetector(
-                                              onTap: () async {
-                                                setState(() {
-                                                  _isSelectingVehicle = false;
-                                                  _isSearchingDriver = true;
-                                                });
-                                                await _bookSelectedRide();
-                                                if (mounted) {
-                                                  setState(
-                                                    () => _isSearchingDriver =
-                                                        false,
-                                                  );
-                                                }
-                                              },
-                                              child: Container(
-                                                padding: EdgeInsets.symmetric(
-                                                  vertical: 12.r,
-                                                ),
-                                                width: 140.r,
-                                                color: Colors.yellow.shade600,
-                                                alignment: Alignment.center,
-                                                child: Text(
-                                                  "Book Now",
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 14.r,
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(10.r),
+                                    child: Image.network(
+                                      vehicle['image'] as String,
+                                      height: 64.r,
+                                      width: double.infinity,
+                                      fit: BoxFit.cover,
+                                      errorBuilder:
+                                          (context, error, stackTrace) =>
+                                              SizedBox(
+                                                height: 64.r,
+                                                child: Center(
+                                                  child: Icon(
+                                                    vehicle['family'] ==
+                                                                'BIKE' ||
+                                                            vehicle['family'] ==
+                                                                'SCOOTER'
+                                                        ? Icons.two_wheeler
+                                                        : Icons.directions_car,
+                                                    size: 36.r,
+                                                    color: isSelected
+                                                        ? Colors.black54
+                                                        : Colors.white70,
                                                   ),
                                                 ),
                                               ),
-                                            ),
-                                          ],
-                                        ),
-                                      )
-                                    : Align(
-                                        alignment: Alignment.topCenter,
-                                        child: SizedBox(
-                                          height: 180.r,
-                                          child: cardContent,
-                                        ),
-                                      ),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                      // Persistent Title Section
-                      if (!isSearching && !_isSelectingVehicle) ...[
-                        if (hasSelectedRoute)
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      titleText,
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 20.r,
-                                        fontWeight: FontWeight.w700,
-                                      ),
                                     ),
-                                    SizedBox(height: 6.r),
-                                    GestureDetector(
-                                      onTap: _selectRideTime,
-                                      child: Row(
+                                  ),
+                                  SizedBox(height: 8.r),
+                                  Text(
+                                    vehicle['name'] as String,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: isSelected
+                                          ? Colors.black
+                                          : Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15.r,
+                                    ),
+                                  ),
+                                  SizedBox(height: 4.r),
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Row(
                                         children: [
                                           Icon(
-                                            Iconsax.clock,
-                                            color: Colors.white.withValues(
-                                              alpha: 0.8,
-                                            ),
-                                            size: 16.r,
-                                          ),
-                                          SizedBox(width: 5.r),
-                                          Text(
-                                            _selectedRideTime != null
-                                                ? _selectedRideTime!.format(
-                                                    context,
-                                                  )
-                                                : HomeConstants.TEXT_NOW,
-                                            style: TextStyle(
-                                              color: Colors.white.withValues(
-                                                alpha: 0.8,
-                                              ),
-                                              fontSize: 14.r,
-                                              fontWeight: FontWeight.w500,
-                                            ),
+                                            Icons.person,
+                                            size: 11.r,
+                                            color: isSelected
+                                                ? Colors.black54
+                                                : Colors.white70,
                                           ),
                                           SizedBox(width: 4.r),
-                                          Icon(
-                                            Iconsax.arrow_down_1,
-                                            color: Colors.white.withValues(
-                                              alpha: 0.8,
+                                          Text(
+                                            '${vehicle['capacity']}',
+                                            style: TextStyle(
+                                              color: isSelected
+                                                  ? Colors.black54
+                                                  : Colors.white70,
+                                              fontSize: 11.r,
                                             ),
-                                            size: 16.r,
                                           ),
                                         ],
                                       ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          )
-                        else ...[
-                          Text(
-                            titleText,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 20.r,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          SizedBox(height: 2.r),
-                          GestureDetector(
-                            onTap: _selectRideTime,
-                            child: Row(
-                              children: [
-                                Text(
-                                  _selectedRideTime != null
-                                      ? _selectedRideTime!.format(context)
-                                      : HomeConstants.TEXT_NOW,
-                                  style: TextStyle(
-                                    color: Colors.white.withValues(alpha: 0.8),
-                                    fontSize: 14.r,
-                                    fontWeight: FontWeight.w500,
+                                      Text(
+                                        vehicle['time'] as String,
+                                        style: TextStyle(
+                                          color: isSelected
+                                              ? Colors.black54
+                                              : Colors.white70,
+                                          fontSize: 11.r,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                                SizedBox(width: 4.r),
-                                Icon(
-                                  Iconsax.arrow_down_1,
-                                  color: Colors.white.withValues(alpha: 0.8),
-                                  size: 18.r,
-                                ),
-                              ],
-                            ),
-                          ),
-                          SizedBox(height: 24.r),
-                        ],
-                      ],
-
-                      if (showBothFields && !_isSelectingVehicle)
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: GestureDetector(
-                            onTap: () {
-                              setState(() {
-                                _debounce?.cancel();
-                                _searchGeneration++;
-                                _pendingSuggestions = null;
-                                _pendingSuggestionQuery = null;
-                                _pendingSuggestionField = null;
-                                _mapPickField = null;
-                                _activeField = SearchField.none;
-                                _hasExpandedSearch = false;
-                                _suggestions = [];
-                                _isFetchingSuggestions = false;
-                                FocusScope.of(context).unfocus();
-                              });
-                              _scheduleMapDataSync();
-                            },
-                            child: Container(
-                              margin: EdgeInsets.only(bottom: 12.r),
-                              padding: EdgeInsets.all(8.r),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black12,
-                                    blurRadius: 4.r,
-                                    offset: Offset(0, 2.r),
+                                  const Spacer(),
+                                  Text(
+                                    '₹${(vehicle['price'] as num).toStringAsFixed(0)}',
+                                    style: TextStyle(
+                                      color: isSelected
+                                          ? Colors.black
+                                          : Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 17.r,
+                                    ),
                                   ),
                                 ],
                               ),
-                              child: Icon(
-                                Icons.keyboard_arrow_down,
-                                size: 24.r,
-                                color: Colors.black87,
-                              ),
-                            ),
-                          ),
-                        ),
+                            );
 
-                      // Suggestions List (shows above text fields)
-                      if (isSearching && _suggestions.isNotEmpty)
-                        Container(
-                          constraints: BoxConstraints(maxHeight: 180.r),
-                          margin: EdgeInsets.only(bottom: 12.r),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(15.r),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.1),
-                                blurRadius: 10.r,
-                                offset: Offset(0, 4.r),
-                              ),
-                            ],
-                          ),
-                          child: ListView.separated(
-                            shrinkWrap: true,
-                            padding: EdgeInsets.all(8.r),
-                            itemCount: _suggestions.length,
-                            separatorBuilder: (context, index) =>
-                                Divider(height: 1.r),
-                            itemBuilder: (context, index) {
-                              final item = _suggestions[index];
-                              return ListTile(
-                                leading: Icon(
-                                  Iconsax.location,
-                                  color: Colors.grey.shade400,
-                                ),
-                                title: Text(
-                                  item['display_name'] ?? '',
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 14.r,
-                                    fontWeight: FontWeight.w500,
-                                    color: Colors.black87,
-                                  ),
-                                ),
-                                onTap: () => _onSuggestionSelected(item),
-                              );
-                            },
-                          ),
-                        ),
-
-                      // Search Box Area
-                      Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(15.r),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.05),
-                              blurRadius: 10.r,
-                              offset: Offset(0, 4.r),
-                            ),
-                          ],
-                        ),
-                        clipBehavior: Clip.antiAlias,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Container(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: 16.r,
-                                vertical: 12.r,
-                              ),
-                              color: Colors.white,
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        // From Field
-                                        _buildSearchField(
-                                          label: "From",
-                                          controller: _fromController,
-                                          focusNode: _fromFocus,
-                                          field: SearchField.from,
-                                          isSearching: isSearching,
-                                          isCollapsed: !showBothFields,
+                            return GestureDetector(
+                              onTap: () =>
+                                  setState(() => _selectedVehicleIndex = index),
+                              child: isSelected
+                                  ? Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(
+                                          15.r,
                                         ),
-
-                                        if (showBothFields) ...[
-                                          Padding(
-                                            padding: EdgeInsets.symmetric(
-                                              vertical: 4.r,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withValues(
+                                              alpha: 0.2,
                                             ),
-                                            child: Divider(
-                                              height: 1.r,
-                                              color: Colors.black12,
-                                            ),
-                                          ),
-                                          // To Field
-                                          _buildSearchField(
-                                            label: "To",
-                                            controller: _toController,
-                                            focusNode: _toFocus,
-                                            field: SearchField.to,
-                                            isSearching: isSearching,
-                                            isCollapsed: !showBothFields,
+                                            blurRadius: 10.r,
+                                            offset: Offset(0, 5.r),
                                           ),
                                         ],
-                                      ],
-                                    ),
-                                  ),
-                                  if (_isFetchingSuggestions)
-                                    SizedBox(
-                                      width: 24.r,
-                                      height: 24.r,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2.5.r,
+                                      ),
+                                      clipBehavior: Clip.antiAlias,
+                                      child: Column(
+                                        children: [
+                                          Expanded(child: cardContent),
+                                          GestureDetector(
+                                            onTap: () async {
+                                              setState(() {
+                                                _isSelectingVehicle = false;
+                                                _isSearchingDriver = true;
+                                              });
+                                              await _bookSelectedRide();
+                                              if (mounted) {
+                                                setState(
+                                                  () => _isSearchingDriver =
+                                                      false,
+                                                );
+                                              }
+                                            },
+                                            child: Container(
+                                              padding: EdgeInsets.symmetric(
+                                                vertical: 12.r,
+                                              ),
+                                              width: 140.r,
+                                              color: Colors.yellow.shade600,
+                                              alignment: Alignment.center,
+                                              child: Text(
+                                                "Book Now",
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 14.r,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     )
-                                  else if (!showBothFields)
-                                    Icon(
-                                      Iconsax.search_normal,
-                                      color: Colors.grey.shade400,
-                                      size: 20.r,
+                                  : Align(
+                                      alignment: Alignment.topCenter,
+                                      child: SizedBox(
+                                        height: 180.r,
+                                        child: cardContent,
+                                      ),
                                     ),
-                                ],
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                    if (_isSelectingVehicle)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: DropdownButtonFormField<String>(
+                          key: ValueKey('booking-payment-$_quoteDraftId'),
+                          initialValue: _bookingMethod,
+                          decoration: const InputDecoration(
+                            labelText: 'Pay driver after ride',
+                          ),
+                          dropdownColor: Colors.white,
+                          items: [
+                            if (((_rideQuotes.firstOrNull?['category_snapshot']
+                                        as Map?)?['payment_policy']
+                                    as Map?)?['cash_enabled'] !=
+                                false)
+                              const DropdownMenuItem(
+                                value: 'CASH',
+                                child: Text('Cash'),
                               ),
-                            ),
-                            if (!isSearching &&
-                                !_isSelectingVehicle &&
-                                _toLocation != null)
-                              GestureDetector(
-                                onTap: _isRequestingQuote
-                                    ? null
-                                    : _loadRideQuotes,
-                                child: Container(
-                                  padding: EdgeInsets.symmetric(vertical: 8.r),
-                                  color: Colors.yellow.shade600,
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
+                            if (((_rideQuotes.firstOrNull?['category_snapshot']
+                                        as Map?)?['payment_policy']
+                                    as Map?)?['direct_upi_enabled'] ==
+                                true)
+                              const DropdownMenuItem(
+                                value: 'UPI',
+                                child: Text('Direct UPI'),
+                              ),
+                          ],
+                          onChanged: _isRequestingQuote
+                              ? null
+                              : (value) => setState(
+                                  () => _bookingMethod = value ?? 'CASH',
+                                ),
+                        ),
+                      ),
+                    // Persistent Title Section
+                    if (!isSearching && !_isSelectingVehicle) ...[
+                      if (hasSelectedRoute)
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    titleText,
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 20.r,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  SizedBox(height: 6.r),
+                                  Row(
                                     children: [
                                       Icon(
-                                        Icons.motorcycle,
-                                        color: Colors.black,
-                                        size: 15.r,
+                                        Iconsax.clock,
+                                        color: Colors.white.withValues(
+                                          alpha: 0.8,
+                                        ),
+                                        size: 16.r,
                                       ),
-                                      SizedBox(width: 20.r),
+                                      SizedBox(width: 5.r),
                                       Text(
-                                        _isRequestingQuote
-                                            ? 'Finding ride options…'
-                                            : UserAppCopy.SELECT_RIDE,
+                                        HomeConstants.TEXT_NOW,
                                         style: TextStyle(
-                                          color: Colors.black,
+                                          color: Colors.white.withValues(
+                                            alpha: 0.8,
+                                          ),
                                           fontSize: 14.r,
                                           fontWeight: FontWeight.w500,
                                         ),
                                       ),
                                     ],
                                   ),
-                                ),
+                                ],
                               ),
+                            ),
                           ],
+                        )
+                      else ...[
+                        Text(
+                          titleText,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 20.r,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        SizedBox(height: 2.r),
+                        Text(
+                          HomeConstants.TEXT_NOW,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.8),
+                            fontSize: 14.r,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        SizedBox(height: 24.r),
+                      ],
+                    ],
+
+                    if (showBothFields && !_isSelectingVehicle)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _debounce?.cancel();
+                              _searchGeneration++;
+                              _pendingSuggestions = null;
+                              _pendingSuggestionQuery = null;
+                              _pendingSuggestionField = null;
+                              _mapPickField = null;
+                              _activeField = SearchField.none;
+                              _hasExpandedSearch = false;
+                              _suggestions = [];
+                              _isFetchingSuggestions = false;
+                              FocusScope.of(context).unfocus();
+                            });
+                            _scheduleMapDataSync();
+                          },
+                          child: Container(
+                            margin: EdgeInsets.only(bottom: 12.r),
+                            padding: EdgeInsets.all(8.r),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black12,
+                                  blurRadius: 4.r,
+                                  offset: Offset(0, 2.r),
+                                ),
+                              ],
+                            ),
+                            child: Icon(
+                              Icons.keyboard_arrow_down,
+                              size: 24.r,
+                              color: Colors.black87,
+                            ),
+                          ),
                         ),
                       ),
-                    ],
+
+                    // Suggestions List (shows above text fields)
+                    if (isSearching && _suggestions.isNotEmpty)
+                      Container(
+                        constraints: BoxConstraints(maxHeight: 180.r),
+                        margin: EdgeInsets.only(bottom: 12.r),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(15.r),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.1),
+                              blurRadius: 10.r,
+                              offset: Offset(0, 4.r),
+                            ),
+                          ],
+                        ),
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          padding: EdgeInsets.all(8.r),
+                          itemCount: _suggestions.length,
+                          separatorBuilder: (context, index) =>
+                              Divider(height: 1.r),
+                          itemBuilder: (context, index) {
+                            final item = _suggestions[index];
+                            return ListTile(
+                              leading: Icon(
+                                Iconsax.location,
+                                color: Colors.grey.shade400,
+                              ),
+                              title: Text(
+                                item['display_name'] ?? '',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 14.r,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                              onTap: () => _onSuggestionSelected(item),
+                            );
+                          },
+                        ),
+                      ),
+
+                    // Search Box Area
+                    Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(15.r),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.05),
+                            blurRadius: 10.r,
+                            offset: Offset(0, 4.r),
+                          ),
+                        ],
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 16.r,
+                              vertical: 12.r,
+                            ),
+                            color: Colors.white,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      // From Field
+                                      _buildSearchField(
+                                        label: "From",
+                                        controller: _fromController,
+                                        focusNode: _fromFocus,
+                                        field: SearchField.from,
+                                        isSearching: isSearching,
+                                        isCollapsed: !showBothFields,
+                                      ),
+
+                                      if (showBothFields) ...[
+                                        Padding(
+                                          padding: EdgeInsets.symmetric(
+                                            vertical: 4.r,
+                                          ),
+                                          child: Divider(
+                                            height: 1.r,
+                                            color: Colors.black12,
+                                          ),
+                                        ),
+                                        // To Field
+                                        _buildSearchField(
+                                          label: "To",
+                                          controller: _toController,
+                                          focusNode: _toFocus,
+                                          field: SearchField.to,
+                                          isSearching: isSearching,
+                                          isCollapsed: !showBothFields,
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                if (_isFetchingSuggestions)
+                                  SizedBox(
+                                    width: 24.r,
+                                    height: 24.r,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.5.r,
+                                    ),
+                                  )
+                                else if (!showBothFields)
+                                  Icon(
+                                    Iconsax.search_normal,
+                                    color: Colors.grey.shade400,
+                                    size: 20.r,
+                                  ),
+                              ],
+                            ),
+                          ),
+                          if (_routeError != null &&
+                              !isSearching &&
+                              !_isSelectingVehicle)
+                            TextButton(
+                              onPressed: _isFetchingRoute ? null : _fetchRoute,
+                              child: Text(
+                                _routeError!,
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          if (!isSearching &&
+                              !_isSelectingVehicle &&
+                              _toLocation != null)
+                            GestureDetector(
+                              onTap: _isRequestingQuote
+                                  ? null
+                                  : _loadRideQuotes,
+                              child: Container(
+                                padding: EdgeInsets.symmetric(vertical: 8.r),
+                                color: Colors.yellow.shade600,
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.motorcycle,
+                                      color: Colors.black,
+                                      size: 15.r,
+                                    ),
+                                    SizedBox(width: 20.r),
+                                    Text(
+                                      _isRequestingQuote
+                                          ? 'Finding ride options…'
+                                          : UserAppCopy.SELECT_RIDE,
+                                      style: TextStyle(
+                                        color: Colors.black,
+                                        fontSize: 14.r,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -2151,11 +2203,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           ),
                         )
                       : Text(
-                          isCollapsed
-                              ? HomeConstants.TEXT_HOME
-                              : (controller.text.isEmpty
-                                    ? "Select location"
-                                    : controller.text),
+                          controller.text.isEmpty
+                              ? 'Select location'
+                              : controller.text,
                           style: TextStyle(
                             color: Colors.black,
                             fontSize: 15.r,

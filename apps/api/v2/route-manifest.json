@@ -1126,5 +1126,197 @@
     "path": "driver/vehicle-verification/assets/:id",
     "guards": ["AuthGuard", "DriverAccessGuard"],
     "idempotent": false
+  },
+  {
+    "feature": "app_configuration",
+    "handler": "fare",
+    "method": "get",
+    "path": "admin/fare-policy",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "app_configuration",
+    "handler": "save_fare",
+    "method": "patch",
+    "path": "admin/fare-policy",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "app_configuration",
+    "handler": "contacts",
+    "method": "get",
+    "path": "support/configuration",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "app_configuration",
+    "handler": "admin_contacts",
+    "method": "get",
+    "path": "admin/support/configuration/contact",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "app_configuration",
+    "handler": "save_contacts",
+    "method": "patch",
+    "path": "admin/support/configuration/contact",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "travel_context",
+    "handler": "context",
+    "method": "get",
+    "path": "me/travel-context",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "travel_context",
+    "handler": "current",
+    "method": "get",
+    "path": "driver/rides/current",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "travel_context",
+    "handler": "list",
+    "method": "get",
+    "path": "driver/rides",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "travel_context",
+    "handler": "detail",
+    "method": "get",
+    "path": "driver/rides/:id",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "driver_operations",
+    "handler": "dashboard",
+    "method": "get",
+    "path": "driver/operations",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "driver_operations",
+    "handler": "context",
+    "method": "get",
+    "path": "trips/:id/context",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "driver_operations",
+    "handler": "refresh_code",
+    "method": "post",
+    "path": "trips/:id/start-code/refresh",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "driver_operations",
+    "handler": "navigation",
+    "method": "get",
+    "path": "driver/rides/:id/navigation",
+    "guards": ["AuthGuard", "DriverAccessGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "driver_operations",
+    "handler": "payment",
+    "method": "post",
+    "path": "trips/:id/payment",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "driver_operations",
+    "handler": "collection",
+    "method": "post",
+    "path": "driver/rides/:id/collection",
+    "guards": ["AuthGuard", "DriverAccessGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "driver_operations",
+    "handler": "messages",
+    "method": "get",
+    "path": "trips/:id/messages",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "driver_operations",
+    "handler": "message",
+    "method": "post",
+    "path": "trips/:id/messages",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "driver_operations",
+    "handler": "contact",
+    "method": "post",
+    "path": "trips/:id/contact-attempt",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "driver_operations",
+    "handler": "issue",
+    "method": "post",
+    "path": "trips/:id/issues",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "driver_operations",
+    "handler": "dispute",
+    "method": "post",
+    "path": "trips/:id/dispute",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "driver_operations",
+    "handler": "reviews",
+    "method": "get",
+    "path": "admin/trip-reviews",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "driver_operations",
+    "handler": "review",
+    "method": "patch",
+    "path": "admin/trip-reviews/:id",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "driver_operations",
+    "handler": "rider_route",
+    "method": "get",
+    "path": "trips/:id/rider-route",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "travel_context",
+    "handler": "rider_history",
+    "method": "get",
+    "path": "me/rides",
+    "guards": ["AuthGuard"],
+    "idempotent": false
   }
 ]

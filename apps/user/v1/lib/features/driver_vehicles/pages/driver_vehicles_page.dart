@@ -124,21 +124,40 @@ class _DriverVehiclesPageState extends State<DriverVehiclesPage>
           ? 'Vehicle registration'
           : 'My vehicles',
       action: widget.registrationRequired
-          ? IconButton(
-              tooltip: 'Sign out',
-              onPressed: _busy
-                  ? null
-                  : () async {
-                      await AuthRepository().signOut();
-                      if (context.mounted) {
-                        Navigator.pushNamedAndRemoveUntil(
-                          context,
-                          AppRoutes.login,
-                          (_) => false,
-                        );
-                      }
-                    },
-              icon: const Icon(Icons.logout),
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: 'Settings',
+                  onPressed: _busy
+                      ? null
+                      : () => Navigator.pushNamed(context, AppRoutes.settings),
+                  icon: const Icon(Icons.settings_outlined),
+                ),
+                IconButton(
+                  tooltip: 'Help',
+                  onPressed: _busy
+                      ? null
+                      : () => Navigator.pushNamed(context, AppRoutes.support),
+                  icon: const Icon(Icons.support_agent),
+                ),
+                IconButton(
+                  tooltip: 'Sign out',
+                  onPressed: _busy
+                      ? null
+                      : () async {
+                          await AuthRepository().signOut();
+                          if (context.mounted) {
+                            Navigator.pushNamedAndRemoveUntil(
+                              context,
+                              AppRoutes.login,
+                              (_) => false,
+                            );
+                          }
+                        },
+                  icon: const Icon(Icons.logout),
+                ),
+              ],
             )
           : null,
       child: FutureBuilder<Map<String, dynamic>>(

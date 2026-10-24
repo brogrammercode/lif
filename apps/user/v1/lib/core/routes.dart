@@ -1,3 +1,4 @@
+import 'package:user/features/driver_operations/pages/trip_chat_page.dart';
 import 'package:user/features/partner_program/pages/driver_exit_page.dart';
 import 'package:flutter/material.dart';
 import 'package:user/features/auth/pages/login_page.dart';
@@ -14,6 +15,8 @@ import 'package:user/features/support/pages/support_ticket_page.dart';
 import 'package:user/features/payments/pages/payment_methods_page.dart';
 import 'package:user/features/settings/pages/settings_page.dart';
 import 'package:user/features/driver_vehicles/pages/driver_vehicles_page.dart';
+import 'package:user/features/driver_vehicles/pages/driver_trips_page.dart';
+import 'package:user/features/driver_vehicles/pages/driver_trip_page.dart';
 import 'package:user/features/partner_program/pages/partner_program_page.dart';
 import 'package:user/features/partner_program/pages/activation_page.dart';
 import 'package:user/features/partner_program/pages/driver_home_page.dart';
@@ -35,6 +38,9 @@ class AppRoutes {
   static const String paymentMethods = '/payment-methods';
   static const String settings = '/settings';
   static const String driverVehicles = '/driver/vehicles';
+  static const String tripChat = '/trip-chat';
+  static const String driverRides = '/driver/rides';
+  static const String driverRideDetail = '/driver/ride-detail';
   static const String partnerProgram = '/partner-program';
   static const String partnerActivation = '/partner-program/activation';
   static const String driverHome = '/driver/home';
@@ -55,6 +61,9 @@ class AppRoutes {
     paymentMethods: (context) => const PaymentMethodsPage(),
     settings: (context) => const SettingsPage(),
     driverVehicles: (context) => const DriverVehiclesPage(),
+    tripChat: (context) => const TripChatPage(),
+    driverRides: (context) => const DriverTripsPage(),
+    driverRideDetail: (context) => const DriverTripPage(),
     partnerProgram: (context) => const PartnerProgramPage(),
     partnerActivation: (context) => const PartnerActivationPage(),
     driverHome: (context) => const DriverHomePage(),

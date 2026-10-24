@@ -1,4 +1,4 @@
-import 'dart:async';
+import 'package:user/features/saved_places/widgets/saved_place_editor.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -18,189 +18,20 @@ class _SavedPlacesPageState extends State<SavedPlacesPage> {
   final UserAppRepository _repository = UserAppRepository();
   late Future<List<Map<String, dynamic>>> _places = _repository.savedPlaces();
   Future<void> _reload() async {
-    setState(() => _places = _repository.savedPlaces());
+    if (!mounted) return;
+    setState(() {
+      _places = _repository.savedPlaces();
+    });
     await _places;
   }
 
   Future<void> _edit([Map<String, dynamic>? current]) async {
-    final label = TextEditingController(text: '${current?['label'] ?? ''}');
-    final address = TextEditingController(text: '${current?['address'] ?? ''}');
-    List<Map<String, dynamic>> suggestions = [];
-    double? selectedLatitude = (current?['latitude'] as num?)?.toDouble();
-    double? selectedLongitude = (current?['longitude'] as num?)?.toDouble();
-    bool searching = false;
-    String placeType = '${current?['place_type'] ?? 'OTHER'}';
-    Timer? debounce;
     final input = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, update) => AlertDialog(
-          title: Text(current == null ? UserAppCopy.ADD : UserAppCopy.EDIT),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _input(label, UserAppCopy.PLACE_LABEL),
-                DropdownButtonFormField<String>(
-                  initialValue: placeType,
-                  decoration: InputDecoration(
-                    labelText: UserAppCopy.PLACE_TYPE,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12.r),
-                    ),
-                  ),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'HOME',
-                      child: Text(UserAppCopy.HOME),
-                    ),
-                    DropdownMenuItem(
-                      value: 'WORK',
-                      child: Text(UserAppCopy.WORK),
-                    ),
-                    DropdownMenuItem(
-                      value: 'OTHER',
-                      child: Text(UserAppCopy.OTHER),
-                    ),
-                  ],
-                  onChanged: (value) =>
-                      update(() => placeType = value ?? 'OTHER'),
-                ),
-                SizedBox(height: 10.h),
-                TextField(
-                  controller: address,
-                  decoration: InputDecoration(
-                    labelText: UserAppCopy.ADDRESS,
-                    hintText: UserAppCopy.CHOOSE_ADDRESS,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12.r),
-                    ),
-                  ),
-                  onChanged: (value) {
-                    debounce?.cancel();
-                    if (value.trim().length < 3) {
-                      update(() {
-                        suggestions = [];
-                        searching = false;
-                        selectedLatitude = null;
-                        selectedLongitude = null;
-                      });
-                      return;
-                    }
-                    debounce = Timer(
-                      const Duration(milliseconds: 450),
-                      () async {
-                        update(() => searching = true);
-                        try {
-                          final results = await _repository.searchPlaces(
-                            value.trim(),
-                          );
-                          if (context.mounted) {
-                            update(() {
-                              suggestions = results;
-                              searching = false;
-                            });
-                          }
-                        } catch (_) {
-                          if (context.mounted) {
-                            update(() {
-                              suggestions = [];
-                              searching = false;
-                            });
-                          }
-                        }
-                      },
-                    );
-                  },
-                ),
-                if (searching)
-                  Padding(
-                    padding: EdgeInsets.all(12.h),
-                    child: SizedBox(
-                      width: 18.w,
-                      height: 18.w,
-                      child: const CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-                if (suggestions.isNotEmpty)
-                  SizedBox(
-                    height: 180.h,
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: suggestions.length,
-                      itemBuilder: (context, index) {
-                        final item = suggestions[index];
-                        return ListTile(
-                          dense: true,
-                          leading: const Icon(
-                            Icons.place_outlined,
-                            color: AppColors.primaryGreen,
-                          ),
-                          title: Text(
-                            '${item['display_name'] ?? ''}',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          onTap: () {
-                            selectedLatitude = double.tryParse(
-                              '${item['lat']}',
-                            );
-                            selectedLongitude = double.tryParse(
-                              '${item['lon']}',
-                            );
-                            address.text = '${item['display_name'] ?? ''}';
-                            update(() => suggestions = []);
-                            FocusScope.of(context).unfocus();
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                if (selectedLatitude == null)
-                  Padding(
-                    padding: EdgeInsets.only(top: 8.h),
-                    child: Text(
-                      UserAppCopy.SELECT_ADDRESS,
-                      style: TextStyle(
-                        fontSize: 11.sp,
-                        color: AppColors.textTertiary,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text(UserAppCopy.CANCEL),
-            ),
-            TextButton(
-              onPressed: () {
-                if (label.text.trim().isEmpty ||
-                    selectedLatitude == null ||
-                    selectedLongitude == null) {
-                  return;
-                }
-                Navigator.pop(dialogContext, {
-                  'label': label.text.trim(),
-                  'address': address.text.trim(),
-                  'latitude': selectedLatitude,
-                  'longitude': selectedLongitude,
-                  'place_type': placeType,
-                });
-              },
-              child: Text(
-                current == null ? UserAppCopy.ADD : UserAppCopy.SAVE_CHANGES,
-              ),
-            ),
-          ],
-        ),
-      ),
+      builder: (_) =>
+          SavedPlaceEditor(initial: current, repository: _repository),
     );
-    debounce?.cancel();
-    label.dispose();
-    address.dispose();
+    if (!mounted) return;
     if (input == null) return;
     try {
       if (current == null) {
@@ -340,22 +171,6 @@ class _SavedPlacesPageState extends State<SavedPlacesPage> {
           ),
         );
       },
-    ),
-  );
-
-  Widget _input(
-    TextEditingController controller,
-    String label, {
-    TextInputType? keyboard,
-  }) => Padding(
-    padding: EdgeInsets.only(bottom: 10.h),
-    child: TextField(
-      controller: controller,
-      keyboardType: keyboard,
-      decoration: InputDecoration(
-        labelText: label,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r)),
-      ),
     ),
   );
 }

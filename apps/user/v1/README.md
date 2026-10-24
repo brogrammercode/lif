@@ -35,7 +35,32 @@ For iOS Google sign-in, create an iOS OAuth client for `com.brogrammer.onemore` 
 - Ride history, ride details, cancellation, start confirmation, review, payment checkout, and receipt.
 - Profile editing, saved places, notifications, payment methods, emergency contacts, and support conversations.
 
-Cash checkout is recorded as pending until collection is confirmed. Digital methods are intentionally unavailable until a payment-provider adapter and credentials are configured; cash collection confirmation/reconciliation also needs an operator or driver workflow.
+Cash/direct-to-driver UPI is recorded as pending until the assigned driver confirms full receipt, with zero commission. Riders can select cash or open a UPI payment intent after completion; opening a payment app never proves collection. The driver UPI destination must come from an approved application field. Online collection through a payment provider remains a future feature.
+
+## Phase A: rider and driver foundation
+
+Settings includes a rider/driver switch for activated drivers and exited partners. The preference is stored per account, does not change the server role, and cannot switch away from active work. Entering rider mode takes an eligible driver offline. Startup asks API V2 for travel-context and restores active driver/rider trips before opening the selected home.
+
+Driver mode still requires an eligible verified vehicle. Required vehicle registration includes Settings for returning to rider mode, Help and sign-out. Driver trips/history are owner-scoped. Phase B extends the recovery page into the map-first operational trip below. Support combines configured contact actions with existing tickets. Home's bell opens Notifications, its no-GPS/no-cache fallback is Bhagalpur, and scheduling is represented as Now until the next release.
+
+Fresh fare quotes use the saved admin Fare Policy rather than category base/time rates. Configure actual rates for all three fare groups in **App > User > Fare Policy** before requesting quotes. No monetary defaults are invented. **Support > Configure > Contact** supplies public help channels.
+
+Deploy the matching API V2 routes and configuration migrations before releasing this mobile change. No new APK or Shorebird patch was published for Phase A or B. See [Phase A implementation, accepted rules and rollout](../../../context/PHASE_A_IMPLEMENTATION.md).
+
+## Phase B: operational driver trip
+
+- Map-first driver home shows readiness, an active vehicle, online/offline status and expiring nearby offers. Online requires precise GPS. Settings, vehicles, trip history, Help and exit/dues retain their existing gates.
+- Accepting an offer/restoring an active trip opens the map and a draggable trip card. Navigation follows pickup, then destination after verified start, with maneuver text, distance to the next turn, route progress, browse/follow controls and rerouting after deviation. A routing failure leaves trip controls accessible with a retry.
+- Arrival uses the configured radius (initially 150 m) and GPS age (initially 60 s). The waiting screen shows the free waiting clock. Rider confirmation plus the trip code must both succeed. The trip code is separate from partner activation and is only shown to the rider.
+- Calls and text chat are scoped to the trip. There is no masked calling provider. Active-trip offers are view-only, without queuing or accepting another ride.
+- Completion shows the server fare and collection controls. Only the assigned driver confirms cash/UPI receipt, or reports unpaid fare with a reason. Cancellation, no-show and disputes retain evidence for admin review. Approved cancellation/no-show charges have a separate direct-UPI link when the original driver's approved UPI is available; Support records verified settlement. They never carry into another driver's fare.
+- Startup restores active trips; final rider/driver pages provide a return-home action. Driver tracking stops on going offline, switching to rider mode or signing out. Stale GPS pauses offer eligibility and is shown to participants.
+
+**A new base APK is required.** Android adds a foreground location service/notification and wake lock; iOS adds location background mode and its permission description. This change must not be shipped as a Dart-only patch to the old base. No APK was built for checks and no Shorebird release was published. Device testing must cover foreground/background tracking, process restart, revoked permissions, native MapLibre rendering and UPI/calling intents on both platforms. Notifications/chat/matching use foreground polling and persisted inbox entries; background push delivery and voice guidance are separate work.
+
+See the [Phase B tracker](../../../context/PHASE_B_IMPLEMENTATION.md) and [screen catalog](../../../context/USER_DRIVER_SCREEN_CATALOG.md).
+
+The driver trip screen uses the updated API V2 context response for both its public trip summary and action state. Deploy that matching API before distributing this app version. Opening a historical trip preserves GPS reporting for another active assignment. Navigation and view-only offers refresh independently of trip actions, and a slow optional request does not block start/completion controls. The [follow-up audit](../../../context/PHASE_AB_AUDIT.md) lists the additional corrections and passing checks.
 
 ## Shorebird setup
 
@@ -118,3 +143,12 @@ flutter analyze
 ```
 
 Use Flutter `3.47.7` for this project's documented base release command; check that it appears in Shorebird's supported versions. When changing Flutter, update the documented version and publish a new base release. SDK downloads during CLI setup are expected. Building an APK is a deliberate release step, not a routine analysis check.
+
+
+## Phase C rider experience
+
+Home opens a booking review before confirmation, with category/fare/payment policy, quote expiry and optional pickup instructions. Lost booking responses reconcile the same draft; retries retain the same request key and payload. Home can resume an active rider/driver trip and rebooking requests a fresh quote.
+
+The rider trip page follows server matching, assignment, arrival, combined OTP/confirmation, in-progress navigation, completion and collection. It shows the actual driver/vehicle, timestamped GPS and OSRM remaining route, with visible last-known/error states. Receipt, rating, structured cancellation, reviewed fees, paginated Active/Past history, notification re-entry and trip-linked support share existing app components. Safety offers configured calls, emergency contacts, clipboard and manual WhatsApp sharing of a static summary.
+
+Requires the matching Phase C API V2 and the Phase B native base/location permissions. No new package is required. No APK was built for these checks. See [Phase C implementation and device acceptance](../../../context/PHASE_C_IMPLEMENTATION.md).

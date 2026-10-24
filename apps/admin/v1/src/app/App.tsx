@@ -1,3 +1,4 @@
+import { TripReviewsPage } from "../modules/app-configuration/TripReviewsPage";
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppShell } from "../components/layout/AppShell";
@@ -12,6 +13,8 @@ import { AdminAccessPage } from "../modules/admin-access/AdminAccessPage";
 import { ADMIN_ACCESS_PATH } from "../modules/admin-access/admin-access.constant";
 import { AdminActivityPage } from "../modules/admin-access/AdminActivityPage";
 import { VehicleModelsPage } from "../modules/vehicle-models/VehicleModelsPage";
+import { FarePolicyPage } from "../modules/app-configuration/FarePolicyPage";
+import { SupportContactsPage } from "../modules/app-configuration/SupportContactsPage";
 import { RequirementsPage } from "../modules/partner-requirements/RequirementsPage";
 const PartnerDocumentPage = lazy(() =>
   import("../modules/partner-program/PartnerDocumentPage").then((module) => ({
@@ -53,6 +56,20 @@ export function App() {
         }
       >
         <Route path={WORKSPACE_PATH} element={<VehicleCategoriesPage />} />
+        <Route path="/app/user/ride-reviews" element={<TripReviewsPage />} />
+        <Route path="/app/user/fare-policy" element={<FarePolicyPage />} />
+        <Route
+          path="/support/configure/contact"
+          element={<SupportContactsPage />}
+        />
+        <Route
+          path="/support"
+          element={<Navigate to="/support/configure/contact" replace />}
+        />
+        <Route
+          path="/support/configure"
+          element={<Navigate to="/support/configure/contact" replace />}
+        />
         <Route
           path="/app/user/vehicle-models"
           element={<VehicleModelsPage />}

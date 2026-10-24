@@ -124,7 +124,7 @@ test("navigation, category creation, subcategory creation, search, editing and m
     .getByLabel("Vehicle family", { exact: true })
     .selectOption("SEDAN");
   await page.getByLabel("Passenger seats", { exact: true }).fill("4");
-  await page.getByLabel("Base fare", { exact: true }).fill("95.50");
+  await expect(page.getByLabel("Base fare", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Create category" }).click();
   await expect(
     page.getByRole("button", { name: "Edit City rides" }),

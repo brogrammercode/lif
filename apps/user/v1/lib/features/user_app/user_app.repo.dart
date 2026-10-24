@@ -7,6 +7,37 @@ class UserAppRepository {
 
   dynamic _data(dynamic response) => ApiResult.unwrap(response);
 
+  Future<Map<String, dynamic>> travelContext() async =>
+      Map<String, dynamic>.from(
+        _data(await _client.getData('/me/travel-context')) as Map,
+      );
+  Future<void> goOffline() async {
+    await _client.patchData(
+      '/driver/availability',
+      data: {'availability': 'OFFLINE'},
+    );
+  }
+
+  Future<Map<String, dynamic>> driverRides({int page = 1}) async =>
+      Map<String, dynamic>.from(
+        _data(
+              await _client.getData(
+                '/driver/rides',
+                queryParameters: {'page': page, 'page_size': 20},
+              ),
+            )
+            as Map,
+      );
+  Future<Map<String, dynamic>> driverRide(String id) async =>
+      Map<String, dynamic>.from(
+        _data(await _client.getData('/driver/rides/${Uri.encodeComponent(id)}'))
+            as Map,
+      );
+  Future<Map<String, dynamic>> supportContacts() async =>
+      Map<String, dynamic>.from(
+        _data(await _client.getData('/support/configuration')) as Map,
+      );
+
   Future<List<Map<String, dynamic>>> vehicleCategories() async =>
       List<Map<String, dynamic>>.from(
         (_data(await _client.getData(ApiConstants.VEHICLE_CATEGORIES)) as List)
@@ -57,6 +88,22 @@ class UserAppRepository {
           (value) => Map<String, dynamic>.from(value as Map),
         ),
       );
+  Future<Map<String, dynamic>> riderHistory({
+    int page = 1,
+    String section = 'all',
+  }) async => Map<String, dynamic>.from(
+    _data(
+          await _client.getData(
+            '/me/rides',
+            queryParameters: {
+              'page': page,
+              'page_size': 20,
+              'section': section,
+            },
+          ),
+        )
+        as Map,
+  );
   Future<Map<String, dynamic>> ride(String id) async =>
       Map<String, dynamic>.from(
         _data(await _client.getData('${ApiConstants.RIDES}/$id')) as Map,
@@ -67,15 +114,23 @@ class UserAppRepository {
       );
   Future<Map<String, dynamic>> requestRide(
     String draftId,
-    String quoteId,
-  ) async => Map<String, dynamic>.from(
+    String quoteId, {
+    String method = 'CASH',
+    String? note,
+    String? requestKey,
+  }) async => Map<String, dynamic>.from(
     _data(
           await _client.postData(
             ApiConstants.RIDES,
-            data: {'draft_ride_id': draftId, 'quote_id': quoteId},
+            data: {
+              'draft_ride_id': draftId,
+              'quote_id': quoteId,
+              'payment_preference': method,
+              'rider_note': ?note,
+            },
             headers: {
-              ApiConstants.IDP_HEADER: DateTime.now().microsecondsSinceEpoch
-                  .toString(),
+              ApiConstants.IDP_HEADER:
+                  requestKey ?? 'ride-request-$draftId-$quoteId-$method',
             },
           ),
         )
@@ -176,15 +231,17 @@ class UserAppRepository {
         (_data(await _client.getData(ApiConstants.SUPPORT_TICKETS)) as List)
             .map((value) => Map<String, dynamic>.from(value as Map)),
       );
-  Future<void> createSupportTicket(Map<String, dynamic> input) async =>
-      _client.postData(
-        ApiConstants.SUPPORT_TICKETS,
-        data: input,
-        headers: {
-          ApiConstants.IDP_HEADER: DateTime.now().microsecondsSinceEpoch
-              .toString(),
-        },
-      );
+  Future<void> createSupportTicket(
+    Map<String, dynamic> input, {
+    String? requestKey,
+  }) async => _client.postData(
+    ApiConstants.SUPPORT_TICKETS,
+    data: input,
+    headers: {
+      ApiConstants.IDP_HEADER:
+          requestKey ?? DateTime.now().microsecondsSinceEpoch.toString(),
+    },
+  );
   Future<Map<String, dynamic>> supportTicket(String id) async =>
       Map<String, dynamic>.from(
         _data(await _client.getData('${ApiConstants.SUPPORT_TICKETS}/$id'))

@@ -1,3 +1,4 @@
+import 'package:user/features/driver_operations/driver_tracking.service.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:user/core/config.dart';
 import 'package:user/core/network/api.constant.dart';
@@ -59,6 +60,7 @@ class AuthRepository {
   }
 
   Future<void> signOut() async {
+    await DriverTrackingService.instance.stop(goOffline: true);
     await _client.signOut();
     if (_googleInitialized) await _googleSignIn.signOut();
   }

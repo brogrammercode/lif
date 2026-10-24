@@ -1,3 +1,4 @@
+import { DriverOperationsService } from '../features/driver_operations/driver_operations.service.js';
 import assert from 'node:assert/strict';
 import { it, mock } from 'node:test';
 import {
@@ -6,15 +7,110 @@ import {
 } from '../features/ride/ride.repo.js';
 import { PrismaService } from '../infra/database/prisma.service.js';
 import { Prisma } from '@prisma/client';
+import { AppConfigurationService } from '../features/app_configuration/app_configuration.service.js';
 import { RideService } from '../features/ride/ride.service.js';
 import { GeocodeService } from '../features/geocode/geocode.service.js';
 import { VehicleCategoryRepository } from '../features/vehicle_category/vehicle_category.repo.js';
 
-it('rounds fractional distance and time fares using decimal arithmetic', async () => {
+it('live location reads retain the newest bounded tail in chronological order and reject unrelated riders', async () => {
+  let take = 0;
+  const db = new PrismaService();
+  Object.defineProperty(db, 'client', {
+    value: {
+      ride: {
+        findFirst: async ({ where }: { where: { rider_id: string } }) =>
+          where.rider_id === 'rider' ? { id: 'ride' } : null,
+      },
+      rideLocation: {
+        findMany: async (args: { take: number; orderBy: unknown }) => {
+          take = args.take;
+          assert.deepEqual(args.orderBy, [
+            { recorded_at: 'desc' },
+            { id: 'desc' },
+          ]);
+          return Array.from({ length: 1200 }, (_, i) => ({
+            id: String(1200 - i),
+            recorded_at: new Date((1200 - i) * 1000),
+          })).slice(0, args.take);
+        },
+      },
+    },
+  });
+  const repo = new RideRepository(db);
+  const points = await repo.list_ride_locations('rider', 'ride');
+  assert.equal(take, 500);
+  assert.equal(points?.length, 500);
+  assert.equal(points?.at(-1)?.id, '1200');
+  assert.equal(points?.at(0)?.id, '701');
+  assert.equal(await repo.list_ride_locations('other-rider', 'ride'), null);
+});
+
+it('advances matching and reloads the rider status even without a mounted action panel', async () => {
+  const database = new PrismaService();
+  const rides = new RideRepository(database);
+  const operations = new DriverOperationsService(
+    database,
+    new GeocodeService(),
+  );
+  let status = 'SEARCHING';
+  const read = mock.method(
+    rides,
+    'find_ride_for_user',
+    async () =>
+      ({ id: 'ride', status }) as Awaited<
+        ReturnType<RideRepository['find_ride_for_user']>
+      >,
+  );
+  const dispatch = mock.method(operations, 'dispatch', async () => {
+    status = 'NO_DRIVER_FOUND';
+  });
+  const service = new RideService(
+    new VehicleCategoryRepository(database),
+    new GeocodeService(),
+    rides,
+    new AppConfigurationService(database),
+    operations,
+  );
+  assert.equal(
+    (await service.get_ride('rider', 'ride')).status,
+    'NO_DRIVER_FOUND',
+  );
+  assert.equal(dispatch.mock.callCount(), 1);
+  assert.equal(read.mock.callCount(), 2);
+  await service.get_ride('rider', 'ride');
+  assert.equal(dispatch.mock.callCount(), 1);
+});
+
+it('rounds the distance-only fare using saved profit and normal rates', async () => {
   const database = new PrismaService();
   const categories = new VehicleCategoryRepository(database);
   const geocode = new GeocodeService();
   const rides = new RideRepository(database);
+  const configuration = new AppConfigurationService(database);
+  mock.method(
+    configuration,
+    'fare_snapshot',
+    async () =>
+      ({
+        version: 1,
+        cash_enabled: true,
+        direct_upi_enabled: true,
+        online_payment_enabled: false,
+        commission_percent: new Prisma.Decimal(0),
+        free_cancellation_minutes: 2,
+        free_pickup_wait_minutes: 5,
+        cancellation_fee_percent: new Prisma.Decimal(10),
+        maximum_cancellation_fee: new Prisma.Decimal(100),
+        rates: [
+          {
+            group: 'CAR',
+            max_profit_km: new Prisma.Decimal(3),
+            profit_fare_per_km: new Prisma.Decimal('2.01'),
+            normal_fare_per_km: new Prisma.Decimal('2.01'),
+          },
+        ],
+      }) as Awaited<ReturnType<AppConfigurationService['fare_snapshot']>>,
+  );
   const category = {
     id: 'category',
     code: 'FIXTURE',
@@ -54,15 +150,21 @@ it('rounds fractional distance and time fares using decimal arithmetic', async (
   );
   try {
     await assert.rejects(
-      new RideService(categories, geocode, rides).build_quote('rider', {
+      new RideService(
+        categories,
+        geocode,
+        rides,
+        configuration,
+        new DriverOperationsService(database, geocode),
+      ).build_quote('rider', {
         pickup: { address: 'Pickup', latitude: 0, longitude: 0 },
         dropoff: { address: 'Dropoff', latitude: 1, longitude: 1 },
       }),
       (error) => error === stop,
     );
     assert.equal(captured[0]?.distance_fare, 1.01);
-    assert.equal(captured[0]?.time_fare, 1.01);
-    assert.equal(captured[0]?.total_fare, 2.02);
+    assert.equal(captured[0]?.time_fare, 0);
+    assert.equal(captured[0]?.total_fare, 1.01);
   } finally {
     mock.restoreAll();
   }
@@ -82,6 +184,7 @@ it('serializes driver reviews and updates rating statistics in the review transa
       }),
     },
     review: {
+      findUnique: async () => null,
       create: async () => {
         steps.push('review');
         return { id: 'review', score: 5 };
@@ -133,55 +236,39 @@ it('serializes driver reviews and updates rating statistics in the review transa
   ]);
 });
 
-it('reads current verification after acquiring the driver lock during cancellation', async () => {
-  const steps: string[] = [];
-  const transaction = {
-    $executeRaw: async () => {
-      steps.push('lock');
-      return 1;
-    },
+it('a rating retry returns the original review and rejects an altered score without changing aggregates', async () => {
+  const saved = { id: 'review', score: 5, comment: 'Good ride' };
+  const tx = {
+    $executeRaw: async () => 1,
     ride: {
       findFirst: async () => ({
-        id: 'ride',
-        rider_id: 'rider',
-        status: 'DRIVER_ASSIGNED',
-        driver: {
-          id: 'driver',
-          user_id: 'driver-user',
-          verification_status: 'VERIFIED',
-          user: { status: 'ACTIVE' },
-        },
+        status: 'COMPLETED',
+        driver: { user_id: 'driver' },
       }),
-      update: async () => ({ id: 'ride', status: 'CANCELLED' }),
     },
-    driverProfile: {
-      findUniqueOrThrow: async () => {
-        steps.push('fresh-driver');
-        return { verification_status: 'REJECTED', user: { status: 'ACTIVE' } };
-      },
-      update: async ({ data }: { data: { availability: string } }) => {
-        assert.equal(data.availability, 'OFFLINE');
-        steps.push('update-driver');
-        return {};
-      },
-    },
-    rideOffer: { updateMany: async () => ({ count: 0 }) },
-    rideEvent: { create: async () => ({}) },
-    userLog: { create: async () => ({}) },
+    review: { findUnique: async () => saved },
   };
   const database = new PrismaService();
   Object.defineProperty(database, 'client', {
     value: {
-      $transaction: async (
-        action: (tx: typeof transaction) => Promise<unknown>,
-      ) => action(transaction),
+      $transaction: async (action: (client: typeof tx) => Promise<unknown>) =>
+        action(tx),
     },
   });
-  const result = await new RideRepository(database).cancel_ride(
-    'rider',
-    'ride',
-    { cancel_reason: 'Change of plans' },
+  const repo = new RideRepository(database);
+  const result = await repo.create_review('rider', 'ride', {
+    reviewee_id: 'driver',
+    score: 5,
+    comment: 'Good ride',
+  });
+  assert.deepEqual(result, { kind: 'success', review: saved });
+  await assert.rejects(
+    () =>
+      repo.create_review('rider', 'ride', {
+        reviewee_id: 'driver',
+        score: 4,
+        comment: 'Good ride',
+      }),
+    { error_code: 'REVIEW_ALREADY_SUBMITTED' },
   );
-  assert.equal(result.kind, 'success');
-  assert.deepEqual(steps, ['lock', 'lock', 'fresh-driver', 'update-driver']);
 });

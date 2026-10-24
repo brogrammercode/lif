@@ -1,7 +1,12 @@
+import { DriverOperationsService } from '../driver_operations/driver_operations.service.js';
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { VehicleCategoryRepository } from '../vehicle_category/vehicle_category.repo.js';
 import { GeocodeService } from '../geocode/geocode.service.js';
+import { AppConfigurationService } from '../app_configuration/app_configuration.service.js';
+import {
+  calculate_distance_fare,
+  fare_group_for,
+} from '../app_configuration/fare_calculation.js';
 import { RideRepository } from './ride.repo.js';
 import { AppError } from '../../core/error.js';
 import { REVIEW_RECIPIENT_MESSAGE } from './ride.constant.js';
@@ -12,7 +17,6 @@ import {
   QUOTE_EXPIRED_MESSAGE,
   QUOTE_LIFETIME_MINUTES,
   QUOTE_NOT_FOUND_MESSAGE,
-  RIDE_CANNOT_BE_CANCELLED_MESSAGE,
   RIDE_NOT_FOUND_MESSAGE,
   REVIEW_ALLOWED_AFTER_COMPLETION_MESSAGE,
 } from './ride.constant.js';
@@ -29,8 +33,11 @@ export class RideService {
     private readonly vehicleCategoryRepository: VehicleCategoryRepository,
     private readonly geocodeService: GeocodeService,
     private readonly rideRepository: RideRepository,
+    private readonly appConfiguration: AppConfigurationService,
+    private readonly operations: DriverOperationsService,
   ) {}
   readonly build_quote = async (user_id: string, input: QuoteInput) => {
+    const fare_policy = await this.appConfiguration.fare_snapshot();
     const route = await this.geocodeService.driving_route({
       from_latitude: input.pickup.latitude,
       from_longitude: input.pickup.longitude,
@@ -51,21 +58,19 @@ export class RideService {
       Date.now() + QUOTE_LIFETIME_MINUTES * 60 * 1000,
     );
     const calculations = categories.map((category) => {
-      const base_fare = category.base_fare.toNumber();
-      const distance_amount = category.per_kilometer
-        .mul(distance_m)
-        .div(1000)
-        .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
-      const time_amount = category.per_minute
-        .mul(duration_s)
-        .div(60)
-        .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+      const group = fare_group_for(category.vehicle_type);
+      const rate = fare_policy.rates.find((item) => item.group === group);
+      if (!rate)
+        throw new AppError(
+          409,
+          'FARE_POLICY_NOT_CONFIGURED',
+          'Configure every fare group before quoting rides.',
+        );
+      const base_fare = 0;
+      const distance_amount = calculate_distance_fare(distance_m, rate);
       const distance_fare = distance_amount.toNumber();
-      const time_fare = time_amount.toNumber();
-      const total_fare = category.base_fare
-        .plus(distance_amount)
-        .plus(time_amount)
-        .toNumber();
+      const time_fare = 0;
+      const total_fare = distance_fare;
       if (
         ![base_fare, distance_fare, time_fare, total_fare].every(
           (value) => Number.isFinite(value) && value <= MAX_FARE_AMOUNT,
@@ -76,12 +81,30 @@ export class RideService {
         vehicle_type: category.vehicle_type,
         vehicle_category_id: category.id,
         category_updated_at: category.updated_at.toISOString(),
+        fare_policy_version: fare_policy.version,
         category_snapshot: {
           name: category.name,
           description: category.description,
           image_url: category.image_url,
           capacity: category.capacity,
           parent_name: category.parent?.name ?? null,
+          fare_policy_version: fare_policy.version,
+          fare_group: group,
+          max_profit_km: rate.max_profit_km.toNumber(),
+          profit_fare_per_km: rate.profit_fare_per_km.toNumber(),
+          normal_fare_per_km: rate.normal_fare_per_km.toNumber(),
+          payment_policy: {
+            cash_enabled: fare_policy.cash_enabled,
+            direct_upi_enabled: fare_policy.direct_upi_enabled,
+            online_payment_enabled: false,
+            commission_percent: 0,
+            free_cancellation_minutes: fare_policy.free_cancellation_minutes,
+            free_pickup_wait_minutes: fare_policy.free_pickup_wait_minutes,
+            cancellation_fee_percent:
+              fare_policy.cancellation_fee_percent.toNumber(),
+            maximum_cancellation_fee:
+              fare_policy.maximum_cancellation_fee.toNumber(),
+          },
         },
         distance_m,
         duration_s,
@@ -127,13 +150,26 @@ export class RideService {
         'PAYMENT_METHOD_NOT_FOUND',
         'Payment method was not found.',
       );
+    try {
+      await this.operations.dispatch(result.ride.id);
+    } catch {
+      console.warn({ ride_id: result.ride.id, matching: 'DEFERRED_TO_POLL' });
+    }
     return result.ride;
   };
 
   readonly get_ride = async (user_id: string, ride_id: string) => {
-    const ride = await this.rideRepository.find_ride_for_user(user_id, ride_id);
+    let ride = await this.rideRepository.find_ride_for_user(user_id, ride_id);
     if (!ride)
       throw new AppError(404, 'RIDE_NOT_FOUND', RIDE_NOT_FOUND_MESSAGE);
+    if (ride.status === 'SEARCHING') {
+      // The visible rider status poll advances matching even if the action panel
+      // is outside the viewport and there are no online driver dashboards.
+      await this.operations.dispatch(ride_id);
+      ride = await this.rideRepository.find_ride_for_user(user_id, ride_id);
+      if (!ride)
+        throw new AppError(404, 'RIDE_NOT_FOUND', RIDE_NOT_FOUND_MESSAGE);
+    }
     return ride;
   };
 
@@ -167,41 +203,16 @@ export class RideService {
     user_id: string,
     ride_id: string,
     input: CancelRideInput,
-  ) => {
-    const result = await this.rideRepository.cancel_ride(
+  ) =>
+    this.operations.report_issue(
       user_id,
       ride_id,
-      input,
+      'CANCELLATION',
+      input.cancel_reason,
     );
-    if (result.kind === 'ride_not_found')
-      throw new AppError(404, 'RIDE_NOT_FOUND', RIDE_NOT_FOUND_MESSAGE);
-    if (result.kind === 'not_cancelable')
-      throw new AppError(
-        409,
-        'RIDE_NOT_CANCELABLE',
-        RIDE_CANNOT_BE_CANCELLED_MESSAGE,
-      );
-    return result.ride;
-  };
 
-  readonly confirm_user_ride_start = async (
-    user_id: string,
-    ride_id: string,
-  ) => {
-    const result = await this.rideRepository.confirm_ride_start(
-      user_id,
-      ride_id,
-    );
-    if (result.kind === 'ride_not_found')
-      throw new AppError(404, 'RIDE_NOT_FOUND', RIDE_NOT_FOUND_MESSAGE);
-    if (result.kind === 'not_startable')
-      throw new AppError(
-        409,
-        'RIDE_STATE_INVALID',
-        'Ride cannot be started from its current state',
-      );
-    return result.ride;
-  };
+  readonly confirm_user_ride_start = async (user_id: string, ride_id: string) =>
+    this.operations.start_proof(user_id, ride_id);
 
   readonly submit_review = async (
     user_id: string,

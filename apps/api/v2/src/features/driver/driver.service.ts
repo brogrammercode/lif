@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { DriverRepository } from './driver.repo.js';
+import { DriverOperationsService } from '../driver_operations/driver_operations.service.js';
+import { trip_code_input } from '../driver_operations/driver_operations.type.js';
 import { AppError } from '../../core/error.js';
 import {
   DRIVER_NOT_VERIFIED_MESSAGE,
   DRIVER_PROFILE_NOT_FOUND_MESSAGE,
-  DRIVER_RIDE_NOT_FOUND_MESSAGE,
-  DRIVER_RIDE_STATE_MESSAGE,
   OFFER_NOT_AVAILABLE_MESSAGE,
   OFFER_NOT_FOUND_MESSAGE,
 } from './driver.constant.js';
@@ -17,7 +17,10 @@ import type {
 } from './driver.type.js';
 @Injectable()
 export class DriverService {
-  constructor(private readonly driverRepository: DriverRepository) {}
+  constructor(
+    private readonly driverRepository: DriverRepository,
+    private readonly operations: DriverOperationsService,
+  ) {}
   readonly get_driver_profile = async (user_id: string) => {
     const profile = await this.driverRepository.get_profile_by_user(user_id);
     if (!profile)
@@ -86,8 +89,8 @@ export class DriverService {
   readonly update_active_vehicle = (user_id: string, vehicle_id: string) =>
     this.driverRepository.select_active_vehicle(user_id, vehicle_id);
 
-  readonly get_driver_offers = (user_id: string) =>
-    this.driverRepository.list_offers(user_id);
+  readonly get_driver_offers = async (user_id: string) =>
+    (await this.operations.dashboard(user_id)).offers;
 
   readonly accept_driver_offer = async (user_id: string, offer_id: string) => {
     const result = await this.driverRepository.accept_offer(user_id, offer_id);
@@ -125,20 +128,16 @@ export class DriverService {
     user_id: string,
     ride_id: string,
     target: 'DRIVER_WAITING' | 'IN_PROGRESS' | 'COMPLETED',
+    code?: string,
   ) => {
-    const result = await this.driverRepository.transition_ride(
+    if (target === 'DRIVER_WAITING')
+      return this.operations.arrive(user_id, ride_id);
+    if (target === 'COMPLETED')
+      return this.operations.complete(user_id, ride_id);
+    return this.operations.start_proof(
       user_id,
       ride_id,
-      target,
+      trip_code_input.parse({ code }).code,
     );
-    if (result.kind === 'not_found')
-      throw new AppError(
-        404,
-        'DRIVER_RIDE_NOT_FOUND',
-        DRIVER_RIDE_NOT_FOUND_MESSAGE,
-      );
-    if (result.kind === 'invalid_state')
-      throw new AppError(409, 'DRIVER_RIDE_STATE', DRIVER_RIDE_STATE_MESSAGE);
-    return result.ride;
   };
 }

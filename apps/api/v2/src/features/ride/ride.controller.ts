@@ -1,3 +1,4 @@
+import { DriverOperationsService } from '../driver_operations/driver_operations.service.js';
 import {
   Controller,
   HttpCode,
@@ -35,7 +36,10 @@ import {
 } from './ride.type.js';
 @Controller()
 export class RideController {
-  constructor(private readonly rideService: RideService) {}
+  constructor(
+    private readonly rideService: RideService,
+    private readonly operations: DriverOperationsService,
+  ) {}
   readonly current_user_id = (request: Request): string => {
     if (!request.auth)
       throw new AppError(401, 'UNAUTHORIZED', 'Authentication is required');
@@ -159,10 +163,11 @@ export class RideController {
   ) {
     return send_success(
       response,
-      await this.rideService.cancel_user_ride(
+      await this.operations.report_issue(
         this.current_user_id(request),
         request.params.id as string,
-        cancel_ride_schema.parse(request.body),
+        'CANCELLATION',
+        cancel_ride_schema.parse(request.body).cancel_reason,
       ),
       RIDE_CANCELLED_MESSAGE,
     );
@@ -178,7 +183,7 @@ export class RideController {
   ) {
     return send_success(
       response,
-      await this.rideService.confirm_user_ride_start(
+      await this.operations.start_proof(
         this.current_user_id(request),
         request.params.id as string,
       ),

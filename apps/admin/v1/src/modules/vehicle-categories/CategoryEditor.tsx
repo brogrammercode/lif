@@ -16,7 +16,6 @@ import {
   VEHICLE_FAMILIES,
 } from "./vehicle-categories.constant";
 import { CategoryImage } from "./CategoryImage";
-import { formatMoney } from "./category.view";
 import { ImageUpload } from "../../components/ui/ImageUpload";
 import { useImageUpload } from "../../lib/useImageUpload";
 
@@ -117,19 +116,6 @@ export function CategoryEditor({
       if (!controller.signal.aborted) setBusy(false);
     }
   }
-  const rates = [
-    {
-      key: "base_fare",
-      label: "Base fare",
-      hint: "Starting fare for every ride.",
-    },
-    {
-      key: "per_kilometer",
-      label: "Per kilometer",
-      hint: "Added for every kilometer.",
-    },
-    { key: "per_minute", label: "Per minute", hint: "Added for every minute." },
-  ] as const;
   return (
     <Dialog
       title={
@@ -214,7 +200,7 @@ export function CategoryEditor({
           </div>
           <div className="editor-section-heading">
             <span className="section-step">02</span>
-            <h3>Vehicle & pricing</h3>
+            <h3>Vehicle compatibility</h3>
             <span className="ml-auto text-xs text-muted">Currency · INR</span>
           </div>
           <div className="form-grid">
@@ -261,29 +247,9 @@ export function CategoryEditor({
               />
             </Field>
           </div>
-          <div className="rates-grid">
-            {rates.map(({ key, label, hint }) => (
-              <Field id={`category-${key}`} key={key} label={label} hint={hint}>
-                <div className="currency-field">
-                  <span>₹</span>
-                  <input
-                    id={`category-${key}`}
-                    aria-describedby={`category-${key}-hint`}
-                    type="number"
-                    className="field"
-                    required
-                    min={0}
-                    max={1_000_000}
-                    step="0.01"
-                    value={Number.isFinite(form[key]) ? form[key] : ""}
-                    onChange={(event) =>
-                      change(key, event.target.valueAsNumber)
-                    }
-                  />
-                </div>
-              </Field>
-            ))}
-          </div>
+          <p className="field-hint">
+            Ride prices are configured in App &gt; User &gt; Fare Policy.
+          </p>
           <div className="editor-section-heading">
             <span className="section-step">03</span>
             <h3>Visibility</h3>
@@ -337,8 +303,7 @@ export function CategoryEditor({
                 {form.name || "Your category name"}
               </p>
               <p className="text-xs text-muted">
-                {form.capacity} seat{form.capacity === 1 ? "" : "s"} · From{" "}
-                {formatMoney(form.base_fare || 0)}
+                {form.capacity} seat{form.capacity === 1 ? "" : "s"}
               </p>
             </div>
             <Icon name="check" className="ml-auto text-brand" />

@@ -5,20 +5,25 @@ import { create_user_log } from '../../infra/database/user_log.js';
 import { DEFAULT_CURRENCY } from '../../core/constants.js';
 import { ROUTE_PROVIDER } from './ride.constant.js';
 import { AppError } from '../../core/error.js';
+import { require_supported_ride_payment } from '../app_configuration/payment_policy.js';
 import { require_active_account } from '../../infra/database/account_lifecycle.js';
 import { CATEGORY_MESSAGES } from '../vehicle_category/vehicle_category.constant.js';
-import type {
-  CancelRideInput,
-  CreateRideInput,
-  QuoteInput,
-  ReviewInput,
-} from './ride.type.js';
+import {
+  rider_driver_select,
+  rider_vehicle_select,
+} from './ride.presentation.js';
+import {
+  CONFIGURATION_KEY,
+  FARE_POLICY_LOCK,
+} from '../app_configuration/app_configuration.type.js';
+import type { CreateRideInput, QuoteInput, ReviewInput } from './ride.type.js';
 export type FareCalculation = {
   distance_m: number;
   duration_s: number;
   vehicle_type: VehicleType;
   vehicle_category_id: string;
   category_updated_at?: string;
+  fare_policy_version?: number;
   category_snapshot: Prisma.InputJsonObject;
   pickup_eta_s: number;
   base_fare: number;
@@ -40,6 +45,29 @@ export class RideRepository {
       async (tx) => {
         await require_active_account(tx, user_id);
         await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(720041)`;
+        // HTTP quote calculations always carry a policy version. Keep the
+        // internal legacy snapshot contract usable without repricing old data.
+        if (
+          calculations.some((item) => item.fare_policy_version !== undefined)
+        ) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${FARE_POLICY_LOCK}::integer)`;
+          const policy = await tx.rideFarePolicy.findUnique({
+            where: { key: CONFIGURATION_KEY },
+            select: { version: true },
+          });
+          if (
+            !policy ||
+            calculations.some(
+              (item) => item.fare_policy_version !== policy.version,
+            )
+          ) {
+            throw new AppError(
+              409,
+              'FARE_POLICY_CHANGED',
+              'The fare policy changed. Request fresh ride options.',
+            );
+          }
+        }
         const available = await tx.vehicleCategory.findMany({
           where: {
             id: { in: calculations.map((item) => item.vehicle_category_id) },
@@ -132,6 +160,7 @@ export class RideRepository {
     this.prismaService.client.$transaction(
       async (tx) => {
         await require_active_account(tx, user_id);
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(720054, hashtext(${user_id}))`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(720041)`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720044, hashtext(${input.draft_ride_id}))`;
         const ride = await tx.ride.findFirst({
@@ -140,18 +169,57 @@ export class RideRepository {
         });
         if (!ride) return { kind: 'ride_not_found' as const };
         if (ride.status !== 'DRAFT') return { kind: 'invalid_state' as const };
+        if (
+          await tx.ride.findFirst({
+            where: {
+              OR: [{ rider_id: user_id }, { driver: { user_id } }],
+              status: {
+                in: [
+                  'REQUESTED',
+                  'SEARCHING',
+                  'DRIVER_ASSIGNED',
+                  'DRIVER_ARRIVING',
+                  'DRIVER_WAITING',
+                  'IN_PROGRESS',
+                ],
+              },
+              id: { not: ride.id },
+            },
+            select: { id: true },
+          })
+        ) {
+          throw new AppError(
+            409,
+            'ACTIVE_RIDE_EXISTS',
+            'Finish or cancel your current ride before requesting another.',
+          );
+        }
+        const driving = await tx.driverProfile.findUnique({
+          where: { user_id },
+          select: { availability: true },
+        });
+        if (driving && !['OFFLINE', 'SUSPENDED'].includes(driving.availability))
+          throw new AppError(
+            409,
+            'DRIVER_MUST_GO_OFFLINE',
+            'Switch to rider mode and go offline before booking a ride.',
+          );
         const quote = ride.quotes.find((item) => item.id === input.quote_id);
         if (!quote) return { kind: 'quote_not_found' as const };
         if (quote.expires_at.getTime() <= Date.now())
           return { kind: 'quote_expired' as const };
-        if (
-          input.payment_method_id &&
-          !(await tx.paymentMethod.findFirst({
-            where: { id: input.payment_method_id, user_id },
-            select: { id: true },
-          }))
-        )
+        const payment_method = input.payment_method_id
+          ? await tx.paymentMethod.findFirst({
+              where: { id: input.payment_method_id, user_id },
+              select: { id: true, type: true },
+            })
+          : null;
+        if (input.payment_method_id && !payment_method)
           return { kind: 'payment_method_not_found' as const };
+        require_supported_ride_payment(
+          quote.category_snapshot,
+          payment_method?.type ?? input.payment_preference ?? 'CASH',
+        );
         if (quote.vehicle_category_id) {
           const category = await tx.vehicleCategory.findUnique({
             where: { id: quote.vehicle_category_id },
@@ -169,7 +237,10 @@ export class RideRepository {
           where: { id: ride.id, rider_id: user_id, status: 'DRAFT' },
           data: {
             status: 'SEARCHING',
+            rider_note: input.rider_note ?? ride.rider_note,
             payment_method_id: input.payment_method_id,
+            collection_preference:
+              payment_method?.type ?? input.payment_preference ?? 'CASH',
             requested_at: new Date(),
             estimated_fare: quote.total_fare,
           },
@@ -212,8 +283,8 @@ export class RideRepository {
       include: {
         route: true,
         quotes: true,
-        driver: { include: { user: true, active_vehicle: true } },
-        vehicle: true,
+        driver: { select: rider_driver_select },
+        vehicle: { select: rider_vehicle_select },
         events: { orderBy: { created_at: 'asc' } },
         payment: true,
         reviews: true,
@@ -231,8 +302,8 @@ export class RideRepository {
       skip,
       take,
       include: {
-        driver: { include: { user: true } },
-        vehicle: true,
+        driver: { select: rider_driver_select },
+        vehicle: { select: rider_vehicle_select },
         payment: true,
       },
     });
@@ -255,136 +326,13 @@ export class RideRepository {
       select: { id: true },
     });
     if (!ride) return null;
-    return this.prismaService.client.rideLocation.findMany({
+    const latest = await this.prismaService.client.rideLocation.findMany({
       where: { ride_id },
-      orderBy: { recorded_at: 'asc' },
+      orderBy: [{ recorded_at: 'desc' }, { id: 'desc' }],
+      take: 500,
     });
+    return latest.reverse();
   };
-
-  readonly cancel_ride = async (
-    user_id: string,
-    ride_id: string,
-    input: CancelRideInput,
-  ) =>
-    this.prismaService.client.$transaction(
-      async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(720044, hashtext(${ride_id}))`;
-        const ride = await tx.ride.findFirst({
-          where: { id: ride_id, rider_id: user_id },
-          include: {
-            driver: { select: { id: true, user_id: true } },
-          },
-        });
-        if (!ride) return { kind: 'ride_not_found' as const };
-        if (
-          ![
-            'DRAFT',
-            'REQUESTED',
-            'SEARCHING',
-            'DRIVER_ASSIGNED',
-            'DRIVER_ARRIVING',
-            'DRIVER_WAITING',
-          ].includes(ride.status)
-        ) {
-          return { kind: 'not_cancelable' as const };
-        }
-        if (ride.driver)
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${ride.driver.user_id}))`;
-        const updated = await tx.ride.update({
-          where: { id: ride_id },
-          data: {
-            status: 'CANCELLED',
-            cancelled_at: new Date(),
-            cancel_reason: input.cancel_reason,
-          },
-        });
-        await tx.rideOffer.updateMany({
-          where: { ride_id, status: { in: ['SENT', 'ACCEPTED'] } },
-          data: { status: 'CANCELLED', responded_at: new Date() },
-        });
-        if (ride.driver) {
-          const current_driver = await tx.driverProfile.findUniqueOrThrow({
-            where: { id: ride.driver.id },
-            include: { user: { select: { status: true } } },
-          });
-          await tx.driverProfile.update({
-            where: { id: ride.driver.id },
-            data: {
-              availability:
-                current_driver.verification_status === 'VERIFIED' &&
-                current_driver.user.status === 'ACTIVE'
-                  ? 'AVAILABLE'
-                  : 'OFFLINE',
-            },
-          });
-        }
-        await tx.rideEvent.create({
-          data: {
-            ride_id,
-            actor_id: user_id,
-            event_type: 'RIDER_CANCELLED',
-            metadata: { reason: input.cancel_reason } as Prisma.InputJsonObject,
-          },
-        });
-        await create_user_log(tx, {
-          actor_id: user_id,
-          entity_type: 'Ride',
-          entity_id: ride_id,
-          action: 'CANCEL_RIDE',
-          before_data: { status: ride.status } as Prisma.InputJsonObject,
-          after_data: {
-            status: updated.status,
-            reason: input.cancel_reason,
-          } as Prisma.InputJsonObject,
-        });
-        return { kind: 'success' as const, ride: updated };
-      },
-      { maxWait: 10000, timeout: 15000 },
-    );
-
-  readonly confirm_ride_start = async (user_id: string, ride_id: string) =>
-    this.prismaService.client.$transaction(
-      async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(720044, hashtext(${ride_id}))`;
-        const ride = await tx.ride.findFirst({
-          where: { id: ride_id, rider_id: user_id },
-          include: { driver: { select: { id: true, user_id: true } } },
-        });
-        if (!ride) return { kind: 'ride_not_found' as const };
-        if (ride.status === 'IN_PROGRESS')
-          return { kind: 'success' as const, ride };
-        if (ride.status !== 'DRIVER_WAITING')
-          return { kind: 'not_startable' as const };
-        if (ride.driver)
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${ride.driver.user_id}))`;
-        const updated = await tx.ride.update({
-          where: { id: ride_id },
-          data: { status: 'IN_PROGRESS', started_at: new Date() },
-        });
-        if (ride.driver)
-          await tx.driverProfile.update({
-            where: { id: ride.driver.id },
-            data: { availability: 'ON_TRIP' },
-          });
-        await tx.rideEvent.create({
-          data: {
-            ride_id,
-            actor_id: user_id,
-            event_type: 'RIDER_CONFIRMED_START',
-          },
-        });
-        await create_user_log(tx, {
-          actor_id: user_id,
-          entity_type: 'Ride',
-          entity_id: ride_id,
-          action: 'CONFIRM_RIDE_START',
-          before_data: { status: ride.status } as Prisma.InputJsonObject,
-          after_data: { status: updated.status } as Prisma.InputJsonObject,
-        });
-        return { kind: 'success' as const, ride: updated };
-      },
-      { maxWait: 10000, timeout: 15000 },
-    );
 
   readonly create_review = async (
     user_id: string,
@@ -403,6 +351,27 @@ export class RideRepository {
       if (!ride.driver || input.reviewee_id !== ride.driver.user_id)
         return { kind: 'invalid_recipient' as const };
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${ride.driver.user_id}))`;
+      const existing = await tx.review.findUnique({
+        where: {
+          ride_id_reviewer_id_reviewee_id: {
+            ride_id,
+            reviewer_id: user_id,
+            reviewee_id: input.reviewee_id,
+          },
+        },
+      });
+      if (existing) {
+        if (
+          existing.score !== input.score ||
+          (existing.comment ?? '') !== (input.comment ?? '')
+        )
+          throw new AppError(
+            409,
+            'REVIEW_ALREADY_SUBMITTED',
+            'A rating has already been submitted for this ride.',
+          );
+        return { kind: 'success' as const, review: existing };
+      }
       const review = await tx.review.create({
         data: {
           ride_id,

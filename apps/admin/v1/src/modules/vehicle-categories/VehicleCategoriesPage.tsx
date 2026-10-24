@@ -15,11 +15,7 @@ import { safeMessage } from "../../lib/api-client";
 import type { CategoryInput, VehicleCategory } from "../../types/domain";
 import { CategoryEditor } from "./CategoryEditor";
 import { CategoryImage } from "./CategoryImage";
-import {
-  filterCatalog,
-  formatMoney,
-  type CategoryStatus,
-} from "./category.view";
+import { filterCatalog, type CategoryStatus } from "./category.view";
 import { getCategories, saveCategory } from "./vehicle-categories.api";
 import {
   CATEGORY_COPY,
@@ -254,16 +250,13 @@ export function VehicleCategoriesPage() {
             <div className="table-scroll">
               <table>
                 <caption className="sr-only">
-                  Vehicle categories, pricing and availability
+                  Vehicle categories and availability
                 </caption>
                 <thead>
                   <tr>
                     <th scope="col">Category</th>
                     <th scope="col">Vehicle family</th>
                     <th scope="col">Seats</th>
-                    <th scope="col">Base fare</th>
-                    <th scope="col">Per km</th>
-                    <th scope="col">Per min</th>
                     <th scope="col">Status</th>
                     <th scope="col" className="col-actions">
                       <span className="sr-only">Actions</span>
@@ -322,15 +315,6 @@ export function VehicleCategoriesPage() {
                         </span>
                       </td>
                       <td>{category.capacity}</td>
-                      <td className="fare-cell">
-                        {formatMoney(category.base_fare)}
-                      </td>
-                      <td className="fare-cell">
-                        {formatMoney(category.per_kilometer)}
-                      </td>
-                      <td className="fare-cell">
-                        {formatMoney(category.per_minute)}
-                      </td>
                       <td>
                         <Badge active={category.effective_active}>
                           {category.is_active && !category.effective_active

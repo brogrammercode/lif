@@ -4,6 +4,8 @@ import 'package:user/core/color.dart';
 import 'package:user/core/network/dio_client.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/auth/auth.repo.dart';
+import 'package:user/features/auth/app_mode.repo.dart';
+import 'package:user/features/user_app/user_app.repo.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/core/network/api_result.dart';
 
@@ -15,27 +17,46 @@ class SessionGate extends StatefulWidget {
 }
 
 class _SessionGateState extends State<SessionGate> {
-  late Future<String> _destination = _resolveDestination();
+  late Future<_Destination> _destination = _resolveDestination();
 
-  Future<String> _resolveDestination() async {
-    if (!await DioClient().hasSession()) return AppRoutes.login;
+  Future<_Destination> _resolveDestination() async {
+    if (!await DioClient().hasSession()) {
+      return const _Destination(AppRoutes.login);
+    }
     try {
       final user = await AuthRepository().currentUser();
-      if (user.role == 'DRIVER' ||
-          user.partnerStatus == 'ACTIVATED' ||
-          user.partnerStatus == 'EXITED') {
-        return AppRoutes.driverHome;
+      final travel = await UserAppRepository().travelContext();
+      if (travel['active_driver_ride'] is Map) {
+        return _Destination(
+          AppRoutes.driverRideDetail,
+          (travel['active_driver_ride'] as Map)['id'],
+        );
       }
-      if (user.partnerActivationRequired) return AppRoutes.partnerActivation;
-      return AppRoutes.home;
+      if (travel['active_rider_ride'] is Map) {
+        return _Destination(
+          AppRoutes.rideDetail,
+          (travel['active_rider_ride'] as Map)['id'],
+        );
+      }
+      if (user.partnerActivationRequired) {
+        return const _Destination(AppRoutes.partnerActivation);
+      }
+      final mode = await AppModeRepository().preferred(user);
+      return _Destination(
+        mode == AppMode.driver && travel['can_enter_driver_mode'] == true
+            ? AppRoutes.driverHome
+            : AppRoutes.home,
+      );
     } catch (_) {
-      if (!await DioClient().hasSession()) return AppRoutes.login;
+      if (!await DioClient().hasSession()) {
+        return const _Destination(AppRoutes.login);
+      }
       rethrow;
     }
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<String>(
+  Widget build(BuildContext context) => FutureBuilder<_Destination>(
     future: _destination,
     builder: (context, snapshot) {
       if (snapshot.hasError) {
@@ -43,8 +64,9 @@ class _SessionGateState extends State<SessionGate> {
           body: SafeArea(
             child: AppLoadError(
               message: ApiResult.errorMessage(snapshot.error!),
-              onRetry: () =>
-                  setState(() => _destination = _resolveDestination()),
+              onRetry: () => setState(() {
+                _destination = _resolveDestination();
+              }),
             ),
           ),
         );
@@ -64,7 +86,10 @@ class _SessionGateState extends State<SessionGate> {
           ),
         );
       }
-      return _RouteReplacement(route: snapshot.data!);
+      return _RouteReplacement(
+        route: snapshot.data!.route,
+        arguments: snapshot.data!.arguments,
+      );
     },
   );
 }
@@ -85,20 +110,36 @@ class LoginDestination extends StatelessWidget {
 
 class _RouteReplacement extends StatefulWidget {
   final String route;
-  const _RouteReplacement({required this.route});
+  final Object? arguments;
+  const _RouteReplacement({required this.route, this.arguments});
   @override
   State<_RouteReplacement> createState() => _RouteReplacementState();
 }
 
 class _RouteReplacementState extends State<_RouteReplacement> {
+  bool _scheduled = false;
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (_scheduled) return;
+    _scheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) Navigator.pushReplacementNamed(context, widget.route);
+      if (mounted) {
+        Navigator.pushReplacementNamed(
+          context,
+          widget.route,
+          arguments: widget.arguments,
+        );
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+class _Destination {
+  final String route;
+  final Object? arguments;
+  const _Destination(this.route, [this.arguments]);
 }

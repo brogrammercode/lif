@@ -17,7 +17,9 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
   late Future<List<Map<String, dynamic>>> _methods = _repository
       .paymentMethods();
   Future<void> _reload() async {
-    setState(() => _methods = _repository.paymentMethods());
+    setState(() {
+      _methods = _repository.paymentMethods();
+    });
     await _methods;
   }
 

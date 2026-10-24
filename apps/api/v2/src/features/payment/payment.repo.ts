@@ -8,6 +8,11 @@ import type {
   WebhookInput,
 } from './payment.type.js';
 import { AppError } from '../../core/error.js';
+import { require_supported_ride_payment } from '../app_configuration/payment_policy.js';
+import {
+  rider_driver_select,
+  rider_vehicle_select,
+} from '../ride/ride.presentation.js';
 import {
   PAYMENT_REFERENCE_MESSAGE,
   PAYMENT_AMOUNT_MESSAGE,
@@ -89,6 +94,13 @@ export class PaymentRepository {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(720044, hashtext(${input.ride_id}))`;
       const ride = await tx.ride.findFirst({
         where: { id: input.ride_id, rider_id: user_id },
+        include: {
+          quotes: {
+            where: { selected_at: { not: null } },
+            select: { category_snapshot: true },
+            take: 1,
+          },
+        },
       });
       if (!ride) return { kind: 'ride_not_found' as const };
       if (ride.status !== 'COMPLETED' || ride.final_fare === null)
@@ -98,22 +110,34 @@ export class PaymentRepository {
       });
       if (
         existing &&
-        ['AUTHORIZED', 'CAPTURED', 'REFUNDED', 'PARTIALLY_REFUNDED'].includes(
-          existing.status,
-        )
+        [
+          'AUTHORIZED',
+          'CAPTURED',
+          'REFUNDED',
+          'PARTIALLY_REFUNDED',
+          'CANCELLED',
+        ].includes(existing.status)
       )
         return { kind: 'success' as const, payment: existing };
+      if (existing?.provider || existing?.provider_payment_id)
+        return { kind: 'provider_unavailable' as const };
       const method = await tx.paymentMethod.findFirst({
         where: { id: input.payment_method_id, user_id },
       });
       if (!method) return { kind: 'method_not_found' as const };
       if (method.type !== 'CASH')
         return { kind: 'provider_unavailable' as const };
+      require_supported_ride_payment(
+        ride.quotes[0]?.category_snapshot,
+        method.type,
+      );
       const status = 'PENDING' as const;
       const payment = await tx.payment.upsert({
         where: { ride_id: ride.id },
         update: {
           payment_method_id: method.id,
+          collection_method: 'CASH',
+          recipient_upi: null,
           status,
           amount: ride.final_fare ?? ride.estimated_fare ?? 0,
           paid_at: null,
@@ -121,6 +145,7 @@ export class PaymentRepository {
         create: {
           ride_id: ride.id,
           payment_method_id: method.id,
+          collection_method: 'CASH',
           status,
           amount: ride.final_fare ?? ride.estimated_fare ?? 0,
           currency: ride.currency,
@@ -152,6 +177,15 @@ export class PaymentRepository {
       const current = await tx.payment.findUniqueOrThrow({
         where: { id: payment.id },
       });
+      if (
+        current.collection_method === 'CASH' ||
+        current.collection_method === 'UPI'
+      )
+        throw new AppError(
+          409,
+          'DIRECT_PAYMENT_WEBHOOK_UNSUPPORTED',
+          'Direct cash and UPI receipts must be confirmed by the assigned driver or reviewed by an administrator.',
+        );
       if (
         (input.ride_id && input.ride_id !== current.ride_id) ||
         (current.provider && current.provider !== provider) ||
@@ -228,8 +262,8 @@ export class PaymentRepository {
       where: { id: ride_id, rider_id: user_id },
       include: {
         payment: true,
-        driver: { include: { user: true } },
-        vehicle: true,
+        driver: { select: rider_driver_select },
+        vehicle: { select: rider_vehicle_select },
         route: true,
       },
     });

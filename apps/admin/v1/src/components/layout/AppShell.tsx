@@ -28,6 +28,7 @@ function WorkspaceShell() {
   const { user } = useAuth();
   const usersSection = Boolean(useMatch("/users/*"));
   const adminSection = Boolean(useMatch("/admin/*"));
+  const supportSection = Boolean(useMatch("/support/*"));
   const partnerSection = Boolean(useMatch("/partner-program/*"));
   const partnerApplications = Boolean(
     useMatch("/partner-program/applications/*"),
@@ -44,7 +45,7 @@ function WorkspaceShell() {
     "Administrator";
   return (
     <div
-      className={`workspace${usersSection ? " has-users" : adminSection || partnerSection ? " has-admin" : ""}`}
+      className={`workspace${usersSection ? " has-users" : adminSection || partnerSection || supportSection ? " has-admin" : ""}`}
     >
       <a className="skip-link" href="#main-content">
         Skip to content
@@ -78,6 +79,10 @@ function WorkspaceShell() {
             <Icon name="layers" size={24} />
             <span>Partner program</span>
           </NavLink>
+          <NavLink to="/support" className="primary-nav-item">
+            <Icon name="settings" size={24} />
+            <span>Support</span>
+          </NavLink>
         </nav>
         <div className="rail-account">
           <Avatar user={user} />
@@ -91,40 +96,54 @@ function WorkspaceShell() {
         </div>
       </aside>
       <aside
-        className={`secondary-rail${usersSection ? " users-rail" : adminSection || partnerSection ? " admin-rail" : ""}`}
+        className={`secondary-rail${usersSection ? " users-rail" : adminSection || partnerSection || supportSection ? " admin-rail" : ""}`}
         aria-label={
           usersSection
             ? "User navigation"
-            : partnerSection
-              ? "Partner program navigation"
-              : adminSection
-                ? "Admin navigation"
-                : "App navigation"
+            : supportSection
+              ? "Support navigation"
+              : partnerSection
+                ? "Partner program navigation"
+                : adminSection
+                  ? "Admin navigation"
+                  : "App navigation"
         }
       >
         <div className="secondary-heading">
           <span>
             {usersSection
               ? "Users"
-              : partnerSection
-                ? "Partner program"
-                : adminSection
-                  ? "Admin"
-                  : "App"}
+              : supportSection
+                ? "Support"
+                : partnerSection
+                  ? "Partner program"
+                  : adminSection
+                    ? "Admin"
+                    : "App"}
           </span>
           <span className="tiny-tag">MANAGE</span>
         </div>
         <p className="secondary-caption">
           {usersSection
             ? "Find an account to manage."
-            : partnerSection
-              ? "Configure partner onboarding."
-              : adminSection
-                ? "Manage your workspace access."
-                : "Build a better experience."}
+            : supportSection
+              ? "Configure help for riders and drivers."
+              : partnerSection
+                ? "Configure partner onboarding."
+                : adminSection
+                  ? "Manage your workspace access."
+                  : "Build a better experience."}
         </p>
         {usersSection ? (
           <UsersNavigation />
+        ) : supportSection ? (
+          <nav aria-label="Support navigation">
+            <NavLink to="/support/configure" className="secondary-nav-item">
+              <Icon name="settings" size={19} />
+              <span>Configure</span>
+              <Icon name="chevronRight" size={14} />
+            </NavLink>
+          </nav>
         ) : partnerSection ? (
           <nav aria-label="Partner program navigation">
             <NavLink
@@ -175,11 +194,13 @@ function WorkspaceShell() {
             <span>
               {usersSection
                 ? "Users"
-                : partnerSection
-                  ? "Partner program"
-                  : adminSection
-                    ? "Admin"
-                    : "App"}
+                : supportSection
+                  ? "Support"
+                  : partnerSection
+                    ? "Partner program"
+                    : adminSection
+                      ? "Admin"
+                      : "App"}
             </span>
             <Icon name="chevronRight" size={14} />
             <span
@@ -190,13 +211,15 @@ function WorkspaceShell() {
                 ? selected
                   ? userName(selected)
                   : selectedId || "Select a user"
-                : partnerSection
-                  ? partnerApplications
-                    ? "Applications"
-                    : "Requirements"
-                  : adminSection
-                    ? "Access"
-                    : "User"}
+                : supportSection
+                  ? "Configure"
+                  : partnerSection
+                    ? partnerApplications
+                      ? "Applications"
+                      : "Requirements"
+                    : adminSection
+                      ? "Access"
+                      : "User"}
             </span>
           </div>
           <div className="header-account">
@@ -219,13 +242,15 @@ function WorkspaceShell() {
           aria-label={
             usersSection
               ? "User details"
-              : partnerSection
-                ? partnerApplications
-                  ? "Application settings"
-                  : "Requirement settings"
-                : adminSection
-                  ? "Access settings"
-                  : "User settings"
+              : supportSection
+                ? "Support configuration"
+                : partnerSection
+                  ? partnerApplications
+                    ? "Application settings"
+                    : "Requirement settings"
+                  : adminSection
+                    ? "Access settings"
+                    : "User settings"
           }
         >
           {usersSection ? (
@@ -241,6 +266,8 @@ function WorkspaceShell() {
                 </NavLink>
               )}
             </>
+          ) : supportSection ? (
+            <NavLink to="/support/configure/contact">Contact</NavLink>
           ) : partnerSection ? (
             partnerApplications ? (
               <>
@@ -279,6 +306,8 @@ function WorkspaceShell() {
             <>
               <NavLink to={WORKSPACE_PATH}>Vehicle Categories</NavLink>
               <NavLink to="/app/user/vehicle-models">Vehicle Models</NavLink>
+              <NavLink to="/app/user/fare-policy">Fare Policy</NavLink>
+              <NavLink to="/app/user/ride-reviews">Ride Reviews</NavLink>
             </>
           )}
         </nav>

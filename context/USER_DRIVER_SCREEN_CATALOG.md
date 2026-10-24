@@ -8,14 +8,18 @@
 
 This document describes the screens, forms, dialogs, background behavior, and transitions that exist today, then specifies the screens and improvements proposed next. It is a product and implementation discussion document; proposed screens are not an approved final visual design.
 
+**Decision and implementation update — 24 October 2026:** the user answered the discussion questions and supplied a one-page fare-policy PDF, followed by cash/direct-UPI, zero-commission and cancellation/no-show rules. The accepted decisions, exact distance-band formula, completed Phase A checklist, rollout requirements and Phase B contracts are tracked in [PHASE_A_IMPLEMENTATION.md](PHASE_A_IMPLEMENTATION.md). Those decisions supersede earlier alternatives below. During an active trip, offers are view-only; queuing is deferred. No masked-calling provider is selected. Map-first driver operations, combined trip-start verification and in-app navigation are now implemented in Phase B; see the current overlay and tracker below.
+
+**Phase A now implemented:** rider/driver preference and switching, active-trip startup restoration, owner-scoped driver history/recovery pages, versioned fare configuration and quote snapshots, Support contact configuration/mobile actions, refresh callback fixes, notification navigation and Bhagalpur map fallback. Sample driver/OTP UI and the cosmetic scheduling selector were removed. Detailed baseline descriptions below remain useful for the original screen audit; this update and the Phase A tracker take precedence wherever they describe a changed behavior. Phase B below supersedes the original driver-home placeholder. Automated fee collection remains outside this release.
+
 ### At a glance
 
 | Area | Current position | Next discussion |
 | --- | --- | --- |
-| Navigation | 18 registered routes, plus sheets/dialogs and state-based views | Active-trip restoration and role-aware entry |
-| Rider | Connected booking/history foundation; live-trip and payment experience incomplete | 12 proposed screen groups/upgrades in section 11 |
+| Navigation | 21 registered routes, plus sheets/dialogs and state-based views; active-trip startup restoration, selected-mode entry and trip chat | Device acceptance and external deep links |
+| Rider | Booking review, matching/live trip, collection/receipt, history/recovery and minimum safety connected | 12 proposed screen groups/upgrades in section 11 |
 | Partner onboarding | Policy, dynamic application, selfie, review, confirmation, final PDF and activation | Correct configuration mismatches and clarify reviewed-data ownership |
-| Driver | Vehicle registration/review and exit are connected; operational home is a placeholder | 20 proposed screen groups/upgrades in section 12 |
+| Driver | Vehicle gates, map home, offers, active trips, collection, history and exit are connected | 20 proposed screen groups/upgrades in section 12 |
 | Shared account/help | Profile, settings, in-app notices, contacts and basic support exist | 8 proposed screen groups/upgrades in section 10 |
 
 The 40 proposed groups include improvements to existing pages and states that can share a route. They do not imply 40 additional top-level pages. The suggested first build is the paired rider/driver trip cycle, starting with the driver's readiness, online status and incoming offers.
@@ -83,7 +87,7 @@ There is currently one Flutter project in `apps/user/v1`. The driver experience 
 - Riders sign in, select pickup/drop-off, obtain category quotes, request rides, and open rider ride details.
 - Applicants use Partner Program to submit details, documents, and a live selfie, accept an admin-authored confirmation, receive a final PDF, and complete one-time activation.
 - Activated drivers encounter mandatory vehicle verification before normal driver home.
-- Driver home currently contains a placeholder, Settings, My vehicles, and Exit Request & Dues. It is not yet a working driver dispatch console.
+- Driver home now provides the Phase B map, readiness and offer console, plus Settings, My vehicles, Trip history and Exit Request & Dues.
 - ADMIN/SUPPORT accounts can also have activated partner participation. Their staff role can be preserved while partner status determines entry to the driver experience.
 - “User” in the admin directory generally means the personal account; “Driver” classification also considers partner activation. It should not be confused with a second unrelated identity.
 
@@ -145,7 +149,7 @@ flowchart TD
 
 ## 3. Current navigation and complete route inventory
 
-### 3.1 Registered named routes: 18
+### 3.1 Registered named routes: 21
 
 | Route | Page | Current purpose | Audience |
 | --- | --- | --- | --- |
@@ -167,6 +171,9 @@ flowchart TD
 | `/driver/home` | `DriverHomePage` | Vehicle eligibility gate, then current driver home | Activated driver/partner |
 | `/driver/vehicles` | `DriverVehiclesPage` | Vehicle submissions, review feedback and selection | Driver |
 | `/driver/exit` | `DriverExitPage` | Exit request, dues, settlement PDF | Driver/exited partner |
+| `/driver/rides` | `DriverTripsPage` | Paginated driver-owned history | Driver/exited partner |
+| `/driver/ride-detail` | `DriverTripPage` | Operational map, trip actions, navigation and collection; history remains readable after exit | Driver/exited partner |
+| `/trip-chat` | `TripChatPage` | Participant-only text conversation; writes during an active trip | Assigned rider/driver |
 
 **Routing limitation:** named-route registration is not a universal authorization guard. Startup resolution and the driver vehicle gate choose the normal destination; APIs still enforce permissions. Role-aware deep links and resume routing need a complete design.
 
@@ -192,7 +199,7 @@ flowchart TD
 - `AppRoutes.search` (`/search`) and `AppRoutes.ride` (`/ride`) are constants without builders in the current route map.
 - `features/drawer/pages/drawer_page.dart` remains in source. The Home profile avatar opens Settings instead of the drawer.
 - `features/auth/_data_dummy/login_page.dart` is not the registered login page.
-- Home contains a sample “driver found” card with sample driver information and an example OTP. `_isDriverFound` is a constant `false`, so this is unreachable mock UI, not a connected assignment screen.
+- Phase A removed the unreachable sample “driver found” card and sample OTP. The remaining dead styling flag was removed in the follow-up audit. A connected assignment screen remains Phase B work.
 - Repository methods for the older vehicle creation/category flow remain, but the current vehicle UI uses the newer verification repository.
 - A database enum such as `PUSH`, `WALLET`, or `AUTHORIZED` does not mean its complete mobile experience exists.
 
@@ -269,7 +276,7 @@ flowchart TD
 
 **Behavior:** returning from Profile reloads its summary. Logout opens a confirmation dialog, clears the session through the auth repository, and returns to Login.
 
-**Current limitations:** no language/theme controls, permissions dashboard, account-deletion request, legal/about pages, role-specific driver menu, or rider/driver mode switch. My rides still calls the rider history API even when accessed by a driver through Settings. Driver payout banking is not this page's Payment methods section.
+**Current limitations:** no language/theme controls, permissions dashboard, account-deletion request, legal/about pages, role-specific driver menu, for the complete operational driver journey. Phase A adds rider/driver switching and selects the appropriate rider or driver history in Settings. Driver payout banking is not this page's Payment methods section.
 
 **Next:** keep the profile card and common account tiles, add clearly separate rider versus driver work sections, and retain a Help entry when vehicle verification blocks driving.
 
@@ -306,7 +313,7 @@ flowchart TD
 
 **Actions:** fetch `/me/notifications`, pull to refresh, tap an unread item to post its `/read` action and refresh. Empty state says the user is caught up; failures have retry.
 
-**Gaps:** tapping a notification does not currently navigate to its ride/application/vehicle. No notification-detail page, settings, mark-all-read control, or connected mobile push-registration/background delivery flow is present in the inspected mobile sources. Firebase initialization alone does not implement push notifications. The Home bell is currently decorative and has no navigation callback.
+**Gaps:** tapping a notification does not currently navigate to its ride/application/vehicle. No notification-detail page, settings, mark-all-read control, or connected mobile push-registration/background delivery flow is present in the inspected mobile sources. Firebase initialization alone does not implement push notifications. The Home bell now opens the Notifications page; notification-specific deep links remain pending.
 
 **Next:** notification targets, delivery channels, event deduplication, foreground/background behavior and preferences. Keep the existing list rather than creating a second unrelated inbox.
 
@@ -396,9 +403,9 @@ flowchart TD
 5. Cache the coordinates locally and patch `/me/location`.
 6. Keep map source/marker updates synchronized with map style readiness.
 
-**Controls:** avatar opens Settings and refreshes the avatar on return; recenter requests a current fix; address interaction expands the search card. The top-right bell has no tap action currently.
+**Controls:** avatar opens Settings and refreshes the avatar on return; recenter requests a current fix; address interaction expands the search card. The top-right bell opens Notifications.
 
-**Location states:** permission granted; denied; permanently denied with app-settings dialog; device service off with location-settings dialog; waiting for return from settings; cached position; current-fix failure. The default coordinate without a usable fix/cache is Jakarta (`-6.2, 106.816666`), which needs an intentional service-region fallback decision.
+**Location states:** permission granted; denied; permanently denied with app-settings dialog; device service off with location-settings dialog; waiting for return from settings; cached position; current-fix failure. Without a usable fix/cache, the camera starts at Bhagalpur (25.23, 86.95). This fallback is not a selected pickup: GPS/cache or explicit selection is required before routing/quoting. Editing endpoints invalidates prior routes and quotes.
 
 **Source:** [Home](../apps/user/v1/lib/features/home/pages/home_page.dart), [map constants](../apps/user/v1/lib/features/home/constants/home.constant.dart).
 
@@ -777,15 +784,17 @@ All P01–P06 states below are hosted in `/partner-program`. The response from `
 
 **Gaps:** the year bounds are currently static, no local persistent draft for this suggestion form, and no dedicated requester status/review timeline.
 
-### D08 — Current driver home
+### D08 - Current driver home (Phase B)
 
-**Status:** CURRENT — PLACEHOLDER. **Route:** `/driver/home`, after D01 permits entry.
+**Status:** CURRENT - CONNECTED. **Route:** `/driver/home`, after D01 permits entry.
 
-**What is shown:** Driver home title, Settings action, centered “Driver home page”, My vehicles tile, and Exit Request & Dues tile. For exited partners the center explains that driver operations are disabled, My vehicles is disabled, and settlement access remains.
+**What is shown:** MapLibre map with a live location puck; Settings and Help; an active-vehicle/status card, eligibility and GPS warnings, Go online/offline, nearby expiring offers, My vehicles, Trip history and Exit & dues. The bottom card scrolls independently. Exited drivers retain history/settlement access and cannot reopen vehicle operations.
 
-**What is not implemented in this UI:** driver map, Go online/offline, incoming ride offers, pickup navigation, arrival, start/end trip, cash collection, earnings, payouts, driver trip history or live background location reporting.
+**Behavior:** refreshes every five seconds while visible and on resume/return. Online starts precise tracking and uploads a fix before asking the server for availability. Offline stops tracking. The server checks current verification, vehicle/category/catalog eligibility, account/exit state and location freshness. A current assignment replaces home with the trip page. Accept/decline actions respect expiry and server conflicts; acceptance retries resolve to the same trip.
 
-**Why this matters:** API V2 already exposes part of the driver operational flow, but the mobile home does not use those endpoints yet. Building the real driver workflow is the largest next product phase.
+**Trip page:** `/driver/ride-detail` now has a map, pickup/drop-off markers, route, turn instruction/distance, browse/follow/reroute controls, a draggable card, arrival, waiting clock, combined start checks, contact/chat, completion, cash/UPI receipt and issue/dispute controls. Destination navigation replaces pickup navigation only after both start proofs. See the detailed Phase B overlay near section 15.
+
+**Remaining limits:** physical-device/background tracking and native map/intents need a release smoke test. Earnings/ledger, automatic deductions, masked calling, background push and voice guidance are separate work.
 
 ### D09 — Exit Request & Dues
 
@@ -894,12 +903,12 @@ This is a source/configuration planning review, not a claim that every defect in
 
 | Priority | Finding | Consequence / required follow-up |
 | --- | --- | --- |
-| P0 | Driver home is operationally blank | Build online status, offers, pickup, trip, completion and location reporting before calling the driver experience complete |
-| P0 | Shared My rides is rider-scoped | Driver needs an authorized driver-history/detail API and UI; reuse must not show unrelated rider history as driver work |
-| P0 | No active-trip restoration at startup | A restarted app can resolve to ordinary Home/driver gate rather than the current trip; define precedence and recovery |
-| P0 | Future-returning arrow `setState` callbacks remain in older shared/rider pages | Source includes assignments of futures in session retry, Settings profile reload, Profile, ride polling/actions, notifications and other list refreshes; these can trigger Flutter debug assertions. Audit/fix before relying on those refresh paths. Vehicle/driver-gate callbacks were fixed in the previous work. |
-| P0 | Home's driver-found UI is unreachable sample content | Replace or remove mock card and mock OTP when implementing assignment; never display them as real trip data |
-| P0 | Time picker does not create scheduled bookings | Avoid promising scheduling until a persisted date/time, dispatch and management contract exists |
+| IMPLEMENTED | Driver home and first operational trip | Phase B implements online status, offers, pickup, trip, completion and location reporting; physical-device release checks remain |
+| RESOLVED | Shared My rides is rider-scoped | Settings now selects owner-scoped driver history in driver mode; rider history remains separate. |
+| RESOLVED | No active-trip restoration at startup | SessionGate restores active driver/rider work before the ordinary home; finished restored trips provide a return action. |
+| RESOLVED | Future-returning arrow `setState` callbacks remain in older shared/rider pages | Audited callbacks now return void; restored rider polling also pauses on covered/background routes and refreshes on resume. |
+| RESOLVED | Home's driver-found UI is unreachable sample content | Sample driver/OTP content and its dead styling branch were removed. Operational assignment UI is Phase B. |
+| RESOLVED | Time picker does not create scheduled bookings | Cosmetic picker removed; current booking is Now-only. Scheduling is next release. |
 | P0 | Cash status lacks a complete collection/reconciliation journey | Do not mark paid from UI success; implement collection records and server transitions |
 | P0 | RC requirement is STRING despite upload guidance | Decide whether initial KYC should include RC at all; if retained, configure/document the correct file type while preserving submitted snapshots |
 | P0 | Bank account/phone are NUMBER requirements | Migrate future inputs to string identifiers and define exact validation; preserve original submissions and digits |
@@ -907,8 +916,8 @@ This is a source/configuration planning review, not a claim that every defect in
 | P1 | Source DOB rule does not enforce the “18 years” description | Agree eligibility rules and implement matching server/mobile behavior if that is a product requirement |
 | P1 | Several requirement descriptions conflict with configured types/extensions | Clean up PAN wording, licence PDF guidance, Aadhaar/PAN CSV options, ownership placeholder and file limits in admin |
 | P1 | Geography uses a bundled postal directory | Confirm actual operating-region coverage; provide an explicit unavailable/missing-address path rather than accepting fabricated geography |
-| P1 | Home's fallback coordinate is Jakarta | Choose service-region fallback, coverage errors and a visible cached/approximate-location state |
-| P1 | Notification bell is decorative; inbox taps only mark read | Wire actual navigation/deep links and permission-aware push behavior |
+| RESOLVED | Home's fallback coordinate is Jakarta | Bhagalpur camera fallback is separate from confirmed pickup coordinates; no fallback-source booking or source marker is fabricated. |
+| PARTIAL | Notification navigation | Home opens the inbox. Per-notification deep links, push delivery and permission flows remain pending. |
 | P1 | Ride tracking is polling, while driver location sender UI/service is missing | Build the complete driver-to-server-to-rider location chain, freshness indicators and reconnect behavior |
 | P1 | Driver completion currently uses estimated fare/distance/duration | Define actual fare rules and authoritative accounting before displaying real earnings, overages or payout balances |
 | P1 | Driver readiness has several independent gates | Account activation, vehicle review, catalog/category validity, active vehicle, permissions, partner exit and driver verification must each have clear messages |
@@ -1530,7 +1539,7 @@ Paths below are relative to `/api/v2`. “Existing” means a controller/reposit
 | Ride state/location/events | `/rides/:id/events`, `/rides/:id/locations` | Basic polling/location display; finish permissions and event integration |
 | Rider cancel/start/review | `/rides/:id/cancel`, `/rides/:id/confirm-start`, `/rides/:id/reviews` | Basic dialogs exist; policy/handshake/dispute UX incomplete |
 | Driver profile | GET `/driver/profile` or `/driver/me` | Foundation exists; real home/readiness UI needed |
-| Driver availability | PATCH `/driver/availability` | Endpoint exists; no operational online/offline UI yet |
+| Driver availability | PATCH `/driver/availability` | Phase B online/offline UI requires fresh accurate GPS and current driver/vehicle eligibility |
 | Offers | GET `/driver/offers`, POST `/driver/offers/:id/accept` and `/reject` | Endpoints exist; offer screen and reliable delivery missing |
 | Driver telemetry | POST `/driver/location` | Endpoint records profile/active-trip locations; mobile reporting lifecycle missing |
 | Pickup/start/completion | POST `/driver/rides/:id/arrive`, `/start`, `/complete` | Endpoints exist; driver pages missing and start/fare/recovery semantics need review |
@@ -1632,45 +1641,79 @@ For each implementation task, record:
 
 ### Phase A — Agree contracts and repair misleading current states
 
-- [ ] Approve same-app versus separate-driver-app direction and role/mode routing.
-- [ ] Agree first-release service regions and location fallback.
-- [ ] Resolve application configuration issues in section 8 without rewriting submitted snapshots.
-- [ ] Fix remaining Future-returning refresh callbacks and lifecycle handling in existing shared/rider pages.
-- [ ] Wire the Home bell; remove/replace unreachable sample driver information and sample OTP.
-- [ ] Agree the start-confirmation contract, cancellation/no-show rules and payment/collection ownership.
-- [ ] Add active-trip and driver current-trip/history/detail read contracts.
-- [ ] Define real financial calculations before designing earnings totals.
+- [x] Approve one app with rider/driver switching; implement preference and active-trip entry.
+- [x] Choose Bhagalpur launch/fallback. Precise service boundaries remain an operator-dependent operational task.
+- [x] Record that application requirements are manually administered; retain submitted snapshots. No requirement records were changed automatically.
+- [x] Fix Future-returning refresh callbacks in the audited shared/rider pages.
+- [x] Wire the Home bell and remove unreachable sample driver information/OTP; show Now-only booking.
+- [x] Record combined confirmation/OTP start and accepted payment/cancellation/no-show contracts. Operational enforcement is Phase B.
+- [x] Add active-trip and driver current/history/detail read contracts and minimal driver recovery views.
+- [x] Implement the PDF distance-band quote formula with admin settings, versions and snapshots; no invented rates or earnings.
+- [x] Add Support > Configure > Contact and mobile contact actions.
+
+See [Phase A verification and rollout](PHASE_A_IMPLEMENTATION.md#rollout-and-remaining-work). Complete the operational screens in Phase B before treating the driver trip cycle as production-ready.
 
 **Complete when:** every current control either performs its stated action or is clearly unavailable, data types match their business meaning, and the route/state/API contracts are written and agreed.
 
 ### Phase B — Driver's first complete operational trip
 
-- [ ] DN01 readiness and permission handling.
-- [ ] DN02 offline/online driver home.
-- [ ] DN03 incoming offer and expiry/race handling.
-- [ ] DN04 pickup navigation/contact.
-- [ ] DN05 arrived/waiting.
-- [ ] DN06 agreed start verification.
-- [ ] DN07 active trip and location lifecycle.
-- [ ] DN08 completion and authoritative fare result.
-- [ ] DN09 cash/payment resolution.
-- [ ] DN10 outcome/availability handling.
-- [ ] Minimum DN11/DN12 current-trip restoration and driver history/detail.
+- [x] DN01 readiness and permission handling.
+- [x] DN02 offline/online driver home.
+- [x] DN03 incoming offer and expiry/race handling.
+- [x] DN04 pickup navigation/contact.
+- [x] DN05 arrived/waiting.
+- [x] DN06 agreed start verification.
+- [x] DN07 active trip and location lifecycle.
+- [x] DN08 completion and authoritative fare result.
+- [x] DN09 cash/payment resolution.
+- [x] DN10 outcome/availability handling.
+- [x] Minimum DN11/DN12 current-trip restoration and driver history/detail.
 
-**Complete when:** an activated driver with a verified vehicle can become available, accept a real offer, reach pickup, start under the agreed rules, transmit location, finish a trip and see its truthful payment outcome. Restarting either app does not lose the active trip.
+**Implementation status:** these items are connected and regression-tested. The release acceptance check is still a paired physical-device trip: an activated driver with a verified vehicle becomes available, accepts an offer, reaches pickup, starts under both proofs, transmits location, finishes and confirms real collection. Restart/background/permission/native-intent checks must pass on the new base release. See [Phase B validation](PHASE_B_IMPLEMENTATION.md).
+
+#### Current Phase B screens and states (supersedes the original baseline)
+
+| Page/state | Contents and actions | Server/lifecycle behavior |
+| --- | --- | --- |
+| Driver home: offline | Map, vehicle summary, readiness/GPS message, Go online, Settings/Help, vehicles/history/exit links | Vehicle gate first. Initial precise fix uploads before availability. Missing/revoked permission provides Settings recovery. Ineligible accounts cannot go online. |
+| Driver home: available/offers | Live location, online status, expiring cards with fare, route addresses and trip distance; accept/decline; Go offline | Five-second foreground refresh. Search expands separately from arrival radius. Expired/lost offers cannot be accepted; retries return the same successful assignment. Offline stops GPS. |
+| Driver trip: pickup | In-app route and medium pickup/drop-off markers, turn text/distance, follow/browse, reroute, rider name, agreed fare, Call, Chat, Help, cancellation reason, Arrived | Trip ownership enforced. Navigation goes to pickup. Arrival needs fresh accurate GPS within configured radius; provider failure keeps actions usable. No external navigation app is launched. |
+| Driver trip: waiting/start | Waiting clock and free-period guidance, rider-confirmed/driver-verified indicators, six-digit trip-code input; verify; contact/cancel/no-show | Arrival creates a rider inbox notice. Start waits for both proofs in either order. Codes expire after ten minutes and lock after five wrong attempts. No-show remains disabled until free time and call intent are present, then the server rechecks GPS/evidence. |
+| Driver trip: in progress | Destination navigation, next turn/distance, route progress, fare, completion confirmation, contact/chat/Help, read-only incoming offers | GPS tracking remains active. Accepting/queuing a second ride is blocked. Completion is idempotent and uses the accepted server fare. A changed account/vehicle affects the next availability calculation. |
+| Driver trip: completed | Final fare, cash/UPI method, Confirm full fare received, Report unpaid with reason, payment/review status and return-home action | Only the assigned driver can acknowledge receipt. Actual GPS distance is stored only if usable; accepted fare remains unchanged. Eligibility is rechecked before automatic availability. Unpaid reports remain reviewable; later receipt closes the debt. |
+| Rider trip: searching/assigned | Existing ride route/vehicle/name details, expanding search status or no-driver result, active location/freshness notice, Call/Chat/Help/cancel controls | Visible ride-status polling advances matching even when the action panel is outside the viewport. Private driver documents/live profile data are omitted from history. Further rider layout/safety work remains Phase C. |
+| Rider trip: waiting/start | Rider-only trip code, expiry/lock notice and refresh, Confirm pickup and driver, both verification indicators | The driver never receives the raw code in context/history. Refresh is available after expiry and resets both proofs. This challenge is independent of account activation. |
+| Rider trip: completed/review | Receipt/rating, pending/received/waived collection, cash selection, driver UPI intent, review/dispute and separate approved-charge UPI link when available; return home | Selecting/opening payment never records receipt. No charge is carried to another driver. Support/admin verifies manual settlement. Pending reviews can be disputed; cash refunds and settled-charge reversal are separate operator work. |
+| Trip chat | Own/other text bubbles, sent time, 1,000-character input, send/retry and errors | Participant ownership, latest 100 messages, foreground four-second refresh, client-key idempotency and server rate limit. Read after completion is allowed; new messages require an active trip. No media or background push is claimed. |
+| Admin: Fare Policy | Existing pricing/payment/cancellation sections plus Matching & Trip Operations controls | Arrival radius/GPS age, initial/max matching radius, expansion interval, search timeout and offer lifetime save with version/audit. Defaults are engineering settings; operators still configure real fares. |
+| Admin: Ride Reviews | Status filter, paginated compact review cards, trip/rider/reason/dispute, arrival/call evidence, required decision note and approve/waive/reject/verified settlement | Active admin authorization, version conflicts and closed-state protections. Approval records an obligation; verified settlement records original-driver receipt. Calls are attempts, not proof of connection. Automatic fees, refunds, penalty deductions and app-held payment settlement are not implemented. |
+
+**Device/provider limits:** this is MapLibre route guidance with OSRM steps and deviation rerouting, without voice guidance, traffic-aware routing, masked calls or background push. Android foreground location and iOS location background mode need a new native base. Physical device behavior, platform permission restrictions and process death remain explicit release tests.
 
 ### Phase C — Rider's matching and active-trip experience
 
-- [ ] RN01 unified place/pin selection and error handling.
-- [ ] RN02 booking/fare review and quote expiry.
-- [ ] RN03 searching, terminal no-driver state and safe retry.
-- [ ] RN04/RN05 real driver approach/arrival/start.
-- [ ] RN06 live trip/reconnect/safety entry.
-- [ ] RN07/RN08 complete/payment/receipt/rating.
-- [ ] RN09/RN10 history, cancellation and recovery.
-- [ ] Minimum RN11 safety actions supported by actual operations.
+- [x] RN01 unified place/pin selection and error handling.
+- [x] RN02 booking/fare review and quote expiry.
+- [x] RN03 searching, terminal no-driver state and safe retry.
+- [x] RN04/RN05 real driver approach/arrival/start.
+- [x] RN06 live trip/reconnect/safety entry.
+- [x] RN07/RN08 complete/payment/receipt/rating.
+- [x] RN09/RN10 history, cancellation and recovery.
+- [x] Minimum RN11 safety actions supported by actual operations.
 
 **Complete when:** a rider can follow the same real driver trip from booking through payment/receipt with accurate statuses and recovery for cancellation, no match, connectivity loss and restart.
+
+#### Current Phase C implementation (supersedes original rider baselines)
+
+The existing Home/pin/search flow now leads into booking review with quote expiry, policy, instructions and stable booking retries. Saved-address edits invalidate stale coordinates. Home exposes active-trip recovery and fresh-quote rebooking.
+
+The rider trip route is map-first through searching, real assignment, GPS arrival, both start proofs and live trip. It uses a single API context snapshot, public driver/vehicle data, timestamped active GPS and rider-only remaining-route estimates. Last-known location and unavailable routing are explicit; local time never invents a terminal matching result. Visible polling, background/resume and navigation return refresh preserve the last confirmed trip on failure.
+
+Completion separates the fixed accepted fare from actual collection. Cash/direct UPI remain pending until driver receipt; waived/refunded/provider-managed payments cannot trigger another direct payment. Receipt, rating, latest activity, reviewed cancellation/no-show status and support remain accessible. Rider history is paginated and separated into Active/Past/All without unbooked drafts or driver work. Already-read trip notifications can still reopen their owned trip.
+
+Minimum safety includes configured contacts, contact management, linked support issues and explicit manual WhatsApp/copy sharing of a static trip summary. There is no live public share link or emergency dispatch. UI uses the existing app cards, page frame, colors and action patterns; no new mobile named route or native package was introduced.
+
+See [Phase C checklist, API contract and device acceptance](PHASE_C_IMPLEMENTATION.md). Automated verification is recorded there; paired-device and native intent/background acceptance remains required before release. The [Phase C follow-up audit](PHASE_C_AUDIT.md) records additional booking, route transition, GPS freshness and recovery fixes, with 137 API tests and 58 Flutter tests passing. Phase D remains unstarted.
 
 ### Phase D — Driver operations and account completion
 

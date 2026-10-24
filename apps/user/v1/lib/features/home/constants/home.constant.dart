@@ -4,7 +4,8 @@ class HomeConstants {
   static const String MAP_STYLE_URL =
       'https://tiles.openfreemap.org/styles/liberty';
 
-  static const LatLng DEFAULT_LOCATION = LatLng(-6.200000, 106.816666);
+  // Bhagalpur camera fallback; this is not a guessed service-area boundary.
+  static const LatLng DEFAULT_LOCATION = LatLng(25.23, 86.95);
   static const double DEFAULT_ZOOM = 16.5;
   static const double MAP_TILT = 48;
 

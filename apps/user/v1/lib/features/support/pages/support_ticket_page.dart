@@ -41,7 +41,9 @@ class _SupportTicketPageState extends State<SupportTicketPage> {
     try {
       await _repository.sendSupportMessage(_ticketId, _message.text.trim());
       _message.clear();
-      setState(() => _ticket = _repository.supportTicket(_ticketId));
+      setState(() {
+        _ticket = _repository.supportTicket(_ticketId);
+      });
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -63,8 +65,9 @@ class _SupportTicketPageState extends State<SupportTicketPage> {
         if (snapshot.hasError) {
           return AppLoadError(
             message: ApiResult.errorMessage(snapshot.error!),
-            onRetry: () =>
-                setState(() => _ticket = _repository.supportTicket(_ticketId)),
+            onRetry: () => setState(() {
+              _ticket = _repository.supportTicket(_ticketId);
+            }),
           );
         }
         if (!snapshot.hasData) {

@@ -1,6 +1,6 @@
 # 1More API v2 — NestJS
 
-Standalone NestJS 12 implementation: 18 feature modules, 141 method/path combinations, injected services/repositories, and Prisma/PostgreSQL persistence. See [route-manifest.json](./route-manifest.json) for every route and its guards/idempotency policy.
+Standalone NestJS 12 implementation: 21 feature modules, 163 method/path combinations, injected services/repositories, and Prisma/PostgreSQL persistence. See [route-manifest.json](./route-manifest.json) for every route and its guards/idempotency policy.
 
 Partner onboarding adds published rich documents, private assets, dynamic application reviews, confirmation/final PDF approval, SMTP delivery and first-login driver activation. See [PARTNER_ONBOARDING_IMPLEMENTATION.md](../../../context/PARTNER_ONBOARDING_IMPLEMENTATION.md) for routes, operator setup and delivery behavior.
 
@@ -103,7 +103,7 @@ Fare components use decimal arithmetic and round half-up to two decimal places. 
 
 ## Database and configuration
 
-V1 and V2 share the same schema and four committed migrations. Migration `0004_admin_access` adds durable grant/revocation metadata and the previous role used when removing administrator access. Existing administrator roles are retained. The local `.env` points to the same database and integrations as V1, so both processes see the same users, roles, categories, sessions and rides. Keep migration histories synchronized while both implementations are maintained; use V2 as the canonical schema after client cutover. For another environment, apply pending migrations with `npm run prisma:deploy` before starting the updated API.
+API V2 is the canonical backend and migration owner. Its eleven migrations include partner onboarding, vehicle verification, Phase A fare/support configuration and Phase B driver operations. API V1 is not updated. Both API URL prefixes served by V2 invoke the same Nest controllers. For another environment, apply pending migrations with `npm run prisma:deploy` before starting the updated API.
 
 For an empty database, configure `DB_STRING` and deliberately apply the committed migrations using `npm run prisma:deploy`. `npm run prisma:seed` is optional development data. Docker Compose retains project name `api` to reuse the existing local PostgreSQL volume.
 
@@ -183,3 +183,41 @@ Emails include user ID, name, email, phone (or Not provided), role, account stat
 - For an operator retry of an eligible batch, run npm run notifications:retry from this folder. Repeat for larger backlogs. Existing users are not backfilled.
 
 Implementation checks use mocked SMTP; they do not send real customer or administrator email.
+
+## Phase A fare, mode and support foundation
+
+See [PHASE_A_IMPLEMENTATION.md](../../../context/PHASE_A_IMPLEMENTATION.md) for the accepted product decisions, checklist and rollout. Migration 0010 adds versioned fare/rate and public support-contact tables. No numerical rates or real contacts are seeded.
+
+- GET/PATCH /admin/fare-policy: admin-only, expected_version on writes, audited before/after snapshots. Configure Auto/Toto, Bike/Scooter and Car, each with max_profit_km, normal_fare_per_km and profit_fare_per_km.
+- Fresh HTTP ride quotes use min(distanceKm, limitKm) * profitRate + max(distanceKm - limitKm, 0) * normalRate. Decimal calculation rounds once; base/time/commission are zero. Each quote stores policy version, rate inputs and payment/cancellation policy. Missing policy blocks new quotes; old snapshots retain their value.
+- Launch policy stores cash/direct-UPI availability, fixed zero commission/unavailable online collection, editable free-cancellation/free-wait minutes and cancellation/no-show percentage/cap. Defaults follow the user's 2/5/10/100 choices. Booking and checkout enforce selected-quote cash availability and explicitly reject unavailable digital operations. These settings do not implement UPI receipt confirmation, fees, waiver/dispute or payment collection by themselves.
+- GET /me/travel-context: active rider/driver summaries, mode eligibility and availability. GET /driver/rides/current, /driver/rides and /driver/rides/:id are authenticated owner-scoped reads. They omit trip OTPs and rider contact details. History list is paginated and excludes heavy route/event payloads.
+- Cross-role participation locks prevent simultaneous rider booking and driver work. Cancellation and completion use one current-eligibility calculation before returning AVAILABLE; suspension remains preserved.
+- GET /support/configuration: public contact values for authenticated app users. GET/PATCH /admin/support/configuration/contact: admin editor with expected_version and audit.
+
+Phase B replaces the operational start/completion endpoint handlers with the combined verification and direct collection flow below.
+
+## Phase B driver operations
+
+Apply `0011_operational_driver_trip` before running the updated API. It adds encrypted trip-start challenges, chat messages, GPS accuracy, preferred collection method, receipt evidence, reviewed obligations and editable operational settings. No fare prices or customer fixtures are seeded.
+
+- Driver dashboards and rider status/context reads advance matching through database transactions. Initial search is 1 km, doubling every 30 seconds up to 10 km; search stops after 180 seconds. Offers last 45 seconds. Admins can edit these settings in Fare Policy. There is no dependency on a persistent Vercel worker.
+- A verified driver needs a currently eligible active vehicle and fresh precise GPS to receive/accept offers. An active trip allows viewing offers only. Acceptance is serialized; its successful retry returns the same assigned trip.
+- Arrival defaults to within 150 metres of pickup, GPS at most 60 seconds old and reported accuracy at most the configured radius. Arrival records evidence, notifies the rider and starts the free waiting period.
+- Both rider confirmation and the assigned driver's six-digit trip-code verification are required to start. Codes are encrypted at rest, expire after ten minutes, lock after five wrong attempts, and bind to the current assignment. Refresh after expiry resets both proofs. Neither history endpoints nor driver context expose the code.
+- Assigned-trip navigation supplies OSRM steps and geometry to MapLibre. Location capture timestamps, accuracy and server freshness checks prevent cached coordinates from being presented as a fresh fix. GPS coordinates are not independent anti-spoofing attestation.
+- Completion uses the immutable accepted fare, records pending collection and rechecks current eligibility before restoring availability. Driver GPS path distance is recorded only when enough usable points exist; it does not silently change the accepted fare.
+- CASH and direct UPI follow the accepted quote's payment-policy snapshot. UPI comes from a uniquely approved partner-application UPI field. Only the assigned driver can confirm full receipt. A UPI intent/rider selection remains pending. Confirming a previously unpaid fare closes its open review to prevent a duplicate debt. A waived fare cannot be reopened through either checkout endpoint.
+- Trip-scoped text chat uses idempotent client keys and rate limits. Ordinary calls record intent, not connection. Contact details are available during an active assignment; public history excludes live driver GPS and private vehicle documents. Masked calling has no provider and remains unavailable.
+- Cancellation/no-show reports create at most one review per trip. No-show requires verified arrival, free waiting time, a post-arrival call attempt and a fresh accurate pickup location. Admins review evidence, disputes and exemptions in **App > User > Ride Reviews**, with pagination and version checks. Approval records a pending obligation; settlement records verified manual receipt by the original driver. Pending charges may be waived. Automatic deductions, online payment processing, cash refunds and driver penalty collection are not implemented.
+
+See [Phase B tracker and release checks](../../../context/PHASE_B_IMPLEMENTATION.md) for validation and device/provider limitations.
+
+The trip-context response includes a public `trip` summary and `driver_has_active_trip` for the current driver. Its ride/proof/payment relations are read in one Repeatable Read transaction, so the mobile controls and trip display use the same snapshot. History retains no rider telephone number in that summary. The rider locations endpoint returns the latest 500 points in chronological order; completion telemetry is queried separately. See [the follow-up audit](../../../context/PHASE_AB_AUDIT.md) for current verification results.
+
+
+## Phase C rider operations
+
+The trip-context snapshot now includes the selected quote, public driver/vehicle details, route, latest activity and current rider rating. Active driver GPS is disclosed only to the ride owner during the active assignment. GET /trips/:id/rider-route computes remaining pickup/drop-off progress from stored fresh driver GPS; there are no caller-supplied routing coordinates. GET /me/rides provides authenticated, paginated Active/Past/All rider history, excluding drafts. Booking supports a 500-character pickup note; cancellation supports structured reason codes. Identical rating retries reuse the saved review.
+
+New quotes use pickup_eta_s=0 to mean unknown until assignment. The rider client shows a real route estimate only after assignment. No Phase C schema changes or seed data are needed; retain migrations 0010 and 0011. Deploy this API before the new mobile client. See [Phase C tracker](../../../context/PHASE_C_IMPLEMENTATION.md) for behavior, validation and device acceptance.

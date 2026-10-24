@@ -51,6 +51,7 @@ export function useDebouncedText(value: string) {
 export function useAdminSave() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const clearError = useCallback(() => setError(null), []);
   const pending = useRef<AbortController | null>(null);
   useEffect(() => () => pending.current?.abort(), []);
   async function run(
@@ -74,5 +75,5 @@ export function useAdminSave() {
       }
     }
   }
-  return { busy, error, run };
+  return { busy, error, run, clearError };
 }

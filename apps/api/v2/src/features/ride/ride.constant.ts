@@ -26,7 +26,8 @@ export const ROUTE_PROVIDER = 'osrm';
 export const DEFAULT_RIDE_PAGE_SIZE = 20;
 export const EARTH_RADIUS_METERS = 6371000;
 export const METERS_PER_MINUTE = 8;
-export const DEFAULT_PICKUP_ETA_SECONDS = 240;
+// Legacy non-null column: zero means unknown until a driver is assigned.
+export const DEFAULT_PICKUP_ETA_SECONDS = 0;
 export const QUOTE_LIFETIME_MINUTES = 5;
 export const REVIEW_RECIPIENT_MESSAGE =
   'You can only review the driver assigned to this ride.';

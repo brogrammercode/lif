@@ -34,6 +34,8 @@ export const vehicle_category_selection_schema = z
   .object({ vehicle_category_id: z.string().min(1).max(100) })
   .strict();
 export const location_schema = z.object({
+  captured_at: z.iso.datetime().optional(),
+  accuracy_m: z.number().finite().nonnegative().max(10000).optional(),
   latitude: z.number().gte(-90).lte(90),
   longitude: z.number().gte(-180).lte(180),
   heading: z.number().min(0).max(360).optional(),

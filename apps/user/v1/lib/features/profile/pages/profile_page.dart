@@ -45,7 +45,9 @@ class _ProfilePageState extends State<ProfilePage> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text(UserAppCopy.PROFILE_SAVED)));
-      setState(() => _profile = _repository.profile());
+      setState(() {
+        _profile = _repository.profile();
+      });
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -66,7 +68,9 @@ class _ProfilePageState extends State<ProfilePage> {
         if (snapshot.hasError) {
           return AppLoadError(
             message: ApiResult.errorMessage(snapshot.error!),
-            onRetry: () => setState(() => _profile = _repository.profile()),
+            onRetry: () => setState(() {
+              _profile = _repository.profile();
+            }),
           );
         }
         if (!snapshot.hasData) {

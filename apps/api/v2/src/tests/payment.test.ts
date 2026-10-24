@@ -100,3 +100,130 @@ it('binds a provider reference on the initial pending callback and processes ref
   assert.ok(payment.refunded_at && payment.refunded_at > partial_time);
   assert.equal(events, 3);
 });
+
+function database(client: unknown) {
+  const db = new PrismaService();
+  Object.defineProperty(db, 'client', { value: client });
+  return db;
+}
+
+it('legacy cash checkout clears direct UPI metadata without changing an unpaid report', async () => {
+  const payment = {
+    id: 'payment',
+    status: 'PENDING',
+    collection_method: 'UPI',
+    recipient_upi: 'driver@upi',
+    unpaid_reason: 'Awaiting receipt',
+    amount: new Prisma.Decimal(50),
+  };
+  const tx = {
+    $executeRaw: async () => 1,
+    ride: {
+      findFirst: async () => ({
+        id: 'ride',
+        status: 'COMPLETED',
+        final_fare: new Prisma.Decimal(50),
+        currency: 'INR',
+        quotes: [
+          {
+            category_snapshot: {
+              payment_policy: { cash_enabled: true, direct_upi_enabled: true },
+            },
+          },
+        ],
+      }),
+    },
+    payment: {
+      findUnique: async () => payment,
+      upsert: async ({ update }: { update: Partial<typeof payment> }) =>
+        Object.assign(payment, update),
+    },
+    paymentMethod: { findFirst: async () => ({ id: 'cash', type: 'CASH' }) },
+    userLog: { create: async () => ({}) },
+  };
+  const repo = new PaymentRepository(
+    database({
+      $transaction: async (action: (t: typeof tx) => Promise<unknown>) =>
+        action(tx),
+    }),
+  );
+  await repo.create_checkout('rider', {
+    ride_id: 'ride',
+    payment_method_id: 'cash',
+  });
+  assert.equal(payment.collection_method, 'CASH');
+  assert.equal(payment.recipient_upi, null);
+  assert.equal(payment.status, 'PENDING');
+  assert.equal(payment.unpaid_reason, 'Awaiting receipt');
+});
+
+it('a signed provider callback cannot capture a direct cash or UPI collection', async () => {
+  for (const collection_method of ['CASH', 'UPI']) {
+    const payment = {
+      id: 'payment',
+      ride_id: 'ride',
+      status: 'PENDING',
+      collection_method,
+    };
+    const tx = {
+      $executeRaw: async () => 1,
+      payment: {
+        findFirst: async () => payment,
+        findUniqueOrThrow: async () => payment,
+      },
+    };
+    const repo = new PaymentRepository(
+      database({
+        $transaction: async (action: (t: typeof tx) => Promise<unknown>) =>
+          action(tx),
+      }),
+    );
+    await assert.rejects(
+      repo.process_webhook('gateway', {
+        ride_id: 'ride',
+        provider_payment_id: 'external-reference',
+        status: 'CAPTURED',
+        amount: 50,
+      }),
+      { error_code: 'DIRECT_PAYMENT_WEBHOOK_UNSUPPORTED' },
+    );
+    assert.equal(payment.status, 'PENDING');
+  }
+});
+
+it('receipt queries expose public driver and vehicle details without private profile data', async () => {
+  let query: {
+    where?: unknown;
+    include?: {
+      driver: { select: Record<string, unknown> };
+      vehicle: { select: Record<string, unknown> };
+    };
+  } = {};
+  const repo = new PaymentRepository(
+    database({
+      ride: {
+        findFirst: async (args: typeof query) => {
+          query = args;
+          return null;
+        },
+      },
+    }),
+  );
+  await repo.get_receipt('rider', 'ride');
+  assert.deepEqual(query.where, { id: 'ride', rider_id: 'rider' });
+  const driver = query.include!.driver.select;
+  assert.equal('current_latitude' in driver, false);
+  assert.equal('last_location_at' in driver, false);
+  assert.equal('documents' in driver, false);
+  const user = (driver.user as { select: Record<string, unknown> }).select;
+  assert.equal(user.first_name, true);
+  for (const key of [
+    'phone_e164',
+    'email',
+    'google_sub',
+    'partner_activated_at',
+  ])
+    assert.equal(key in user, false);
+  assert.equal('verification_fields' in query.include!.vehicle.select, false);
+  assert.equal('rc_image_url' in query.include!.vehicle.select, false);
+});

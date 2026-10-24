@@ -6,6 +6,7 @@ import 'package:user/core/color.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/features/auth/auth.repo.dart';
+import 'package:user/features/auth/app_mode.repo.dart';
 import 'package:user/features/partner_program/partner_program.repo.dart';
 
 class PartnerActivationPage extends StatefulWidget {
@@ -32,6 +33,12 @@ class _PartnerActivationPageState extends State<PartnerActivationPage> {
     });
     try {
       await PartnerProgramRepository().activate(_code.text);
+      try {
+        final user = await AuthRepository().currentUser();
+        await AppModeRepository().save(user.id, AppMode.driver);
+      } catch (_) {
+        // Activation is committed; preference storage must not consume the code again.
+      }
       if (mounted) {
         Navigator.pushNamedAndRemoveUntil(
           context,

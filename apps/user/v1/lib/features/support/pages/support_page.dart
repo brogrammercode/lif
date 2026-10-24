@@ -6,6 +6,7 @@ import 'package:user/core/network/api_result.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/user_app/user_app.constant.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
+import 'package:user/features/support/widgets/support_contact_card.dart';
 
 class SupportPage extends StatefulWidget {
   const SupportPage({super.key});
@@ -18,7 +19,9 @@ class _SupportPageState extends State<SupportPage> {
   late Future<List<Map<String, dynamic>>> _tickets = _repository
       .supportTickets();
   Future<void> _reload() async {
-    setState(() => _tickets = _repository.supportTickets());
+    setState(() {
+      _tickets = _repository.supportTickets();
+    });
     await _tickets;
   }
 
@@ -89,87 +92,102 @@ class _SupportPageState extends State<SupportPage> {
       icon: const Icon(Icons.add, color: AppColors.primaryGreen),
     ),
     scrollable: true,
-    child: FutureBuilder<List<Map<String, dynamic>>>(
-      future: _tickets,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return AppLoadError(
-            message: ApiResult.errorMessage(snapshot.error!),
-            onRetry: _reload,
-          );
-        }
-        if (!snapshot.hasData) {
-          return const Center(
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: AppColors.primaryGreen,
+    child: LayoutBuilder(
+      builder: (context, constraints) => Column(
+        children: [
+          ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: constraints.maxHeight * 0.4),
+            child: const SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: SupportContactCard(),
             ),
-          );
-        }
-        if (snapshot.data!.isEmpty) {
-          return RefreshIndicator(
-            onRefresh: _reload,
-            color: AppColors.primaryGreen,
-            child: ListView(
-              children: [
-                SizedBox(height: 140.h),
-                const AppEmptyState(
-                  icon: Icons.support_agent,
-                  title: UserAppCopy.EMPTY_SUPPORT,
-                  subtitle: UserAppCopy.EMPTY_SUPPORT_DESCRIPTION,
-                ),
-              ],
-            ),
-          );
-        }
-        return RefreshIndicator(
-          color: AppColors.primaryGreen,
-          onRefresh: _reload,
-          child: ListView.separated(
-            padding: EdgeInsets.fromLTRB(16.w, 4.h, 16.w, 24.h),
-            itemCount: snapshot.data!.length,
-            separatorBuilder: (_, _) => SizedBox(height: 10.h),
-            itemBuilder: (context, index) {
-              final ticket = snapshot.data![index];
-              return ListTile(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16.r),
-                  side: const BorderSide(color: AppColors.borderGrey),
-                ),
-                tileColor: AppColors.pureWhite,
-                leading: const Icon(
-                  Icons.chat_bubble_outline,
-                  color: AppColors.primaryGreen,
-                ),
-                title: Text(
-                  '${ticket['subject'] ?? ''}',
-                  style: TextStyle(
-                    fontSize: 14.sp,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                subtitle: Padding(
-                  padding: EdgeInsets.only(top: 4.h),
-                  child: Text(
-                    '${ticket['status'] ?? 'OPEN'} · ${_date(ticket['created_at'])}',
-                    style: TextStyle(
-                      fontSize: 11.sp,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.pushNamed(
-                  context,
-                  AppRoutes.supportTicket,
-                  arguments: ticket['id'],
-                ).then((_) => _reload()),
-              );
-            },
           ),
-        );
-      },
+          Expanded(
+            child: FutureBuilder<List<Map<String, dynamic>>>(
+              future: _tickets,
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return AppLoadError(
+                    message: ApiResult.errorMessage(snapshot.error!),
+                    onRetry: _reload,
+                  );
+                }
+                if (!snapshot.hasData) {
+                  return const Center(
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: AppColors.primaryGreen,
+                    ),
+                  );
+                }
+                if (snapshot.data!.isEmpty) {
+                  return RefreshIndicator(
+                    onRefresh: _reload,
+                    color: AppColors.primaryGreen,
+                    child: ListView(
+                      children: [
+                        SizedBox(height: 140.h),
+                        const AppEmptyState(
+                          icon: Icons.support_agent,
+                          title: UserAppCopy.EMPTY_SUPPORT,
+                          subtitle: UserAppCopy.EMPTY_SUPPORT_DESCRIPTION,
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                return RefreshIndicator(
+                  color: AppColors.primaryGreen,
+                  onRefresh: _reload,
+                  child: ListView.separated(
+                    padding: EdgeInsets.fromLTRB(16.w, 4.h, 16.w, 24.h),
+                    itemCount: snapshot.data!.length,
+                    separatorBuilder: (_, _) => SizedBox(height: 10.h),
+                    itemBuilder: (context, index) {
+                      final ticket = snapshot.data![index];
+                      return ListTile(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16.r),
+                          side: const BorderSide(color: AppColors.borderGrey),
+                        ),
+                        tileColor: AppColors.pureWhite,
+                        leading: const Icon(
+                          Icons.chat_bubble_outline,
+                          color: AppColors.primaryGreen,
+                        ),
+                        title: Text(
+                          '${ticket['subject'] ?? ''}',
+                          style: TextStyle(
+                            fontSize: 14.sp,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        subtitle: Padding(
+                          padding: EdgeInsets.only(top: 4.h),
+                          child: Text(
+                            '${ticket['status'] ?? 'OPEN'} · ${_date(ticket['created_at'])}',
+                            style: TextStyle(
+                              fontSize: 11.sp,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => Navigator.pushNamed(
+                          context,
+                          AppRoutes.supportTicket,
+                          arguments: ticket['id'],
+                        ).then((_) => _reload()),
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     ),
   );
 

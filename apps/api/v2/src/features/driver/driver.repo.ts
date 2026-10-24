@@ -1,4 +1,9 @@
-import { require_driver_participation } from '../../infra/database/account_lifecycle.js';
+import { approved_driver_upi } from '../driver_operations/driver_payout.js';
+import { trip_distance_m } from '../driver_operations/trip.rules.js';
+import {
+  require_active_account,
+  require_driver_participation,
+} from '../../infra/database/account_lifecycle.js';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../infra/database/prisma.service.js';
 import { Prisma } from '@prisma/client';
@@ -101,6 +106,8 @@ export class DriverRepository {
   ) =>
     this.prismaService.client.$transaction(
       async (tx) => {
+        await require_active_account(tx, user_id);
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(720054, hashtext(${user_id}))`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(720041)`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
         await require_driver_participation(tx, user_id);
@@ -112,6 +119,14 @@ export class DriverRepository {
           },
         });
         if (!profile) return null;
+        if (profile.availability === 'SUSPENDED') {
+          if (input.availability === 'OFFLINE') return profile;
+          throw new AppError(
+            403,
+            'DRIVER_SUSPENDED',
+            'Driver access is suspended. Contact support before going online.',
+          );
+        }
         if (
           profile.user.status !== 'ACTIVE' ||
           (input.availability === 'AVAILABLE' &&
@@ -122,6 +137,24 @@ export class DriverRepository {
             'DRIVER_NOT_VERIFIED',
             DRIVER_NOT_VERIFIED_MESSAGE,
           );
+        if (input.availability === 'AVAILABLE') {
+          const rules = await tx.rideFarePolicy.findUnique({
+            where: { key: 'default' },
+            select: { location_max_age_s: true, arrival_radius_m: true },
+          });
+          if (
+            !profile.last_location_at ||
+            Date.now() - profile.last_location_at.getTime() >
+              (rules?.location_max_age_s ?? 60) * 1000 ||
+            profile.last_location_accuracy_m === null ||
+            profile.last_location_accuracy_m > (rules?.arrival_radius_m ?? 150)
+          )
+            throw new AppError(
+              409,
+              'FRESH_LOCATION_REQUIRED',
+              'Enable precise GPS and refresh your location before going online.',
+            );
+        }
         const category = profile.active_vehicle?.vehicle_category;
         if (
           input.availability === 'AVAILABLE' &&
@@ -157,12 +190,39 @@ export class DriverRepository {
         });
         if (active_ride)
           throw new AppError(409, 'DRIVER_ON_TRIP', DRIVER_ON_TRIP_MESSAGE);
+        if (
+          input.availability === 'AVAILABLE' &&
+          (await tx.ride.findFirst({
+            where: {
+              rider_id: user_id,
+              status: {
+                in: [
+                  'REQUESTED',
+                  'SEARCHING',
+                  'DRIVER_ASSIGNED',
+                  'DRIVER_ARRIVING',
+                  'DRIVER_WAITING',
+                  'IN_PROGRESS',
+                ],
+              },
+            },
+            select: { id: true },
+          }))
+        )
+          throw new AppError(
+            409,
+            'ACTIVE_RIDE_EXISTS',
+            'Finish or cancel your rider journey before going online as a driver.',
+          );
         const updated = await tx.driverProfile.update({
           where: { id: profile.id },
           data: {
             availability: input.availability,
             current_latitude: input.latitude,
             current_longitude: input.longitude,
+            ...(input.latitude !== undefined
+              ? { last_location_accuracy_m: null }
+              : {}),
             last_location_at:
               input.latitude !== undefined && input.longitude !== undefined
                 ? new Date()
@@ -419,21 +479,11 @@ export class DriverRepository {
       { maxWait: 10000, timeout: 15000 },
     );
 
-  readonly list_offers = async (user_id: string) =>
-    this.prismaService.client.rideOffer.findMany({
-      where: {
-        driver: { user_id },
-        status: 'SENT',
-        expires_at: { gt: new Date() },
-        ride: { status: 'SEARCHING' },
-      },
-      orderBy: { sent_at: 'desc' },
-      include: { ride: { include: { quotes: true, route: true } } },
-    });
-
   readonly accept_offer = async (user_id: string, offer_id: string) =>
     this.prismaService.client.$transaction(
       async (tx) => {
+        await require_active_account(tx, user_id);
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(720054, hashtext(${user_id}))`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(720041)`;
         const initial_offer = await tx.rideOffer.findFirst({
           where: { id: offer_id, driver: { user_id } },
@@ -460,10 +510,82 @@ export class DriverRepository {
         });
         if (!profile || !offer) return { kind: 'not_found' as const };
         if (
+          offer.status === 'ACCEPTED' &&
+          offer.ride.driver_id === profile.id &&
+          [
+            'DRIVER_ASSIGNED',
+            'DRIVER_ARRIVING',
+            'DRIVER_WAITING',
+            'IN_PROGRESS',
+          ].includes(offer.ride.status)
+        )
+          return { kind: 'success' as const, ride_id: offer.ride_id };
+        if (
+          await tx.ride.findFirst({
+            where: {
+              rider_id: user_id,
+              status: {
+                in: [
+                  'REQUESTED',
+                  'SEARCHING',
+                  'DRIVER_ASSIGNED',
+                  'DRIVER_ARRIVING',
+                  'DRIVER_WAITING',
+                  'IN_PROGRESS',
+                ],
+              },
+            },
+            select: { id: true },
+          })
+        ) {
+          return { kind: 'not_available' as const };
+        }
+        if (
           offer.status !== 'SENT' ||
           offer.expires_at.getTime() <= Date.now() ||
           offer.ride.status !== 'SEARCHING' ||
           !profile.active_vehicle_id
+        )
+          return { kind: 'not_available' as const };
+        const rules = await tx.rideFarePolicy.findUnique({
+          where: { key: 'default' },
+          select: {
+            location_max_age_s: true,
+            arrival_radius_m: true,
+            matching_max_radius_km: true,
+            search_timeout_s: true,
+          },
+        });
+        if (
+          !profile.current_latitude ||
+          !profile.current_longitude ||
+          !profile.last_location_at ||
+          Date.now() - profile.last_location_at.getTime() >
+            (rules?.location_max_age_s ?? 60) * 1000 ||
+          profile.last_location_accuracy_m === null ||
+          profile.last_location_accuracy_m > (rules?.arrival_radius_m ?? 150)
+        )
+          return { kind: 'not_available' as const };
+        if (
+          (Date.now() -
+            (offer.ride.requested_at ?? offer.ride.created_at).getTime()) /
+            1000 >=
+            (rules?.search_timeout_s ?? 180) ||
+          trip_distance_m(
+            profile.current_latitude.toNumber(),
+            profile.current_longitude.toNumber(),
+            offer.ride.pickup_latitude.toNumber(),
+            offer.ride.pickup_longitude.toNumber(),
+          ) >
+            (offer.ride.search_radius_km ??
+              rules?.matching_max_radius_km ??
+              10) *
+              1000
+        )
+          return { kind: 'not_available' as const };
+        if (
+          offer.ride.collection_preference === 'UPI' &&
+          !(await approved_driver_upi(tx, user_id))
         )
           return { kind: 'not_available' as const };
         const selected_quote = offer.ride.quotes[0];
@@ -580,18 +702,34 @@ export class DriverRepository {
   readonly record_location = async (user_id: string, input: LocationInput) =>
     this.prismaService.client.$transaction(
       async (tx) => {
+        await require_active_account(tx, user_id);
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
         await require_driver_participation(tx, user_id);
         const profile = await tx.driverProfile.findUnique({
           where: { user_id },
         });
         if (!profile) return null;
+        const fix_at = input.captured_at
+          ? new Date(input.captured_at)
+          : new Date();
+        if (
+          fix_at.getTime() > Date.now() + 5000 ||
+          fix_at.getTime() < Date.now() - 300000
+        )
+          throw new AppError(
+            422,
+            'LOCATION_TIMESTAMP_INVALID',
+            'Use a recent GPS location.',
+          );
+        if (profile.last_location_at && fix_at < profile.last_location_at)
+          return profile;
         const updated = await tx.driverProfile.update({
           where: { id: profile.id },
           data: {
             current_latitude: input.latitude,
             current_longitude: input.longitude,
-            last_location_at: new Date(),
+            last_location_at: fix_at,
+            last_location_accuracy_m: input.accuracy_m ?? null,
           },
         });
         const active_ride = await tx.ride.findFirst({
@@ -617,6 +755,7 @@ export class DriverRepository {
               longitude: input.longitude,
               heading: input.heading,
               speed_kph: input.speed_kph,
+              recorded_at: fix_at,
             },
           });
         }
@@ -627,87 +766,6 @@ export class DriverRepository {
           action: 'UPDATE_DRIVER_LOCATION',
         });
         return updated;
-      },
-      { maxWait: 10000, timeout: 15000 },
-    );
-
-  readonly transition_ride = async (
-    user_id: string,
-    ride_id: string,
-    target: 'DRIVER_WAITING' | 'IN_PROGRESS' | 'COMPLETED',
-  ) =>
-    this.prismaService.client.$transaction(
-      async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(720044, hashtext(${ride_id}))`;
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
-        await require_driver_participation(tx, user_id);
-        const profile = await tx.driverProfile.findUnique({
-          where: { user_id },
-          include: { user: { select: { status: true } } },
-        });
-        if (!profile) return { kind: 'not_found' as const };
-        const ride = await tx.ride.findFirst({
-          where: { id: ride_id, driver_id: profile.id },
-        });
-        if (!ride) return { kind: 'not_found' as const };
-        const transitions = {
-          DRIVER_WAITING: ['DRIVER_ASSIGNED', 'DRIVER_ARRIVING'],
-          IN_PROGRESS: ['DRIVER_WAITING'],
-          COMPLETED: ['IN_PROGRESS'],
-        } as const;
-        if (!(transitions[target] as readonly string[]).includes(ride.status))
-          return { kind: 'invalid_state' as const };
-        const event_type =
-          target === 'DRIVER_WAITING'
-            ? 'DRIVER_WAITING'
-            : target === 'IN_PROGRESS'
-              ? 'TRIP_STARTED'
-              : 'TRIP_COMPLETED';
-        const updated = await tx.ride.update({
-          where: { id: ride_id },
-          data:
-            target === 'DRIVER_WAITING'
-              ? { status: target, arrived_at: new Date() }
-              : target === 'IN_PROGRESS'
-                ? { status: target, started_at: new Date() }
-                : {
-                    status: target,
-                    completed_at: new Date(),
-                    final_fare: ride.estimated_fare,
-                    actual_distance_m: ride.estimated_distance_m,
-                    actual_duration_s: ride.estimated_duration_s,
-                  },
-        });
-        await tx.rideEvent.create({
-          data: { ride_id, actor_id: user_id, event_type },
-        });
-        if (target === 'COMPLETED') {
-          await tx.driverProfile.update({
-            where: { id: profile.id },
-            data: {
-              availability:
-                profile.verification_status === 'VERIFIED' &&
-                profile.user.status === 'ACTIVE'
-                  ? 'AVAILABLE'
-                  : 'OFFLINE',
-              completed_rides: { increment: 1 },
-            },
-          });
-        } else if (target === 'IN_PROGRESS') {
-          await tx.driverProfile.update({
-            where: { id: profile.id },
-            data: { availability: 'ON_TRIP' },
-          });
-        }
-        await create_user_log(tx, {
-          actor_id: user_id,
-          entity_type: 'Ride',
-          entity_id: ride_id,
-          action: `DRIVER_${target}`,
-          before_data: { status: ride.status } as Prisma.InputJsonObject,
-          after_data: { status: updated.status } as Prisma.InputJsonObject,
-        });
-        return { kind: 'success' as const, ride: updated };
       },
       { maxWait: 10000, timeout: 15000 },
     );

@@ -6,6 +6,8 @@ import 'package:user/core/routes.dart';
 import 'package:user/features/auth/auth.repo.dart';
 import 'package:user/features/user_app/user_app.constant.dart';
 import 'package:user/features/auth/models/user.model.dart';
+import 'package:user/features/auth/app_mode.repo.dart';
+import 'package:user/features/settings/widgets/app_mode_tile.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -59,7 +61,9 @@ class _SettingsPageState extends State<SettingsPage> {
                 onTap: () async {
                   await Navigator.pushNamed(context, AppRoutes.profile);
                   if (mounted) {
-                    setState(() => _profile = AuthRepository().currentUser());
+                    setState(() {
+                      _profile = AuthRepository().currentUser();
+                    });
                   }
                 },
                 child: AppCard(
@@ -125,6 +129,15 @@ class _SettingsPageState extends State<SettingsPage> {
             );
           },
         ),
+        FutureBuilder<UserModel>(
+          future: _profile,
+          builder: (context, snapshot) => snapshot.hasData
+              ? AppModeTile(
+                  key: ValueKey('mode-${snapshot.data!.id}'),
+                  user: snapshot.data!,
+                )
+              : const SizedBox.shrink(),
+        ),
         const AppSectionLabel('Partner with 1More'),
         SizedBox(height: 10.h),
         _tile(
@@ -136,7 +149,29 @@ class _SettingsPageState extends State<SettingsPage> {
         SizedBox(height: 12.h),
         const AppSectionLabel('Your journeys'),
         SizedBox(height: 10.h),
-        _tile(context, Icons.history, UserAppCopy.RIDES, AppRoutes.rides),
+        FutureBuilder<UserModel>(
+          future: _profile,
+          builder: (context, snapshot) => snapshot.hasData
+              ? FutureBuilder<AppMode>(
+                  future: AppModeRepository().preferred(snapshot.data!),
+                  builder: (context, mode) => _tile(
+                    context,
+                    Icons.history,
+                    mode.data == AppMode.driver
+                        ? 'Driver trips'
+                        : UserAppCopy.RIDES,
+                    mode.data == AppMode.driver
+                        ? AppRoutes.driverRides
+                        : AppRoutes.rides,
+                  ),
+                )
+              : _tile(
+                  context,
+                  Icons.history,
+                  UserAppCopy.RIDES,
+                  AppRoutes.rides,
+                ),
+        ),
         _tile(
           context,
           Icons.place_outlined,

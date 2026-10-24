@@ -17,7 +17,9 @@ class _EmergencyContactsPageState extends State<EmergencyContactsPage> {
   late Future<List<Map<String, dynamic>>> _contacts = _repository
       .emergencyContacts();
   Future<void> _reload() async {
-    setState(() => _contacts = _repository.emergencyContacts());
+    setState(() {
+      _contacts = _repository.emergencyContacts();
+    });
     await _contacts;
   }
 

@@ -22,6 +22,8 @@ export const quote_schema = z.object({
   rider_note: z.string().trim().max(500).optional(),
 });
 export const create_ride_schema = z.object({
+  rider_note: z.string().trim().max(500).optional(),
+  payment_preference: z.enum(['CASH', 'UPI']).optional(),
   draft_ride_id: z.string().min(1),
   quote_id: z.string().min(1),
   payment_method_id: z.string().min(1).optional(),

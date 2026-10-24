@@ -1,3 +1,4 @@
+import { DriverOperationsService } from '../features/driver_operations/driver_operations.service.js';
 import assert from 'node:assert/strict';
 import { after, afterEach, before, it, mock } from 'node:test';
 import { readFileSync } from 'node:fs';
@@ -219,7 +220,7 @@ it('registers and protects every authenticated route on both URI versions', asyn
     path: string;
     guards: string[];
   }[];
-  assert.equal(routes.length, 141);
+  assert.equal(routes.length, 165);
   for (const version of ['1', '2'])
     for (const route of routes.filter((value) =>
       value.guards.includes('AuthGuard'),
@@ -521,8 +522,8 @@ it('shares duplicate-request protection across route casing, trailing slashes, a
   }
   assert.equal(ticket.mock.callCount(), 1);
   const cancel = mock.method(
-    app.get(RideService),
-    'cancel_user_ride',
+    app.get(DriverOperationsService),
+    'report_issue',
     async () => ({ id: 'CaseSensitiveRide' }),
   );
   const cancelOptions = json({ cancel_reason: 'Change of plans' }, token(), {

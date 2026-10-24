@@ -71,7 +71,7 @@ export class GeocodeService {
     return result.data;
   };
 
-  readonly driving_route = async (input: RouteInput) => {
+  readonly driving_route = async (input: RouteInput, include_steps = false) => {
     const coordinates = `${input.from_longitude},${input.from_latitude};${input.to_longitude},${input.to_latitude}`;
     const url = new URL(
       `/route/v1/driving/${coordinates}`,
@@ -79,7 +79,7 @@ export class GeocodeService {
     );
     url.searchParams.set('overview', 'full');
     url.searchParams.set('geometries', 'geojson');
-    url.searchParams.set('steps', 'false');
+    url.searchParams.set('steps', include_steps ? 'true' : 'false');
     let response: Response;
     try {
       response = await fetch(url, {
@@ -117,6 +117,9 @@ export class GeocodeService {
       distance_m: Math.max(1, Math.round(route.distance)),
       duration_s: Math.max(1, Math.round(route.duration)),
       geometry: points,
+      ...(include_steps
+        ? { steps: route.legs?.flatMap((leg) => leg.steps) ?? [] }
+        : {}),
     };
   };
 }

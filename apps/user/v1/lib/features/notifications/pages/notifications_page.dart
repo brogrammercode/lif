@@ -5,33 +5,72 @@ import 'package:user/core/color.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/features/user_app/user_app.constant.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
+import 'package:user/core/routes.dart';
+import 'package:user/features/driver_operations/driver_operations.repo.dart';
+import 'package:user/features/rides/ride_display.dart';
 
 class NotificationsPage extends StatefulWidget {
-  const NotificationsPage({super.key});
+  final UserAppRepository? repository;
+  final DriverOperationsRepository? operationsRepository;
+  const NotificationsPage({
+    super.key,
+    this.repository,
+    this.operationsRepository,
+  });
   @override
   State<NotificationsPage> createState() => _NotificationsPageState();
 }
 
 class _NotificationsPageState extends State<NotificationsPage> {
-  final UserAppRepository _repository = UserAppRepository();
+  late final UserAppRepository _repository =
+      widget.repository ?? UserAppRepository();
+  late final _ops = widget.operationsRepository ?? DriverOperationsRepository();
+  bool _opening = false;
   late Future<List<Map<String, dynamic>>> _notifications = _repository
       .notifications();
   Future<void> _reload() async {
-    setState(() => _notifications = _repository.notifications());
+    if (!mounted) return;
+    setState(() {
+      _notifications = _repository.notifications();
+    });
     await _notifications;
   }
 
   Future<void> _markRead(Map<String, dynamic> item) async {
-    if (item['read_at'] != null) return;
+    if (_opening) return;
+    _opening = true;
     try {
-      await _repository.readNotification('${item['id']}');
-      await _reload();
+      if (item['read_at'] == null) {
+        await _repository.readNotification('${item['id']}');
+      }
+      final data = rideMap(item['data']);
+      if (data['ride_id'] is String) {
+        final trip = await _ops.context('${data['ride_id']}');
+        if (!mounted) return;
+        await Navigator.pushNamed(
+          context,
+          trip['is_driver'] == true
+              ? AppRoutes.driverRideDetail
+              : AppRoutes.rideDetail,
+          arguments: data['ride_id'],
+        );
+      } else if (data['ticket_id'] is String) {
+        if (!mounted) return;
+        await Navigator.pushNamed(
+          context,
+          AppRoutes.supportTicket,
+          arguments: data['ticket_id'],
+        );
+      }
+      if (mounted) await _reload();
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
       }
+    } finally {
+      _opening = false;
     }
   }
 

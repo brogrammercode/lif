@@ -143,3 +143,33 @@ it('keeps tiny positive routes within the integer contract', async () => {
   assert.equal(result.distance_m, 1);
   assert.equal(result.duration_s, 1);
 });
+
+it('accepts ordinary OSRM legs without steps and requests maneuvers only for navigation', async () => {
+  respond({
+    code: 'Ok',
+    routes: [
+      {
+        ...route.routes[0],
+        legs: [{ summary: '', distance: 1000, duration: 120 }],
+      },
+    ],
+  });
+  const quote = await driving_route(input);
+  assert.equal(quote.distance_m, 1000);
+  assert.equal('steps' in quote, false);
+  mock.restoreAll();
+  const step = {
+    name: 'Station Road',
+    distance: 1000,
+    duration: 120,
+    maneuver: { type: 'depart', location: [77.5, 12.9] },
+    geometry: route.routes[0]!.geometry,
+  };
+  const fetch = respond({
+    code: 'Ok',
+    routes: [{ ...route.routes[0], legs: [{ steps: [step] }] }],
+  });
+  const navigation = await driving_route(input, true);
+  assert.equal(navigation.steps?.[0]?.name, 'Station Road');
+  assert.match(String(fetch.mock.calls[0]?.arguments[0]), /steps=true/);
+});

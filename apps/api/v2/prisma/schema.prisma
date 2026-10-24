@@ -234,21 +234,22 @@ model Device {
 }
 
 model DriverProfile {
-  id                  String             @id @default(uuid())
-  user_id             String             @unique
-  availability        DriverAvailability @default(OFFLINE)
-  verification_status VerificationStatus @default(PENDING)
-  license_number      String?            @unique
-  rating_average      Decimal            @default(0) @db.Decimal(3, 2)
-  ratings_count       Int                @default(0)
-  completed_rides     Int                @default(0)
-  current_latitude    Decimal?           @db.Decimal(9, 6)
-  current_longitude   Decimal?           @db.Decimal(9, 6)
-  last_location_at    DateTime?          @db.Timestamptz(3)
-  active_vehicle_id   String?            @unique
-  verified_at         DateTime?          @db.Timestamptz(3)
-  created_at          DateTime           @default(now()) @db.Timestamptz(3)
-  updated_at          DateTime           @updatedAt @db.Timestamptz(3)
+  last_location_accuracy_m Float?
+  id                       String             @id @default(uuid())
+  user_id                  String             @unique
+  availability             DriverAvailability @default(OFFLINE)
+  verification_status      VerificationStatus @default(PENDING)
+  license_number           String?            @unique
+  rating_average           Decimal            @default(0) @db.Decimal(3, 2)
+  ratings_count            Int                @default(0)
+  completed_rides          Int                @default(0)
+  current_latitude         Decimal?           @db.Decimal(9, 6)
+  current_longitude        Decimal?           @db.Decimal(9, 6)
+  last_location_at         DateTime?          @db.Timestamptz(3)
+  active_vehicle_id        String?            @unique
+  verified_at              DateTime?          @db.Timestamptz(3)
+  created_at               DateTime           @default(now()) @db.Timestamptz(3)
+  updated_at               DateTime           @updatedAt @db.Timestamptz(3)
 
   user           User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
   active_vehicle Vehicle?         @relation("active_vehicle", fields: [active_vehicle_id], references: [id], onDelete: SetNull)
@@ -344,6 +345,69 @@ model Vehicle {
   @@map("vehicles")
 }
 
+enum FareGroup {
+  AUTO_TOTO
+  BIKE_SCOOTER
+  CAR
+}
+
+model RideFarePolicy {
+  arrival_radius_m           Int            @default(150)
+  location_max_age_s         Int            @default(60)
+  matching_initial_radius_km Int            @default(1)
+  matching_max_radius_km     Int            @default(10)
+  matching_expansion_s       Int            @default(30)
+  search_timeout_s           Int            @default(180)
+  offer_lifetime_s           Int            @default(45)
+  id                         String         @id @default(uuid())
+  key                        String         @unique
+  version                    Int            @default(1)
+  cash_enabled               Boolean        @default(true)
+  direct_upi_enabled         Boolean        @default(true)
+  online_payment_enabled     Boolean        @default(false)
+  commission_percent         Decimal        @default(0) @db.Decimal(5, 2)
+  free_cancellation_minutes  Int            @default(2)
+  free_pickup_wait_minutes   Int            @default(5)
+  cancellation_fee_percent   Decimal        @default(10) @db.Decimal(5, 2)
+  maximum_cancellation_fee   Decimal        @default(100) @db.Decimal(12, 2)
+  updated_by_id              String
+  created_at                 DateTime       @default(now()) @db.Timestamptz(3)
+  updated_at                 DateTime       @updatedAt @db.Timestamptz(3)
+  rates                      RideFareRate[]
+
+  @@map("ride_fare_policies")
+}
+
+model RideFareRate {
+  id                 String         @id @default(uuid())
+  policy_id          String
+  group              FareGroup
+  max_profit_km      Decimal        @db.Decimal(12, 3)
+  normal_fare_per_km Decimal        @db.Decimal(12, 2)
+  profit_fare_per_km Decimal        @db.Decimal(12, 2)
+  policy             RideFarePolicy @relation(fields: [policy_id], references: [id], onDelete: Cascade)
+
+  @@unique([policy_id, group])
+  @@map("ride_fare_rates")
+}
+
+model SupportContactConfiguration {
+  id              String   @id @default(uuid())
+  key             String   @unique
+  version         Int      @default(1)
+  support_phone   String?
+  emergency_phone String?
+  whatsapp_phone  String?
+  support_email   String?
+  support_hours   String?
+  instructions    String?
+  updated_by_id   String
+  created_at      DateTime @default(now()) @db.Timestamptz(3)
+  updated_at      DateTime @updatedAt @db.Timestamptz(3)
+
+  @@map("support_contact_configurations")
+}
+
 model VehicleVerificationAsset {
   id         String   @id @default(uuid())
   owner_id   String
@@ -377,49 +441,55 @@ model SavedPlace {
 }
 
 model Ride {
-  id                   String     @id @default(uuid())
-  rider_id             String
-  driver_id            String?
-  vehicle_id           String?
-  payment_method_id    String?
-  status               RideStatus @default(DRAFT)
-  pickup_address       String
-  pickup_latitude      Decimal    @db.Decimal(9, 6)
-  pickup_longitude     Decimal    @db.Decimal(9, 6)
-  dropoff_address      String
-  dropoff_latitude     Decimal    @db.Decimal(9, 6)
-  dropoff_longitude    Decimal    @db.Decimal(9, 6)
-  requested_at         DateTime?  @db.Timestamptz(3)
-  matched_at           DateTime?  @db.Timestamptz(3)
-  arrived_at           DateTime?  @db.Timestamptz(3)
-  started_at           DateTime?  @db.Timestamptz(3)
-  completed_at         DateTime?  @db.Timestamptz(3)
-  cancelled_at         DateTime?  @db.Timestamptz(3)
-  cancel_reason        String?
-  rider_note           String?
-  access_code          String?
-  estimated_distance_m Int?
-  estimated_duration_s Int?
-  actual_distance_m    Int?
-  actual_duration_s    Int?
-  estimated_fare       Decimal?   @db.Decimal(12, 2)
-  final_fare           Decimal?   @db.Decimal(12, 2)
-  currency             String     @default("INR") @db.VarChar(3)
-  created_at           DateTime   @default(now()) @db.Timestamptz(3)
-  updated_at           DateTime   @updatedAt @db.Timestamptz(3)
+  collection_preference PaymentMethodType @default(CASH)
+  search_radius_km      Int?
+  next_dispatch_at      DateTime?         @db.Timestamptz(3)
+  id                    String            @id @default(uuid())
+  rider_id              String
+  driver_id             String?
+  vehicle_id            String?
+  payment_method_id     String?
+  status                RideStatus        @default(DRAFT)
+  pickup_address        String
+  pickup_latitude       Decimal           @db.Decimal(9, 6)
+  pickup_longitude      Decimal           @db.Decimal(9, 6)
+  dropoff_address       String
+  dropoff_latitude      Decimal           @db.Decimal(9, 6)
+  dropoff_longitude     Decimal           @db.Decimal(9, 6)
+  requested_at          DateTime?         @db.Timestamptz(3)
+  matched_at            DateTime?         @db.Timestamptz(3)
+  arrived_at            DateTime?         @db.Timestamptz(3)
+  started_at            DateTime?         @db.Timestamptz(3)
+  completed_at          DateTime?         @db.Timestamptz(3)
+  cancelled_at          DateTime?         @db.Timestamptz(3)
+  cancel_reason         String?
+  rider_note            String?
+  access_code           String?
+  estimated_distance_m  Int?
+  estimated_duration_s  Int?
+  actual_distance_m     Int?
+  actual_duration_s     Int?
+  estimated_fare        Decimal?          @db.Decimal(12, 2)
+  final_fare            Decimal?          @db.Decimal(12, 2)
+  currency              String            @default("INR") @db.VarChar(3)
+  created_at            DateTime          @default(now()) @db.Timestamptz(3)
+  updated_at            DateTime          @updatedAt @db.Timestamptz(3)
 
-  rider           User            @relation("rider_rides", fields: [rider_id], references: [id], onDelete: Restrict)
-  driver          DriverProfile?  @relation("driver_rides", fields: [driver_id], references: [id], onDelete: SetNull)
-  vehicle         Vehicle?        @relation("ride_vehicles", fields: [vehicle_id], references: [id], onDelete: SetNull)
-  payment_method  PaymentMethod?  @relation(fields: [payment_method_id], references: [id], onDelete: SetNull)
-  quotes          FareQuote[]
-  offers          RideOffer[]
-  route           RideRoute?
-  locations       RideLocation[]
-  events          RideEvent[]
-  payment         Payment?
-  reviews         Review[]
-  support_tickets SupportTicket[]
+  rider              User                   @relation("rider_rides", fields: [rider_id], references: [id], onDelete: Restrict)
+  driver             DriverProfile?         @relation("driver_rides", fields: [driver_id], references: [id], onDelete: SetNull)
+  vehicle            Vehicle?               @relation("ride_vehicles", fields: [vehicle_id], references: [id], onDelete: SetNull)
+  payment_method     PaymentMethod?         @relation(fields: [payment_method_id], references: [id], onDelete: SetNull)
+  quotes             FareQuote[]
+  offers             RideOffer[]
+  route              RideRoute?
+  locations          RideLocation[]
+  events             RideEvent[]
+  payment            Payment?
+  reviews            Review[]
+  support_tickets    SupportTicket[]
+  start_verification RideStartVerification?
+  messages           RideMessage[]
+  settlement_review  RideSettlementReview?
 
   @@index([rider_id, created_at])
   @@index([driver_id, status, created_at])
@@ -548,19 +618,23 @@ model PaymentMethod {
 }
 
 model Payment {
-  id                  String        @id @default(uuid())
-  ride_id             String        @unique
+  collection_method   PaymentMethodType?
+  recipient_upi       String?
+  confirmed_by_id     String?
+  unpaid_reason       String?
+  id                  String             @id @default(uuid())
+  ride_id             String             @unique
   payment_method_id   String?
-  status              PaymentStatus @default(PENDING)
+  status              PaymentStatus      @default(PENDING)
   provider            String?
-  provider_payment_id String?       @unique
-  amount              Decimal       @db.Decimal(12, 2)
-  currency            String        @default("INR") @db.VarChar(3)
-  paid_at             DateTime?     @db.Timestamptz(3)
-  failed_at           DateTime?     @db.Timestamptz(3)
-  refunded_at         DateTime?     @db.Timestamptz(3)
-  created_at          DateTime      @default(now()) @db.Timestamptz(3)
-  updated_at          DateTime      @updatedAt @db.Timestamptz(3)
+  provider_payment_id String?            @unique
+  amount              Decimal            @db.Decimal(12, 2)
+  currency            String             @default("INR") @db.VarChar(3)
+  paid_at             DateTime?          @db.Timestamptz(3)
+  failed_at           DateTime?          @db.Timestamptz(3)
+  refunded_at         DateTime?          @db.Timestamptz(3)
+  created_at          DateTime           @default(now()) @db.Timestamptz(3)
+  updated_at          DateTime           @updatedAt @db.Timestamptz(3)
 
   ride           Ride           @relation(fields: [ride_id], references: [id], onDelete: Restrict)
   payment_method PaymentMethod? @relation(fields: [payment_method_id], references: [id], onDelete: SetNull)
@@ -1011,4 +1085,58 @@ model PartnerExitRequest {
 
   @@index([status, created_at])
   @@map("partner_exit_requests")
+}
+
+model RideStartVerification {
+  ride_id            String    @id
+  driver_id          String
+  assignment_at      DateTime  @db.Timestamptz(3)
+  code_hash          String
+  code_ciphertext    String
+  expires_at         DateTime  @db.Timestamptz(3)
+  attempts           Int       @default(0)
+  rider_confirmed_at DateTime? @db.Timestamptz(3)
+  driver_verified_at DateTime? @db.Timestamptz(3)
+  used_at            DateTime? @db.Timestamptz(3)
+  created_at         DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at         DateTime  @updatedAt @db.Timestamptz(3)
+  ride               Ride      @relation(fields: [ride_id], references: [id], onDelete: Cascade)
+
+  @@map("ride_start_verifications")
+}
+
+model RideMessage {
+  id         String   @id @default(uuid())
+  ride_id    String
+  sender_id  String
+  client_key String
+  body       String
+  created_at DateTime @default(now()) @db.Timestamptz(3)
+  updated_at DateTime @updatedAt @db.Timestamptz(3)
+  ride       Ride     @relation(fields: [ride_id], references: [id], onDelete: Cascade)
+
+  @@unique([ride_id, sender_id, client_key])
+  @@index([ride_id, created_at])
+  @@map("ride_messages")
+}
+
+model RideSettlementReview {
+  id              String   @id @default(uuid())
+  ride_id         String   @unique
+  reported_by_id  String
+  driver_id       String?
+  kind            String
+  status          String   @default("REQUESTED")
+  reason          String
+  fee_amount      Decimal  @db.Decimal(12, 2)
+  dispute_reason  String?
+  resolved_by_id  String?
+  resolution_note String?
+  version         Int      @default(1)
+  created_at      DateTime @default(now()) @db.Timestamptz(3)
+  updated_at      DateTime @updatedAt @db.Timestamptz(3)
+  ride            Ride     @relation(fields: [ride_id], references: [id], onDelete: Restrict)
+
+  @@index([status, created_at])
+  @@map("ride_settlement_reviews")
 }

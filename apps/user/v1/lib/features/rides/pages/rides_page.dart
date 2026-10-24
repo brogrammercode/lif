@@ -1,171 +1,203 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:user/components/ui/app_page.dart';
-import 'package:user/core/color.dart';
 import 'package:user/core/network/api_result.dart';
+import 'package:user/core/route_observer.dart';
 import 'package:user/core/routes.dart';
-import 'package:user/features/user_app/user_app.constant.dart';
+import 'package:user/features/rides/ride_display.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
 class RidesPage extends StatefulWidget {
-  const RidesPage({super.key});
+  final UserAppRepository? repository;
+  const RidesPage({super.key, this.repository});
   @override
-  State<RidesPage> createState() => _RidesPageState();
+  State<RidesPage> createState() => _RidesState();
 }
 
-class _RidesPageState extends State<RidesPage> {
-  final UserAppRepository _repository = UserAppRepository();
-  late Future<List<Map<String, dynamic>>> _rides = _repository.rides();
-  Future<void> _refresh() async {
-    setState(() => _rides = _repository.rides());
-    await _rides;
+class _RidesState extends State<RidesPage>
+    with WidgetsBindingObserver, RouteAware {
+  late final _repo = widget.repository ?? UserAppRepository();
+  Map<String, dynamic>? _data;
+  String _section = 'all';
+  int _page = 1;
+  String? _error;
+  bool _loading = false;
+  ModalRoute<dynamic>? _route;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(_load());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (_route != route) {
+      appRouteObserver.unsubscribe(this);
+      _route = route;
+      if (route != null) appRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void didPopNext() => unawaited(_load());
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _route?.isCurrent == true) {
+      unawaited(_load());
+    }
+  }
+
+  Future<void> _load() async {
+    if (_loading || !mounted) return;
+    setState(() => _loading = true);
+    try {
+      final data = await _repo.riderHistory(page: _page, section: _section);
+      if (mounted) {
+        setState(() {
+          _data = data;
+          _error = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = ApiResult.errorMessage(e));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _change(String section, int page) {
+    if (_loading) return;
+    setState(() {
+      _section = section;
+      _page = page;
+      _data = null;
+      _error = null;
+    });
+    unawaited(_load());
+  }
+
+  @override
+  void dispose() {
+    appRouteObserver.unsubscribe(this);
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => AppPage(
-    title: UserAppCopy.RIDES,
-    scrollable: true,
-    child: FutureBuilder<List<Map<String, dynamic>>>(
-      future: _rides,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return AppLoadError(
-            message: ApiResult.errorMessage(snapshot.error!),
-            onRetry: _refresh,
-          );
-        }
-        if (!snapshot.hasData) {
-          return const Center(
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: AppColors.primaryGreen,
-            ),
-          );
-        }
-        final rides = snapshot.data!;
-        if (rides.isEmpty) {
-          return RefreshIndicator(
-            onRefresh: _refresh,
-            color: AppColors.primaryGreen,
-            child: ListView(
-              children: [
-                SizedBox(height: 140.h),
-                const AppEmptyState(
-                  icon: Icons.directions_bike_outlined,
-                  title: UserAppCopy.EMPTY_RIDES,
-                  subtitle: UserAppCopy.EMPTY_RIDES_DESCRIPTION,
-                ),
-              ],
-            ),
-          );
-        }
-        return RefreshIndicator(
-          color: AppColors.primaryGreen,
-          onRefresh: _refresh,
-          child: ListView.separated(
-            padding: EdgeInsets.fromLTRB(16.w, 4.h, 16.w, 24.h),
-            itemCount: rides.length,
-            separatorBuilder: (_, _) => SizedBox(height: 12.h),
-            itemBuilder: (context, index) => _rideCard(context, rides[index]),
-          ),
-        );
-      },
-    ),
-  );
-
-  Widget _rideCard(BuildContext context, Map<String, dynamic> ride) {
-    final status = '${ride['status'] ?? ''}'.replaceAll('_', ' ');
-    final pickup = '${ride['pickup_address'] ?? ''}';
-    final dropoff = '${ride['dropoff_address'] ?? ''}';
-    return InkWell(
-      onTap: () => Navigator.pushNamed(
-        context,
-        AppRoutes.rideDetail,
-        arguments: ride['id'],
-      ),
-      borderRadius: BorderRadius.circular(16.r),
-      child: AppCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    title: 'Your rides',
+    child: Column(
+      children: [
+        Wrap(
+          spacing: 8,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    status,
-                    style: TextStyle(
-                      fontSize: 13.sp,
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.primaryGreen,
-                    ),
-                  ),
-                ),
-                Text(
-                  _date(ride['created_at']),
-                  style: TextStyle(
-                    fontSize: 11.sp,
-                    color: AppColors.textTertiary,
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: 14.h),
-            _locationLine(Icons.circle, pickup),
-            Padding(
-              padding: EdgeInsets.only(left: 5.w),
-              child: Container(
-                width: 1.w,
-                height: 18.h,
-                color: AppColors.borderGrey,
+            for (final item in {
+              'all': 'All',
+              'active': 'Active',
+              'past': 'Past',
+            }.entries)
+              ChoiceChip(
+                label: Text(item.value),
+                selected: _section == item.key,
+                onSelected: _loading ? null : (_) => _change(item.key, 1),
               ),
-            ),
-            _locationLine(Icons.location_on, dropoff),
-            SizedBox(height: 12.h),
-            Row(
-              children: [
-                Text(
-                  '₹${ride['final_fare'] ?? ride['estimated_fare'] ?? '—'}',
-                  style: TextStyle(
-                    fontSize: 16.sp,
-                    fontWeight: FontWeight.w900,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                const Spacer(),
-                Icon(
-                  Icons.chevron_right,
-                  size: 20.w,
-                  color: AppColors.textTertiary,
-                ),
-              ],
-            ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _locationLine(IconData icon, String label) => Row(
-    children: [
-      Icon(icon, size: 11.w, color: AppColors.primaryGreen),
-      SizedBox(width: 10.w),
-      Expanded(
-        child: Text(
-          label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 13.sp,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textPrimary,
-          ),
+        if (_loading && _data != null) const LinearProgressIndicator(),
+        if (_error != null && _data != null)
+          TextButton(onPressed: _load, child: Text('$_error · Retry')),
+        Expanded(
+          child: _data == null
+              ? (_loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : AppLoadError(
+                        message: _error ?? 'Rides unavailable',
+                        onRetry: _load,
+                      ))
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.only(bottom: 20),
+                    children: [
+                      if (rideMaps(_data!['rows']).isEmpty)
+                        AppEmptyState(
+                          icon: Icons.history,
+                          title: _section == 'active'
+                              ? 'No active rides'
+                              : 'No rides here yet',
+                          subtitle:
+                              'Your confirmed ride requests will appear here. Unbooked quotes are not included.',
+                        ),
+                      for (final ride in rideMaps(_data!['rows']))
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: AppCard(
+                            child: ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                riderStatusLabel('${ride['status']}'),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${ride['pickup_address']}\n${ride['dropoff_address']}',
+                                    maxLines: 4,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  Text(
+                                    '${rideTime(ride['created_at'])} · ${rideMoney(ride['final_fare'] ?? ride['estimated_fare'])}',
+                                  ),
+                                  if (ride['payment'] != null)
+                                    Text(
+                                      ridePaymentLabel(
+                                        rideMap(ride['payment'])['status'],
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              trailing: const Icon(Icons.chevron_right),
+                              onTap: () => Navigator.pushNamed(
+                                context,
+                                AppRoutes.rideDetail,
+                                arguments: ride['id'],
+                              ),
+                            ),
+                          ),
+                        ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          TextButton(
+                            onPressed: _loading || _page <= 1
+                                ? null
+                                : () => _change(_section, _page - 1),
+                            child: const Text('Previous'),
+                          ),
+                          Text('Page ${_data!['page']}'),
+                          TextButton(
+                            onPressed:
+                                _loading ||
+                                    _page * (_data!['page_size'] as num) >=
+                                        (_data!['total'] as num)
+                                ? null
+                                : () => _change(_section, _page + 1),
+                            child: const Text('Next'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
         ),
-      ),
-    ],
+      ],
+    ),
   );
-  String _date(dynamic value) {
-    final date = DateTime.tryParse('${value ?? ''}');
-    if (date == null) return '';
-    return '${date.day}/${date.month}/${date.year}';
-  }
 }
