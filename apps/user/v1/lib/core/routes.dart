@@ -1,4 +1,6 @@
 import 'package:user/features/driver_operations/pages/trip_chat_page.dart';
+import 'package:user/features/driver_account/pages/driver_account_page.dart';
+import 'package:user/features/driver_account/pages/driver_finances_page.dart';
 import 'package:user/features/partner_program/pages/driver_exit_page.dart';
 import 'package:flutter/material.dart';
 import 'package:user/features/auth/pages/login_page.dart';
@@ -45,6 +47,8 @@ class AppRoutes {
   static const String partnerActivation = '/partner-program/activation';
   static const String driverHome = '/driver/home';
   static const String driverExit = '/driver/exit';
+  static const String driverAccount = '/driver/account';
+  static const String driverFinances = '/driver/finances';
 
   static Map<String, WidgetBuilder> get routes => {
     gate: (context) => const SessionGate(),
@@ -68,5 +72,7 @@ class AppRoutes {
     partnerActivation: (context) => const PartnerActivationPage(),
     driverHome: (context) => const DriverHomePage(),
     driverExit: (context) => const DriverExitPage(),
+    driverAccount: (context) => const DriverAccountPage(),
+    driverFinances: (context) => const DriverFinancesPage(),
   };
 }

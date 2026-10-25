@@ -148,6 +148,10 @@ function fixture() {
       }),
     },
     rideFarePolicy: { findUnique: async () => null },
+    driverPayoutChange: {
+      findFirst: async () => null,
+      findMany: async () => [],
+    },
     partnerApplication: {
       findUnique: async () => ({
         status: 'ACTIVATED',
@@ -321,6 +325,127 @@ function fixture() {
     },
   };
 }
+
+const driver_maintenance_writes: [
+  string,
+  (repo: DriverRepository) => Promise<unknown>,
+][] = [
+  [
+    'profile creation',
+    (repo) =>
+      repo.create_driver_profile('driver-user', {
+        license_number: 'fixture-license',
+      }),
+  ],
+  [
+    'vehicle creation',
+    (repo) =>
+      repo.create_vehicle('driver-user', {
+        make: 'Fixture',
+        model: 'Bike',
+        plate_number: 'BR10AA1234',
+        type: 'BIKE',
+      }),
+  ],
+  [
+    'category change',
+    (repo) => repo.change_vehicle_category('driver-user', 'vehicle', 'bike'),
+  ],
+  [
+    'active vehicle selection',
+    (repo) => repo.select_active_vehicle('driver-user', 'vehicle'),
+  ],
+  ['offer rejection', (repo) => repo.reject_offer('driver-user', 'offer')],
+];
+for (const [name, action] of driver_maintenance_writes) {
+  it(`driver ${name} rechecks account status under the lifecycle lock before resource access`, async () => {
+    for (const inactive of [
+      null,
+      { status: 'DEACTIVATED', deleted_at: null },
+      { status: 'SUSPENDED', deleted_at: null },
+      { status: 'ACTIVE', deleted_at: new Date() },
+    ]) {
+      const locks: unknown[][] = [];
+      let user: unknown = {
+        role: 'DRIVER',
+        status: 'ACTIVE',
+        deleted_at: null,
+      };
+      let reads = 0;
+      const tx = {
+        $executeRaw: async (
+          _sql: TemplateStringsArray,
+          ...values: unknown[]
+        ) => {
+          locks.push(values);
+          // Model a request whose HTTP guard passed before deactivation committed.
+          user = inactive;
+          return 1;
+        },
+        user: {
+          findUnique: async () => {
+            reads++;
+            return user;
+          },
+        },
+      };
+      const db = new PrismaService();
+      Object.defineProperty(db, 'client', {
+        value: {
+          $transaction: (callback: (client: typeof tx) => Promise<unknown>) =>
+            callback(tx),
+        },
+      });
+      await assert.rejects(() => action(new DriverRepository(db)), {
+        status_code: 403,
+        error_code: 'USER_INACTIVE',
+      });
+      assert.equal(reads, 1);
+      assert.deepEqual(locks, [[720050, 'driver-user']]);
+    }
+  });
+}
+
+it('an active driver can still select an eligible vehicle after the lifecycle recheck', async () => {
+  const f = fixture();
+  const writes: unknown[] = [];
+  const tx = {
+    $executeRaw: async () => 1,
+    user: {
+      findUnique: async () => ({
+        role: 'DRIVER',
+        status: 'ACTIVE',
+        deleted_at: null,
+      }),
+    },
+    partnerApplication: { findUnique: async () => ({ status: 'ACTIVATED' }) },
+    vehicle: { findFirst: async () => f.driver.active_vehicle },
+    driverProfile: {
+      findUniqueOrThrow: async () => ({
+        id: 'driver',
+        active_vehicle_id: null,
+      }),
+      update: async ({ data }: { data: unknown }) => {
+        writes.push(data);
+        return data;
+      },
+    },
+    ride: { count: async () => 0 },
+    userLog: { create: async () => ({}) },
+  };
+  const db = new PrismaService();
+  Object.defineProperty(db, 'client', {
+    value: {
+      $transaction: (callback: (client: typeof tx) => Promise<unknown>) =>
+        callback(tx),
+    },
+  });
+  await new DriverRepository(db).select_active_vehicle(
+    'driver-user',
+    'vehicle',
+  );
+  assert.deepEqual(writes, [{ active_vehicle_id: 'vehicle' }]);
+});
 
 it('expands matching independently of arrival radius, without exceeding its cap', () => {
   assert.equal(search_radius_km(0, 1, 10, 30), 1);
@@ -715,6 +840,10 @@ function matchingFixture() {
     rideFarePolicy: { findUnique: async () => null },
     ride: { findUnique: async () => ride, update: async () => ride },
     driverProfile: { findMany: async () => candidates },
+    driverPayoutChange: {
+      findFirst: async () => null,
+      findMany: async () => [],
+    },
     partnerApplication: {
       findMany: async () => {
         upiReads++;
@@ -818,6 +947,10 @@ it('offer acceptance rechecks search deadline and current pickup radius, while r
         deleted_at: null,
       }),
     },
+    driverPayoutChange: {
+      findFirst: async () => null,
+      findMany: async () => [],
+    },
     partnerApplication: { findUnique: async () => ({ status: 'ACTIVATED' }) },
     driverProfile: {
       findUnique: async () => profile,
@@ -873,6 +1006,70 @@ it('offer acceptance rechecks search deadline and current pickup radius, while r
     kind: 'success',
     ride_id: 'ride',
   });
+});
+
+it('driver routes identify their actual target and protect assignment and terminal state', async () => {
+  const f = fixture();
+  const inputs: unknown[] = [];
+  mock.method(f.routing, 'driving_route', async (input: unknown) => {
+    inputs.push(input);
+    return {
+      distance_m: 450,
+      duration_s: 90,
+      geometry: [
+        [86.95, 25.23],
+        [86.96, 25.24],
+      ],
+      steps: [],
+    };
+  });
+  try {
+    const pickup = await f.service.navigation(
+      'driver-user',
+      'ride',
+      25.23,
+      86.95,
+    );
+    assert.equal(pickup.target, 'PICKUP');
+    f.trip.status = 'IN_PROGRESS';
+    const dropoff = await f.service.navigation(
+      'driver-user',
+      'ride',
+      25.23,
+      86.95,
+    );
+    assert.equal(dropoff.target, 'DROPOFF');
+    assert.deepEqual(inputs, [
+      {
+        from_latitude: 25.23,
+        from_longitude: 86.95,
+        to_latitude: 25.23,
+        to_longitude: 86.95,
+      },
+      {
+        from_latitude: 25.23,
+        from_longitude: 86.95,
+        to_latitude: 25.24,
+        to_longitude: 86.96,
+      },
+    ]);
+    await assert.rejects(
+      () => f.service.navigation('rider', 'ride', 25.23, 86.95),
+      { error_code: 'TRIP_NAVIGATION_UNAVAILABLE' },
+    );
+    await assert.rejects(
+      () => f.service.navigation('outsider', 'ride', 25.23, 86.95),
+      { status_code: 404 },
+    );
+    f.trip.status = 'COMPLETED';
+    await assert.rejects(
+      () => f.service.navigation('driver-user', 'ride', 25.23, 86.95),
+      { error_code: 'TRIP_NAVIGATION_UNAVAILABLE' },
+    );
+    assert.equal(inputs.length, 2);
+  } finally {
+    mock.restoreAll();
+  }
 });
 
 it('rider progress routes use server driver GPS and switch target only after trip start', async () => {
@@ -1050,4 +1247,29 @@ it('rider routing rechecks GPS age after a slow provider response', async () => 
   } finally {
     mock.restoreAll();
   }
+});
+
+it('trip context prevents direct recollection of provider-managed pending payments', async () => {
+  const f = fixture();
+  f.trip.status = 'COMPLETED';
+  f.trip.payment = {
+    id: 'payment',
+    status: 'PENDING',
+    amount: decimal(50),
+    provider: 'legacy-provider',
+  };
+  assert.equal(
+    (await f.service.context('rider', 'ride')).direct_collection_allowed,
+    false,
+  );
+  f.trip.payment.provider = null;
+  assert.equal(
+    (await f.service.context('rider', 'ride')).direct_collection_allowed,
+    true,
+  );
+  f.trip.payment.status = 'REQUIRES_ACTION';
+  assert.equal(
+    (await f.service.context('rider', 'ride')).direct_collection_allowed,
+    false,
+  );
 });

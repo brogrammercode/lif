@@ -54,6 +54,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
               : AppRoutes.rideDetail,
           arguments: data['ride_id'],
         );
+      } else if (data['driver_account'] == true) {
+        if (!mounted) return;
+        await Navigator.pushNamed(context, AppRoutes.driverAccount);
       } else if (data['ticket_id'] is String) {
         if (!mounted) return;
         await Navigator.pushNamed(

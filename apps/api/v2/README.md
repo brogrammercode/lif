@@ -221,3 +221,10 @@ The trip-context response includes a public `trip` summary and `driver_has_activ
 The trip-context snapshot now includes the selected quote, public driver/vehicle details, route, latest activity and current rider rating. Active driver GPS is disclosed only to the ride owner during the active assignment. GET /trips/:id/rider-route computes remaining pickup/drop-off progress from stored fresh driver GPS; there are no caller-supplied routing coordinates. GET /me/rides provides authenticated, paginated Active/Past/All rider history, excluding drafts. Booking supports a 500-character pickup note; cancellation supports structured reason codes. Identical rating retries reuse the saved review.
 
 New quotes use pickup_eta_s=0 to mean unknown until assignment. The rider client shows a real route estimate only after assignment. No Phase C schema changes or seed data are needed; retain migrations 0010 and 0011. Deploy this API before the new mobile client. See [Phase C tracker](../../../context/PHASE_C_IMPLEMENTATION.md) for behavior, validation and device acceptance.
+
+
+## Phase D driver account
+
+Apply migration `0012_driver_account` before serving the updated driver account, matching and payment routes. Driver account/finance and vehicle-document reads are owner scoped and remain available after partner exit; operational writes retain exit guards. Admin Users > Driver Account provides the same statement and versioned destination review. Payout values are encrypted with the existing private JWT secret: preserve it or re-encrypt records before a rotation. Private reveals are audited, and old receipt destinations remain unchanged. Vehicle document replacement blocks active trips and preserves other field reviews; RC/insurance/PUC now support validated PDF as well as converted images.
+
+See [Phase D implementation](../../../context/PHASE_D_IMPLEMENTATION.md) for API/UI contracts, direct-collection accounting boundaries, checks and rollout. No automatic platform payout or expiry enforcement is introduced.

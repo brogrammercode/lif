@@ -19,9 +19,47 @@ import {
   vehicle_submission,
 } from './vehicle_verification.type.js';
 import { catalog_query } from '../vehicle_catalog/vehicle_catalog.type.js';
+import { z } from 'zod';
+import { vehicle_document_keys } from './vehicle_verification.type.js';
 @Controller()
 export class VehicleVerificationController {
   constructor(private readonly service: VehicleVerificationService) {}
+  @Post('driver/vehicle-verification/:id/renewal')
+  @UseGuards(AuthGuard, DriverAccessGuard)
+  async renewal(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const input = z
+      .object({
+        expected_version: z.number().int().positive(),
+        field_key: z.enum(vehicle_document_keys),
+        asset_id: vehicle_id,
+      })
+      .strict()
+      .parse(req.body);
+    return send_success(
+      res,
+      await this.service.renew(
+        req.auth!.user_id,
+        vehicle_id.parse(req.params.id),
+        input,
+      ),
+      'Document replacement submitted for review',
+    );
+  }
+  @Get('driver/vehicle-documents')
+  @UseGuards(AuthGuard)
+  async documents(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return send_success(
+      res,
+      await this.service.list(req.auth!.user_id),
+      'Your vehicle documents loaded',
+    );
+  }
   @Get('driver/vehicle-verification')
   @UseGuards(AuthGuard, DriverAccessGuard)
   async mine(@Req() req: Request, @Res({ passthrough: true }) res: Response) {

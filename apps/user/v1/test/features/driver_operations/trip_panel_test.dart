@@ -8,6 +8,7 @@ Widget panel(
   bool driver, {
   String status = 'DRIVER_WAITING',
   String paymentStatus = 'PENDING',
+  bool? directCollectionAllowed,
 }) => ScreenUtilInit(
   designSize: const Size(390, 844),
   builder: (_, child) => MaterialApp(
@@ -17,6 +18,7 @@ Widget panel(
           rideId: 'ride',
           onChanged: () async {},
           externalContext: {
+            'direct_collection_allowed': ?directCollectionAllowed,
             'status': status,
             'is_driver': driver,
             'start': {
@@ -37,6 +39,22 @@ void main() {
     () => dotenv.loadFromString(
       envString: 'API_BASE_URL=https://trip.example.test/api/v2',
     ),
+  );
+  testWidgets(
+    'provider-owned pending payments do not offer direct collection',
+    (tester) async {
+      await tester.pumpWidget(
+        panel(false, status: 'COMPLETED', directCollectionAllowed: false),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Pay driver via UPI'), findsNothing);
+      expect(find.text('Pay driver in cash'), findsNothing);
+      expect(
+        find.textContaining('already managed or resolved'),
+        findsOneWidget,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
   );
   testWidgets('rider sees the trip code and a separate confirmation action', (
     tester,
@@ -73,6 +91,7 @@ void main() {
     (tester) async {
       for (final status in [
         'AUTHORIZED',
+        'REQUIRES_ACTION',
         'REFUNDED',
         'PARTIALLY_REFUNDED',
         'CANCELLED',

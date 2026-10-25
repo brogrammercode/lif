@@ -152,3 +152,14 @@ Home opens a booking review before confirmation, with category/fare/payment poli
 The rider trip page follows server matching, assignment, arrival, combined OTP/confirmation, in-progress navigation, completion and collection. It shows the actual driver/vehicle, timestamped GPS and OSRM remaining route, with visible last-known/error states. Receipt, rating, structured cancellation, reviewed fees, paginated Active/Past history, notification re-entry and trip-linked support share existing app components. Safety offers configured calls, emergency contacts, clipboard and manual WhatsApp sharing of a static summary.
 
 Requires the matching Phase C API V2 and the Phase B native base/location permissions. No new package is required. No APK was built for these checks. See [Phase C implementation and device acceptance](../../../context/PHASE_C_IMPLEMENTATION.md).
+
+
+## Phase D driver account
+
+Driver home and Settings now link to Driver Account: Account, Payout details, My requests and Safety & help. Earnings & transactions separates completed fares, direct receipts, pending amounts and reviewed charges, with UTC date filters and pagination. Reviewed bank/UPI changes preserve the original approved destination until admin approval. Private vehicle documents can be opened and manually replaced for review; active trips block replacement. RC/insurance/PUC accept PDF or images, while vehicle front/back require images. Exited drivers retain account, statement, settlement and private-document reads.
+
+Deploy the matching API V2 and migration 0012 first. Phase D adds no new native package; retain the new base requirement from Phase B. See [Phase D tracker](../../../context/PHASE_D_IMPLEMENTATION.md) for tests and real-device acceptance.
+
+## Partner application submission
+
+Pending documents and the camera selfie now stay in app-private files, with account-scoped encrypted draft metadata. Submit processes one file at a time in a worker isolate, shows progress, and reuses completed uploads after a failure. Reopening restores editable drafts or the server's submitted state. Stop and restart the updated app before testing this change; hot reload cannot replace old in-memory form state. See [submission recovery and device acceptance](../../../context/PARTNER_APPLICATION_SUBMISSION_FIX.md).

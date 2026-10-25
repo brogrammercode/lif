@@ -21,6 +21,7 @@ import { AppError } from '../core/error.js';
 import { config } from '../core/config.js';
 import { ADMIN_COOKIE } from '../features/admin_auth/admin_auth.constant.js';
 import { GeocodeService } from '../features/geocode/geocode.service.js';
+import { PartnerProgramService } from '../features/partner_program/partner_program.service.js';
 
 type Cached = {
   id: string;
@@ -220,7 +221,7 @@ it('registers and protects every authenticated route on both URI versions', asyn
     path: string;
     guards: string[];
   }[];
-  assert.equal(routes.length, 165);
+  assert.equal(routes.length, 177);
   for (const version of ['1', '2'])
     for (const route of routes.filter((value) =>
       value.guards.includes('AuthGuard'),
@@ -240,6 +241,57 @@ it('registers and protects every authenticated route on both URI versions', asyn
         result.response.headers.get('x-request-id'),
       );
     }
+});
+
+it('partner uploads and application submissions accept authenticated personal accounts without an admin or driver guard', async () => {
+  const service = app.get(PartnerProgramService);
+  const actors: string[] = [];
+  mock.method(service, 'store_asset', async (actor: string) => {
+    actors.push(actor);
+    return { id: 'fixture-asset' };
+  });
+  mock.method(service, 'submit', async (actor: string) => {
+    actors.push(actor);
+    return { id: 'fixture-application', status: 'SUBMITTED' };
+  });
+  for (const [actor, role] of [
+    ['rider', 'RIDER'],
+    ['admin', 'ADMIN'],
+  ]) {
+    const upload = await request(
+      '/api/v2/partner-program/assets',
+      json(
+        {
+          field_id: '__live_selfie__',
+          capture_source: 'CAMERA',
+          file_name: 'selfie.jpg',
+          data_url: 'data:image/jpeg;base64,AQID',
+        },
+        token(actor, role),
+      ),
+    );
+    assert.equal(upload.response.status, 200);
+    assert.equal(upload.body.status, 'success');
+    const submission = await request(
+      '/api/v2/partner-program/applications',
+      json(
+        {
+          version: 0,
+          policy_version: 1,
+          accepted: true,
+          contact_email: 'rider@example.test',
+          whatsapp_phone: '+919999999999',
+          answers: [
+            { requirement_id: '__live_selfie__', value: ['fixture-asset'] },
+          ],
+        },
+        token(actor, role),
+      ),
+    );
+    assert.equal(submission.response.status, 200);
+    assert.equal(submission.body.status, 'success');
+  }
+  assert.deepEqual(actors, ['rider', 'rider', 'admin', 'admin']);
 });
 
 it('returns JSON envelopes, status codes, and unknown-route errors', async () => {

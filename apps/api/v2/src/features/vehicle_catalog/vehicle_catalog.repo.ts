@@ -29,6 +29,47 @@ const tx_options = { maxWait: 10000, timeout: 30000 };
 @Injectable()
 export class VehicleCatalogRepository {
   constructor(private readonly database: PrismaService) {}
+  async own_requests(user_id: string, input: CatalogQuery) {
+    const where = {
+      requested_by_id: user_id,
+      ...(input.status === 'all' ? {} : { status: input.status }),
+    };
+    return this.database.client.$transaction(
+      async (tx) => {
+        const [brands, models, brand_count, model_count] = await Promise.all([
+          tx.vehicleBrand.findMany({
+            where,
+            orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
+            skip: (input.page - 1) * input.page_size,
+            take: input.page_size,
+          }),
+          tx.vehicleModel.findMany({
+            where,
+            include: {
+              brand: { select: { id: true, name: true, status: true } },
+            },
+            orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
+            skip: (input.page - 1) * input.page_size,
+            take: input.page_size,
+          }),
+          tx.vehicleBrand.count({ where }),
+          tx.vehicleModel.count({ where }),
+        ]);
+        return {
+          brands,
+          models,
+          brand_count,
+          model_count,
+          page: input.page,
+          page_size: input.page_size,
+        };
+      },
+      {
+        ...tx_options,
+        isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+      },
+    );
+  }
   list_brands(input: CatalogQuery, public_only = false) {
     const where: Prisma.VehicleBrandWhereInput = {
       ...(public_only
@@ -184,6 +225,16 @@ export class VehicleCatalogRepository {
       if (id && !before)
         throw new AppError(404, 'BRAND_NOT_FOUND', 'This brand was not found.');
       if (
+        driver_request &&
+        before &&
+        (before.requested_by_id !== actor_id || before.status !== 'REJECTED')
+      )
+        throw new AppError(
+          403,
+          'CATALOG_CORRECTION_DENIED',
+          'Only your own rejected brand request can be corrected.',
+        );
+      if (
         before &&
         before.updated_at.toISOString() !== input.expected_updated_at
       )
@@ -270,6 +321,16 @@ export class VehicleCatalogRepository {
         : null;
       if (id && !before)
         throw new AppError(404, 'MODEL_NOT_FOUND', 'This model was not found.');
+      if (
+        driver_request &&
+        before &&
+        (before.requested_by_id !== actor_id || before.status !== 'REJECTED')
+      )
+        throw new AppError(
+          403,
+          'CATALOG_CORRECTION_DENIED',
+          'Only your own rejected model request can be corrected.',
+        );
       if (
         before &&
         before.updated_at.toISOString() !== input.expected_updated_at

@@ -1,5 +1,6 @@
 import { DriverOperationsModule } from './features/driver_operations/driver_operations.module.js';
 import { Module } from '@nestjs/common';
+import { DriverAccountModule } from './features/driver_account/driver_account.module.js';
 import { AppConfigurationModule } from './features/app_configuration/app_configuration.module.js';
 import { TravelContextModule } from './features/travel_context/travel_context.module.js';
 import { VehicleVerificationModule } from './features/vehicle_verification/vehicle_verification.module.js';
@@ -23,6 +24,7 @@ import { UserModule } from './features/user/user.module.js';
 import { VehicleCategoryModule } from './features/vehicle_category/vehicle_category.module.js';
 @Module({
   imports: [
+    DriverAccountModule,
     DriverOperationsModule,
     AppConfigurationModule,
     TravelContextModule,

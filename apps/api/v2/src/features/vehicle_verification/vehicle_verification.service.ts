@@ -219,8 +219,28 @@ export class VehicleVerificationService {
       (tx) => this.driver(tx, user_id),
       options,
     );
-    const converted = await convert_image_to_webp(input.image_upload);
+    const pdf = input.image_upload.data_url.startsWith('data:application/pdf;');
+    if (pdf && ['front_image', 'back_image'].includes(input.field_key))
+      throw new AppError(
+        422,
+        'VEHICLE_IMAGE_REQUIRED',
+        'Vehicle front and back must be images.',
+      );
+    const converted = pdf
+      ? input.image_upload.data_url
+      : await convert_image_to_webp(input.image_upload);
     const bytes = Buffer.from(converted.split(',')[1]!, 'base64');
+    if (
+      pdf &&
+      (bytes.toString('ascii', 0, 5) !== '%PDF-' ||
+        !bytes.subarray(-2048).toString('ascii').includes('%%EOF') ||
+        bytes.toString('base64') !== input.image_upload.data_url.split(',')[1])
+    )
+      throw new AppError(
+        422,
+        'VEHICLE_PDF_INVALID',
+        'Choose a valid PDF document.',
+      );
     if (bytes.length > 3000000)
       throw new AppError(
         422,
@@ -260,7 +280,7 @@ export class VehicleVerificationService {
         data: {
           owner_id: user_id,
           field_key: input.field_key,
-          file_name: `${input.field_key}.webp`,
+          file_name: `${input.field_key}.${pdf ? 'pdf' : 'webp'}`,
           bytes,
         },
         select: { id: true, file_name: true, field_key: true },
@@ -290,8 +310,10 @@ export class VehicleVerificationService {
       );
     return {
       file_name: asset.file_name,
-      mime_type: 'image/webp',
-      data_url: `data:image/webp;base64,${Buffer.from(asset.bytes).toString('base64')}`,
+      mime_type: asset.file_name.endsWith('.pdf')
+        ? 'application/pdf'
+        : 'image/webp',
+      data_url: `data:${asset.file_name.endsWith('.pdf') ? 'application/pdf' : 'image/webp'};base64,${Buffer.from(asset.bytes).toString('base64')}`,
     };
   }
   async discard_upload(user_id: string, id: string) {
@@ -302,6 +324,114 @@ export class VehicleVerificationService {
         where: { id, owner_id: user_id, vehicle_id: null },
       });
       return { discarded: result.count > 0 };
+    }, options);
+  }
+  async renew(
+    user_id: string,
+    id: string,
+    input: { expected_version: number; field_key: string; asset_id: string },
+  ) {
+    return this.database.client.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(720041)`;
+      const driver = await this.driver(tx, user_id);
+      const vehicle = await tx.vehicle.findFirst({
+        where: { id, driver_id: driver.id },
+      });
+      if (!vehicle)
+        throw new AppError(
+          404,
+          'VEHICLE_NOT_FOUND',
+          'This vehicle was not found.',
+        );
+      const fields = read_vehicle_fields(vehicle.verification_fields);
+      const field = fields.find((v) => v.key === input.field_key);
+      if (!field) throw conflict();
+      if (field.value === input.asset_id)
+        return { id, version: vehicle.verification_version };
+      if (vehicle.verification_version !== input.expected_version)
+        throw conflict();
+      if (field.status !== 'APPROVED')
+        throw new AppError(
+          409,
+          'VEHICLE_RENEWAL_UNAVAILABLE',
+          'Use the existing correction form for a pending or rejected document.',
+        );
+      const trip = await tx.ride.findFirst({
+        where: {
+          vehicle_id: id,
+          status: {
+            in: [
+              'DRIVER_ASSIGNED',
+              'DRIVER_ARRIVING',
+              'DRIVER_WAITING',
+              'IN_PROGRESS',
+            ],
+          },
+        },
+        select: { id: true },
+      });
+      if (trip)
+        throw new AppError(
+          409,
+          'VEHICLE_ON_TRIP',
+          'Finish the current trip before replacing vehicle documents.',
+        );
+      const asset = await tx.vehicleVerificationAsset.findFirst({
+        where: {
+          id: input.asset_id,
+          owner_id: user_id,
+          field_key: input.field_key,
+          vehicle_id: null,
+        },
+      });
+      if (!asset)
+        throw new AppError(
+          422,
+          'VEHICLE_ASSET_INVALID',
+          'Upload this document again before submitting.',
+        );
+      const updated = fields.map((v) =>
+        v.key === input.field_key
+          ? {
+              ...v,
+              value: asset.id,
+              display: asset.file_name,
+              status: 'PENDING',
+              reviewed_at: null,
+              reviewed_by: null,
+              rejection_reason: null,
+            }
+          : v,
+      );
+      await tx.vehicle.update({
+        where: { id },
+        data: {
+          verification_fields: updated as unknown as Prisma.InputJsonValue,
+          verification_version: { increment: 1 },
+          status: 'UNDER_REVIEW',
+        },
+      });
+      await tx.vehicleVerificationAsset.update({
+        where: { id: asset.id },
+        data: { vehicle_id: id },
+      });
+      if (driver.active_vehicle_id === id)
+        await tx.driverProfile.update({
+          where: { id: driver.id },
+          data: {
+            availability:
+              driver.availability === 'SUSPENDED' ? 'SUSPENDED' : 'OFFLINE',
+          },
+        });
+      await create_user_log(tx, {
+        actor_id: user_id,
+        entity_type: 'Vehicle',
+        entity_id: id,
+        action: 'RENEW_VEHICLE_DOCUMENT',
+        before_data: { field_key: field.key, asset_id: field.value },
+        after_data: { field_key: field.key, asset_id: asset.id },
+      });
+      return { id, version: vehicle.verification_version + 1 };
     }, options);
   }
   async submit(user_id: string, input: VehicleSubmission, id?: string) {

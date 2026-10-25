@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:user/features/partner_program/widgets/partner_address_input.dart';
 import 'package:user/features/partner_program/widgets/partner_upload_tile.dart';
+import 'package:user/features/partner_program/partner_draft_store.dart';
+import 'package:user/features/auth/models/user.model.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/button.dart';
 import 'package:user/core/color.dart';
@@ -17,21 +19,37 @@ import 'package:user/features/partner_program/partner_program.repo.dart';
 import 'package:user/features/partner_program/widgets/partner_document.dart';
 
 class PartnerProgramPage extends StatefulWidget {
-  const PartnerProgramPage({super.key});
+  final PartnerProgramRepository? repository;
+  final Future<UserModel> Function()? currentUser;
+  final Future<PartnerDraftStore> Function(String)? createDraftStore;
+  final Future<List<PartnerLocalFile>?> Function(Map<String, dynamic>)?
+  selectFiles;
+  final Future<XFile?> Function()? captureSelfie;
+  const PartnerProgramPage({
+    super.key,
+    this.repository,
+    this.currentUser,
+    this.createDraftStore,
+    this.selectFiles,
+    this.captureSelfie,
+  });
   @override
   State<PartnerProgramPage> createState() => _PartnerProgramPageState();
 }
 
 class _PartnerProgramPageState extends State<PartnerProgramPage>
     with WidgetsBindingObserver {
-  final _repository = PartnerProgramRepository();
+  late final _repository = widget.repository ?? PartnerProgramRepository();
   final _form = GlobalKey<FormState>();
   final _email = TextEditingController();
   final _phone = TextEditingController();
   final _signature = TextEditingController();
   final Map<String, TextEditingController> _controllers = {};
   final Map<String, dynamic> _values = {};
-  final Map<String, List<_PartnerFile>> _files = {};
+  final Map<String, List<PartnerLocalFile>> _files = {};
+  PartnerDraftStore? _draftStore;
+  Timer? _draftTimer;
+  String? _uploadProgress;
   Map<String, dynamic>? _workflow;
   bool _loading = true;
   bool _saving = false;
@@ -75,8 +93,18 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed && _dirty) unawaited(_saveDraft());
     if (state == AppLifecycleState.resumed && !_dirty && !_saving) {
       unawaited(_load(background: true));
+    }
+  }
+
+  @override
+  void didHaveMemoryPressure() {
+    for (final file in _files.values.expand((files) => files)) {
+      if (file.path != null) {
+        unawaited(PartnerUploadTile.previewFile(file.path!).evict());
+      }
     }
   }
 
@@ -84,6 +112,8 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _poll?.cancel();
+    _draftTimer?.cancel();
+    if (_dirty) unawaited(_saveDraft());
     _email.dispose();
     _phone.dispose();
     _signature.dispose();
@@ -92,8 +122,8 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     }
     for (final files in _files.values) {
       for (final file in files) {
-        if (file.bytes != null) {
-          unawaited(PartnerUploadTile.previewImage(file.bytes!).evict());
+        if (file.path != null) {
+          unawaited(PartnerUploadTile.previewFile(file.path!).evict());
         }
       }
     }
@@ -109,9 +139,15 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       String? email;
       String? phone;
       String? legalName;
-      if (_workflow == null) {
+      if (_workflow == null || _draftStore == null) {
         try {
-          final user = await AuthRepository().currentUser();
+          final user =
+              await (widget.currentUser?.call() ??
+                  AuthRepository().currentUser());
+          _draftStore ??=
+              await (widget.createDraftStore ?? PartnerDraftStore.create)(
+                user.id,
+              );
           email = user.email;
           phone = user.phoneE164;
           legalName = user.displayName;
@@ -134,8 +170,8 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       _values.clear();
       for (final files in _files.values) {
         for (final file in files) {
-          if (file.bytes != null) {
-            unawaited(PartnerUploadTile.previewImage(file.bytes!).evict());
+          if (file.path != null) {
+            unawaited(PartnerUploadTile.previewFile(file.path!).evict());
           }
         }
       }
@@ -153,7 +189,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
             final asset = _maps(
               data['assets'],
             ).where((a) => a['id'] == assetId).firstOrNull;
-            return _PartnerFile(
+            return PartnerLocalFile(
               name: '${asset?['file_name'] ?? 'Document'}',
               assetId: '$assetId',
             );
@@ -167,10 +203,12 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
               : text;
         }
       }
+      final restored = await _restoreDraft();
+      if (!mounted || request != _loadRequest) return;
       setState(() {
         _loading = false;
         _error = null;
-        _dirty = false;
+        _dirty = restored;
         _acceptConfirmation = false;
       });
       if (!_checkedLostSelfie) {
@@ -194,20 +232,127 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       _error = null;
     });
     try {
+      await _saveDraft();
+      // Detach preview widgets before allocating the first request payload.
+      await WidgetsBinding.instance.endOfFrame;
+      for (final file in _files.values.expand((files) => files)) {
+        if (file.path != null) {
+          await PartnerUploadTile.previewFile(file.path!).evict();
+        }
+      }
       await task();
       if (mounted) {
+        _draftTimer?.cancel();
         _dirty = false;
+        try {
+          await _draftStore?.clear();
+        } catch (_) {
+          // A local cleanup failure must not turn a committed submission into
+          // an apparent server failure. The stale version is discarded on load.
+        }
         await _load(background: true);
       }
     } catch (error) {
-      if (mounted) setState(() => _error = ApiResult.errorMessage(error));
+      if (mounted) {
+        final message = ApiResult.errorMessage(error);
+        setState(() => _error = message);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
+      }
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _uploadProgress = null;
+        });
+      }
     }
   }
 
   void _markDirty() {
     if (!_dirty && mounted) setState(() => _dirty = true);
+    _scheduleDraft();
+  }
+
+  void _scheduleDraft() {
+    _draftTimer?.cancel();
+    _draftTimer = Timer(
+      const Duration(milliseconds: 400),
+      () => unawaited(_saveDraft()),
+    );
+  }
+
+  Future<void> _saveDraft() async {
+    final store = _draftStore;
+    if (store == null || !_dirty) return;
+    final snapshot = <String, dynamic>{
+      'format': 1,
+      'application_version': _application?['version'] ?? 0,
+      'policy_version': _map(_workflow?['policy'])?['version'],
+      'email': _email.text,
+      'phone': _phone.text,
+      'accepted': _acceptPolicy,
+      'show_form': _showForm,
+      'values': Map<String, dynamic>.from(_values),
+      'text': {for (final e in _controllers.entries) e.key: e.value.text},
+      'files': {
+        for (final e in _files.entries)
+          e.key: e.value.map((f) => f.toJson()).toList(),
+      },
+    };
+    try {
+      await store.save(snapshot);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _error =
+              'Local draft could not be saved. Keep this page open and check device storage.',
+        );
+      }
+    }
+  }
+
+  Future<bool> _restoreDraft() async {
+    final store = _draftStore;
+    if (store == null) return false;
+    final draft = await store.read();
+    if (!mounted || draft == null) return false;
+    if (draft['application_version'] != (_application?['version'] ?? 0) ||
+        draft['policy_version'] != _map(_workflow?['policy'])?['version'] ||
+        (_application != null &&
+            _status != 'CHANGES_REQUESTED' &&
+            !_needsSelfie)) {
+      try {
+        await store.clear();
+      } catch (_) {}
+      return false;
+    }
+    final assets = _maps(_workflow?['assets']).map((a) => '${a['id']}').toSet();
+    final text = _map(draft['text']) ?? {};
+    final values = _map(draft['values']) ?? {};
+    final files = _map(draft['files']) ?? {};
+    for (final definition in _definitions) {
+      final id = '${definition['id']}';
+      if (_answers.any(
+        (a) => a['requirement_id'] == id && a['status'] == 'APPROVED',
+      )) {
+        continue;
+      }
+      if (_controllers.containsKey(id) && text[id] is String) {
+        _controllers[id]!.text = text[id] as String;
+      }
+      if (values.containsKey(id)) _values[id] = values[id];
+      if (files.containsKey(id)) {
+        _files[id] = await store.restoreFiles(files[id], assets);
+      }
+    }
+    if (!mounted) return false;
+    if (draft['email'] is String) _email.text = draft['email'] as String;
+    if (draft['phone'] is String) _phone.text = draft['phone'] as String;
+    _acceptPolicy = draft['accepted'] == true;
+    _showForm = draft['show_form'] == true && _acceptPolicy;
+    return true;
   }
 
   Future<void> _download(String id) async {
@@ -259,11 +404,16 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         if (['FILE', 'IMAGE', 'PDF'].contains(type)) {
           final selected = _files[id] ?? [];
           for (final file in selected) {
-            if (file.assetId == null && file.bytes != null) {
-              final uploaded = await _repository.upload(
+            if (!mounted) return;
+            if (file.assetId == null && file.path != null) {
+              setState(
+                () => _uploadProgress =
+                    'Uploading ${definition['label']}: ${selected.indexOf(file) + 1} of ${selected.length}',
+              );
+              final uploaded = await _repository.uploadFile(
                 id,
                 file.name,
-                file.bytes!,
+                file.path!,
               );
               final assetId = uploaded['id'];
               if (assetId is! String || assetId.isEmpty) {
@@ -272,16 +422,10 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
                 );
               }
               file.assetId = assetId;
-              if (type == 'IMAGE') {
-                await PartnerUploadTile.previewImage(file.bytes!).evict();
-              }
-              // Rebuild immediately so neither the tile nor ImageCache retains
-              // the local image while the remaining documents are uploaded.
-              if (mounted) {
-                setState(() => file.bytes = null);
-              } else {
-                file.bytes = null;
-              }
+              await _saveDraft();
+            }
+            if (file.assetId == null) {
+              throw StateError('Choose ${file.name} again before submitting.');
             }
           }
           value = selected.map((file) => file.assetId!).toSet().toList();
@@ -298,6 +442,8 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         answers.add({'requirement_id': id, 'value': value});
       }
       final policy = _map(_workflow?['policy']);
+      if (!mounted) return;
+      setState(() => _uploadProgress = 'Submitting application');
       await _repository.submit({
         'version': _application?['version'] ?? 0,
         'policy_version': policy?['version'],
@@ -342,22 +488,24 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     if (await file.length() > 3000000) {
       throw StateError('Retake a smaller selfie (up to 3 MB).');
     }
-    final bytes = await file.readAsBytes();
-    if (bytes.isEmpty || bytes.length > 3000000) {
-      throw StateError('Retake a smaller selfie (up to 3 MB).');
+    final store = _draftStore;
+    if (store == null) {
+      throw StateError('Refresh your account before choosing files.');
     }
+    final selected = await store.stage('live_selfie.jpg', file.openRead());
     if (!mounted) return;
-    for (final previous in _files[id] ?? <_PartnerFile>[]) {
-      if (previous.bytes != null) {
-        await PartnerUploadTile.previewImage(previous.bytes!).evict();
+    for (final previous in _files[id] ?? <PartnerLocalFile>[]) {
+      if (previous.path != null) {
+        await PartnerUploadTile.previewFile(previous.path!).evict();
       }
     }
     if (!mounted) return;
     setState(() {
-      _files[id] = [_PartnerFile(name: 'live_selfie.jpg', bytes: bytes)];
+      _files[id] = [selected];
       _dirty = true;
       _error = null;
     });
+    await _saveDraft();
   }
 
   Future<void> _captureSelfie() async {
@@ -367,23 +515,27 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     _markDirty();
     setState(() => _capturingSelfie = true);
     try {
+      await _saveDraft();
+      await WidgetsBinding.instance.endOfFrame;
       // Android may reclaim this process while the external camera is open.
       // Remove our offscreen preview cache before giving the camera memory.
       for (final files in _files.values) {
         for (final file in files) {
-          if (file.bytes != null) {
-            await PartnerUploadTile.previewImage(file.bytes!).evict();
+          if (file.path != null) {
+            await PartnerUploadTile.previewFile(file.path!).evict();
           }
         }
       }
-      final image = await ImagePicker().pickImage(
-        source: ImageSource.camera,
-        preferredCameraDevice: CameraDevice.front,
-        maxWidth: 1024,
-        maxHeight: 1024,
-        imageQuality: 80,
-        requestFullMetadata: false,
-      );
+      final image =
+          await (widget.captureSelfie?.call() ??
+              ImagePicker().pickImage(
+                source: ImageSource.camera,
+                preferredCameraDevice: CameraDevice.front,
+                maxWidth: 1024,
+                maxHeight: 1024,
+                imageQuality: 80,
+                requestFullMetadata: false,
+              ));
       if (image != null && mounted) {
         await _useSelfie(image);
         captured = true;
@@ -410,7 +562,9 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     var selectedFiles = false;
     _markDirty();
     setState(() => _pickingFiles = true);
+    final picked = <PartnerLocalFile>[];
     try {
+      await _saveDraft();
       final extensions = (definition['allowed_extensions'] as List? ?? [])
           .map((value) => '$value'.replaceFirst('.', '').toLowerCase())
           .toList();
@@ -435,8 +589,21 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
               'xlsx',
               'zip',
             ];
+      final store = _draftStore;
+      if (store == null) {
+        throw StateError('Refresh your account before choosing files.');
+      }
+      final limit =
+          (((definition['max_file_size_mb'] as num?)?.toDouble() ?? 3) *
+                  1024 *
+                  1024)
+              .floor()
+              .clamp(1, 3000000);
       final List<PlatformFile> result;
-      if (definition['allow_multiple'] == true) {
+      if (widget.selectFiles != null) {
+        picked.addAll(await widget.selectFiles!(definition) ?? []);
+        result = [];
+      } else if (definition['allow_multiple'] == true) {
         result = await FilePicker.pickFiles(
           type: FileType.custom,
           allowedExtensions: allowed,
@@ -448,12 +615,13 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         );
         result = file == null ? [] : [file];
       }
-      if (result.isEmpty || !mounted) return;
-      final limit =
-          ((definition['max_file_size_mb'] as num?)?.toDouble() ?? 3) *
-          1024 *
-          1024;
-      final picked = <_PartnerFile>[];
+      if (!mounted || (result.isEmpty && picked.isEmpty)) return;
+      final existingCount = definition['allow_multiple'] == true
+          ? (_files['${definition['id']}']?.length ?? 0)
+          : 0;
+      if (existingCount + result.length + picked.length > 10) {
+        throw StateError('Choose at most 10 files for one field.');
+      }
       for (final file in result) {
         final size = await file.length();
         if (size == null || size > 3000000 || size > limit) {
@@ -461,11 +629,13 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
             'Choose files within the configured size limit and no larger than 3 MB.',
           );
         }
-        final bytes = await file.readAsBytes();
-        if (bytes.length > 3000000 || bytes.length > limit || bytes.isEmpty) {
-          throw StateError('Choose a nonempty file within the size limit.');
-        }
-        picked.add(_PartnerFile(name: file.name, bytes: bytes));
+        picked.add(
+          await store.stage(
+            file.name,
+            file.readAsByteStream(),
+            maxBytes: limit,
+          ),
+        );
       }
       if (!mounted) return;
       final selected = definition['allow_multiple'] == true
@@ -480,9 +650,15 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         _error = null;
       });
       selectedFiles = true;
+      await _saveDraft();
     } catch (error) {
       if (mounted) setState(() => _error = ApiResult.errorMessage(error));
     } finally {
+      if (!selectedFiles) {
+        for (final file in picked) {
+          await _draftStore?.remove(file);
+        }
+      }
       if (mounted) {
         setState(() {
           _pickingFiles = false;
@@ -492,27 +668,46 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     }
   }
 
-  Future<bool> _discard() async =>
-      await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Discard unsaved changes?'),
-          content: const Text(
-            'Your selected files and unsaved form changes will be discarded.',
+  Future<bool> _discard() async {
+    final discard =
+        await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Discard unsaved changes?'),
+            content: const Text(
+              'Your selected files and unsaved form changes will be discarded.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Keep editing'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Discard'),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Keep editing'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Discard'),
-            ),
-          ],
-        ),
-      ) ??
-      false;
+        ) ??
+        false;
+    if (discard) {
+      _draftTimer?.cancel();
+      try {
+        await _draftStore?.clear();
+        _dirty = false;
+      } catch (_) {
+        if (mounted) {
+          setState(
+            () => _error =
+                'The local draft could not be discarded. Check device storage and try again.',
+          );
+        }
+        return false;
+      }
+    }
+    return discard;
+  }
+
   Widget _statusBadge(String status) {
     final rejected = status == 'REJECTED' || status.contains('CHANGES');
     final approved = ['APPROVED', 'COMPLETED', 'ACTIVATED'].contains(status);
@@ -578,6 +773,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       }
     }
     setState(() => _dirty = true);
+    _scheduleDraft();
   }
 
   Widget _field(Map<String, dynamic> definition, bool editing) {
@@ -625,26 +821,26 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       final files = _files[id] ?? [];
       children.add(
         PartnerUploadTile(
+          key: ValueKey('partner-upload-$id'),
           files: files
               .map(
                 (file) => PartnerUploadFile(
                   name: file.name,
-                  bytes: file.bytes,
+                  path: file.path,
                   onOpen: file.assetId == null
                       ? null
                       : () => _download(file.assetId!),
                   onRemove: !enabled
                       ? null
                       : () => setState(() {
-                          if (type == 'IMAGE' && file.bytes != null) {
+                          if (file.path != null) {
                             unawaited(
-                              PartnerUploadTile.previewImage(
-                                file.bytes!,
-                              ).evict(),
+                              PartnerUploadTile.previewFile(file.path!).evict(),
                             );
                           }
                           files.remove(file);
                           _dirty = true;
+                          _scheduleDraft();
                         }),
                 ),
               )
@@ -707,6 +903,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
             onChanged: (value) => setState(() {
               _controllers[id]!.text = value ?? '';
               _dirty = true;
+              _scheduleDraft();
             }),
             validator: (value) =>
                 (required || existing.isNotEmpty) &&
@@ -733,6 +930,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
               ? (value) => setState(() {
                   _values[id] = value;
                   _dirty = true;
+                  _scheduleDraft();
                 })
               : null,
           validator: (value) =>
@@ -803,6 +1001,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
                         10,
                       );
                       _dirty = true;
+                      _scheduleDraft();
                     });
                   }
                 }
@@ -974,6 +1173,28 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       widgets.add(_field(definition, editing));
     }
     if (editing) {
+      if (_error != null) {
+        widgets.add(
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              _error!,
+              style: const TextStyle(color: AppColors.googleRed),
+            ),
+          ),
+        );
+      }
+      if (_uploadProgress != null) {
+        widgets.add(
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              _uploadProgress!,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+        );
+      }
       widgets.add(
         AppButton(
           text: _application == null
@@ -1281,11 +1502,4 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
             ),
     ),
   );
-}
-
-class _PartnerFile {
-  final String name;
-  Uint8List? bytes;
-  String? assetId;
-  _PartnerFile({required this.name, this.bytes, this.assetId});
 }

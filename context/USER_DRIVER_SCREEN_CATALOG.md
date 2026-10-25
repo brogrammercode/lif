@@ -6,6 +6,8 @@
 
 **Mobile codebase:** `apps/user/v1`. **Backend reference:** `apps/api/v2`.
 
+**Combined Phases A-D audit - 25 October 2026:** see [PHASE_ABCD_AUDIT.md](PHASE_ABCD_AUDIT.md) for cross-phase verification and fixes to driver navigation transitions, tracking restart/cancellation, trip snapshot validation, lost-response recovery and transaction-level account checks in older driver writes. This supplements the implementation overlays and individual audit reports below.
+
 This document describes the screens, forms, dialogs, background behavior, and transitions that exist today, then specifies the screens and improvements proposed next. It is a product and implementation discussion document; proposed screens are not an approved final visual design.
 
 **Decision and implementation update — 24 October 2026:** the user answered the discussion questions and supplied a one-page fare-policy PDF, followed by cash/direct-UPI, zero-commission and cancellation/no-show rules. The accepted decisions, exact distance-band formula, completed Phase A checklist, rollout requirements and Phase B contracts are tracked in [PHASE_A_IMPLEMENTATION.md](PHASE_A_IMPLEMENTATION.md). Those decisions supersede earlier alternatives below. During an active trip, offers are view-only; queuing is deferred. No masked-calling provider is selected. Map-first driver operations, combined trip-start verification and in-app navigation are now implemented in Phase B; see the current overlay and tracker below.
@@ -16,7 +18,7 @@ This document describes the screens, forms, dialogs, background behavior, and tr
 
 | Area | Current position | Next discussion |
 | --- | --- | --- |
-| Navigation | 21 registered routes, plus sheets/dialogs and state-based views; active-trip startup restoration, selected-mode entry and trip chat | Device acceptance and external deep links |
+| Navigation | 23 registered routes, plus sheets/dialogs and state-based views; active-trip startup restoration, selected-mode entry and trip chat | Device acceptance and external deep links |
 | Rider | Booking review, matching/live trip, collection/receipt, history/recovery and minimum safety connected | 12 proposed screen groups/upgrades in section 11 |
 | Partner onboarding | Policy, dynamic application, selfie, review, confirmation, final PDF and activation | Correct configuration mismatches and clarify reviewed-data ownership |
 | Driver | Vehicle gates, map home, offers, active trips, collection, history and exit are connected | 20 proposed screen groups/upgrades in section 12 |
@@ -170,6 +172,8 @@ flowchart TD
 | `/partner-program/activation` | `PartnerActivationPage` | One-time driver activation | Approved applicant |
 | `/driver/home` | `DriverHomePage` | Vehicle eligibility gate, then current driver home | Activated driver/partner |
 | `/driver/vehicles` | `DriverVehiclesPage` | Vehicle submissions, review feedback and selection | Driver |
+| `/driver/account` | `DriverAccountPage` | Reviewed account, documents, catalog requests and safety/help | Driver/exited partner |
+| `/driver/finances` | `DriverFinancesPage` | Dated earnings and direct-collection transaction statement | Driver/exited partner |
 | `/driver/exit` | `DriverExitPage` | Exit request, dues, settlement PDF | Driver/exited partner |
 | `/driver/rides` | `DriverTripsPage` | Paginated driver-owned history | Driver/exited partner |
 | `/driver/ride-detail` | `DriverTripPage` | Operational map, trip actions, navigation and collection; history remains readable after exit | Driver/exited partner |
@@ -572,7 +576,7 @@ All P01–P06 states below are hosted in `/partner-program`. The response from `
 
 **Live selfie:** system-owned required IMAGE field, camera-only, one file, 3 MB maximum; capture, retake/remove and local preview use the common upload tile. It is submitted with the application, not a daily driver task. Android lost-camera-result recovery is implemented. The profile-photo requirement is separate from this live selfie.
 
-**Upload behavior:** files are selected/captured and previewed locally; uploads begin on Submit. Uploaded asset IDs are reused during a retry and then referenced in the application request. Images are converted to WebP by the API; private application files use authenticated access. Local image bytes are released as uploads finish to reduce memory pressure.
+**Upload behavior:** files are streamed to app-private local storage and previewed at bounded resolution; uploads begin on Submit. One file is encoded in a worker isolate and sent at a time. Account-scoped encrypted draft metadata preserves text, selections and uploaded IDs across reopening; retries reuse completed uploads. Images are converted to WebP by the API; private application files use authenticated access. See [submission recovery fix](PARTNER_APPLICATION_SUBMISSION_FIX.md) for verification and remaining device acceptance.
 
 **Submission:** sends application version, accepted policy version, contact values and `{requirement_id, value}` answers. The server snapshots definitions and consent content, so later admin changes do not silently rewrite an earlier acceptance.
 
@@ -1713,19 +1717,28 @@ Completion separates the fixed accepted fare from actual collection. Cash/direct
 
 Minimum safety includes configured contacts, contact management, linked support issues and explicit manual WhatsApp/copy sharing of a static trip summary. There is no live public share link or emergency dispatch. UI uses the existing app cards, page frame, colors and action patterns; no new mobile named route or native package was introduced.
 
-See [Phase C checklist, API contract and device acceptance](PHASE_C_IMPLEMENTATION.md). Automated verification is recorded there; paired-device and native intent/background acceptance remains required before release. The [Phase C follow-up audit](PHASE_C_AUDIT.md) records additional booking, route transition, GPS freshness and recovery fixes, with 137 API tests and 58 Flutter tests passing. Phase D remains unstarted.
+See [Phase C checklist, API contract and device acceptance](PHASE_C_IMPLEMENTATION.md). Automated verification is recorded there; paired-device and native intent/background acceptance remains required before release. The [Phase C follow-up audit](PHASE_C_AUDIT.md) records additional booking, route transition, GPS freshness and recovery fixes, with 137 API tests and 58 Flutter tests passing. Phase D now implements the direct-collection account/finance and document-maintenance scope described below.
 
 ### Phase D — Driver operations and account completion
 
-- [ ] DN13 earnings using approved ledger calculations.
-- [ ] DN14 payout/transaction history and operator settlement.
-- [ ] DN15 reviewed payout account management.
-- [ ] DN16/DN17 vehicle renewal and catalog request status.
-- [ ] DN18 reviewed account/document center.
-- [ ] DN19/DN20 safety, restriction and exit maintenance.
-- [ ] SC02–SC07 permissions/legal/inbox/support/documents improvements.
+- [x] DN13 earnings using approved direct-collection reconciliation rules.
+- [x] DN14 collection transactions and reviewed manual settlements; no platform-held payout balance.
+- [x] DN15 reviewed payout account management.
+- [x] DN16/DN17 vehicle renewal and catalog request status.
+- [x] DN18 reviewed account/document center.
+- [x] DN19/DN20 safety, restriction and exit maintenance.
+- [x] Shared permission actions, account-notification targets, support and private document access.
+- [ ] Legal/language/account-closure expansion stays deferred to the next release, as requested.
 
 **Complete when:** admins and drivers can reconcile the same amounts, pending documents have clear next actions, private documents are protected, and restricted/exited drivers retain the intended support/history access.
+
+#### Current Phase D implementation
+
+The driver Account area has Account, Payout details, My requests and Safety & help tabs. It links to a dated Earnings & transactions page, private partner/vehicle documents, reviewed bank/UPI changes, catalog corrections, support and exit recovery. Manual document replacement preserves other approvals and pauses the vehicle pending review; it is blocked during an active trip. PDF vehicle documents now accompany the existing image flow.
+
+Admin Users has a Driver Account tab for the same finance statement, masked payment destinations, audited private detail reveal/hide and versioned approval/rejection. Initial approved application bank/UPI values remain in use until a change is approved. Old receipts retain their recipient snapshots. No payout provider, withdrawable wallet, automatic expiry block or new legal text is implied.
+
+See [Phase D tracker, contracts and rollout](PHASE_D_IMPLEMENTATION.md). The [25 October follow-up audit](PHASE_D_AUDIT.md) records statement/provider-state corrections, payout isolation/masking and the explicit preview-before-upload document replacement flow. The accepted direct-collection scope is implemented; provider payouts, accounting expansion, legal workflows, automated expiry and catalog merges retain their explicit future/manual boundaries.
 
 ### Phase E — Optional product expansion
 

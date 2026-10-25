@@ -297,7 +297,9 @@ function VehicleReview({
           fields={fields}
           assets={vehicle.verification_assets.map((asset) => ({
             ...asset,
-            mime_type: "image/webp",
+            mime_type: asset.file_name.endsWith(".pdf")
+              ? "application/pdf"
+              : "image/webp",
             size: 0,
             purpose: "VEHICLE",
             field_id: asset.field_key,

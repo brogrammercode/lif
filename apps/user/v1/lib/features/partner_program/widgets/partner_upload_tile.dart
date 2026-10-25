@@ -1,15 +1,18 @@
 import 'dart:typed_data';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:user/core/color.dart';
 
 class PartnerUploadFile {
   final String name;
   final Uint8List? bytes;
+  final String? path;
   final VoidCallback? onOpen;
   final VoidCallback? onRemove;
   const PartnerUploadFile({
     required this.name,
     this.bytes,
+    this.path,
     this.onOpen,
     this.onRemove,
   });
@@ -20,8 +23,14 @@ class PartnerUploadFile {
 class PartnerUploadTile extends StatelessWidget {
   static ResizeImage previewImage(Uint8List bytes) => ResizeImage(
     MemoryImage(bytes),
-    width: 640,
-    height: 640,
+    width: 320,
+    height: 320,
+    policy: ResizeImagePolicy.fit,
+  );
+  static ImageProvider previewFile(String path) => ResizeImage(
+    FileImage(File(path)),
+    width: 320,
+    height: 320,
     policy: ResizeImagePolicy.fit,
   );
   final List<PartnerUploadFile> files;
@@ -54,11 +63,13 @@ class PartnerUploadTile extends StatelessWidget {
           ),
           child: Column(
             children: [
-              if (image && file.bytes != null)
+              if (image && !busy && (file.path != null || file.bytes != null))
                 ClipRRect(
                   borderRadius: BorderRadius.circular(10),
                   child: Image(
-                    image: previewImage(file.bytes!),
+                    image: file.path != null
+                        ? previewFile(file.path!)
+                        : previewImage(file.bytes!),
                     height: 160,
                     width: double.infinity,
                     fit: BoxFit.contain,

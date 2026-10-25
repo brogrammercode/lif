@@ -56,9 +56,26 @@ export const vehicle_submission = z
 export const vehicle_asset = z
   .object({
     field_key: z.enum(vehicle_document_keys),
-    image_upload: image_upload_schema,
+    image_upload: z.union([
+      image_upload_schema,
+      z
+        .object({
+          file_name: z.string().trim().min(1).max(255),
+          data_url: z
+            .string()
+            .max(4000100)
+            .regex(/^data:application\/pdf;base64,[A-Za-z0-9+/]+={0,2}$/),
+        })
+        .strict(),
+    ]),
   })
-  .strict();
+  .strict()
+  .refine(
+    (v) =>
+      !v.image_upload.data_url.startsWith('data:application/pdf;') ||
+      !['front_image', 'back_image'].includes(v.field_key),
+    'Vehicle front/back must be images.',
+  );
 export const vehicle_review = z
   .object({
     expected_version: z.number().int().nonnegative(),

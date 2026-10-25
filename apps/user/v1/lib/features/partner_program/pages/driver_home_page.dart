@@ -134,6 +134,12 @@ class _DriverHomeState extends State<DriverHomeContent>
       } else {
         try {
           await _tracking.ensureStarted();
+          if (!mounted) return;
+          if (!_tracking.running) {
+            throw StateError(
+              'Location tracking stopped. Refresh location before going online.',
+            );
+          }
           await _repo.availability(true);
         } catch (_) {
           await _tracking.stop(goOffline: true);
@@ -377,6 +383,13 @@ class _DriverHomeState extends State<DriverHomeContent>
                               AppRoutes.driverRides,
                             ),
                             child: const Text('Trip history'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pushNamed(
+                              context,
+                              AppRoutes.driverAccount,
+                            ),
+                            child: const Text('Account & earnings'),
                           ),
                           TextButton(
                             onPressed: () => Navigator.pushNamed(

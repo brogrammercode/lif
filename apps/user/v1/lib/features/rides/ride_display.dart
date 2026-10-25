@@ -83,6 +83,7 @@ String ridePaymentLabel(dynamic status) => switch (status) {
   'REFUNDED' => 'Refunded',
   'PARTIALLY_REFUNDED' => 'Partially refunded',
   'AUTHORIZED' => 'Awaiting provider settlement',
+  'REQUIRES_ACTION' => 'Payment requires action',
   'FAILED' => 'Payment not received',
   _ => 'Awaiting driver receipt',
 };

@@ -139,6 +139,21 @@ class _SettingsPageState extends State<SettingsPage> {
               : const SizedBox.shrink(),
         ),
         const AppSectionLabel('Partner with 1More'),
+        FutureBuilder<UserModel>(
+          future: _profile,
+          builder: (context, snapshot) =>
+              snapshot.hasData &&
+                  (snapshot.data!.role == 'DRIVER' ||
+                      snapshot.data!.partnerStatus == 'ACTIVATED' ||
+                      snapshot.data!.partnerStatus == 'EXITED')
+              ? _tile(
+                  context,
+                  Icons.account_balance_wallet_outlined,
+                  'Driver account & earnings',
+                  AppRoutes.driverAccount,
+                )
+              : const SizedBox.shrink(),
+        ),
         SizedBox(height: 10.h),
         _tile(
           context,

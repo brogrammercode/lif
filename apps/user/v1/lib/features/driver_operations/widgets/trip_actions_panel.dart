@@ -234,13 +234,9 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
     final start = data['start'] as Map? ?? {};
     final payment = data['payment'] as Map? ?? {};
     final paymentStatus = payment['status'];
-    final collectionLocked = [
-      'CAPTURED',
-      'CANCELLED',
-      'AUTHORIZED',
-      'REFUNDED',
-      'PARTIALLY_REFUNDED',
-    ].contains(paymentStatus);
+    final collectionLocked =
+        data['direct_collection_allowed'] == false ||
+        ![null, 'PENDING', 'FAILED'].contains(paymentStatus);
     final options = data['payment_options'] as Map? ?? {};
     final review = data['review'] as Map?;
     final noShowAfter = DateTime.tryParse('${data['no_show_after']}');
@@ -379,6 +375,7 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
                 'REFUNDED' => 'Payment refunded',
                 'PARTIALLY_REFUNDED' => 'Payment partially refunded',
                 'AUTHORIZED' => 'Payment awaiting provider settlement',
+                'REQUIRES_ACTION' => 'Payment requires action',
                 _ => 'Payment pending',
               },
               style: TextStyle(
@@ -390,10 +387,13 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
               ),
             ),
             if ([
-              'AUTHORIZED',
-              'REFUNDED',
-              'PARTIALLY_REFUNDED',
-            ].contains(paymentStatus))
+                  'AUTHORIZED',
+                  'REQUIRES_ACTION',
+                  'REFUNDED',
+                  'PARTIALLY_REFUNDED',
+                ].contains(paymentStatus) ||
+                (data['direct_collection_allowed'] == false &&
+                    ['PENDING', 'FAILED'].contains(paymentStatus)))
               const Text(
                 'This payment is already managed or resolved. Contact Support for any payment concern.',
               ),

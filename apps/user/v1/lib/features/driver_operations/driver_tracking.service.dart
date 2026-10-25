@@ -6,16 +6,17 @@ import 'package:user/features/driver_operations/driver_operations.repo.dart';
 
 class DriverTrackingService {
   static final instance = DriverTrackingService._();
-  DriverTrackingService._();
+  DriverTrackingService._() : _repo = DriverOperationsRepository();
   @visibleForTesting
-  DriverTrackingService.forTesting();
+  DriverTrackingService.forTesting({DriverOperationsRepository? repository})
+    : _repo = repository ?? DriverOperationsRepository();
   final position = ValueNotifier<Position?>(null);
   final error = ValueNotifier<String?>(null);
-  final _repo = DriverOperationsRepository();
+  final DriverOperationsRepository _repo;
   StreamSubscription<Position>? _stream;
   Timer? _heartbeat;
   Future<void>? _starting;
-  bool _sending = false;
+  int? _sendingGeneration;
   Completer<void>? _uploadDone;
   int _generation = 0;
   bool get running => _stream != null;
@@ -33,15 +34,24 @@ class DriverTrackingService {
     }
   }
 
-  Future<void> ensureStarted() =>
-      _starting ??= _start().whenComplete(() => _starting = null);
+  Future<void> ensureStarted() {
+    if (_starting != null) return _starting!;
+    late final Future<void> starting;
+    starting = _start().whenComplete(() {
+      if (identical(_starting, starting)) _starting = null;
+    });
+    return _starting = starting;
+  }
+
   Future<void> _start() async {
     if (running) return;
     final generation = ++_generation;
     if (!await Geolocator.isLocationServiceEnabled()) {
       throw StateError('Turn on device location services to drive.');
     }
+    if (generation != _generation) return;
     var permission = await Geolocator.checkPermission();
+    if (generation != _generation) return;
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
@@ -115,7 +125,7 @@ class DriverTrackingService {
   }
 
   Future<void> _refresh(int generation) async {
-    if (_sending || generation != _generation) return;
+    if (_sendingGeneration == generation || generation != _generation) return;
     try {
       final fix = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
@@ -132,8 +142,8 @@ class DriverTrackingService {
   }
 
   Future<void> _upload(Position fix, int generation) async {
-    if (_sending || generation != _generation) return;
-    _sending = true;
+    if (_sendingGeneration == generation || generation != _generation) return;
+    _sendingGeneration = generation;
     final done = _uploadDone = Completer<void>();
     try {
       await _repo.location({
@@ -153,35 +163,55 @@ class DriverTrackingService {
       if (generation == _generation) error.value = ApiResult.errorMessage(e);
       rethrow;
     } finally {
-      _sending = false;
       done.complete();
-      _uploadDone = null;
+      if (identical(_uploadDone, done)) {
+        _sendingGeneration = null;
+        _uploadDone = null;
+      }
     }
   }
 
   Future<void> freshFix() async {
-    await _uploadDone?.future;
+    final generation = _generation;
+    if (_sendingGeneration == generation) await _uploadDone?.future;
+    if (generation != _generation) {
+      throw StateError(
+        'Location tracking stopped. Refresh location before driving.',
+      );
+    }
     if (!running) {
       await ensureStarted();
+      if (!running) {
+        throw StateError(
+          'Location tracking stopped. Refresh location before driving.',
+        );
+      }
       return;
     }
-    await _refresh(_generation);
+    await _refresh(generation);
+    if (generation != _generation) {
+      throw StateError(
+        'Location tracking stopped. Refresh location before driving.',
+      );
+    }
     if (error.value != null) throw StateError(error.value!);
   }
 
   Future<void> stop({bool goOffline = false}) async {
     final wasTracking = running || _starting != null;
-    _generation++;
+    final generation = ++_generation;
+    _starting = null;
     _heartbeat?.cancel();
     _heartbeat = null;
-    await _stream?.cancel();
+    final stream = _stream;
     _stream = null;
-    if (goOffline && wasTracking) {
+    position.value = null;
+    error.value = null;
+    await stream?.cancel();
+    if (goOffline && wasTracking && generation == _generation) {
       try {
         await _repo.availability(false);
       } catch (_) {}
     }
-    position.value = null;
-    error.value = null;
   }
 }

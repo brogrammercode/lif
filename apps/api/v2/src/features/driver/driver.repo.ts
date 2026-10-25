@@ -51,6 +51,7 @@ export class DriverRepository {
   ) =>
     this.prismaService.client.$transaction(
       async (tx) => {
+        await require_active_account(tx, user_id);
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
         await require_driver_participation(tx, user_id);
         const applicant = await tx.user.findUnique({
@@ -249,6 +250,7 @@ export class DriverRepository {
   readonly create_vehicle = async (user_id: string, input: VehicleInput) =>
     this.prismaService.client.$transaction(
       async (tx) => {
+        await require_active_account(tx, user_id);
         await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(720041)`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
         await require_driver_participation(tx, user_id);
@@ -327,6 +329,7 @@ export class DriverRepository {
   ) =>
     this.prismaService.client.$transaction(
       async (tx) => {
+        await require_active_account(tx, user_id);
         await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(720041)`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
         await require_driver_participation(tx, user_id);
@@ -409,6 +412,7 @@ export class DriverRepository {
   ) =>
     this.prismaService.client.$transaction(
       async (tx) => {
+        await require_active_account(tx, user_id);
         await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(720041)`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
         await require_driver_participation(tx, user_id);
@@ -667,6 +671,7 @@ export class DriverRepository {
   readonly reject_offer = async (user_id: string, offer_id: string) =>
     this.prismaService.client.$transaction(
       async (tx) => {
+        await require_active_account(tx, user_id);
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
         await require_driver_participation(tx, user_id);
         const offer = await tx.rideOffer.findFirst({

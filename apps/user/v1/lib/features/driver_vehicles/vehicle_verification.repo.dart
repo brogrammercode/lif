@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
+import 'dart:io';
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/core/network/dio_client.dart';
 
@@ -13,6 +16,44 @@ class VehicleVerificationRepository {
       Map<String, dynamic>.from(ApiResult.unwrap(response) as Map);
   Future<Map<String, dynamic>> mine() async =>
       _map(await _client.getData(base));
+  Future<Map<String, dynamic>> documents() async =>
+      _map(await _client.getData('/driver/vehicle-documents'));
+  Future<void> renewDocument(
+    String id,
+    int version,
+    String key,
+    String assetId,
+  ) async {
+    await _client.postData(
+      '$base/${Uri.encodeComponent(id)}/renewal',
+      data: {
+        'expected_version': version,
+        'field_key': key,
+        'asset_id': assetId,
+      },
+    );
+  }
+
+  static Map<String, dynamic> documentPayload(
+    String key,
+    String name,
+    Uint8List bytes,
+  ) {
+    if (bytes.length >= 5 && String.fromCharCodes(bytes.take(5)) == '%PDF-') {
+      if (['front_image', 'back_image'].contains(key)) {
+        throw StateError('Vehicle front/back must be images.');
+      }
+      if (bytes.length > 3000000) {
+        throw StateError('Choose a document up to 3 MB.');
+      }
+      return {
+        'file_name': name,
+        'data_url': 'data:application/pdf;base64,${base64Encode(bytes)}',
+      };
+    }
+    return imagePayload(name, bytes);
+  }
+
   Future<Map<String, dynamic>> choices({
     String? brandId,
     String query = '',
@@ -39,6 +80,16 @@ class VehicleVerificationRepository {
       sendTimeout: const Duration(seconds: 90),
     ),
   );
+  Future<Map<String, dynamic>> correctCatalog(
+    bool model,
+    String id,
+    Map<String, dynamic> input,
+  ) async => _map(
+    await _client.patchData(
+      '/driver/vehicle-${model ? 'models' : 'brands'}/requests/${Uri.encodeComponent(id)}',
+      data: input,
+    ),
+  );
   Future<Map<String, dynamic>> upload(
     String key,
     String name,
@@ -46,7 +97,10 @@ class VehicleVerificationRepository {
   ) async => _map(
     await _client.postData(
       '$base/assets',
-      data: {'field_key': key, 'image_upload': imagePayload(name, bytes)},
+      data: {
+        'field_key': key,
+        'image_upload': documentPayload(key, name, bytes),
+      },
       receiveTimeout: const Duration(seconds: 90),
       sendTimeout: const Duration(seconds: 90),
     ),
@@ -68,6 +122,17 @@ class VehicleVerificationRepository {
 
   Future<void> discardUpload(String id) async {
     await _client.deleteData('$base/assets/${Uri.encodeComponent(id)}');
+  }
+
+  static Future<void> openDocument(String name, Uint8List bytes) async {
+    final dir = await getTemporaryDirectory();
+    final safe = name.replaceAll(RegExp(r'[^a-zA-Z0-9_.-]'), '_');
+    final file = File(
+      '${dir.path}/vehicle_${DateTime.now().microsecondsSinceEpoch}_$safe',
+    );
+    await file.writeAsBytes(bytes, flush: true);
+    final result = await OpenFilex.open(file.path);
+    if (result.type != ResultType.done) throw StateError(result.message);
   }
 
   static Map<String, dynamic> imagePayload(String name, Uint8List bytes) {

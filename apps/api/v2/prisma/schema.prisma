@@ -152,32 +152,52 @@ model User {
   devices                  Device[]
   driver_profile           DriverProfile?
   saved_places             SavedPlace[]
-  rider_rides              Ride[]              @relation("rider_rides")
-  reviews_given            Review[]            @relation("reviews_given")
-  reviews_received         Review[]            @relation("reviews_received")
+  rider_rides              Ride[]               @relation("rider_rides")
+  reviews_given            Review[]             @relation("reviews_given")
+  reviews_received         Review[]             @relation("reviews_received")
   payment_methods          PaymentMethod[]
   notifications            Notification[]
   support_tickets          SupportTicket[]
-  support_messages         SupportMessage[]    @relation("support_message_authors")
-  ride_events_as_actor     RideEvent[]         @relation("ride_event_actors")
-  audit_logs               UserLog[]           @relation("user_log_actors")
+  support_messages         SupportMessage[]     @relation("support_message_authors")
+  ride_events_as_actor     RideEvent[]          @relation("ride_event_actors")
+  audit_logs               UserLog[]            @relation("user_log_actors")
   emergency_contacts       EmergencyContact[]
   idempotency_keys         IdempotencyKey[]
-  admin_access             AdminAccess?        @relation("admin_access_user")
-  admin_access_grants      AdminAccess[]       @relation("admin_access_granted_by")
-  admin_access_revocations AdminAccess[]       @relation("admin_access_revoked_by")
+  admin_access             AdminAccess?         @relation("admin_access_user")
+  admin_access_grants      AdminAccess[]        @relation("admin_access_granted_by")
+  admin_access_revocations AdminAccess[]        @relation("admin_access_revoked_by")
   admin_activity           AdminActivity[]
-  brand_requests           VehicleBrand[]      @relation("brand_requester")
-  brand_reviews            VehicleBrand[]      @relation("brand_reviewer")
-  model_requests           VehicleModel[]      @relation("model_requester")
-  model_reviews            VehicleModel[]      @relation("model_reviewer")
+  brand_requests           VehicleBrand[]       @relation("brand_requester")
+  brand_reviews            VehicleBrand[]       @relation("brand_reviewer")
+  model_requests           VehicleModel[]       @relation("model_requester")
+  model_reviews            VehicleModel[]       @relation("model_reviewer")
   partner_application      PartnerApplication?
   partner_assets           PartnerAsset[]
-  partner_activated_at     DateTime?           @db.Timestamptz(3)
+  partner_activated_at     DateTime?            @db.Timestamptz(3)
+  payout_changes           DriverPayoutChange[]
 
   @@index([role, status])
   @@index([created_at])
   @@map("users")
+}
+
+model DriverPayoutChange {
+  id                 String    @id @default(uuid())
+  user_id            String
+  request_key        String
+  status             String    @default("PENDING")
+  version            Int       @default(1)
+  details_ciphertext String
+  summary            Json
+  rejection_reason   String?
+  reviewed_by_id     String?
+  reviewed_at        DateTime? @db.Timestamptz(3)
+  created_at         DateTime  @default(now()) @db.Timestamptz(3)
+  user               User      @relation(fields: [user_id], references: [id], onDelete: Restrict)
+
+  @@unique([user_id, request_key])
+  @@index([user_id, status, reviewed_at])
+  @@map("driver_payout_changes")
 }
 
 model AuthAccount {

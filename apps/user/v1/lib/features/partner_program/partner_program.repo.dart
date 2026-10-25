@@ -1,14 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:open_filex/open_filex.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:user/core/network/dio_client.dart';
 import 'package:user/core/network/api_result.dart';
 
 class PartnerProgramRepository {
   static const base = '/partner-program';
-  final DioClient _client = DioClient();
+  final DioClient _client;
+  PartnerProgramRepository({DioClient? client})
+    : _client = client ?? DioClient();
   Map<String, dynamic> _map(dynamic response) =>
       Map<String, dynamic>.from(ApiResult.unwrap(response) as Map);
   Future<Map<String, dynamic>> workflow() async =>
@@ -78,6 +80,24 @@ class PartnerProgramRepository {
     );
   }
 
+  Future<Map<String, dynamic>> uploadFile(
+    String fieldId,
+    String fileName,
+    String path,
+  ) async {
+    // Keep file reading, base64 and JSON copies off the UI isolate, and return
+    // only one ready-to-send request body rather than retaining source bytes.
+    final body = await compute(_encodePartnerUpload, (fieldId, fileName, path));
+    return _map(
+      await _client.postData(
+        '$base/assets',
+        receiveTimeout: const Duration(seconds: 90),
+        sendTimeout: const Duration(seconds: 90),
+        data: body,
+      ),
+    );
+  }
+
   Future<void> download(String assetId) async {
     final asset = _map(await _client.getData('$base/assets/$assetId'));
     final bytes = base64Decode((asset['data_url'] as String).split(',').last);
@@ -93,4 +113,31 @@ class PartnerProgramRepository {
       throw StateError('Saved to ${file.path}. ${result.message}');
     }
   }
+}
+
+Future<String> _encodePartnerUpload((String, String, String) input) async {
+  final (fieldId, name, path) = input;
+  final file = File(path);
+  final size = await file.length();
+  if (size == 0 || size > 3000000) {
+    throw StateError('Choose a file up to 3 MB.');
+  }
+  final bytes = await file.readAsBytes();
+  if (bytes.isEmpty || bytes.length > 3000000) {
+    throw StateError('Choose a file up to 3 MB.');
+  }
+  final mime = switch (name.split('.').last.toLowerCase()) {
+    'jpg' || 'jpeg' => 'image/jpeg',
+    'png' => 'image/png',
+    'webp' => 'image/webp',
+    'pdf' => 'application/pdf',
+    'txt' || 'csv' => 'text/plain',
+    _ => 'application/octet-stream',
+  };
+  return jsonEncode({
+    'field_id': fieldId,
+    if (fieldId == '__live_selfie__') 'capture_source': 'CAMERA',
+    'file_name': name,
+    'data_url': 'data:$mime;base64,${base64Encode(bytes)}',
+  });
 }

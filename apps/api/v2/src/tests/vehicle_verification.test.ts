@@ -10,6 +10,7 @@ import {
   vehicle_labels,
   vehicle_review,
   vehicle_submission,
+  vehicle_asset,
 } from '../features/vehicle_verification/vehicle_verification.type.js';
 import { is_vehicle_eligible } from '../features/vehicle_category/vehicle_category.security.js';
 
@@ -211,6 +212,17 @@ function fixture(existing = true) {
       },
     },
     vehicleVerificationAsset: {
+      update: async ({
+        where,
+        data,
+      }: {
+        where: { id: string };
+        data: { vehicle_id: string };
+      }) =>
+        Object.assign(
+          state.assets.find((v) => v.id === where.id)!,
+          data,
+        ),
       findMany: async ({
         where,
       }: {
@@ -626,4 +638,89 @@ it('reuses a pending converted image on an upload retry', async () => {
   });
   assert.equal(first.id, again.id);
   assert.equal(state.assets.length, 1);
+});
+
+it('vehicle documents accept genuine PDF while front/back remain image-only', async () => {
+  const f = fixture();
+  const bytes = Buffer.from('%PDF-1.7\n1 0 obj <<>> endobj\n%%EOF\n');
+  const upload = {
+    file_name: 'insurance.pdf',
+    data_url: 'data:application/pdf;base64,' + bytes.toString('base64'),
+  };
+  assert.equal(
+    vehicle_asset.safeParse({ field_key: 'front_image', image_upload: upload })
+      .success,
+    false,
+  );
+  const asset = await f.service.upload(
+    'driver',
+    vehicle_asset.parse({ field_key: 'insurance', image_upload: upload }),
+  );
+  assert.equal(asset.file_name, 'insurance.pdf');
+  assert.ok(
+    f.state.assets.some(
+      (v) => v.id === asset.id && Buffer.from(v.bytes).equals(bytes),
+    ),
+  );
+  await assert.rejects(
+    () =>
+      f.service.upload('driver', {
+        field_key: 'insurance',
+        image_upload: {
+          ...upload,
+          data_url:
+            'data:application/pdf;base64,' +
+            Buffer.from('%PDF-invalid').toString('base64'),
+        },
+      }),
+    { error_code: 'VEHICLE_PDF_INVALID' },
+  );
+});
+
+it('manual document renewal preserves other reviews, blocks active trips and safely replays', async () => {
+  const f = fixture();
+  const vehicle = f.state.vehicle!;
+  f.state.profile.active_vehicle_id = 'vehicle';
+  f.state.assets.push({
+    ...f.state.assets[0]!,
+    id: 'replacement',
+    field_key: 'insurance',
+    vehicle_id: null,
+  });
+  const input = {
+    expected_version: 4,
+    field_key: 'insurance',
+    asset_id: 'replacement',
+  };
+  f.state.activeRide = true;
+  await assert.rejects(() => f.service.renew('driver', 'vehicle', input), {
+    error_code: 'VEHICLE_ON_TRIP',
+  });
+  f.state.activeRide = false;
+  await assert.rejects(
+    () =>
+      f.service.renew('driver', 'vehicle', { ...input, expected_version: 3 }),
+    { error_code: 'VEHICLE_VERIFICATION_CONFLICT' },
+  );
+  const before = structuredClone(
+    vehicle.verification_fields.filter((v) => v.key !== 'insurance'),
+  );
+  await f.service.renew('driver', 'vehicle', input);
+  assert.deepEqual(
+    vehicle.verification_fields.filter((v) => v.key !== 'insurance'),
+    before,
+  );
+  assert.equal(
+    vehicle.verification_fields.find((v) => v.key === 'insurance')?.status,
+    'PENDING',
+  );
+  assert.equal(vehicle.status, 'UNDER_REVIEW');
+  assert.equal(
+    vehicle.verification_fields.find((v) => v.key === 'insurance')?.display,
+    f.state.assets.find((v) => v.id === 'replacement')?.file_name,
+  );
+  assert.equal(f.state.profile.availability, 'OFFLINE');
+  const writes = f.state.writes;
+  await f.service.renew('driver', 'vehicle', input);
+  assert.equal(f.state.writes, writes);
 });

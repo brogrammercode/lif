@@ -500,6 +500,9 @@ class _SimpleLogInterceptor extends Interceptor {
             normalizedKey.contains('latitude') ||
             normalizedKey.contains('longitude');
         final isPrivatePartnerData =
+            normalizedKey == 'details_ciphertext' ||
+            normalizedKey == 'account_number' ||
+            normalizedKey == 'upi' ||
             normalizedKey == 'data_url' ||
             normalizedKey == 'code' ||
             normalizedKey == 'activation_ciphertext';

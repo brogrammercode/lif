@@ -1318,5 +1318,101 @@
     "path": "me/rides",
     "guards": ["AuthGuard"],
     "idempotent": false
+  },
+  {
+    "feature": "driver_account",
+    "handler": "account",
+    "method": "get",
+    "path": "driver/account",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "driver_account",
+    "handler": "finance",
+    "method": "get",
+    "path": "driver/finances",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "driver_account",
+    "handler": "request",
+    "method": "post",
+    "path": "driver/payout-changes",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "driver_account",
+    "handler": "admin_account",
+    "method": "get",
+    "path": "admin/users/:id/driver-account",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "driver_account",
+    "handler": "admin_finance",
+    "method": "get",
+    "path": "admin/users/:id/driver-finances",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "driver_account",
+    "handler": "reveal",
+    "method": "get",
+    "path": "admin/payout-changes/:id/private",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "driver_account",
+    "handler": "review",
+    "method": "patch",
+    "path": "admin/payout-changes/:id",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_catalog",
+    "handler": "own_requests",
+    "method": "get",
+    "path": "driver/catalog-requests",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_catalog",
+    "handler": "correct_brand",
+    "method": "patch",
+    "path": "driver/vehicle-brands/requests/:id",
+    "guards": ["AuthGuard", "DriverAccessGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_catalog",
+    "handler": "correct_model",
+    "method": "patch",
+    "path": "driver/vehicle-models/requests/:id",
+    "guards": ["AuthGuard", "DriverAccessGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_verification",
+    "handler": "documents",
+    "method": "get",
+    "path": "driver/vehicle-documents",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_verification",
+    "handler": "renewal",
+    "method": "post",
+    "path": "driver/vehicle-verification/:id/renewal",
+    "guards": ["AuthGuard", "DriverAccessGuard"],
+    "idempotent": false
   }
 ]

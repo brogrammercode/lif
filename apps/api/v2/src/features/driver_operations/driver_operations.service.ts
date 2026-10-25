@@ -496,6 +496,12 @@ export class DriverOperationsService {
     return {
       ride_id,
       collection_preference: trip.collection_preference,
+      direct_collection_allowed:
+        trip.status === 'COMPLETED' &&
+        (!trip.payment ||
+          (['PENDING', 'FAILED'].includes(trip.payment.status) &&
+            !trip.payment.provider &&
+            !trip.payment.provider_payment_id)),
       status: trip.status,
       trip: {
         id: trip.id,
@@ -1142,7 +1148,7 @@ export class DriverOperationsService {
         'Navigation is available only to the assigned driver during the trip.',
       );
     const destination = trip.status === 'IN_PROGRESS';
-    return this.routing.driving_route(
+    const route = await this.routing.driving_route(
       {
         from_latitude: latitude,
         from_longitude: longitude,
@@ -1157,6 +1163,7 @@ export class DriverOperationsService {
       },
       true,
     );
+    return { ...route, target: destination ? 'DROPOFF' : 'PICKUP' };
   }
 
   async rider_route(user_id: string, ride_id: string) {

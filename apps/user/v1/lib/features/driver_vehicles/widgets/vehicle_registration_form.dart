@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/button.dart';
 import 'package:user/core/color.dart';
@@ -120,6 +121,9 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
           .where((c) => c['is_selectable'] == true)
           .toList();
       if (vehicle != null) {
+        for (final asset in vehicleMaps(vehicle['verification_assets'])) {
+          _names['${asset['field_key']}'] = '${asset['file_name']}';
+        }
         _brand = vehicle['brand'] is Map
             ? Map<String, dynamic>.from(vehicle['brand'] as Map)
             : null;
@@ -294,7 +298,7 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
     }
     final bytes = await file.readAsBytes();
     if (!mounted) return;
-    VehicleVerificationRepository.imagePayload(file.name, bytes);
+    VehicleVerificationRepository.documentPayload(key, file.name, bytes);
     _discardPendingImage(key);
     if (!mounted) return;
     _local[key] = bytes;
@@ -335,7 +339,7 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
 
   Future<void> _pick(String key) async {
     if (_busy || _locked(key)) return;
-    final source = await showModalBottomSheet<ImageSource>(
+    final source = await showModalBottomSheet<Object>(
       context: context,
       builder: (context) => SafeArea(
         child: Column(
@@ -351,6 +355,12 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
               title: const Text('Choose image'),
               onTap: () => Navigator.pop(context, ImageSource.gallery),
             ),
+            if (!['front_image', 'back_image'].contains(key))
+              ListTile(
+                leading: const Icon(Icons.picture_as_pdf_outlined),
+                title: const Text('Choose PDF document'),
+                onTap: () => Navigator.pop(context, 'pdf'),
+              ),
           ],
         ),
       ),
@@ -358,11 +368,25 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
     if (source == null || !mounted) return;
     setState(() => _busy = true);
     try {
+      if (source == 'pdf') {
+        final picked = await FilePicker.pickFile(
+          type: FileType.custom,
+          allowedExtensions: ['pdf'],
+        );
+        if (!mounted || picked == null) return;
+        final entry = picked;
+        if (entry.path == null) {
+          throw StateError('This file could not be read.');
+        }
+        await _useImage(key, XFile(entry.path!, name: entry.name));
+        await _saveDraft();
+        return;
+      }
       _pendingCapture = key;
       await _saveDraft();
       if (!mounted) return;
       final file = await ImagePicker().pickImage(
-        source: source,
+        source: source as ImageSource,
         maxWidth: 1600,
         maxHeight: 1600,
         imageQuality: 80,
@@ -385,6 +409,10 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
     try {
       final bytes = _local[key] ?? await _repo.image(_documents[key]!);
       if (!mounted) return;
+      if (bytes.length >= 5 && String.fromCharCodes(bytes.take(5)) == '%PDF-') {
+        await VehicleVerificationRepository.openDocument('$key.pdf', bytes);
+        return;
+      }
       await showDialog<void>(
         context: context,
         builder: (context) => Dialog(
@@ -776,12 +804,14 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
                             : () => _removeImage(entry.key),
                       ),
                   ],
-                  image: true,
+                  image: !(_names[entry.key] ?? '').toLowerCase().endsWith(
+                    '.pdf',
+                  ),
                   camera: false,
                   busy: _busy,
                   onChoose: _locked(entry.key) ? null : () => _pick(entry.key),
                   limitText:
-                      'Camera or gallery · up to 3 MB. Uploaded on submission.',
+                      'Photos or PDF for documents, up to 3 MB. Uploaded on submission.',
                 ),
                 _reviewNote(entry.key),
                 const SizedBox(height: 16),

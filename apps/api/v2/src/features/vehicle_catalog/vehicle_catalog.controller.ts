@@ -34,6 +34,71 @@ export class VehicleCatalogController {
     private readonly service: VehicleCatalogService,
     private readonly importer: CatalogImportService,
   ) {}
+  @Get('driver/catalog-requests')
+  @UseGuards(AuthGuard)
+  async own_requests(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return send_success(
+      res,
+      await this.repo.own_requests(
+        req.auth!.user_id,
+        catalog_query.parse(req.query),
+      ),
+      'Your catalog requests loaded',
+    );
+  }
+  @Patch('driver/vehicle-brands/requests/:id')
+  @UseGuards(AuthGuard, DriverAccessGuard)
+  async correct_brand(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const input = brand_request
+      .extend({ expected_updated_at: brand_update.shape.expected_updated_at })
+      .parse(req.body);
+    return send_success(
+      res,
+      await this.service.save_brand(
+        req.auth!.user_id,
+        {
+          ...input,
+          status: 'REQUESTED',
+          is_active: true,
+          rejection_reason: null,
+        },
+        catalog_id.parse(req.params.id),
+        true,
+      ),
+      'Brand correction submitted',
+    );
+  }
+  @Patch('driver/vehicle-models/requests/:id')
+  @UseGuards(AuthGuard, DriverAccessGuard)
+  async correct_model(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const input = model_request
+      .extend({ expected_updated_at: model_update.shape.expected_updated_at })
+      .parse(req.body);
+    return send_success(
+      res,
+      await this.service.save_model(
+        req.auth!.user_id,
+        {
+          ...input,
+          status: 'REQUESTED',
+          is_active: true,
+          rejection_reason: null,
+        },
+        catalog_id.parse(req.params.id),
+        true,
+      ),
+      'Model correction submitted',
+    );
+  }
   @Post('admin/vehicle-catalog/import')
   @UseGuards(AuthGuard, AdminGuard)
   async import_catalog(

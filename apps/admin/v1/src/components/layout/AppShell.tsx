@@ -265,6 +265,13 @@ function WorkspaceShell() {
                   Vehicle Verification
                 </NavLink>
               )}
+              {selectedId && (
+                <NavLink
+                  to={`/users/${encodeURIComponent(selectedId)}/driver-account`}
+                >
+                  Driver Account
+                </NavLink>
+              )}
             </>
           ) : supportSection ? (
             <NavLink to="/support/configure/contact">Contact</NavLink>

@@ -11,17 +11,26 @@ import 'package:user/features/driver_operations/driver_tracking.service.dart';
 import 'package:user/features/driver_operations/navigation_progress.dart';
 import 'package:user/features/driver_operations/widgets/driver_map.dart';
 import 'package:user/features/driver_operations/widgets/trip_actions_panel.dart';
+import 'package:user/features/rides/ride_display.dart';
 
 class DriverTripPage extends StatefulWidget {
-  const DriverTripPage({super.key});
+  final DriverOperationsRepository? repository;
+  final DriverTrackingService? tracking;
+  final Widget Function(Widget)? mapBuilder;
+  const DriverTripPage({
+    super.key,
+    this.repository,
+    this.tracking,
+    this.mapBuilder,
+  });
   @override
   State<DriverTripPage> createState() => _DriverTripPageState();
 }
 
 class _DriverTripPageState extends State<DriverTripPage>
     with WidgetsBindingObserver {
-  final _ops = DriverOperationsRepository();
-  final _tracking = DriverTrackingService.instance;
+  late final _ops = widget.repository ?? DriverOperationsRepository();
+  late final _tracking = widget.tracking ?? DriverTrackingService.instance;
   String? _id, _error, _navError, _navTarget, _offersError;
   Map<String, dynamic>? _trip, _context;
   List<Map<String, dynamic>> _offers = [];
@@ -43,6 +52,11 @@ class _DriverTripPageState extends State<DriverTripPage>
     'DRIVER_WAITING',
     'IN_PROGRESS',
   ].contains(_trip?['status']);
+  String? get _target => !_active
+      ? null
+      : _trip!['status'] == 'IN_PROGRESS'
+      ? 'DROPOFF'
+      : 'PICKUP';
   @override
   void initState() {
     super.initState();
@@ -75,7 +89,12 @@ class _DriverTripPageState extends State<DriverTripPage>
     final readDone = _readDone = Completer<void>();
     try {
       final data = await _ops.context(_id!);
-      if (data['is_driver'] != true || data['trip'] is! Map) {
+      if (data['is_driver'] != true ||
+          data['trip'] is! Map ||
+          !riderTripStatuses.contains(data['status']) ||
+          rideMap(data['trip'])['id'] != _id ||
+          rideMap(data['trip'])['status'] != data['status'] ||
+          data['ride_id'] != _id) {
         throw StateError('This trip is not available to your driver account.');
       }
       if (!mounted) return;
@@ -83,6 +102,14 @@ class _DriverTripPageState extends State<DriverTripPage>
         _trip = Map<String, dynamic>.from(data['trip'] as Map);
         _context = data;
         _error = null;
+        // Invalidate pickup directions before awaiting GPS or a pending route.
+        if (_target != _navTarget || !_active) {
+          _points = [];
+          _steps = [];
+          _progress = null;
+          _navError = null;
+          _lastNavigation = null;
+        }
       });
       try {
         await _tracking.syncTrip(
@@ -155,8 +182,8 @@ class _DriverTripPageState extends State<DriverTripPage>
 
   Future<void> _navigation({bool force = false}) async {
     final fix = _tracking.position.value;
-    if (!_active || fix == null || _navigating) return;
-    final target = _trip!['status'] == 'IN_PROGRESS' ? 'DROPOFF' : 'PICKUP';
+    if (!mounted || !_active || fix == null || _navigating) return;
+    final target = _target!;
     if (!force &&
         target == _navTarget &&
         _lastNavigation != null &&
@@ -179,16 +206,16 @@ class _DriverTripPageState extends State<DriverTripPage>
     _lastNavigation = DateTime.now();
     try {
       final route = await _ops.navigation(_id!, fix.latitude, fix.longitude);
-      if (!mounted ||
-          !_active ||
-          (_trip!['status'] == 'IN_PROGRESS' ? 'DROPOFF' : 'PICKUP') !=
-              target) {
+      if (!mounted || _target != target) {
         return;
       }
-      final points = (route['geometry'] as List).map((v) {
-        final p = v as List;
-        return LatLng((p[1] as num).toDouble(), (p[0] as num).toDouble());
-      }).toList();
+      if (route['target'] != null && route['target'] != target) {
+        throw StateError('Trip destination changed. Refreshing trip status.');
+      }
+      final points = rideGeometry(route['geometry']);
+      if (points.length < 2) {
+        throw StateError('Route geometry is unavailable. Retry navigation.');
+      }
       final steps = (route['steps'] as List? ?? [])
           .map((v) => Map<String, dynamic>.from(v as Map))
           .toList();
@@ -206,13 +233,12 @@ class _DriverTripPageState extends State<DriverTripPage>
         );
       });
     } catch (e) {
-      if (mounted) setState(() => _navError = ApiResult.errorMessage(e));
+      if (mounted && _target == target) {
+        setState(() => _navError = ApiResult.errorMessage(e));
+      }
     } finally {
       _navigating = false;
-      if (mounted &&
-          _active &&
-          (_trip!['status'] == 'IN_PROGRESS' ? 'DROPOFF' : 'PICKUP') !=
-              target) {
+      if (mounted && _active && _target != target) {
         unawaited(_navigation(force: true));
       }
     }
@@ -225,7 +251,6 @@ class _DriverTripPageState extends State<DriverTripPage>
       await _readDone?.future;
       if (!mounted) return;
       await action();
-      await _load();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -233,6 +258,8 @@ class _DriverTripPageState extends State<DriverTripPage>
         ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(e))));
       }
     } finally {
+      // A failed response can still follow a committed arrival/completion.
+      await _load();
       if (mounted) setState(() => _busy = false);
     }
   }
@@ -257,11 +284,10 @@ class _DriverTripPageState extends State<DriverTripPage>
   }
 
   LatLng? _point(String prefix) {
-    final latitude = double.tryParse('${_trip?['${prefix}_latitude']}'),
-        longitude = double.tryParse('${_trip?['${prefix}_longitude']}');
-    return latitude == null || longitude == null
-        ? null
-        : LatLng(latitude, longitude);
+    return ridePoint(
+      _trip?['${prefix}_latitude'],
+      _trip?['${prefix}_longitude'],
+    );
   }
 
   @override
@@ -272,16 +298,7 @@ class _DriverTripPageState extends State<DriverTripPage>
       child: Scaffold(
         body: Stack(
           children: [
-            DriverMap(
-              location: fix == null
-                  ? null
-                  : LatLng(fix.latitude, fix.longitude),
-              heading: fix?.heading ?? 0,
-              pickup: _point('pickup'),
-              dropoff: _point('dropoff'),
-              route: _points,
-              follow: _follow,
-            ),
+            widget.mapBuilder?.call(_map(fix)) ?? _map(fix),
             SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -439,6 +456,7 @@ class _DriverTripPageState extends State<DriverTripPage>
                               ? null
                               : () => _act(() async {
                                   await _tracking.freshFix();
+                                  if (!mounted) return;
                                   await _ops.arrive(_id!);
                                 }),
                           child: const Text('I have arrived at pickup'),
@@ -558,4 +576,13 @@ class _DriverTripPageState extends State<DriverTripPage>
       ),
     );
   }
+
+  Widget _map(Position? fix) => DriverMap(
+    location: fix == null ? null : ridePoint(fix.latitude, fix.longitude),
+    heading: fix?.heading ?? 0,
+    pickup: _point('pickup'),
+    dropoff: _point('dropoff'),
+    route: _points,
+    follow: _follow,
+  );
 }

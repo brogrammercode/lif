@@ -10,7 +10,8 @@ import 'package:user/features/partner_program/widgets/partner_upload_tile.dart';
 
 class CatalogSuggestionForm extends StatefulWidget {
   final Map<String, dynamic>? brand;
-  const CatalogSuggestionForm({super.key, this.brand});
+  final Map<String, dynamic>? initial;
+  const CatalogSuggestionForm({super.key, this.brand, this.initial});
   @override
   State<CatalogSuggestionForm> createState() => _CatalogSuggestionFormState();
 }
@@ -36,6 +37,19 @@ class _CatalogSuggestionFormState extends State<CatalogSuggestionForm> {
   String? _error;
   bool _busy = false;
   bool get _model => widget.brand != null;
+  @override
+  void initState() {
+    super.initState();
+    final row = widget.initial;
+    if (row != null) {
+      for (final e in _controllers.entries) {
+        e.value.text = '${row[e.key] ?? ''}';
+      }
+      _type = '${row['vehicle_type'] ?? 'BIKE'}';
+      _fuel = '${row['fuel_type'] ?? 'PETROL'}';
+    }
+  }
+
   @override
   void dispose() {
     for (final c in _controllers.values) {
@@ -86,6 +100,10 @@ class _CatalogSuggestionFormState extends State<CatalogSuggestionForm> {
       final input = <String, dynamic>{
         'name': _controllers['name']!.text.trim(),
         'description': _controllers['description']!.text.trim(),
+        if (widget.initial != null)
+          'expected_updated_at': widget.initial!['updated_at'],
+        if (widget.initial?['logo_url'] != null && _logo == null)
+          'logo_url': widget.initial!['logo_url'],
         if (_logo != null)
           'image_upload': VehicleVerificationRepository.imagePayload(
             _logoName,
@@ -111,10 +129,13 @@ class _CatalogSuggestionFormState extends State<CatalogSuggestionForm> {
               : _controllers['website_url']!.text.trim(),
         });
       }
-      final result = await VehicleVerificationRepository().requestCatalog(
-        _model,
-        input,
-      );
+      final result = widget.initial != null
+          ? await VehicleVerificationRepository().correctCatalog(
+              _model,
+              '${widget.initial!['id']}',
+              input,
+            )
+          : await VehicleVerificationRepository().requestCatalog(_model, input);
       if (mounted) Navigator.pop(context, result);
     } catch (error) {
       if (mounted) setState(() => _error = ApiResult.errorMessage(error));
@@ -233,6 +254,14 @@ class _CatalogSuggestionFormState extends State<CatalogSuggestionForm> {
               style: TextStyle(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
+            if (_logo == null && widget.initial?['logo_url'] is String)
+              Image.network(
+                '${widget.initial!['logo_url']}',
+                height: 80,
+                fit: BoxFit.contain,
+                errorBuilder: (_, error, stack) =>
+                    const Icon(Icons.image_outlined),
+              ),
             PartnerUploadTile(
               files: [
                 if (_logo != null)
