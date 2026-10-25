@@ -1,4 +1,4 @@
-import { deliver_new_user_emails } from '../infra/mail/new_user_email.js';
+import { drain_account_emails } from '../infra/mail/new_user_email.js';
 import { prisma } from '../infra/database/client.js';
 import { config } from '../core/config.js';
 
@@ -7,13 +7,13 @@ try {
     throw new Error(
       'Configure MAIL_USER and GOOGLE_APP_PASSWORD before retrying email.',
     );
-  const sent = await deliver_new_user_emails();
+  const sent = await drain_account_emails();
   process.stdout.write(
-    `Sent ${sent} new-user admin emails. Failed or busy deliveries remain queued.\n`,
+    `Sent ${sent} queued account and partner emails. Failed or busy deliveries remain queued.\n`,
   );
 } catch {
   process.stderr.write(
-    'Could not deliver the signup email queue. Check SMTP configuration and API logs.\n',
+    'Could not deliver the account/partner email queue. Check SMTP configuration and API logs.\n',
   );
   process.exitCode = 1;
 } finally {

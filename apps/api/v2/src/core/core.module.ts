@@ -1,3 +1,4 @@
+import { PendingInvalidationInterceptor } from './pending_invalidation.interceptor.js';
 import { Global, Module } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { AdminAuditService } from './admin_audit.service.js';
@@ -34,6 +35,7 @@ const PROVIDERS = [
     ...PROVIDERS,
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: AdminAuditInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: PendingInvalidationInterceptor },
   ],
   exports: PROVIDERS,
 })

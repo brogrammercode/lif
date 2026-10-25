@@ -8,7 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { waitUntil } from '@vercel/functions';
+import { background_mail } from '../../infra/mail/background.js';
 import { AuthGuard, AdminGuard } from '../../core/guards.js';
 import { send_success } from '../../core/response.js';
 import { PartnerExitService } from './partner_exit.service.js';
@@ -73,14 +73,10 @@ export class AdminPartnerExitController {
     private readonly delivery: PartnerDeliveryService,
   ) {}
   private queue_email(application_id: string) {
-    waitUntil(
-      this.delivery.send_exit_email(application_id).catch(() =>
-        console.error({
-          event: 'PARTNER_EXIT_EMAIL_JOB_FAILED',
-          application_id,
-          message: 'Check the exit email status and retry from admin.',
-        }),
-      ),
+    background_mail(
+      this.delivery.send_exit_email(application_id),
+      'PARTNER_EXIT_EMAIL_JOB_FAILED',
+      application_id,
     );
   }
   @Get() async list(

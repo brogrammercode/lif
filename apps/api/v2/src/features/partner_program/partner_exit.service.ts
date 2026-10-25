@@ -1,3 +1,4 @@
+import { pending_exit_where } from '../admin_pending/pending.rules.js';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
@@ -118,7 +119,20 @@ export class PartnerExitService {
   }
   async list(input: z.infer<typeof exit_list_input>) {
     const where: Prisma.PartnerExitRequestWhereInput = {
-      ...(input.status === 'all' ? {} : { status: input.status }),
+      ...(input.status === 'PENDING'
+        ? {
+            AND: [
+              pending_exit_where(),
+              {
+                application: {
+                  user: { deleted_at: null, status: 'ACTIVE' },
+                },
+              },
+            ],
+          }
+        : input.status === 'all'
+          ? {}
+          : { status: input.status }),
       ...(input.query
         ? {
             OR: [

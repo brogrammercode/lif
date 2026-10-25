@@ -50,6 +50,6 @@ export const exit_list_input = z.object({
   page: z.coerce.number().int().min(1).max(1000000).default(1),
   query: z.string().trim().max(150).default(''),
   status: z
-    .enum(['all', 'REQUESTED', 'REVIEWING', 'REJECTED', 'COMPLETED'])
+    .enum(['all', 'PENDING', 'REQUESTED', 'REVIEWING', 'REJECTED', 'COMPLETED'])
     .default('all'),
 });

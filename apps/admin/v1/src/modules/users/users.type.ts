@@ -33,3 +33,6 @@ export const userName = (user: UserSummary) =>
   [user.first_name, user.last_name].filter(Boolean).join(" ") ||
   user.email ||
   "Unnamed user";
+
+export const isDriverAccount = (user: UserSummary) =>
+  user.role === "DRIVER" || Boolean(user.partner_activated_at);

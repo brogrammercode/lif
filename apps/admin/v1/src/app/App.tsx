@@ -1,3 +1,4 @@
+import { RegistrationEmailsPage } from "../modules/admin-access/RegistrationEmailsPage";
 import { TripReviewsPage } from "../modules/app-configuration/TripReviewsPage";
 import { lazy, Suspense } from "react";
 import {
@@ -14,6 +15,9 @@ import { useAuth } from "../modules/auth/AuthProvider";
 import { WORKSPACE_PATH } from "../modules/auth/auth.constant";
 import { VehicleCategoriesPage } from "../modules/vehicle-categories/VehicleCategoriesPage";
 import { VehicleVerificationPage } from "../modules/users/VehicleVerificationPage";
+import { UserRidesPage } from "../modules/users/UserRidesPage";
+import { useUsers } from "../modules/users/UsersProvider";
+import { isDriverAccount } from "../modules/users/users.type";
 import { PersonalPage } from "../modules/users/PersonalPage";
 import { AdminAccessPage } from "../modules/admin-access/AdminAccessPage";
 import { ADMIN_ACCESS_PATH } from "../modules/admin-access/admin-access.constant";
@@ -38,6 +42,11 @@ const PartnerExitsPage = lazy(() =>
     default: module.PartnerExitsPage,
   })),
 );
+
+function UserRidesRoute() {
+  const { userId } = useParams();
+  return <UserRidesPage key={userId} />;
+}
 
 export function App() {
   const auth = useAuth();
@@ -82,16 +91,21 @@ export function App() {
         />
         <Route path="/users" element={<PersonalPage />} />
         <Route path="/users/:userId/personal" element={<PersonalPage />} />
+        <Route path="/users/:userId/rides" element={<UserRidesRoute />} />
         <Route
           path="/users/:userId/driver-account"
           element={<DeferredDriverAccount />}
         />
         <Route
           path="/users/:userId/vehicle-verification"
-          element={<VehicleVerificationPage />}
+          element={<DriverVehicleRoute />}
         />
         <Route path={ADMIN_ACCESS_PATH} element={<AdminAccessPage />} />
         <Route path="/admin/access/activity" element={<AdminActivityPage />} />
+        <Route
+          path="/admin/access/registration-emails"
+          element={<RegistrationEmailsPage />}
+        />
         <Route
           path="/partner-program/requirements/details"
           element={<RequirementsPage key="details" section="details" />}
@@ -203,6 +217,29 @@ function DeferredDriverAccount() {
     <Navigate
       replace
       to={userId ? `/users/${encodeURIComponent(userId)}/personal` : "/users"}
+    />
+  );
+}
+
+function DriverVehicleRoute() {
+  const { userId } = useParams();
+  const { selectedUser, selectedLoading, selectedError } = useUsers();
+  if (selectedLoading || (!selectedUser && !selectedError))
+    return <LoadingState />;
+  if (selectedError)
+    return (
+      <StateCard
+        error
+        title="Could not load this account"
+        message={selectedError}
+      />
+    );
+  return selectedUser && isDriverAccount(selectedUser) ? (
+    <VehicleVerificationPage />
+  ) : (
+    <Navigate
+      replace
+      to={`/users/${encodeURIComponent(userId ?? "")}/personal`}
     />
   );
 }

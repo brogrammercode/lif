@@ -1,3 +1,6 @@
+import { pending_application_page } from '../admin_pending/pending.list.js';
+import { queue_partner_email } from '../../infra/mail/partner_email.js';
+import { schedule_new_user_emails } from '../../infra/mail/new_user_email.js';
 import { LIVE_SELFIE, LIVE_SELFIE_ID } from './partner_selfie.constant.js';
 import { claimable_delivery } from './partner_delivery.constant.js';
 import { Injectable } from '@nestjs/common';
@@ -130,6 +133,14 @@ export class PartnerProgramService {
       after_data: json(data) as Prisma.InputJsonObject,
     });
   }
+  private async mail_transaction<T>(
+    work: (tx: TransactionClient) => Promise<T>,
+    options = transaction_options,
+  ): Promise<T> {
+    const result = await this.database.client.$transaction(work, options);
+    schedule_new_user_emails();
+    return result;
+  }
   private async notify(
     tx: TransactionClient,
     user_id: string,
@@ -146,6 +157,17 @@ export class PartnerProgramService {
         data: { route: '/partner-program' },
       },
     });
+    const app = await tx.partnerApplication.findUnique({
+      where: { user_id },
+      select: {
+        id: true,
+        user_id: true,
+        contact_email: true,
+        version: true,
+        status: true,
+      },
+    });
+    if (app) await queue_partner_email(tx, app, 'STATUS_UPDATED', title, body);
   }
   private async locked(
     tx: TransactionClient,
@@ -257,9 +279,14 @@ export class PartnerProgramService {
     };
   }
   async list(input: ListInput) {
+    schedule_new_user_emails();
+    const pending =
+      input.pending_only === 'true'
+        ? await pending_application_page(this.database.client, input)
+        : null;
     const where: Prisma.PartnerApplicationWhereInput = {
       ...(input.status === 'all' ? {} : { status: input.status }),
-      ...(input.section === 'confirmations'
+      ...(input.section === 'confirmations' && input.pending_only !== 'true'
         ? { confirmation: { isNot: null } }
         : {}),
       ...(input.query
@@ -282,9 +309,12 @@ export class PartnerProgramService {
           }
         : {}),
     };
-    const total = await this.database.client.partnerApplication.count({
-      where,
-    });
+    if (pending) Object.assign(where, { id: { in: pending.ids } });
+    const total =
+      pending?.total ??
+      (await this.database.client.partnerApplication.count({
+        where,
+      }));
     const page = Math.min(input.page, Math.max(1, Math.ceil(total / 20)));
     const rows = await this.database.client.partnerApplication.findMany({
       where,
@@ -306,7 +336,7 @@ export class PartnerProgramService {
         deliveries: true,
       },
       orderBy: [{ submitted_at: 'desc' }, { id: 'desc' }],
-      skip: (page - 1) * 20,
+      skip: pending ? 0 : (page - 1) * 20,
       take: 20,
     });
     return { rows, total, page, page_size: 20 };
@@ -326,7 +356,32 @@ export class PartnerProgramService {
       where: { owner_id: app.user_id },
       select: asset_select,
     });
-    return { application: safe_application(app), assets };
+    const emails = await this.database.client.notification.findMany({
+      where: {
+        channel: 'EMAIL',
+        sent_at: undefined,
+        data: { path: ['application_id'], equals: id },
+      },
+      select: { id: true, data: true, created_at: true, sent_at: true },
+      orderBy: { created_at: 'desc' },
+      take: 50,
+    });
+    return {
+      application: safe_application(app),
+      assets,
+      emails: emails.map((row) => {
+        const data = row.data as Prisma.JsonObject;
+        return {
+          id: row.id,
+          event: data.event,
+          status: data.state,
+          attempts: data.attempts,
+          last_error: data.last_error ?? null,
+          created_at: row.created_at,
+          sent_at: row.sent_at,
+        };
+      }),
+    };
   }
   private async validate_answer(
     tx: TransactionClient,
@@ -334,6 +389,14 @@ export class PartnerProgramService {
     definition: Definition,
     value: unknown,
     validate_semantics = true,
+    cached_assets?: {
+      id: string;
+      field_id: string | null;
+      purpose: string;
+      mime_type: string;
+      file_name: string;
+      size: number;
+    }[],
   ) {
     const label = definition.label;
     if (empty(value)) {
@@ -351,18 +414,29 @@ export class PartnerProgramService {
         value.length > (definition.allow_multiple ? 10 : 1)
       )
         throw fail(`Choose valid files for ${label}.`);
-      const assets = await tx.partnerAsset.findMany({
-        where: {
-          id: { in: value as string[] },
-          owner_id: user_id,
-          purpose:
-            definition.id === LIVE_SELFIE_ID
-              ? 'APPLICATION_SELFIE'
-              : 'APPLICATION_DOCUMENT',
-          field_id: definition.id,
-        },
-        select: { id: true, mime_type: true, file_name: true, size: true },
-      });
+      const purpose =
+        definition.id === LIVE_SELFIE_ID
+          ? 'APPLICATION_SELFIE'
+          : 'APPLICATION_DOCUMENT';
+      const assets = cached_assets
+        ? cached_assets.filter(
+            (asset) =>
+              value.includes(asset.id) &&
+              asset.field_id === definition.id &&
+              asset.purpose === purpose,
+          )
+        : await tx.partnerAsset.findMany({
+            where: {
+              id: { in: value as string[] },
+              owner_id: user_id,
+              purpose:
+                definition.id === LIVE_SELFIE_ID
+                  ? 'APPLICATION_SELFIE'
+                  : 'APPLICATION_DOCUMENT',
+              field_id: definition.id,
+            },
+            select: { id: true, mime_type: true, file_name: true, size: true },
+          });
       if (
         assets.length !== new Set(value).size ||
         new Set(value).size !== value.length
@@ -444,10 +518,9 @@ export class PartnerProgramService {
     }
   }
   async submit(user_id: string, input: ApplicationInput) {
-    return this.database.client.$transaction(async (tx) => {
-      await require_active_account(tx, user_id);
-      await partner_lock(tx, user_id);
+    return this.mail_transaction(async (tx) => {
       const user = await require_active_account(tx, user_id);
+      await partner_lock(tx, user_id);
       // Staff use the same personal account in the rider app. Their staff role
       // must not prevent onboarding or be replaced by a driver role later.
       if (user.role === 'DRIVER')
@@ -513,6 +586,40 @@ export class PartnerProgramService {
         )
       )
         throw fail('The form contains unknown or duplicate fields.');
+      // One bounded metadata query for the whole submission. Never load file
+      // contents or issue a query per document while holding the transaction.
+      for (const d of definitions.filter((d) =>
+        ['FILE', 'IMAGE', 'PDF'].includes(d.field_type),
+      )) {
+        const value = values.get(d.id);
+        if (Array.isArray(value) && value.length > (d.allow_multiple ? 10 : 1))
+          throw fail('Choose valid files for ' + d.label + '.');
+      }
+      const asset_ids = [
+        ...new Set(
+          definitions
+            .filter((d) => ['FILE', 'IMAGE', 'PDF'].includes(d.field_type))
+            .flatMap((d) => {
+              const value = values.get(d.id);
+              return Array.isArray(value)
+                ? value.filter((id): id is string => typeof id === 'string')
+                : [];
+            }),
+        ),
+      ];
+      const cached_assets = asset_ids.length
+        ? await tx.partnerAsset.findMany({
+            where: { owner_id: user_id, id: { in: asset_ids } },
+            select: {
+              id: true,
+              field_id: true,
+              purpose: true,
+              mime_type: true,
+              file_name: true,
+              size: true,
+            },
+          })
+        : [];
       for (const definition of definitions) {
         const value = values.get(definition.id) ?? null;
         const previous = old?.fields.find(
@@ -524,6 +631,7 @@ export class PartnerProgramService {
           definition,
           value,
           previous?.status !== 'APPROVED',
+          cached_assets,
         );
         if (
           previous?.status === 'APPROVED' &&
@@ -618,6 +726,23 @@ export class PartnerProgramService {
         old ? 'RESUBMIT_PARTNER_APPLICATION' : 'SUBMIT_PARTNER_APPLICATION',
         { version: app.version },
       );
+      await queue_partner_email(
+        tx,
+        app,
+        old ? 'APPLICATION_RESUBMITTED' : 'APPLICATION_SUBMITTED',
+        old ? 'Partner application resubmitted' : 'New partner application',
+        'A partner application from ' +
+          app.contact_email +
+          ' is ready for review.',
+        true,
+      );
+      await queue_partner_email(
+        tx,
+        app,
+        'APPLICATION_RECEIVED',
+        'We received your partner application',
+        'Your application is saved and awaiting review. You can track each field and any requested corrections in the app.',
+      );
       return { id: app.id, version: app.version, status: app.status };
     }, transaction_options);
   }
@@ -627,7 +752,7 @@ export class PartnerProgramService {
     field_id: string,
     input: ReviewInput,
   ) {
-    return this.database.client.$transaction(async (tx) => {
+    return this.mail_transaction(async (tx) => {
       const app = await this.locked(tx, actor_id, id, input.version);
       if (!['SUBMITTED', 'CHANGES_REQUESTED'].includes(app.status))
         throw conflict();
@@ -681,7 +806,7 @@ export class PartnerProgramService {
     }, transaction_options);
   }
   async request_selfie(actor_id: string, id: string, version: number) {
-    return this.database.client.$transaction(async (tx) => {
+    return this.mail_transaction(async (tx) => {
       const app = await this.locked(tx, actor_id, id, version);
       if (
         !['SUBMITTED', 'CHANGES_REQUESTED'].includes(app.status) ||
@@ -716,7 +841,7 @@ export class PartnerProgramService {
     }, transaction_options);
   }
   async approve_application(actor_id: string, id: string, input: ReviewInput) {
-    return this.database.client.$transaction(async (tx) => {
+    return this.mail_transaction(async (tx) => {
       const app = await this.locked(tx, actor_id, id, input.version);
       if (
         !['SUBMITTED', 'CHANGES_REQUESTED'].includes(app.status) ||
@@ -787,7 +912,7 @@ export class PartnerProgramService {
     }, transaction_options);
   }
   async confirm(user_id: string, input: ConfirmationInput) {
-    return this.database.client.$transaction(async (tx) => {
+    return this.mail_transaction(async (tx) => {
       const found = await tx.partnerApplication.findUnique({
         where: { user_id },
         select: { id: true },
@@ -826,6 +951,14 @@ export class PartnerProgramService {
         where: { id: app.id },
         data: { status: 'CONFIRMATION_SUBMITTED', version: { increment: 1 } },
       });
+      await queue_partner_email(
+        tx,
+        { ...app, version: updated.version, status: updated.status },
+        'CONFIRMATION_SUBMITTED',
+        'Partner confirmation ready for review',
+        'A confirmation from ' + app.contact_email + ' is ready for review.',
+        true,
+      );
       await this.audit(tx, user_id, app.id, 'SUBMIT_PARTNER_CONFIRMATION', {
         document_version: input.document_version,
         signature_name: input.signature_name,
@@ -834,7 +967,7 @@ export class PartnerProgramService {
     }, transaction_options);
   }
   async review_confirmation(actor_id: string, id: string, input: ReviewInput) {
-    return this.database.client.$transaction(async (tx) => {
+    return this.mail_transaction(async (tx) => {
       const app = await this.locked(tx, actor_id, id, input.version);
       if (app.status !== 'CONFIRMATION_SUBMITTED' || !app.confirmation)
         throw conflict();
@@ -1047,7 +1180,7 @@ export class PartnerProgramService {
       throw fail(
         'The converted file exceeds the upload limit. Choose a smaller image.',
       );
-    return this.database.client.$transaction(async (tx) => {
+    return this.mail_transaction(async (tx) => {
       if (admin) await require_active_admin(tx, actor_id);
       await require_active_account(tx, owner_id);
       await partner_lock(tx, owner_id);
@@ -1163,7 +1296,7 @@ export class PartnerProgramService {
     return asset;
   }
   async mark_activation_shared(actor_id: string, id: string) {
-    return this.database.client.$transaction(async (tx) => {
+    return this.mail_transaction(async (tx) => {
       await require_active_admin(tx, actor_id);
       const initial = await tx.partnerApplication.findUnique({
         where: { id },
@@ -1211,7 +1344,7 @@ export class PartnerProgramService {
     }, transaction_options);
   }
   async queue_activation_email(actor_id: string, id: string) {
-    return this.database.client.$transaction(async (tx) => {
+    return this.mail_transaction(async (tx) => {
       await require_active_admin(tx, actor_id);
       const initial = await tx.partnerApplication.findUnique({
         where: { id },
@@ -1273,7 +1406,7 @@ export class PartnerProgramService {
     }, transaction_options);
   }
   async activation_code(actor_id: string, id: string, reset = false) {
-    return this.database.client.$transaction(async (tx) => {
+    return this.mail_transaction(async (tx) => {
       await require_active_admin(tx, actor_id);
       const initial = await tx.partnerApplication.findUnique({
         where: { id },
@@ -1393,7 +1526,7 @@ export class PartnerProgramService {
     return result;
   }
   async mark_shared(actor_id: string, id: string) {
-    return this.database.client.$transaction(async (tx) => {
+    return this.mail_transaction(async (tx) => {
       await require_active_admin(tx, actor_id);
       const app = await tx.partnerApplication.findUnique({ where: { id } });
       if (!app || !['COMPLETED', 'ACTIVATED'].includes(app.status))

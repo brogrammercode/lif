@@ -122,6 +122,12 @@ export class VehicleVerificationService {
     });
     if (!user)
       throw new AppError(404, 'USER_NOT_FOUND', 'This user was not found.');
+    if (user.role !== 'DRIVER' && !user.partner_activated_at)
+      throw new AppError(
+        403,
+        'DRIVER_ACCOUNT_REQUIRED',
+        'Vehicle verification is available for driver accounts only.',
+      );
     const vehicles = await this.database.client.vehicle.findMany({
       where: { driver: { user_id } },
       include,

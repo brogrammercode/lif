@@ -8,9 +8,11 @@ export const getUsers = (
   page: number,
   signal: AbortSignal,
   accountType = "all",
+  pendingOnly = false,
 ) => {
   const params = new URLSearchParams({
     query,
+    ...(pendingOnly ? { pending_only: "true" } : {}),
     account_type: accountType,
     page: String(page),
     page_size: String(USERS_PAGE_SIZE),

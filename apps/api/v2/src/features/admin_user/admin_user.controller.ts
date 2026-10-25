@@ -18,6 +18,7 @@ import { AppError } from '../../core/error.js';
 import { send_success } from '../../core/response.js';
 import { ADMIN_USER_MESSAGES } from './admin_user.constant.js';
 import { z } from 'zod';
+import { rides_query } from './admin_user.rides.js';
 import {
   personal_update_schema,
   user_id_schema,
@@ -29,6 +30,22 @@ export class AdminUserController {
     private readonly adminUserRepository: AdminUserRepository,
     private readonly adminUserService: AdminUserService,
   ) {}
+  @Get('admin/users/:id/rides')
+  @UseGuards(AuthGuard, AdminGuard)
+  async rides(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    response.setHeader('Cache-Control', 'no-store');
+    return send_success(
+      response,
+      await this.adminUserRepository.rides(
+        user_id_schema.parse(request.params.id),
+        rides_query.parse(request.query),
+      ),
+      'User rides retrieved',
+    );
+  }
   @Delete(ADMIN_USER_ROUTES.DETAIL)
   @UseGuards(AuthGuard, AdminGuard)
   async deactivate(

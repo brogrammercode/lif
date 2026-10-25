@@ -1,4 +1,12 @@
+import { pending_vehicle_where } from '../admin_pending/pending.rules.js';
 import { Injectable } from '@nestjs/common';
+import {
+  account_is_driver,
+  admin_ride_select,
+  rides_status_filter,
+  rides_query,
+} from './admin_user.rides.js';
+import type { z } from 'zod';
 import { PrismaService } from '../../infra/database/prisma.service.js';
 import { Prisma } from '@prisma/client';
 import { AppError } from '../../core/error.js';
@@ -13,6 +21,59 @@ import {
 @Injectable()
 export class AdminUserRepository {
   constructor(private readonly prismaService: PrismaService) {}
+  async rides(id: string, input: z.infer<typeof rides_query>) {
+    return this.prismaService.client.$transaction(
+      async (tx) => {
+        const user = await tx.user.findFirst({
+          where: { id, ...this.visible_user },
+          select: this.summary_select,
+        });
+        if (!user)
+          throw new AppError(
+            404,
+            'USER_NOT_FOUND',
+            ADMIN_USER_MESSAGES.NOT_FOUND,
+          );
+        const driver = account_is_driver(user);
+        const where: Prisma.RideWhereInput = {
+          ...(driver ? { driver: { user_id: id } } : { rider_id: id }),
+          ...rides_status_filter(input.status),
+          // Draft quote attempts are not booked rides.
+          AND: [
+            { status: { not: 'DRAFT' } },
+            {
+              OR: [
+                { status: { not: 'EXPIRED' } },
+                { requested_at: { not: null } },
+              ],
+            },
+          ],
+        };
+        const page_size = 20;
+        const total = await tx.ride.count({ where });
+        const page = Math.min(
+          input.page,
+          Math.max(1, Math.ceil(total / page_size)),
+        );
+        const items = await tx.ride.findMany({
+          where,
+          select: admin_ride_select,
+          orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+          skip: (page - 1) * page_size,
+          take: page_size,
+        });
+        return {
+          user,
+          role: driver ? 'driver' : 'rider',
+          items,
+          total,
+          page,
+          page_size,
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
   readonly deactivate_user = (
     actor_id: string,
     id: string,
@@ -184,6 +245,17 @@ export class AdminUserRepository {
   readonly list_admin_users = async (input: UserListInput) => {
     const where: Prisma.UserWhereInput = {
       ...this.visible_user,
+      ...(input.pending_only === 'true'
+        ? {
+            status: 'ACTIVE' as const,
+            NOT: { partner_application: { status: 'EXITED' as const } },
+            driver_profile: { vehicles: { some: pending_vehicle_where } },
+            OR: [
+              { role: 'DRIVER' as const },
+              { partner_activated_at: { not: null } },
+            ],
+          }
+        : {}),
       ...(input.account_type === 'driver'
         ? {
             OR: [

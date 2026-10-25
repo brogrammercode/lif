@@ -66,6 +66,7 @@ for (const width of [1440, 390]) {
       });
       await expect(tabs.getByRole("link")).toHaveText([
         "Personal",
+        "Rides",
         "Vehicle Verification",
       ]);
       await expect(

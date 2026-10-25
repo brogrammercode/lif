@@ -93,6 +93,13 @@ export function decodeSupportContacts(v: unknown): SupportContacts {
   );
   return v as unknown as SupportContacts;
 }
+const person = (v: unknown) =>
+  record(v) &&
+  typeof v.id === "string" &&
+  textOrNull(v.first_name) &&
+  textOrNull(v.last_name) &&
+  textOrNull(v.email) &&
+  (v.phone_e164 === undefined || textOrNull(v.phone_e164));
 export function decodeTripReviews(v: unknown): TripReviewPage {
   requireShape(
     record(v) &&
@@ -125,7 +132,16 @@ export function decodeTripReviews(v: unknown): TripReviewPage {
         integer(row.version, 1) &&
         textOrNull(row.dispute_reason) &&
         textOrNull(row.resolution_note) &&
+        (row.reported_by == null || person(row.reported_by)) &&
         record(row.ride) &&
+        (row.ride.rider === undefined || person(row.ride.rider)) &&
+        (row.ride.driver == null ||
+          (record(row.ride.driver) && person(row.ride.driver.user))) &&
+        (row.ride.vehicle == null ||
+          (record(row.ride.vehicle) &&
+            typeof row.ride.vehicle.make === "string" &&
+            typeof row.ride.vehicle.model === "string" &&
+            typeof row.ride.vehicle.plate_number === "string")) &&
         typeof row.ride.rider_id === "string" &&
         typeof row.ride.pickup_address === "string" &&
         typeof row.ride.dropoff_address === "string" &&

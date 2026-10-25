@@ -24,6 +24,7 @@ function documentSnapshot(value: unknown): DocumentSnapshot | null {
 export function readPartnerDetail(value: unknown): {
   application: PartnerApplication;
   assets: PartnerAsset[];
+  emails: PartnerEmail[];
 } {
   const response = record(value),
     app = record(response?.application);
@@ -143,7 +144,19 @@ export function readPartnerDetail(value: unknown): {
         );
       }) as PartnerAsset[])
     : [];
-  return { application: normalized, assets };
+  const emails = Array.isArray(response?.emails)
+    ? response.emails.filter((email): email is PartnerEmail => {
+        const e = record(email);
+        return (
+          !!e &&
+          typeof e.id === "string" &&
+          typeof e.status === "string" &&
+          typeof e.event === "string" &&
+          typeof e.created_at === "string"
+        );
+      })
+    : [];
+  return { application: normalized, assets, emails };
 }
 export const PARTNER_API = "/admin/partner-program";
 export const fileDataUrl = (file: File): Promise<string> =>
@@ -215,3 +228,13 @@ export async function uploadFinalPdf(applicationId: string, file: File) {
     timeoutMs: 90000,
   });
 }
+
+export type PartnerEmail = {
+  id: string;
+  event: string;
+  status: string;
+  attempts: number;
+  last_error: string | null;
+  created_at: string;
+  sent_at: string | null;
+};

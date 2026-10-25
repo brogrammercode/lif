@@ -205,6 +205,7 @@ export class DriverOperationsController {
   ) {
     const filter = z
       .enum([
+        'PENDING',
         'REQUESTED',
         'DISPUTED',
         'APPROVED',

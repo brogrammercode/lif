@@ -35,6 +35,7 @@ function fixture() {
     role: 'RIDER',
     committed: 0,
     driverWrites: 0,
+    assetReads: 0,
     losePromotion: false,
     publishedConfirmation: false,
     onPartnerLock: () => {},
@@ -42,6 +43,7 @@ function fixture() {
   const app = {
     id: 'fixture-application',
     user_id: 'fixture-rider',
+    contact_email: 'rider@example.test',
     status: 'COMPLETED',
     version: 1,
     policy_snapshot: {
@@ -55,6 +57,7 @@ function fixture() {
     activation_issued_at: null as Date | null,
   };
   const audits: Record<string, unknown>[] = [];
+  const queuedEmails: Record<string, unknown>[] = [];
   let assetRows: {
     id: string;
     owner_id: string;
@@ -70,6 +73,9 @@ function fixture() {
       return 1;
     },
     user: {
+      findMany: async () => [
+        { id: 'fixture-admin', email: 'admin@example.test' },
+      ],
       findUnique: async ({ where }: { where: { id: string } }) => ({
         role: where.id === 'fixture-admin' ? 'ADMIN' : state.role,
         status: 'ACTIVE',
@@ -85,7 +91,7 @@ function fixture() {
     },
     session: { create: async () => ({ id: 'fixture-session' }) },
     partnerApplication: {
-      findUnique: async () => app,
+      findUnique: async () => ({ ...app }),
       update: async ({ data }: { data: Record<string, unknown> }) => {
         const version = data.version as { increment?: number } | undefined;
         if (version?.increment)
@@ -113,19 +119,34 @@ function fixture() {
             }
           : null,
     },
-    notification: { create: async () => ({}) },
+    partnerConfirmation: { upsert: async () => ({}) },
+    notification: {
+      create: async () => ({}),
+      createMany: async ({ data }: { data: Record<string, unknown>[] }) => {
+        queuedEmails.push(...data);
+        return { count: data.length };
+      },
+    },
     partnerAsset: {
       findMany: async ({
         where,
       }: {
-        where: { owner_id: string; purpose: string; field_id: string };
-      }) =>
-        assetRows.filter(
+        where: {
+          owner_id: string;
+          purpose?: string;
+          field_id?: string;
+          id?: { in: string[] };
+        };
+      }) => {
+        state.assetReads++;
+        return assetRows.filter(
           (asset) =>
             asset.owner_id === where.owner_id &&
-            asset.purpose === where.purpose &&
-            asset.field_id === where.field_id,
-        ),
+            (!where.purpose || asset.purpose === where.purpose) &&
+            (!where.field_id || asset.field_id === where.field_id) &&
+            (!where.id || where.id.in.includes(asset.id)),
+        );
+      },
       findUnique: async () => assetRows[0] ?? null,
     },
     driverProfile: {
@@ -158,6 +179,7 @@ function fixture() {
     state,
     app,
     audits,
+    queuedEmails,
     setAssets: (rows: typeof assetRows) => {
       assetRows = rows;
     },
@@ -165,6 +187,26 @@ function fixture() {
 }
 const errorCode = (code: string) => (error: unknown) =>
   error instanceof AppError && error.error_code === code;
+
+it('confirmation alerts use the committed status rather than the pre-submit snapshot', async () => {
+  const f = fixture();
+  Object.assign(f.app, {
+    status: 'APPROVED',
+    confirmation_document: { version: 1 },
+  });
+  await f.service.confirm('fixture-rider', {
+    version: 1,
+    document_version: 1,
+    signature_name: 'Fixture Name',
+    accepted: true,
+  });
+  assert.equal(f.app.status, 'CONFIRMATION_SUBMITTED');
+  assert.equal(f.queuedEmails.length, 1);
+  const data = f.queuedEmails[0]!.data as Record<string, unknown>;
+  assert.equal(data.expected_status, 'CONFIRMATION_SUBMITTED');
+  assert.equal(data.version, 2);
+  assert.equal(data.recipient_role, 'ADMIN');
+});
 
 for (const operation of ['create-field', 'enable-category'] as const) {
   it(`configuration cannot exceed the application's field limit through ${operation}`, async () => {
@@ -505,4 +547,57 @@ it('document sanitization retains formatting and safe images while removing exec
     html,
     /script|onclick|onerror|javascript|untrusted|background-image/,
   );
+});
+
+it('a large final submission validates upload metadata once and atomically queues admin/applicant emails', async () => {
+  const f = fixture();
+  f.app.status = 'SUBMITTED';
+  f.app.fields = Array.from({ length: 31 }, (_, i) => {
+    const id = i === 30 ? '__live_selfie__' : 'document-' + i;
+    return {
+      id: 'answer-' + i,
+      requirement_id: id,
+      status: 'PENDING',
+      value: ['asset-' + i],
+      definition: {
+        id,
+        label: id,
+        field_type: i === 30 ? 'IMAGE' : 'FILE',
+        is_required: true,
+      },
+    };
+  });
+  f.setAssets(
+    f.app.fields.map((field, i) => ({
+      id: 'asset-' + i,
+      owner_id: f.app.user_id,
+      field_id: field.requirement_id,
+      purpose: i === 30 ? 'APPLICATION_SELFIE' : 'APPLICATION_DOCUMENT',
+      mime_type: i === 30 ? 'image/webp' : 'application/pdf',
+      file_name: i === 30 ? 'selfie.webp' : 'proof.pdf',
+      size: 1000,
+    })),
+  );
+  const result = await f.service.submit(f.app.user_id, {
+    version: 1,
+    policy_version: 1,
+    accepted: true,
+    contact_email: 'rider@example.test',
+    whatsapp_phone: '+919999999999',
+    answers: f.app.fields.map((field) => ({
+      requirement_id: field.requirement_id,
+      value: field.value as string[],
+    })),
+  });
+  assert.equal(result.status, 'SUBMITTED');
+  assert.equal(f.state.assetReads, 1);
+  assert.equal(f.state.committed, 1);
+  assert.equal(f.queuedEmails.length, 2);
+  assert.deepEqual(
+    f.queuedEmails.map(
+      (row) => (row.data as Record<string, unknown>).recipient_role,
+    ),
+    ['ADMIN', 'APPLICANT'],
+  );
+  assert.ok(!JSON.stringify(f.queuedEmails).includes('data_url'));
 });

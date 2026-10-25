@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import nodemailer, { type Transporter } from 'nodemailer';
+import type { Transporter } from 'nodemailer';
+import { smtp_transport, smtp_failure } from '../../infra/mail/smtp.js';
 import { config } from '../../core/config.js';
 import { PrismaService } from '../../infra/database/prisma.service.js';
 import { reveal_activation } from './partner_program.security.js';
@@ -43,10 +44,6 @@ export class PartnerDeliveryService {
     });
     if (!claimed.count) return;
     try {
-      if (!config.MAIL_USER || !config.GOOGLE_APP_PASSWORD)
-        throw new Error(
-          'SMTP is not configured. Set MAIL_USER and GOOGLE_APP_PASSWORD in the API environment.',
-        );
       const app = await this.database.client.partnerApplication.findUnique({
         where: { id: application_id },
         include: {
@@ -66,10 +63,17 @@ export class PartnerDeliveryService {
         (is_activation &&
           (app.status !== 'COMPLETED' || !app.activation_ciphertext)) ||
         !(is_exit ? app.exit_request?.settlement_pdf_id : app.final_pdf_id)
-      )
-        throw new Error(
-          'The approved application or its recipient is no longer available.',
-        );
+      ) {
+        await this.database.client.partnerDelivery.updateMany({
+          where: { id: delivery.id, status: 'SENDING', claimed_at: now },
+          data: {
+            status: 'SKIPPED',
+            last_error:
+              'This recipient or workflow is no longer eligible for this email.',
+          },
+        });
+        return;
+      }
       const asset = await this.database.client.partnerAsset.findFirst({
         where: {
           id: (is_exit
@@ -82,23 +86,15 @@ export class PartnerDeliveryService {
         },
       });
       if (!asset) throw new Error('The approved final PDF is unavailable.');
-      this.mailer ??= nodemailer.createTransport({
-        service: 'gmail',
-        host: 'smtp.gmail.com',
-        port: 587,
-        secure: false,
-        requireTLS: true,
-        connectionTimeout: 15000,
-        greetingTimeout: 15000,
-        socketTimeout: 30000,
-        auth: {
-          user: config.MAIL_USER,
-          pass: config.GOOGLE_APP_PASSWORD.replace(/\s+/g, ''),
-        },
-      });
+      if (!config.MAIL_USER || !config.GOOGLE_APP_PASSWORD)
+        throw new Error(
+          'SMTP is not configured. Set MAIL_USER and GOOGLE_APP_PASSWORD in the API environment.',
+        );
+      this.mailer ??= smtp_transport();
       const result = await this.mailer.sendMail({
         from: { name: config.MAIL_FROM_NAME, address: config.MAIL_USER },
         to: app.contact_email,
+        messageId: `<partner-${delivery.id}@${config.MAIL_USER.split('@')[1]}>`,
         subject: is_activation
           ? 'Your 1More driver activation code'
           : is_exit
@@ -129,14 +125,17 @@ export class PartnerDeliveryService {
         },
       });
     } catch (error) {
+      console.warn({
+        event: 'PARTNER_EMAIL_FAILED',
+        application_id,
+        channel,
+        reason: smtp_failure(error),
+      });
       await this.database.client.partnerDelivery.updateMany({
         where: { id: delivery.id, status: 'SENDING', claimed_at: now },
         data: {
           status: 'FAILED',
-          last_error:
-            error instanceof Error
-              ? error.message.slice(0, 500)
-              : 'Email delivery failed. Retry from admin.',
+          last_error: smtp_failure(error),
         },
       });
     }

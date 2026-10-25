@@ -497,6 +497,28 @@ function reviewFixture() {
     created_at: "2026-10-24T06:00:00Z",
     ride: {
       rider_id: "rider-fixture",
+      rider: {
+        id: "rider-fixture",
+        first_name: "Riya",
+        last_name: "Sharma",
+        email: "riya@example.test",
+        phone_e164: "+919999999999",
+      },
+      driver: {
+        user: {
+          id: "driver-user",
+          first_name: "Amit",
+          last_name: "Kumar",
+          email: "amit@example.test",
+          phone_e164: "+919999999998",
+        },
+      },
+      vehicle: {
+        make: "TVS",
+        model: "Jupiter",
+        plate_number: "BR01AA1234",
+        vehicle_category: { name: "Scooter" },
+      },
       status: "CANCELLED",
       pickup_address: "Station",
       dropoff_address: "University",
@@ -545,7 +567,7 @@ test("ride review shows evidence and requires approval before verified manual se
     page.getByRole("heading", { name: "Ride Reviews", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Record verified settlement" }),
+    page.getByRole("button", { name: "Record settlement" }),
   ).toHaveCount(0);
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
@@ -560,31 +582,40 @@ test("ride review shows evidence and requires approval before verified manual se
     });
   }
   await page.setViewportSize({ width: 1440, height: 900 });
+  await page
+    .getByRole("button", { name: "Review report", exact: true })
+    .click();
+  await expect(
+    page.getByRole("dialog").getByRole("link", { name: "Riya Sharma" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("dialog").getByRole("link", { name: "Amit Kumar" }),
+  ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Approve charge" }),
   ).toBeDisabled();
-  await page.getByText("Review trip evidence", { exact: true }).click();
-  await expect(page.getByText(/"gps_verified": true/)).toBeVisible();
+  await page.getByText("Trip evidence (1)", { exact: true }).click();
+  await expect(
+    page.getByText("GPS verified: Yes", { exact: true }),
+  ).toBeVisible();
   await page
     .getByLabel("Review note", { exact: true })
     .fill("Verified pickup location, waiting time and contact evidence.");
   await page.getByRole("button", { name: "Approve charge" }).click();
   await expect(
-    page.getByRole("button", { name: "Record verified settlement" }),
+    page.getByRole("button", { name: "Record settlement" }),
   ).toBeVisible();
   expect(writes[0]).toMatchObject({ status: "APPROVED", expected_version: 1 });
   await page
     .getByLabel("Review note", { exact: true })
     .fill("Original driver confirmed receipt of the direct UPI payment.");
-  await page
-    .getByRole("button", { name: "Record verified settlement" })
-    .click();
+  await page.getByRole("button", { name: "Record settlement" }).click();
   await expect(
-    page.getByRole("button", { name: "Record verified settlement" }),
+    page.getByRole("button", { name: "Record settlement" }),
   ).toHaveCount(0);
   expect(writes[1]).toMatchObject({ status: "SETTLED", expected_version: 2 });
   await expect(
-    page.locator(".badge").filter({ hasText: "Settled" }),
+    page.getByRole("dialog").locator(".badge").filter({ hasText: "Settled" }),
   ).toBeVisible();
 });
 
@@ -625,6 +656,9 @@ test("a stale ride review blocks repeated decisions until reload and clears the 
     });
   });
   await page.goto("/app/user/ride-reviews");
+  await page
+    .getByRole("button", { name: "Review report", exact: true })
+    .click();
   const note = page.getByLabel("Review note", { exact: true });
   const approve = page.getByRole("button", {
     name: "Approve charge",
@@ -640,9 +674,9 @@ test("a stale ride review blocks repeated decisions until reload and clears the 
   await expect(approve).toBeDisabled();
   expect(writes).toHaveLength(1);
   await page
-    .getByRole("button", { name: "Refresh reviews", exact: true })
+    .getByRole("button", { name: "Reload report", exact: true })
     .click();
-  await expect(page.getByText(/Trip trip-fixture.*Version 2/)).toBeVisible();
+  await expect(page.getByText(/Trip trip-fixture.*Version 2/)).toHaveCount(1);
   await expect(
     page.getByText("Review changed on another device.", { exact: true }),
   ).toHaveCount(0);
@@ -652,14 +686,14 @@ test("a stale ride review blocks repeated decisions until reload and clears the 
   await approve.click();
   await expect(
     page.getByRole("button", {
-      name: "Record verified settlement",
+      name: "Record settlement",
       exact: true,
     }),
   ).toBeVisible();
   await expect(note).toHaveValue("");
   await expect(
     page.getByRole("button", {
-      name: "Record verified settlement",
+      name: "Record settlement",
       exact: true,
     }),
   ).toBeDisabled();

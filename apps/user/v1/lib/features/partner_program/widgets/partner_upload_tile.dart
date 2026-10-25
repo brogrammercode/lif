@@ -63,22 +63,28 @@ class PartnerUploadTile extends StatelessWidget {
           ),
           child: Column(
             children: [
-              if (image && !busy && (file.path != null || file.bytes != null))
+              if (image && (file.path != null || file.bytes != null))
                 ClipRRect(
                   borderRadius: BorderRadius.circular(10),
-                  child: Image(
-                    image: file.path != null
-                        ? previewFile(file.path!)
-                        : previewImage(file.bytes!),
+                  child: SizedBox(
                     height: 160,
                     width: double.infinity,
-                    fit: BoxFit.contain,
-                    errorBuilder: (_, error, stack) => const Padding(
-                      padding: EdgeInsets.all(20),
-                      child: Text(
-                        'Preview unavailable. Retake or replace this image.',
-                      ),
-                    ),
+                    child: busy
+                        ? const Center(child: Icon(Icons.image_outlined))
+                        : Image(
+                            image: file.path != null
+                                ? previewFile(file.path!)
+                                : previewImage(file.bytes!),
+                            height: 160,
+                            width: double.infinity,
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, error, stack) => const Padding(
+                              padding: EdgeInsets.all(20),
+                              child: Text(
+                                'Preview unavailable. Retake or replace this image.',
+                              ),
+                            ),
+                          ),
                   ),
                 ),
               Row(

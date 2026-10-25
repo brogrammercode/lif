@@ -1414,5 +1414,45 @@
     "path": "driver/vehicle-verification/:id/renewal",
     "guards": ["AuthGuard", "DriverAccessGuard"],
     "idempotent": false
+  },
+  {
+    "feature": "admin_user",
+    "handler": "rides",
+    "method": "get",
+    "path": "admin/users/:id/rides",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "pending",
+    "handler": "counts",
+    "method": "get",
+    "path": "admin/pending-counts",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "admin_partner_program",
+    "handler": "retry_notifications",
+    "method": "post",
+    "path": "admin/partner-program/applications/:id/notifications/retry",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "registration_email",
+    "handler": "list",
+    "method": "get",
+    "path": "admin/registration-emails",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "registration_email",
+    "handler": "retry",
+    "method": "post",
+    "path": "admin/registration-emails/:id/retry",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
   }
 ]

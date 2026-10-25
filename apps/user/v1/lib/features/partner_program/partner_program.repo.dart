@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
@@ -26,7 +27,58 @@ class PartnerProgramRepository {
     ),
   );
   Future<void> submit(Map<String, dynamic> input) async {
-    await _client.postData('$base/applications', data: input);
+    try {
+      final response = await _client.postData(
+        '$base/applications',
+        data: input,
+        receiveTimeout: const Duration(seconds: 90),
+      );
+      final receipt = ApiResult.unwrap(response);
+      if (receipt is! Map ||
+          receipt['id'] is! String ||
+          (receipt['id'] as String).isEmpty ||
+          receipt['status'] != 'SUBMITTED' ||
+          receipt['version'] is! num ||
+          !(receipt['version'] as num).isFinite ||
+          (receipt['version'] as num) <= (input['version'] as num? ?? 0)) {
+        throw const FormatException(
+          'The server did not confirm your application. Your draft is saved. Refresh its status before retrying.',
+        );
+      }
+    } on DioException catch (error) {
+      final status = error.response?.statusCode;
+      final ambiguous = status == null || status >= 500 || status == 409;
+      if (ambiguous) {
+        try {
+          final saved = (await workflow())['application'];
+          // A lost response is success only when the server saved this exact
+          // submission. Never treat somebody else's revision as our receipt.
+          if (saved is Map &&
+              (saved['version'] as num? ?? 0) >
+                  (input['version'] as num? ?? 0) &&
+              saved['contact_email'] == input['contact_email'] &&
+              saved['whatsapp_phone'] == input['whatsapp_phone'] &&
+              saved['fields'] is List &&
+              input['answers'] is List &&
+              (input['answers'] as List).every(
+                (answer) =>
+                    answer is Map &&
+                    (saved['fields'] as List).any(
+                      (field) =>
+                          field is Map &&
+                          field['requirement_id'] == answer['requirement_id'] &&
+                          jsonEncode(field['value']) ==
+                              jsonEncode(answer['value']),
+                    ),
+              )) {
+            return;
+          }
+        } catch (_) {
+          // Keep the original request error and the local retryable draft.
+        }
+      }
+      rethrow;
+    }
   }
 
   Future<void> confirm(Map<String, dynamic> input) async {

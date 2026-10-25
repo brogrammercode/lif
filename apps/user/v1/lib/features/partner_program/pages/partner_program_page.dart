@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:dio/dio.dart';
+import 'package:user/features/partner_program/partner_form_validation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -41,6 +43,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     with WidgetsBindingObserver {
   late final _repository = widget.repository ?? PartnerProgramRepository();
   final _form = GlobalKey<FormState>();
+  final _scroll = ScrollController(keepScrollOffset: false);
   final _email = TextEditingController();
   final _phone = TextEditingController();
   final _signature = TextEditingController();
@@ -60,6 +63,8 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
   bool _acceptConfirmation = false;
   bool _showForm = false;
   bool _dirty = false;
+  bool _submissionCommitted = false;
+  bool _needsSignIn = false;
   String? _error;
   Timer? _poll;
   int _loadRequest = 0;
@@ -69,6 +74,11 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       ['SUBMITTED', 'CHANGES_REQUESTED'].contains(_status) &&
       !_answers.any((a) => a['requirement_id'] == '__live_selfie__');
   String get _status => '${_application?['status'] ?? ''}';
+  bool get _editingApplication =>
+      !_submissionCommitted &&
+      ((_application == null && _showForm) ||
+          _status == 'CHANGES_REQUESTED' ||
+          _needsSelfie);
   List<Map<String, dynamic>> get _definitions =>
       _maps(_workflow?['requirements']);
   List<Map<String, dynamic>> get _answers => _maps(_application?['fields']);
@@ -117,6 +127,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     _email.dispose();
     _phone.dispose();
     _signature.dispose();
+    _scroll.dispose();
     for (final controller in _controllers.values) {
       controller.dispose();
     }
@@ -136,6 +147,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     if (!background) setState(() => _loading = true);
     try {
       final data = await _repository.workflow();
+      _validateWorkflow(data);
       String? email;
       String? phone;
       String? legalName;
@@ -153,7 +165,31 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           legalName = user.displayName;
         } catch (_) {}
       }
-      if (!mounted || request != _loadRequest || (background && _dirty)) return;
+      final draft = await _readDraft(data);
+      if (!mounted ||
+          request != _loadRequest ||
+          (background &&
+              (_dirty || _saving || _pickingFiles || _capturingSelfie))) {
+        return;
+      }
+      final incoming = _map(data['application']);
+      final needsSelfie =
+          ['SUBMITTED', 'CHANGES_REQUESTED'].contains(incoming?['status']) &&
+          !_maps(
+            incoming?['fields'],
+          ).any((a) => a['requirement_id'] == '__live_selfie__');
+      if (!background &&
+          !_submissionCommitted &&
+          incoming != null &&
+          incoming['status'] != 'CHANGES_REQUESTED' &&
+          !needsSelfie) {
+        // A foreground load has hidden the form and the server confirms it is
+        // saved. Retire its private draft; background readers never delete it.
+        try {
+          await _draftStore?.clear();
+        } catch (_) {}
+        if (!mounted || request != _loadRequest) return;
+      }
       final previousVersion = _map(_workflow?['policy'])?['version'];
       _workflow = data;
       if (_application == null &&
@@ -203,13 +239,14 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
               : text;
         }
       }
-      final restored = await _restoreDraft();
-      if (!mounted || request != _loadRequest) return;
+      if (draft != null) _applyDraft(draft);
       setState(() {
         _loading = false;
         _error = null;
-        _dirty = restored;
+        _dirty = draft != null;
+        _needsSignIn = false;
         _acceptConfirmation = false;
+        if (_application != null) _submissionCommitted = false;
       });
       if (!_checkedLostSelfie) {
         _checkedLostSelfie = true;
@@ -227,12 +264,14 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
 
   Future<void> _run(Future<void> Function() task) async {
     if (_saving) return;
+    // A status poll started before editing must not overwrite a saving draft.
+    _loadRequest++;
     setState(() {
       _saving = true;
       _error = null;
     });
     try {
-      await _saveDraft();
+      await _saveDraft(required: true);
       // Detach preview widgets before allocating the first request payload.
       await WidgetsBinding.instance.endOfFrame;
       for (final file in _files.values.expand((files) => files)) {
@@ -243,22 +282,39 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       await task();
       if (mounted) {
         _draftTimer?.cancel();
-        _dirty = false;
+        if (_scroll.hasClients) _scroll.jumpTo(0);
+        // Remove editable widgets before replacing controllers/files on reload.
+        // In particular, a focused field must not outlive its saved draft.
+        setState(() {
+          _dirty = false;
+          _loading = true;
+        });
+        await WidgetsBinding.instance.endOfFrame;
         try {
           await _draftStore?.clear();
         } catch (_) {
           // A local cleanup failure must not turn a committed submission into
           // an apparent server failure. The stale version is discarded on load.
         }
-        await _load(background: true);
+        if (mounted) await _load();
       }
     } catch (error) {
       if (mounted) {
-        final message = ApiResult.errorMessage(error);
+        final authFailure =
+            error is DioException &&
+            (error.response?.statusCode == 401 ||
+                error.type == DioExceptionType.cancel);
+        final reference = error is DioException
+            ? error.response?.headers['x-request-id']?.firstOrNull
+            : null;
+        final message = authFailure
+            ? 'Your session has ended. Your draft and uploaded files are saved. Sign in again, then reopen Partner Program to continue.'
+            : '${ApiResult.errorMessage(error)}${reference == null ? '' : '\nRequest reference: $reference'}';
+        _needsSignIn = authFailure;
         setState(() => _error = message);
-        ScaffoldMessenger.of(
+        ScaffoldMessenger.maybeOf(
           context,
-        ).showSnackBar(SnackBar(content: Text(message)));
+        )?.showSnackBar(SnackBar(content: Text(message)));
       }
     } finally {
       if (mounted) {
@@ -266,6 +322,28 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           _saving = false;
           _uploadProgress = null;
         });
+        if (_error != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && _scroll.hasClients) {
+              unawaited(
+                _scroll
+                    .animateTo(
+                      _scroll.position.maxScrollExtent,
+                      duration: const Duration(milliseconds: 250),
+                      curve: Curves.easeOut,
+                    )
+                    .then((_) {
+                      if (mounted &&
+                          _scroll.hasClients &&
+                          _scroll.position.pixels >
+                              _scroll.position.maxScrollExtent) {
+                        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+                      }
+                    }),
+              );
+            }
+          });
+        }
       }
     }
   }
@@ -283,9 +361,15 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     );
   }
 
-  Future<void> _saveDraft() async {
+  Future<void> _saveDraft({bool required = false}) async {
     final store = _draftStore;
-    if (store == null || !_dirty) return;
+    if (!_dirty) return;
+    const failure =
+        'Local draft could not be saved. Keep this page open and check device storage.';
+    if (store == null) {
+      if (required) throw StateError(failure);
+      return;
+    }
     final snapshot = <String, dynamic>{
       'format': 1,
       'application_version': _application?['version'] ?? 0,
@@ -305,33 +389,51 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       await store.save(snapshot);
     } catch (_) {
       if (mounted) {
-        setState(
-          () => _error =
-              'Local draft could not be saved. Keep this page open and check device storage.',
-        );
+        setState(() => _error = failure);
       }
+      if (required) throw StateError(failure);
     }
   }
 
-  Future<bool> _restoreDraft() async {
+  Future<Map<String, dynamic>?> _readDraft(Map<String, dynamic> data) async {
     final store = _draftStore;
-    if (store == null) return false;
-    final draft = await store.read();
-    if (!mounted || draft == null) return false;
-    if (draft['application_version'] != (_application?['version'] ?? 0) ||
-        draft['policy_version'] != _map(_workflow?['policy'])?['version'] ||
-        (_application != null &&
-            _status != 'CHANGES_REQUESTED' &&
-            !_needsSelfie)) {
-      try {
-        await store.clear();
-      } catch (_) {}
-      return false;
+    if (store == null) return null;
+    final app = _map(data['application']);
+    final answers = _maps(app?['fields']);
+    final needsSelfie =
+        ['SUBMITTED', 'CHANGES_REQUESTED'].contains(app?['status']) &&
+        !answers.any((a) => a['requirement_id'] == '__live_selfie__');
+    if (app != null && app['status'] != 'CHANGES_REQUESTED' && !needsSelfie) {
+      return null;
     }
-    final assets = _maps(_workflow?['assets']).map((a) => '${a['id']}').toSet();
+    final draft = await store.read();
+    if (draft == null ||
+        draft['application_version'] != (app?['version'] ?? 0) ||
+        draft['policy_version'] != _map(data['policy'])?['version']) {
+      return null;
+    }
+    final assets = _maps(data['assets']).map((a) => '${a['id']}').toSet();
+    final files = _map(draft['files']) ?? {};
+    final restoredFiles = <String, List<PartnerLocalFile>>{};
+    for (final definition in _maps(data['requirements'])) {
+      final id = '${definition['id']}';
+      if (files.containsKey(id) &&
+          !answers.any(
+            (a) => a['requirement_id'] == id && a['status'] == 'APPROVED',
+          )) {
+        restoredFiles[id] = await store.restoreFiles(files[id], assets);
+      }
+    }
+    // Apply only after the caller checks that this load still owns the screen.
+    // In particular, a delayed restore must never overwrite a saving draft.
+    return {...draft, 'restored_files': restoredFiles};
+  }
+
+  void _applyDraft(Map<String, dynamic> draft) {
     final text = _map(draft['text']) ?? {};
     final values = _map(draft['values']) ?? {};
-    final files = _map(draft['files']) ?? {};
+    final files =
+        draft['restored_files'] as Map<String, List<PartnerLocalFile>>;
     for (final definition in _definitions) {
       final id = '${definition['id']}';
       if (_answers.any(
@@ -344,15 +446,72 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       }
       if (values.containsKey(id)) _values[id] = values[id];
       if (files.containsKey(id)) {
-        _files[id] = await store.restoreFiles(files[id], assets);
+        _files[id] = files[id]!;
       }
     }
-    if (!mounted) return false;
     if (draft['email'] is String) _email.text = draft['email'] as String;
     if (draft['phone'] is String) _phone.text = draft['phone'] as String;
     _acceptPolicy = draft['accepted'] == true;
     _showForm = draft['show_form'] == true && _acceptPolicy;
-    return true;
+  }
+
+  void _validateWorkflow(Map<String, dynamic> data) {
+    const message =
+        'Partner requirements could not be read. Refresh to try again.';
+    bool object(dynamic item) =>
+        item is Map && item.keys.every((key) => key is String);
+    for (final key in ['requirements', 'assets']) {
+      if (data[key] is! List ||
+          (data[key] as List).any((item) => !object(item))) {
+        throw const FormatException(message);
+      }
+    }
+    final app = data['application'];
+    if (app != null &&
+        (app is! Map<String, dynamic> ||
+            app['fields'] is! List ||
+            (app['fields'] as List).any((item) => !object(item)))) {
+      throw const FormatException(message);
+    }
+    final seen = <String>{};
+    for (final field in _maps(data['requirements'])) {
+      final id = field['id'];
+      if (id is! String ||
+          id.isEmpty ||
+          !seen.add(id) ||
+          field['label'] is! String ||
+          ![
+            'STRING',
+            'TEXT',
+            'NUMBER',
+            'DATE',
+            'BOOLEAN',
+            'FILE',
+            'IMAGE',
+            'PDF',
+          ].contains(field['field_type'])) {
+        throw const FormatException(message);
+      }
+      final options = field['options'];
+      if (options != null &&
+          (options is! List ||
+              options.any((v) => v is! String) ||
+              options.toSet().length != options.length)) {
+        throw const FormatException(message);
+      }
+    }
+    for (final answer in _maps(_map(app)?['fields'])) {
+      final field = _maps(
+        data['requirements'],
+      ).where((d) => d['id'] == answer['requirement_id']).firstOrNull;
+      if (field != null &&
+          ['FILE', 'IMAGE', 'PDF'].contains(field['field_type']) &&
+          answer['value'] != null &&
+          (answer['value'] is! List ||
+              (answer['value'] as List).any((id) => id is! String))) {
+        throw const FormatException(message);
+      }
+    }
   }
 
   Future<void> _download(String id) async {
@@ -372,7 +531,46 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
 
   Future<void> _submit() async {
     if (_saving || _pickingFiles || _capturingSelfie) return;
-    if (!(_form.currentState?.validate() ?? false)) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    try {
+      final values = <String, dynamic>{
+        for (final definition in _definitions)
+          '${definition['id']}':
+              ['FILE', 'IMAGE', 'PDF'].contains(definition['field_type'])
+              ? _files['${definition['id']}'] ?? []
+              : definition['field_type'] == 'BOOLEAN'
+              ? _values['${definition['id']}']
+              : _controllers['${definition['id']}']?.text.trim(),
+      };
+      final error = validatePartnerDraft(
+        // Approved snapshot values must remain valid under their original rules.
+        _definitions
+            .where(
+              (d) => !_answers.any(
+                (a) =>
+                    a['requirement_id'] == d['id'] && a['status'] == 'APPROVED',
+              ),
+            )
+            .toList(),
+        values,
+        email: _email.text,
+        phone: _phone.text,
+      );
+      if (error != null) {
+        setState(() => _error = error);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error)));
+        return;
+      }
+      if (!(_form.currentState?.validate() ?? false)) return;
+    } catch (error) {
+      setState(
+        () => _error =
+            'The form could not be validated. Your draft is preserved. Refresh and try again.',
+      );
+      return;
+    }
     for (final definition in _definitions) {
       final id = '${definition['id']}';
       if (['FILE', 'IMAGE', 'PDF'].contains(definition['field_type']) &&
@@ -422,7 +620,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
                 );
               }
               file.assetId = assetId;
-              await _saveDraft();
+              await _saveDraft(required: true);
             }
             if (file.assetId == null) {
               throw StateError('Choose ${file.name} again before submitting.');
@@ -452,6 +650,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         'whatsapp_phone': _phone.text.trim(),
         'answers': answers,
       });
+      _submissionCommitted = true;
     });
   }
 
@@ -1195,17 +1394,43 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           ),
         );
       }
-      widgets.add(
-        AppButton(
-          text: _application == null
-              ? 'Submit application'
-              : 'Submit corrections',
-          onPressed: _saving || _capturingSelfie || _pickingFiles
-              ? null
-              : _submit,
-          isLoading: _saving,
-        ),
-      );
+      if (_needsSignIn) {
+        widgets.add(
+          OutlinedButton.icon(
+            onPressed: _saving
+                ? null
+                : () async {
+                    try {
+                      await _saveDraft(required: true);
+                    } catch (_) {
+                      return;
+                    }
+                    if (mounted) {
+                      Navigator.pushNamedAndRemoveUntil(
+                        context,
+                        AppRoutes.login,
+                        (_) => false,
+                      );
+                    }
+                  },
+            icon: const Icon(Icons.refresh),
+            label: const Text('Sign in again'),
+          ),
+        );
+      } else {
+        widgets.add(
+          AppButton(
+            text: _application == null
+                ? 'Submit application'
+                : 'Submit corrections',
+            onPressed:
+                _saving || _capturingSelfie || _pickingFiles || _needsSignIn
+                ? null
+                : _submit,
+            isLoading: _saving,
+          ),
+        );
+      }
     } else {
       widgets.add(
         OutlinedButton.icon(
@@ -1228,6 +1453,21 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
 
   List<Widget> _contents() {
     if (_workflow == null) return [];
+    if (_submissionCommitted) {
+      return [
+        const AppCard(
+          child: Text(
+            'Your application was submitted. Refresh to load its review status.',
+          ),
+        ),
+        const SizedBox(height: 16),
+        OutlinedButton.icon(
+          onPressed: _saving ? null : () => _load(),
+          icon: const Icon(Icons.refresh),
+          label: const Text('Load review status'),
+        ),
+      ];
+    }
     if (_status == 'EXITED') {
       return [
         const SizedBox(height: 24),
@@ -1484,10 +1724,11 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
               child: Form(
                 key: _form,
                 child: ListView(
+                  controller: _scroll,
                   padding: const EdgeInsets.only(bottom: 32),
                   physics: const AlwaysScrollableScrollPhysics(),
                   children: [
-                    if (_error != null)
+                    if (_error != null && !_editingApplication)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 16),
                         child: Text(

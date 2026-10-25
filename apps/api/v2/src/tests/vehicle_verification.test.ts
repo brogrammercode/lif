@@ -724,3 +724,32 @@ it('manual document renewal preserves other reviews, blocks active trips and saf
   await f.service.renew('driver', 'vehicle', input);
   assert.equal(f.state.writes, writes);
 });
+
+it('admin vehicle verification refuses a rider account before loading its vehicles', async () => {
+  let reads = 0;
+  const service = new VehicleVerificationService({
+    client: {
+      user: {
+        findFirst: async () => ({
+          id: 'rider',
+          role: 'RIDER',
+          partner_activated_at: null,
+        }),
+      },
+      vehicle: {
+        findMany: async () => {
+          reads++;
+          return [];
+        },
+      },
+    },
+  } as unknown as PrismaService);
+  await assert.rejects(
+    service.list('rider'),
+    (error: unknown) =>
+      error instanceof AppError &&
+      error.status_code === 403 &&
+      error.error_code === 'DRIVER_ACCOUNT_REQUIRED',
+  );
+  assert.equal(reads, 0);
+});

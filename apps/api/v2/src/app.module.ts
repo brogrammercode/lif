@@ -1,3 +1,4 @@
+import { PendingModule } from './features/admin_pending/pending.controller.js';
 import { DriverOperationsModule } from './features/driver_operations/driver_operations.module.js';
 import { Module } from '@nestjs/common';
 import { DriverAccountModule } from './features/driver_account/driver_account.module.js';
@@ -24,6 +25,7 @@ import { UserModule } from './features/user/user.module.js';
 import { VehicleCategoryModule } from './features/vehicle_category/vehicle_category.module.js';
 @Module({
   imports: [
+    PendingModule,
     DriverAccountModule,
     DriverOperationsModule,
     AppConfigurationModule,

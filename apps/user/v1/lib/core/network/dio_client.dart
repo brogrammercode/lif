@@ -515,7 +515,15 @@ class _SimpleLogInterceptor extends Interceptor {
       });
     }
     if (value is List) {
-      return value.map(_redactSensitiveValues).toList();
+      return [
+        ...value.take(50).map(_redactSensitiveValues),
+        if (value.length > 50) '[${value.length - 50} further items omitted]',
+      ];
+    }
+    // Rich policy HTML can contain megabytes of embedded images. Formatting and
+    // queueing it in debugPrint after Submit can stall the UI and exhaust logs.
+    if (value is String && value.length > 1024) {
+      return '${value.substring(0, 1024)} [${value.length - 1024} characters omitted]';
     }
     return value;
   }

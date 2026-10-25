@@ -1,3 +1,6 @@
+import { schedule_new_user_emails } from '../../infra/mail/new_user_email.js';
+import { PARTNER_EMAIL_TITLE } from '../../infra/mail/partner_email.js';
+import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import {
   Controller,
@@ -9,7 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { waitUntil } from '@vercel/functions';
+import { background_mail } from '../../infra/mail/background.js';
 import { AuthGuard, AdminGuard } from '../../core/guards.js';
 import { send_success } from '../../core/response.js';
 import { AppError } from '../../core/error.js';
@@ -192,16 +195,80 @@ export class AdminPartnerProgramController {
     private readonly database: PrismaService,
   ) {}
   private queue_email(id: string) {
-    waitUntil(
-      this.delivery.send_email(id).catch(() => {
-        console.error({
-          event: 'PARTNER_EMAIL_JOB_FAILED',
-          application_id: id,
-          message:
-            'Email delivery could not finish. Check its status and retry from admin.',
-        });
-      }),
+    background_mail(
+      this.delivery.send_email(id),
+      'PARTNER_EMAIL_JOB_FAILED',
+      id,
     );
+  }
+  @Post('applications/:id/notifications/retry') async retry_notifications(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const id = id_input.parse(req.params.id);
+    const result = await this.database.client.$transaction(async (tx) => {
+      await require_active_admin(tx, req.auth!.user_id);
+      const app = await tx.partnerApplication.findUnique({
+        where: { id },
+        select: { id: true },
+      });
+      if (!app)
+        throw new AppError(
+          404,
+          'APPLICATION_NOT_FOUND',
+          'Application not found.',
+        );
+      const rows = await tx.notification.findMany({
+        where: {
+          channel: 'EMAIL',
+          type: 'SYSTEM',
+          title: PARTNER_EMAIL_TITLE,
+          sent_at: null,
+          AND: [
+            { data: { path: ['kind'], equals: 'PARTNER_LIFECYCLE_EMAIL' } },
+            { data: { path: ['application_id'], equals: id } },
+            {
+              OR: [
+                { data: { path: ['state'], equals: 'FAILED' } },
+                { data: { path: ['state'], equals: 'PENDING' } },
+                { updated_at: { lt: new Date(Date.now() - 300000) } },
+              ],
+            },
+          ],
+        },
+        take: 50,
+      });
+      let queued = 0;
+      for (const row of rows) {
+        const data = row.data as Record<string, unknown>;
+        const update = await tx.notification.updateMany({
+          where: {
+            id: row.id,
+            updated_at: row.updated_at,
+            sent_at: null,
+            data: { equals: row.data as Prisma.InputJsonValue },
+          },
+          data: {
+            data: {
+              ...data,
+              state: 'PENDING',
+              last_error: null,
+            } as Prisma.InputJsonObject,
+          },
+        });
+        queued += update.count;
+      }
+      await create_user_log(tx, {
+        actor_id: req.auth!.user_id,
+        entity_type: 'PartnerApplication',
+        entity_id: id,
+        action: 'RETRY_PARTNER_NOTIFICATIONS',
+        after_data: { queued },
+      });
+      return { queued };
+    });
+    schedule_new_user_emails();
+    return send_success(res, result, 'Queued email delivery will be retried');
   }
   @Get('documents/:kind') async document(
     @Req() req: Request,
@@ -394,13 +461,10 @@ export class AdminPartnerProgramController {
       req.auth!.user_id,
       id,
     );
-    waitUntil(
-      this.delivery.send_activation_email(id).catch(() =>
-        console.error({
-          event: 'PARTNER_ACTIVATION_EMAIL_JOB_FAILED',
-          application_id: id,
-        }),
-      ),
+    background_mail(
+      this.delivery.send_activation_email(id),
+      'PARTNER_ACTIVATION_EMAIL_JOB_FAILED',
+      id,
     );
     return send_success(res, result, 'Activation email queued');
   }

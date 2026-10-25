@@ -4,6 +4,7 @@ export const user_id_schema = z.string().trim().min(1).max(100);
 export const user_list_schema = z
   .object({
     query: z.string().trim().max(100).default(''),
+    pending_only: z.enum(['true', 'false']).optional(),
     account_type: z.enum(['all', 'user', 'driver']).default('all'),
     page: z.coerce.number().int().min(1).max(1000000).default(1),
     page_size: z.coerce.number().int().min(1).max(50).default(20),

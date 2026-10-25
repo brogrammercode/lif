@@ -115,23 +115,28 @@ adb install -r build/app/outputs/flutter-apk/app-release.apk
 
 ### Publish a Dart fix to an existing release
 
-Use the target release's original environment/build settings. To patch the older installed Android base `0.1.1+1`, explicitly override both build values:
+Use the target release's original environment/build settings. To patch the current installed Android base `0.1.3+3`, explicitly override both build values:
 
 ```powershell
-shorebird patch android --release-version 0.1.1+1 --build-name 0.1.1 --build-number 1 --track stable
+shorebird patch android --release-version 0.1.3+3 --build-name 0.1.3 --build-number 3 --track stable
 ```
 
 This publishes to installed users of that release. Use the actual released version in all three version arguments. A Dart-only patch keeps the installed base version unchanged and receives its own Shorebird patch number; bumping `pubspec.yaml` does not upgrade installed APK metadata. Changes to native plugins, Gradle, permissions, assets (including `.env`), or Flutter itself need a new base release and APK. Follow [Shorebird patch guidance](https://docs.shorebird.dev/code-push/patch/).
 
-When a patch depends on new API endpoints, publish it to `--track staging` first, deploy the matching API V2 changes, and verify those routes before promoting the patch with `shorebird patches set-track --release-version 0.1.1+1 --patch-number <number> --track stable`.
+The project version is now `0.1.4+4`, incrementing the version and build once. That version is reserved for the next base APK release. The patch command above intentionally builds with `0.1.3+3` so it can update existing installations; a patch cannot change their Android version name/code.
+
+When a patch depends on new API endpoints, publish it to `--track staging` first, deploy the matching API V2 changes, and verify those routes before promoting the patch with `shorebird patches set-track --release-version 0.1.3+3 --patch-number <number> --track stable`.
 
 ### Published updates
 
 | Date | Platform | Installed base release | Patch | Track | Changes |
 | --- | --- | --- | --- | --- | --- |
 | 2026-10-23 | Android | `0.1.1+1` | `1` | stable | Driver vehicle registration, review feedback, draft recovery, and eligibility gate. |
+| 2026-10-25 | Android | `0.1.3+3` | `1` | stable | Partner final-submit validation, draft/attachment recovery, expired-session recovery, stable upload previews and bounded logging. |
 
 Patch 1 passed Shorebird's native-code and asset compatibility checks. The vehicle screens reuse the car and image icons already bundled in that base release; adding new tree-shaken icon glyphs requires a new base APK. The required API V2 routes were deployed before stable promotion.
+
+The `0.1.3+3` patch (Shorebird patch ID `748007`) also passed both compatibility checks without overrides, covering arm32, arm64 and x86_64. The sign-in recovery button reuses the existing refresh glyph so the bundled icon font remains identical to the installed release. Flutter analysis and all 17 partner submission tests passed before publication. Source version `0.1.4+4` was not published as a new base APK by this patch operation.
 
 **Android base release `0.1.3+3` was published to Shorebird on 25 October 2026**, using Flutter `3.47.7` (Shorebird revision `7dbbfb1fc6`) and the existing release signing identity. Package metadata and the APK signature were verified: `com.brogrammer.onemore`, version name `0.1.3`, version code `3`.
 

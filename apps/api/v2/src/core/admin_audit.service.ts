@@ -1,3 +1,4 @@
+import { is_pending_poll } from '../features/admin_pending/pending.rules.js';
 import { Injectable } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { PrismaService } from '../infra/database/prisma.service.js';
@@ -65,6 +66,11 @@ export class AdminAuditService {
     options: { status_code?: number; source?: CompletionSource } = {},
   ) {
     if (!should_audit_admin(request)) return;
+    if (
+      is_pending_poll(request.method, request.originalUrl || request.path) &&
+      (options.status_code ?? response.statusCode) < 400
+    )
+      return;
     const source = options.source ?? 'handler';
     const status_code = options.status_code ?? response.statusCode;
     // Serialize competing finish/close callbacks. A completed handler can replace

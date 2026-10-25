@@ -1,4 +1,9 @@
-import { useState } from "react";
+import {
+  PendingBadge,
+  usePending,
+  usePendingEntities,
+} from "../pending/PendingProvider";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { PageHeading } from "../../components/layout/PageHeading";
 import { CatalogPanel, TableLoading } from "../../components/ui/CatalogPanel";
@@ -46,7 +51,16 @@ export function PartnerApplicationsPage({
   const [status, setStatus] = useState("all");
   const [page, setPage] = useState(1);
   const [searchParams, setSearchParams] = useSearchParams();
+  const pendingOnly = searchParams.get("pending_only") === "true";
+  useEffect(() => {
+    setPage(1);
+    if (pendingOnly) {
+      setStatus("all");
+      setQuery("");
+    }
+  }, [pendingOnly]);
   const selected = searchParams.get("application_id");
+  const pending = usePending();
   const setSelected = (id: string | null) =>
     setSearchParams((current) => {
       const params = new URLSearchParams(current);
@@ -57,7 +71,17 @@ export function PartnerApplicationsPage({
   const resource = useAdminResource<Paged<PartnerApplicationSummary>>(
     PARTNER_API +
       "/applications?" +
-      new URLSearchParams({ section, query: text, status, page: String(page) }),
+      new URLSearchParams({
+        section,
+        query: text,
+        status,
+        page: String(page),
+        ...(pendingOnly ? { pending_only: "true" } : {}),
+      }),
+  );
+  usePendingEntities(
+    "applications",
+    selected ? [selected] : (resource.data?.rows.map((app) => app.id) ?? []),
   );
   const title = section === "applications" ? "Applications" : "Confirmations";
   if (selected)
@@ -84,6 +108,23 @@ export function PartnerApplicationsPage({
             : "Review accepted confirmations, approve the final document, and manage delivery and activation."
         }
       />
+      {pendingOnly && (
+        <div className="workspace-notice">
+          Showing items that need admin attention.{" "}
+          <Button
+            variant="ghost"
+            onClick={() =>
+              setSearchParams((current) => {
+                const p = new URLSearchParams(current);
+                p.delete("pending_only");
+                return p;
+              })
+            }
+          >
+            Show all
+          </Button>
+        </div>
+      )}
       <CatalogPanel
         title={
           section === "applications"
@@ -201,6 +242,20 @@ export function PartnerApplicationsPage({
                       <small className="cell-detail">User {app.user_id}</small>
                     </td>
                     <td>
+                      <PendingBadge
+                        count={
+                          pending?.data?.entities.applications[app.id]?.[
+                            section === "applications"
+                              ? "fields"
+                              : "confirmations"
+                          ]
+                        }
+                        label={
+                          section === "applications"
+                            ? "fields to review"
+                            : "items requiring attention"
+                        }
+                      />
                       <Badge tone={partnerTone(app.status)}>
                         {partnerStatus(app.status)}
                       </Badge>

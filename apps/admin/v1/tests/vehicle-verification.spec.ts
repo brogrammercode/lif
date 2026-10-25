@@ -81,6 +81,7 @@ async function workspace(page: Page) {
       route.fulfill({ json: { status: "success", data } });
     if (url.pathname.endsWith("/auth/refresh"))
       return send({ access_token: token, user: admin });
+    if (url.pathname.endsWith("/admin/users/driver")) return send(user);
     if (url.pathname.endsWith("/admin/users")) {
       state.filter = url.searchParams.get("account_type") ?? "all";
       return send({ users: [user], total: 1, page: 1, page_size: 20 });

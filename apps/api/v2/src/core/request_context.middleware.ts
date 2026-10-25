@@ -1,3 +1,4 @@
+import { is_pending_poll } from '../features/admin_pending/pending.rules.js';
 import { Injectable, type NestMiddleware } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { waitUntil } from '@vercel/functions';
@@ -40,7 +41,10 @@ export class RequestContextMiddleware implements NestMiddleware {
     waitUntil(completion);
     // Record admin attempts before guards/body parsing. No request body, token
     // or query is stored.
-    if (is_admin_path(request.originalUrl || request.path))
+    if (
+      is_admin_path(request.originalUrl || request.path) &&
+      !is_pending_poll(request.method, request.originalUrl || request.path)
+    )
       void this.audit.start(request).then(() => next(), next);
     else next();
   }

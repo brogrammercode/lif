@@ -71,6 +71,7 @@ export const asset_input = z
   })
   .strict();
 export const list_input = z.object({
+  pending_only: z.enum(['true', 'false']).optional(),
   page: z.coerce.number().int().min(1).default(1),
   query: z.string().trim().max(150).default(''),
   status: z

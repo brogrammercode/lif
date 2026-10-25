@@ -1,5 +1,18 @@
+import { PendingNavLink } from "../../modules/pending/PendingNavLink";
+import {
+  PendingProvider,
+  PendingBadge,
+  usePending,
+  usePendingEntities,
+} from "../../modules/pending/PendingProvider";
 import { useState } from "react";
-import { Link, NavLink, Outlet, useMatch } from "react-router-dom";
+import {
+  Link,
+  NavLink,
+  Outlet,
+  useMatch,
+  useSearchParams,
+} from "react-router-dom";
 import { useAuth } from "../../modules/auth/AuthProvider";
 import { signOut } from "../../modules/auth/auth.api";
 import { WORKSPACE_PATH } from "../../modules/auth/auth.constant";
@@ -12,15 +25,17 @@ import { InlineError } from "../feedback/StateCard";
 import { UsersProvider, useUsers } from "../../modules/users/UsersProvider";
 import { UsersNavigation } from "../../modules/users/UsersNavigation";
 import { USERS_PATH, personalPath } from "../../modules/users/users.constant";
-import { userName } from "../../modules/users/users.type";
+import { userName, isDriverAccount } from "../../modules/users/users.type";
 import { ADMIN_ACCESS_PATH } from "../../modules/admin-access/admin-access.constant";
 
 export function AppShell() {
   const usersSection = Boolean(useMatch("/users/*"));
   return (
-    <UsersProvider active={usersSection}>
-      <WorkspaceShell />
-    </UsersProvider>
+    <PendingProvider>
+      <UsersProvider active={usersSection}>
+        <WorkspaceShell />
+      </UsersProvider>
+    </PendingProvider>
   );
 }
 
@@ -34,8 +49,20 @@ function WorkspaceShell() {
     useMatch("/partner-program/applications/*"),
   );
   const selectedId = useMatch("/users/:userId/*")?.params.userId;
-  const { result } = useUsers();
-  const selected = result?.users.find((item) => item.id === selectedId);
+  const { selectedUser: selected } = useUsers();
+  const pending = usePending();
+  const [params] = useSearchParams();
+  const pendingSuffix =
+    params.get("pending_only") === "true" ? "?pending_only=true" : "";
+  const appQueue = pending?.data?.tabs.vehicle_models
+    ? "/app/user/vehicle-models?pending_only=true"
+    : "/app/user/ride-reviews?pending_only=true";
+  const partnerQueue = pending?.data?.tabs.applications
+    ? "/partner-program/applications?pending_only=true"
+    : pending?.data?.tabs.confirmations
+      ? "/partner-program/applications/confirmations?pending_only=true"
+      : "/partner-program/applications/exit-requests?pending_only=true";
+  usePendingEntities("users", selectedId ? [selectedId] : []);
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,22 +90,46 @@ function WorkspaceShell() {
           />
         </Link>
         <nav aria-label="Primary navigation">
-          <NavLink to="/app" className="primary-nav-item">
+          <PendingNavLink
+            to="/app"
+            pendingTo={appQueue}
+            count={pending?.data?.sections.app}
+            label="app items"
+            className="primary-nav-item"
+          >
             <Icon name="app" size={24} />
             <span>App</span>
-          </NavLink>
-          <NavLink to={USERS_PATH} className="primary-nav-item">
+          </PendingNavLink>
+          <PendingNavLink
+            to="/users"
+            pendingTo="/users?pending_only=true"
+            count={pending?.data?.sections.users}
+            label="vehicle reviews"
+            className="primary-nav-item"
+          >
             <Icon name="users" size={24} />
             <span>Users</span>
-          </NavLink>
-          <NavLink to="/admin" className="primary-nav-item">
+          </PendingNavLink>
+          <PendingNavLink
+            to="/admin"
+            pendingTo="/admin/access/registration-emails"
+            count={pending?.data?.sections.admin}
+            label="registration emails"
+            className="primary-nav-item"
+          >
             <Icon name="shield" size={24} />
             <span>Admin</span>
-          </NavLink>
-          <NavLink to="/partner-program" className="primary-nav-item">
+          </PendingNavLink>
+          <PendingNavLink
+            to="/partner-program"
+            pendingTo={partnerQueue}
+            count={pending?.data?.sections.partner_program}
+            label="partner items"
+            className="primary-nav-item"
+          >
             <Icon name="layers" size={24} />
             <span>Partner program</span>
-          </NavLink>
+          </PendingNavLink>
           <NavLink to="/support" className="primary-nav-item">
             <Icon name="settings" size={24} />
             <span>Support</span>
@@ -154,30 +205,45 @@ function WorkspaceShell() {
               <span>Requirements</span>
               <Icon name="chevronRight" size={14} />
             </NavLink>
-            <NavLink
+            <PendingNavLink
               to="/partner-program/applications"
+              pendingTo={partnerQueue}
+              count={pending?.data?.sections.partner_program}
+              label="partner items"
               className="secondary-nav-item"
             >
               <Icon name="users" size={19} />
               <span>Applications</span>
               <Icon name="chevronRight" size={14} />
-            </NavLink>
+            </PendingNavLink>
           </nav>
         ) : adminSection ? (
           <nav aria-label="Admin navigation">
-            <NavLink to="/admin/access" className="secondary-nav-item">
+            <PendingNavLink
+              to="/admin/access"
+              pendingTo="/admin/access/registration-emails"
+              count={pending?.data?.sections.admin}
+              label="registration emails"
+              className="secondary-nav-item"
+            >
               <Icon name="shield" size={19} />
               <span>Access</span>
               <Icon name="chevronRight" size={14} />
-            </NavLink>
+            </PendingNavLink>
           </nav>
         ) : (
           <nav aria-label="App navigation">
-            <NavLink to="/app/user" className="secondary-nav-item">
+            <PendingNavLink
+              to="/app/user"
+              pendingTo={appQueue}
+              count={pending?.data?.sections.app}
+              label="app items"
+              className="secondary-nav-item"
+            >
               <Icon name="users" size={19} />
               <span>User</span>
               <Icon name="chevronRight" size={14} />
-            </NavLink>
+            </PendingNavLink>
           </nav>
         )}
         <div className="secondary-bottom">
@@ -255,14 +321,32 @@ function WorkspaceShell() {
         >
           {usersSection ? (
             <>
-              <NavLink to={selectedId ? personalPath(selectedId) : USERS_PATH}>
+              <NavLink
+                to={
+                  (selectedId ? personalPath(selectedId) : USERS_PATH) +
+                  pendingSuffix
+                }
+              >
                 Personal
               </NavLink>
               {selectedId && (
                 <NavLink
-                  to={`/users/${encodeURIComponent(selectedId)}/vehicle-verification`}
+                  to={`/users/${encodeURIComponent(selectedId)}/rides${pendingSuffix}`}
                 >
-                  Vehicle Verification
+                  Rides
+                </NavLink>
+              )}
+              {selectedId && selected && isDriverAccount(selected) && (
+                <NavLink
+                  to={`/users/${encodeURIComponent(selectedId)}/vehicle-verification${pendingSuffix}`}
+                >
+                  Vehicle Verification{" "}
+                  <PendingBadge
+                    count={
+                      pending?.data?.entities.users[selectedId]
+                        ?.vehicle_verification
+                    }
+                  />
                 </NavLink>
               )}
             </>
@@ -271,15 +355,31 @@ function WorkspaceShell() {
           ) : partnerSection ? (
             partnerApplications ? (
               <>
-                <NavLink to="/partner-program/applications" end>
+                <PendingNavLink
+                  to="/partner-program/applications"
+                  pendingTo="/partner-program/applications?pending_only=true"
+                  count={pending?.data?.tabs.applications}
+                  label="applications"
+                  end
+                >
                   Applications
-                </NavLink>
-                <NavLink to="/partner-program/applications/confirmations">
+                </PendingNavLink>
+                <PendingNavLink
+                  to="/partner-program/applications/confirmations"
+                  pendingTo="/partner-program/applications/confirmations?pending_only=true"
+                  count={pending?.data?.tabs.confirmations}
+                  label="confirmations"
+                >
                   Confirmations
-                </NavLink>
-                <NavLink to="/partner-program/applications/exit-requests">
+                </PendingNavLink>
+                <PendingNavLink
+                  to="/partner-program/applications/exit-requests"
+                  pendingTo="/partner-program/applications/exit-requests?pending_only=true"
+                  count={pending?.data?.tabs.exit_requests}
+                  label="exit requests"
+                >
                   Exit Request &amp; Dues
-                </NavLink>
+                </PendingNavLink>
               </>
             ) : (
               <>
@@ -301,13 +401,35 @@ function WorkspaceShell() {
             <>
               <NavLink to={ADMIN_ACCESS_PATH}>1More Admin</NavLink>
               <NavLink to="/admin/access/activity">Audit log</NavLink>
+              <PendingNavLink
+                to="/admin/access/registration-emails"
+                pendingTo="/admin/access/registration-emails"
+                count={pending?.data?.tabs.registration_emails}
+                label="registration emails"
+              >
+                Registration emails
+              </PendingNavLink>
             </>
           ) : (
             <>
               <NavLink to={WORKSPACE_PATH}>Vehicle Categories</NavLink>
-              <NavLink to="/app/user/vehicle-models">Vehicle Models</NavLink>
+              <PendingNavLink
+                to="/app/user/vehicle-models"
+                pendingTo="/app/user/vehicle-models?pending_only=true"
+                count={pending?.data?.tabs.vehicle_models}
+                label="catalog requests"
+              >
+                Vehicle Models
+              </PendingNavLink>
               <NavLink to="/app/user/fare-policy">Fare Policy</NavLink>
-              <NavLink to="/app/user/ride-reviews">Ride Reviews</NavLink>
+              <PendingNavLink
+                to="/app/user/ride-reviews"
+                pendingTo="/app/user/ride-reviews?pending_only=true"
+                count={pending?.data?.tabs.ride_reviews}
+                label="ride reviews"
+              >
+                Ride Reviews
+              </PendingNavLink>
             </>
           )}
         </nav>

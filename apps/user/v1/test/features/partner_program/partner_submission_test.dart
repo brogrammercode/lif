@@ -1,3 +1,4 @@
+import 'package:user/features/partner_program/partner_form_validation.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -20,6 +21,7 @@ class UploadAdapter implements HttpClientAdapter {
   final authorizations = <String?>[];
   final paths = <String>[];
   bool unauthorizedOnce = false;
+  bool invalidReceipt = false;
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
@@ -45,7 +47,9 @@ class UploadAdapter implements HttpClientAdapter {
     return ResponseBody.fromString(
       jsonEncode({
         'status': 'success',
-        'data': {'id': 'private-asset'},
+        'data': options.path.endsWith('/applications') && !invalidReceipt
+            ? {'id': 'application', 'version': 1, 'status': 'SUBMITTED'}
+            : {'id': 'private-asset'},
       }),
       200,
       headers: {
@@ -92,13 +96,23 @@ class MemoryDraft extends PartnerDraftStore {
   Map<String, dynamic>? value;
   int cleared = 0;
   bool failClear = false;
+  bool failSave = false;
+  Completer<void>? blockedRead;
+  int reads = 0;
   @override
   Future<void> save(Map<String, dynamic> draft) async {
+    if (failSave) throw const FileSystemException('Disk unavailable');
     value = jsonDecode(jsonEncode(draft)) as Map<String, dynamic>;
   }
 
   @override
-  Future<Map<String, dynamic>?> read() async => value;
+  Future<Map<String, dynamic>?> read() async {
+    reads++;
+    final snapshot = value == null ? null : Map<String, dynamic>.from(value!);
+    if (blockedRead != null) await blockedRead!.future;
+    return snapshot;
+  }
+
   @override
   Future<void> clear() async {
     if (failClear) throw const FileSystemException('Disk unavailable');
@@ -201,6 +215,104 @@ class SubmissionRepo extends PartnerProgramRepository {
   }
 }
 
+class FailedReloadRepo extends SubmissionRepo {
+  bool failReload = true;
+  @override
+  Future<Map<String, dynamic>> workflow() async {
+    if (submitted != null && failReload) {
+      throw StateError('Status refresh unavailable');
+    }
+    return super.workflow();
+  }
+}
+
+class CommitResponseAdapter implements HttpClientAdapter {
+  Map<String, dynamic>? saved;
+  bool different = false;
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    if (options.method == 'POST') {
+      saved =
+          jsonDecode(await utf8.decoder.bind(requestStream!).join())
+              as Map<String, dynamic>;
+      return ResponseBody.fromString(
+        jsonEncode({'message': 'Gateway lost response'}),
+        503,
+        headers: {
+          Headers.contentTypeHeader: [Headers.jsonContentType],
+        },
+      );
+    }
+    return ResponseBody.fromString(
+      jsonEncode({
+        'data': {
+          'application': {
+            'id': 'application',
+            'version': 1,
+            'status': 'SUBMITTED',
+            'contact_email': saved!['contact_email'],
+            'whatsapp_phone': saved!['whatsapp_phone'],
+            'fields': [
+              for (final a in saved!['answers'] as List)
+                {...a as Map, if (different) 'value': 'another revision'},
+            ],
+          },
+        },
+      }),
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class ExpiredSubmitRepo extends SubmissionRepo {
+  @override
+  Future<void> submit(Map<String, dynamic> input) async {
+    submissions++;
+    final options = RequestOptions(path: '/partner-program/applications');
+    throw DioException(
+      requestOptions: options,
+      response: Response(
+        requestOptions: options,
+        statusCode: 401,
+        data: {'message': 'Authentication is required'},
+      ),
+      type: DioExceptionType.badResponse,
+    );
+  }
+}
+
+class LargePolicyAdapter implements HttpClientAdapter {
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async => ResponseBody.fromString(
+    jsonEncode({
+      'data': {
+        'policy': {'html': 'x' * 2000000},
+        'data_url': 'private-media',
+      },
+    }),
+    200,
+    headers: {
+      Headers.contentTypeHeader: [Headers.jsonContentType],
+    },
+  );
+  @override
+  void close({bool force = false}) {}
+}
+
 Widget page(SubmissionRepo repo, MemoryDraft store) => ScreenUtilInit(
   designSize: const Size(390, 844),
   builder: (_, child) => MaterialApp(
@@ -279,6 +391,62 @@ void main() {
     ),
   );
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+  testWidgets(
+    'submission stops before uploads when the recovery draft cannot be persisted',
+    (tester) async {
+      final repo = SubmissionRepo();
+      final store = MemoryDraft();
+      await fill(tester, repo, store);
+      store.failSave = true;
+      await press(tester, find.text('Submit application'));
+      expect(repo.uploads, isEmpty);
+      expect(repo.submissions, 0);
+      expect(
+        find.textContaining('Local draft could not be saved'),
+        findsWidgets,
+      );
+      expect(store.value, isNotNull);
+      expect(store.cleared, 0);
+      expect(tester.takeException(), isNull);
+      store.failSave = false;
+      await press(tester, find.text('Submit application'));
+      expect(repo.submissions, 1);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+  testWidgets(
+    'a delayed background draft restore cannot overwrite a later committed submission',
+    (tester) async {
+      final repo = SubmissionRepo();
+      final store = MemoryDraft();
+      await tester.pumpWidget(page(repo, store));
+      await tester.pumpAndSettle();
+      store.value = {
+        'format': 1,
+        'application_version': 0,
+        'policy_version': 1,
+        'email': 'stale@example.test',
+        'accepted': false,
+        'show_form': false,
+      };
+      final gate = Completer<void>();
+      store.blockedRead = gate;
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await tester.pump();
+      expect(store.reads, 2);
+      await fill(tester, repo, store);
+      await press(tester, find.text('Submit application'));
+      expect(repo.submitted?['contact_email'], 'rider@example.test');
+      expect(repo.submissions, 1);
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('Submit application'), findsNothing);
+      expect(store.cleared, 1);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
   test(
     'many selected documents stay on disk; encrypted metadata contains no payload',
     () async {
@@ -414,11 +582,10 @@ void main() {
       expect(repo.maxActive, 1);
       expect(repo.uploads, hasLength(17));
       expect(repo.submissions, 1);
-      await tester.scrollUntilVisible(
-        find.text('submitted'),
-        -400,
-        scrollable: find.byType(Scrollable).first,
-      );
+      final reviewPosition = tester
+          .state<ScrollableState>(find.byType(Scrollable).first)
+          .position;
+      expect(reviewPosition.pixels, 0);
       expect(find.text('submitted'), findsOneWidget);
       expect(store.value, isNull);
       expect(tester.takeException(), isNull);
@@ -547,6 +714,180 @@ void main() {
       expect(repo.submissions, 1);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+  test(
+    'a long application validates required offscreen fields from its complete draft',
+    () {
+      final definitions = List.generate(
+        80,
+        (i) => <String, dynamic>{
+          'id': 'f$i',
+          'label': 'Field $i',
+          'field_type': 'STRING',
+          'is_required': true,
+        },
+      );
+      final values = {for (var i = 0; i < 80; i++) 'f$i': 'filled'};
+      values['f0'] = '';
+      expect(
+        validatePartnerDraft(
+          definitions,
+          values,
+          email: 'rider@example.test',
+          phone: '+919999999999',
+        ),
+        'Field 0 is required.',
+      );
+      values['f0'] = 'filled';
+      expect(
+        validatePartnerDraft(
+          definitions,
+          values,
+          email: 'rider@example.test',
+          phone: '+919999999999',
+        ),
+        isNull,
+      );
+    },
+  );
+  testWidgets(
+    'a saved submission survives a failed immediate status reload without becoming editable again',
+    (tester) async {
+      final repo = FailedReloadRepo(), store = MemoryDraft();
+      await fill(tester, repo, store);
+      await press(tester, find.text('Submit application'));
+      expect(repo.submissions, 1);
+      expect(find.text('Submit application'), findsNothing);
+      expect(
+        find.text(
+          'Your application was submitted. Refresh to load its review status.',
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      repo.failReload = false;
+      await press(tester, find.text('Load review status'));
+      expect(find.text('submitted'), findsOneWidget);
+      expect(repo.submissions, 1);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+  test(
+    'lost final response recovers only the exact saved revision without sending another POST',
+    () async {
+      final adapter = CommitResponseAdapter();
+      final dio = Dio(
+        BaseOptions(
+          baseUrl: 'https://partner.example.test/api/v2',
+          contentType: Headers.jsonContentType,
+        ),
+      )..httpClientAdapter = adapter;
+      final client = DioClient.forTesting(
+        client: dio,
+        createRefreshClient: () => throw StateError('No refresh expected'),
+      );
+      final repo = PartnerProgramRepository(client: client);
+      final input = <String, dynamic>{
+        'version': 0,
+        'contact_email': 'rider@example.test',
+        'whatsapp_phone': '+919999999999',
+        'answers': [
+          {
+            'requirement_id': 'selfie',
+            'value': ['private-selfie'],
+          },
+        ],
+      };
+      try {
+        await repo.submit(input);
+        adapter.different = true;
+        await expectLater(repo.submit(input), throwsA(isA<DioException>()));
+      } finally {
+        dio.close();
+      }
+    },
+  );
+  testWidgets(
+    'an expired protected submission offers sign-in without losing any uploaded selections',
+    (tester) async {
+      final repo = ExpiredSubmitRepo(), store = MemoryDraft();
+      await fill(tester, repo, store);
+      await press(tester, find.text('Submit application'));
+      expect(repo.submissions, 1);
+      expect(store.value, isNotNull);
+      expect(repo.uploads, hasLength(17));
+      expect(store.cleared, 0);
+      await tester.scrollUntilVisible(
+        find.text('Sign in again'),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Sign in again'), findsOneWidget);
+      final position = tester
+          .state<ScrollableState>(find.byType(Scrollable).first)
+          .position;
+      expect(
+        position.pixels,
+        lessThanOrEqualTo(position.maxScrollExtent + 0.5),
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+  test(
+    'large policy logging is bounded and private media never reaches the terminal',
+    () async {
+      final messages = <String>[];
+      final previous = debugPrint;
+      final dio = Dio(
+        BaseOptions(baseUrl: 'https://partner.example.test/api/v2'),
+      )..httpClientAdapter = LargePolicyAdapter();
+      final client = DioClient.forTesting(
+        client: dio,
+        createRefreshClient: () => throw StateError('No refresh expected'),
+      );
+      debugPrint = (String? message, {int? wrapWidth}) {
+        messages.add(message ?? '');
+      };
+      try {
+        final response = await client.getData('/partner-program/me');
+        expect((response['data']['policy']['html'] as String).length, 2000000);
+        final output = messages.join();
+        expect(output.length, lessThan(6000));
+        expect(output, contains('characters omitted'));
+        expect(output, isNot(contains('private-media')));
+      } finally {
+        debugPrint = previous;
+        dio.close();
+      }
+    },
+  );
+  test(
+    'a malformed successful HTTP response cannot discard a draft as if submission were confirmed',
+    () async {
+      final adapter = UploadAdapter()..invalidReceipt = true;
+      final dio = Dio(
+        BaseOptions(
+          baseUrl: 'https://partner.example.test/api/v2',
+          contentType: Headers.jsonContentType,
+        ),
+      )..httpClientAdapter = adapter;
+      final repo = PartnerProgramRepository(
+        client: DioClient.forTesting(
+          client: dio,
+          createRefreshClient: () => throw StateError('No refresh expected'),
+        ),
+      );
+      try {
+        await expectLater(
+          repo.submit({'version': 0, 'answers': []}),
+          throwsFormatException,
+        );
+      } finally {
+        dio.close();
+      }
     },
   );
 }

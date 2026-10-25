@@ -1,3 +1,4 @@
+import { PendingService } from '../features/admin_pending/pending.service.js';
 import { DriverOperationsService } from '../features/driver_operations/driver_operations.service.js';
 import assert from 'node:assert/strict';
 import { after, afterEach, before, it, mock } from 'node:test';
@@ -252,7 +253,7 @@ it('registers and protects every authenticated route on both URI versions', asyn
     path: string;
     guards: string[];
   }[];
-  assert.equal(routes.length, 177);
+  assert.equal(routes.length, 182);
   for (const version of ['1', '2'])
     for (const route of routes.filter((value) =>
       value.guards.includes('AuthGuard'),
@@ -849,4 +850,24 @@ it('protects browser origins and rate-limits repeated administrator sign-in', as
     assert.equal(result.response.status, attempt < 15 ? 422 : 429);
   }
   assert.ok(app.get(AdminSignInGuard));
+});
+
+it('successful counts polls avoid audit writes while failures and role denials remain audited', async () => {
+  const service = app.get(PendingService);
+  mock.method(service, 'counts', async () => ({ total: 0 }) as never);
+  const ok = await request('/api/v2/admin/pending-counts', {
+    headers: { Authorization: 'Bearer ' + token('admin', 'ADMIN') },
+  });
+  assert.equal(ok.response.status, 200);
+  assert.equal(activities.size, 0);
+  const denied = await request('/api/v2/admin/pending-counts', {
+    headers: { Authorization: 'Bearer ' + token('rider', 'RIDER') },
+  });
+  assert.equal(denied.response.status, 403);
+  assert.equal(activities.size, 1);
+  const invalid = await request('/api/v2/admin/pending-counts?user_ids=a,,b', {
+    headers: { Authorization: 'Bearer ' + token('admin', 'ADMIN') },
+  });
+  assert.equal(invalid.response.status, 422);
+  assert.equal(activities.size, 2);
 });

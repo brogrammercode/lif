@@ -1,6 +1,14 @@
 // One description per administrator route. Keep transport details separate from
 // the label so old request-only rows remain readable without rewriting history.
 export const ADMIN_ACTIONS = [
+  ['GET', 'admin/registration-emails', 'View registration email deliveries'],
+  ['POST', 'admin/registration-emails/:id/retry', 'Retry registration email'],
+  [
+    'POST',
+    'admin/partner-program/applications/:id/notifications/retry',
+    'Retry partner notification emails',
+  ],
+  ['GET', 'admin/pending-counts', 'View pending counts'],
   ['GET', 'admin/vehicle-brands', 'View vehicle brands'],
   ['POST', 'admin/vehicle-brands', 'Create vehicle brand'],
   ['PATCH', 'admin/vehicle-brands/:id', 'Update vehicle brand'],
@@ -21,6 +29,7 @@ export const ADMIN_ACTIONS = [
   ['GET', 'admin/auth/me', 'View current admin session'],
   ['GET', 'admin/users', 'Search users'],
   ['GET', 'admin/users/:id', 'View user details'],
+  ['GET', 'admin/users/:id/rides', 'View user rides'],
   ['PATCH', 'admin/users/:id', 'Update user details'],
   ['DELETE', 'admin/users/:id', 'Deactivate user'],
   ['PATCH', 'admin/drivers/:id/verification', 'Review driver verification'],

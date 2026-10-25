@@ -365,6 +365,7 @@ model Vehicle {
   @@index([driver_id, status])
   @@index([type, status])
   @@index([vehicle_category_id])
+  @@index([status])
   @@map("vehicles")
 }
 
@@ -704,6 +705,7 @@ model Notification {
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id, read_at, created_at])
+  @@index([channel, sent_at, updated_at])
   @@map("notifications")
 }
 
@@ -904,6 +906,7 @@ model VehicleModel {
 
   @@unique([brand_id, normalized_name])
   @@index([brand_id, status, is_active])
+  @@index([status])
   @@map("vehicle_models")
 }
 
@@ -1026,6 +1029,7 @@ model PartnerApplicationField {
   application      PartnerApplication  @relation(fields: [application_id], references: [id], onDelete: Cascade)
 
   @@unique([application_id, requirement_id])
+  @@index([status, application_id])
   @@map("partner_application_fields")
 }
 
@@ -1165,4 +1169,11 @@ model RideSettlementReview {
 
   @@index([status, created_at])
   @@map("ride_settlement_reviews")
+}
+
+model AdminPendingSnapshot {
+  key String @id
+  payload Json
+  expires_at DateTime @db.Timestamptz(3)
+  @@map("admin_pending_snapshots")
 }

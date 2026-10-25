@@ -2514,3 +2514,224 @@ tbody tr:hover {
     white-space: normal;
   }
 }
+
+/* Shared compact ride list and reader, using the existing catalog tokens. */
+.table-subtitle {
+  display: block;
+  color: var(--color-muted);
+  font-size: 12px;
+  margin-top: 4px;
+  white-space: normal;
+}
+.report-reason {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ride-detail-body {
+  padding: 0 24px 24px;
+  display: grid;
+  gap: 20px;
+  overflow: auto;
+  min-height: 0;
+}
+.ride-detail-body .trip-evidence {
+  margin: 0;
+}
+.ride-detail-body .review-facts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.ride-detail-body p {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 639px) {
+  .ride-detail-body {
+    padding: 0 16px 16px;
+  }
+  .ride-detail-body .review-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.pending-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 6px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  background: var(--color-brand-soft);
+  color: var(--color-brand);
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+.pending-badge.is-stale {
+  opacity: 0.6;
+}
+.primary-nav-item {
+  position: relative;
+}
+.pending-nav-group {
+  position: relative;
+  flex-shrink: 0;
+}
+.pending-nav-count {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-radius: 6px;
+}
+.pending-nav-count:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+.pending-nav-primary .pending-nav-count {
+  top: 3px;
+  right: 3px;
+  transform: none;
+}
+.pending-nav-secondary.has-count .secondary-nav-item {
+  padding-right: 48px;
+}
+.pending-nav-tab {
+  display: flex;
+}
+.page-tabs .pending-nav-tab.has-count > a:first-child {
+  padding-right: 36px;
+}
+.page-tabs .pending-nav-count {
+  padding: 0;
+  border: 0;
+}
+.pending-nav-count .pending-badge {
+  margin: 0;
+}
+.primary-nav-item > .pending-badge {
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  margin: 0;
+}
+
+/* Shared document/review readers are available before lazy partner pages load. */
+.dialog.dialog-document {
+  width: min(960px, calc(100vw - 32px));
+  height: min(820px, 90dvh);
+  overflow: hidden;
+}
+.dialog-document .dialog-content {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  height: 100%;
+}
+.dialog-document .dialog-header {
+  padding: 20px 24px;
+  margin: 0;
+  border-bottom: 1px solid var(--color-line);
+  flex-shrink: 0;
+}
+.dialog-document .dialog-header h2 {
+  font-size: 18px;
+  line-height: 26px;
+  overflow-wrap: anywhere;
+}
+.document-reader {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.dialog-document .document-preview {
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+.document-reader-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 24px;
+  border-top: 1px solid var(--color-line);
+  font-size: 12px;
+  color: var(--color-muted);
+  flex-shrink: 0;
+}
+.attachment-reader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px;
+  overflow: auto;
+  background: #fafafa;
+}
+.attachment-reader .attachment-preview-image {
+  flex: 1;
+  min-height: 0;
+  max-height: 100%;
+  border: 0;
+  border-radius: 0;
+}
+.attachment-reader .document-preview {
+  flex: 1;
+  min-height: 0;
+}
+.attachment-reader .attachment-preview-text {
+  width: 100%;
+  max-height: none;
+}
+@media (max-width: 639px) {
+  .dialog.dialog-document {
+    width: calc(100vw - 16px);
+    height: 94dvh;
+    max-height: 94dvh;
+  }
+  .dialog-document .dialog-header,
+  .document-reader-footer {
+    padding: 16px;
+  }
+}
+
+.dialog-document .dialog-footer {
+  padding: 16px 24px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.dialog-document .ride-detail-body {
+  padding-top: 20px;
+  flex: 1;
+}
+
+@media (min-width: 360px) and (max-width: 639px) {
+  .ride-detail-body .review-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 767px) {
+  .pending-nav-primary.has-count .primary-nav-item {
+    padding-right: 32px;
+  }
+  .pending-nav-primary .pending-nav-count {
+    top: 50%;
+    right: 6px;
+    transform: translateY(-50%);
+  }
+  .primary-nav-item > .pending-badge {
+    position: static;
+    margin-left: 2px;
+  }
+  .primary-nav-item {
+    flex-shrink: 0;
+  }
+}

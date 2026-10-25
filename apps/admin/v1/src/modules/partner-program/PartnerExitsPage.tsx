@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { PageHeading } from "../../components/layout/PageHeading";
 import { CatalogPanel, TableLoading } from "../../components/ui/CatalogPanel";
@@ -28,11 +28,17 @@ export function PartnerExitsPage() {
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const search = useDebouncedText(query);
-  const [status, setStatus] = useState("all");
+  const pendingOnly = params.get("pending_only") === "true";
+  const [status, setStatus] = useState(pendingOnly ? "PENDING" : "all");
   const [page, setPage] = useState(1);
-  const [selected, setSelected] = useState<string | null>(
-    params.get("request_id"),
-  );
+  const selected = params.get("request_id");
+  const setSelected = (id: string | null) =>
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      if (id) next.set("request_id", id);
+      else next.delete("request_id");
+      return next;
+    });
   const [creating, setCreating] = useState(!!params.get("application_id"));
   const [applicationId, setApplicationId] = useState(
     params.get("application_id") ?? "",
@@ -41,13 +47,36 @@ export function PartnerExitsPage() {
   const [busy, setBusy] = useState(false);
   const creatingRequest = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (pendingOnly) {
+      setStatus("PENDING");
+      setQuery("");
+    } else {
+      setStatus((current) => (current === "PENDING" ? "all" : current));
+    }
+    setPage(1);
+  }, [pendingOnly]);
+  const linkedApplication = params.get("application_id");
+  useEffect(() => {
+    if (linkedApplication) {
+      setApplicationId(linkedApplication);
+      setCreating(true);
+    }
+  }, [linkedApplication]);
   const resource = useAdminResource<Paged<PartnerExit>>(
     `${EXIT_API}?${new URLSearchParams({ query: search, status, page: String(page) })}`,
   );
   function closeCreate() {
     setCreating(false);
     setError(null);
-    setParams({}, { replace: true });
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("application_id");
+        return next;
+      },
+      { replace: true },
+    );
   }
   if (selected)
     return (
@@ -56,7 +85,6 @@ export function PartnerExitsPage() {
         id={selected}
         onBack={() => {
           setSelected(null);
-          setParams({}, { replace: true });
           resource.refresh();
         }}
       />
@@ -101,15 +129,26 @@ export function PartnerExitsPage() {
               onChange={(e) => {
                 setStatus(e.target.value);
                 setPage(1);
+                if (pendingOnly && e.target.value !== "PENDING")
+                  setParams((current) => {
+                    const next = new URLSearchParams(current);
+                    next.delete("pending_only");
+                    return next;
+                  });
               }}
             >
-              {["all", "REQUESTED", "REVIEWING", "REJECTED", "COMPLETED"].map(
-                (v) => (
-                  <option value={v} key={v}>
-                    {v === "all" ? "All statuses" : partnerStatus(v)}
-                  </option>
-                ),
-              )}
+              {[
+                "all",
+                "PENDING",
+                "REQUESTED",
+                "REVIEWING",
+                "REJECTED",
+                "COMPLETED",
+              ].map((v) => (
+                <option value={v} key={v}>
+                  {v === "all" ? "All statuses" : partnerStatus(v)}
+                </option>
+              ))}
             </FilterSelect>
           </ManagementToolbar>
         }
@@ -223,8 +262,14 @@ export function PartnerExitsPage() {
                 },
               })
                 .then((row) => {
-                  closeCreate();
-                  setSelected(row.id);
+                  setCreating(false);
+                  setError(null);
+                  setParams((current) => {
+                    const next = new URLSearchParams(current);
+                    next.delete("application_id");
+                    next.set("request_id", row.id);
+                    return next;
+                  });
                   resource.refresh();
                 })
                 .catch((cause) => setError(safeMessage(cause)))

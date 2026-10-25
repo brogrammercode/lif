@@ -1,11 +1,16 @@
-import { NavLink, useLocation } from "react-router-dom";
+import {
+  PendingBadge,
+  usePending,
+  usePendingEntities,
+} from "../pending/PendingProvider";
+import { NavLink, useLocation, useSearchParams } from "react-router-dom";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
 import { InlineError } from "../../components/feedback/StateCard";
 import { personalPath } from "./users.constant";
 import { useUsers } from "./UsersProvider";
-import { userName } from "./users.type";
+import { userName, isDriverAccount } from "./users.type";
 
 export function UsersNavigation() {
   const {
@@ -19,10 +24,31 @@ export function UsersNavigation() {
     accountType,
     filter,
   } = useUsers();
+  const pending = usePending();
+  usePendingEntities("users", result?.users.map((user) => user.id) ?? []);
+  const [params, setParams] = useSearchParams();
   const location = useLocation();
   const vehicles = location.pathname.endsWith("/vehicle-verification");
+  const rides = location.pathname.endsWith("/rides");
   return (
     <div className="users-directory">
+      {params.get("pending_only") === "true" && (
+        <div className="users-directory-message">
+          Vehicle reviews pending{" "}
+          <Button
+            variant="ghost"
+            onClick={() =>
+              setParams((current) => {
+                const p = new URLSearchParams(current);
+                p.delete("pending_only");
+                return p;
+              })
+            }
+          >
+            Show all accounts
+          </Button>
+        </div>
+      )}
       <label className="users-type-filter">
         Account type
         <select
@@ -74,9 +100,14 @@ export function UsersNavigation() {
             <NavLink
               key={user.id}
               to={
-                vehicles
-                  ? `/users/${encodeURIComponent(user.id)}/vehicle-verification`
-                  : personalPath(user.id)
+                (rides
+                  ? `/users/${encodeURIComponent(user.id)}/rides`
+                  : vehicles && isDriverAccount(user)
+                    ? `/users/${encodeURIComponent(user.id)}/vehicle-verification`
+                    : personalPath(user.id)) +
+                (params.get("pending_only") === "true"
+                  ? "?pending_only=true"
+                  : "")
               }
               className="user-nav-item"
             >
@@ -84,6 +115,11 @@ export function UsersNavigation() {
                 <span className="user-nav-name" title={userName(user)}>
                   {userName(user)}
                 </span>
+                <PendingBadge
+                  count={
+                    pending?.data?.entities.users[user.id]?.vehicle_verification
+                  }
+                />
                 <Badge
                   tone={
                     user.role === "DRIVER" || user.partner_activated_at

@@ -1,3 +1,5 @@
+import { pending_review_statuses } from '../admin_pending/pending.rules.js';
+import { ride_person } from '../admin_user/admin_user.rides.js';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/database/prisma.service.js';
@@ -1505,55 +1507,97 @@ export class DriverOperationsService {
   }
   async reviews(status?: string, page = 1) {
     const page_size = 20;
-    const where = status ? { status } : {};
-    const [total, items] = await Promise.all([
-      this.database.client.rideSettlementReview.count({ where }),
-      this.database.client.rideSettlementReview.findMany({
-        where,
-        include: {
-          ride: {
-            select: {
-              rider_id: true,
-              driver_id: true,
-              status: true,
-              pickup_address: true,
-              dropoff_address: true,
-              matched_at: true,
-              arrived_at: true,
-              cancelled_at: true,
-              events: {
-                where: {
-                  event_type: {
-                    in: [
-                      'DRIVER_WAITING',
-                      'CALL_ATTEMPT',
-                      'CANCELLATION_REPORTED',
-                      'PASSENGER_NO_SHOW_REPORTED',
-                      'FARE_UNPAID_REPORTED',
-                      'CHARGE_DISPUTED',
-                    ],
+    const where = status
+      ? {
+          status:
+            status === 'PENDING' ? { in: pending_review_statuses } : status,
+        }
+      : {};
+    const result = await this.database.client.$transaction(
+      async (tx) => {
+        const total = await tx.rideSettlementReview.count({ where });
+        const current_page = Math.min(
+          page,
+          Math.max(1, Math.ceil(total / page_size)),
+        );
+        const items = await tx.rideSettlementReview.findMany({
+          where,
+          include: {
+            ride: {
+              select: {
+                rider_id: true,
+                created_at: true,
+                rider: { select: ride_person },
+                driver: { select: { user: { select: ride_person } } },
+                vehicle: {
+                  select: {
+                    plate_number: true,
+                    make: true,
+                    model: true,
+                    vehicle_category: { select: { name: true } },
                   },
                 },
-                select: {
-                  id: true,
-                  event_type: true,
-                  created_at: true,
-                  metadata: true,
+                driver_id: true,
+                status: true,
+                pickup_address: true,
+                dropoff_address: true,
+                matched_at: true,
+                arrived_at: true,
+                cancelled_at: true,
+                events: {
+                  where: {
+                    event_type: {
+                      in: [
+                        'DRIVER_WAITING',
+                        'CALL_ATTEMPT',
+                        'CANCELLATION_REPORTED',
+                        'PASSENGER_NO_SHOW_REPORTED',
+                        'FARE_UNPAID_REPORTED',
+                        'CHARGE_DISPUTED',
+                      ],
+                    },
+                  },
+                  select: {
+                    id: true,
+                    event_type: true,
+                    created_at: true,
+                    metadata: true,
+                  },
+                  orderBy: { created_at: 'asc' },
                 },
-                orderBy: { created_at: 'asc' },
+                final_fare: true,
+                estimated_fare: true,
+                payment: { select: { status: true, collection_method: true } },
               },
-              final_fare: true,
-              estimated_fare: true,
-              payment: { select: { status: true, collection_method: true } },
             },
           },
-        },
-        orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
-        skip: (page - 1) * page_size,
-        take: page_size,
-      }),
-    ]);
-    return { items, total, page, page_size };
+          orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+          skip: (current_page - 1) * page_size,
+          take: page_size,
+        });
+        return { total, items, page: current_page };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+    const { total, items } = result;
+    const reporters = items.length
+      ? await this.database.client.user.findMany({
+          where: {
+            id: { in: [...new Set(items.map((row) => row.reported_by_id))] },
+          },
+          select: ride_person,
+        })
+      : [];
+    const by_id = new Map(reporters.map((person) => [person.id, person]));
+    return {
+      items: items.map((row) => ({
+        ...row,
+        reported_by: by_id.get(row.reported_by_id) ?? null,
+      })),
+      total,
+      page: result.page,
+      page_size,
+    };
   }
   async review(
     actor_id: string,

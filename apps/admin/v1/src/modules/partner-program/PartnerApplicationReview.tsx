@@ -23,6 +23,7 @@ import {
   uploadFinalPdf,
   validateFinalPdf,
   readPartnerDetail,
+  type PartnerEmail,
 } from "./partner-program.api";
 import {
   partnerStatus,
@@ -49,6 +50,7 @@ export function PartnerApplicationReview({
   const resource = useAdminResource<{
     application: PartnerApplication;
     assets: PartnerAsset[];
+    emails: PartnerEmail[];
   }>(
     `${PARTNER_API}/applications/${encodeURIComponent(id)}`,
     readPartnerDetail,
@@ -350,6 +352,75 @@ export function PartnerApplicationReview({
           )}
         </div>
       </CatalogPanel>
+      {!!resource.data?.emails.length && (
+        <CatalogPanel
+          title="Email notifications"
+          description="Application messages queued after each saved action. SMTP acceptance is not proof of inbox delivery."
+          actions={
+            <Button
+              variant="secondary"
+              disabled={blocked}
+              onClick={() =>
+                void action(
+                  () =>
+                    apiRequest(
+                      PARTNER_API +
+                        "/applications/" +
+                        encodeURIComponent(id) +
+                        "/notifications/retry",
+                      { method: "POST" },
+                    ),
+                  "Email retries queued.",
+                )
+              }
+            >
+              Retry pending emails
+            </Button>
+          }
+        >
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Notification</th>
+                  <th>Status</th>
+                  <th>Queued</th>
+                  <th>Attempts</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resource.data.emails.map((email) => (
+                  <tr key={email.id}>
+                    <td>
+                      {partnerStatus(email.event)}
+                      {email.last_error && (
+                        <small className="cell-detail">
+                          {email.last_error}
+                        </small>
+                      )}
+                    </td>
+                    <td>
+                      <Badge
+                        tone={
+                          email.status === "SENT"
+                            ? "active"
+                            : email.status === "FAILED"
+                              ? "danger"
+                              : "warning"
+                        }
+                      >
+                        {partnerStatus(email.status)}
+                      </Badge>
+                    </td>
+                    <td>{reviewDate(email.created_at)}</td>
+                    <td>{email.attempts}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CatalogPanel>
+      )}
       {reviewing &&
         !app.fields.some((f) => f.requirement_id === "__live_selfie__") && (
           <CatalogPanel

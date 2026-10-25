@@ -1,3 +1,4 @@
+import { is_pending_poll } from '../features/admin_pending/pending.rules.js';
 import {
   Injectable,
   type NestInterceptor,
@@ -16,17 +17,23 @@ export class AdminAuditInterceptor implements NestInterceptor {
   constructor(private readonly audit: AdminAuditService) {}
   async intercept(context: ExecutionContext, next: CallHandler) {
     const request = context.switchToHttp().getRequest<Request>();
-    if (!should_audit_admin(request)) return next.handle();
-    await this.audit.start(request);
+    const audited = should_audit_admin(request);
+    if (!audited) return next.handle();
+    if (
+      audited &&
+      !is_pending_poll(request.method, request.originalUrl || request.path)
+    )
+      await this.audit.start(request);
     const response = context.switchToHttp().getResponse<Response>();
     return next.handle().pipe(
       concatMap(async (value) => {
         // Finish before serializing success; finish/close middleware remains a
         // retry path. Never turn a committed mutation into a retryable error just
         // because its request-outcome update failed.
-        await this.audit
-          .complete(request, response)
-          .catch((error) => this.audit.report_failure(request, error));
+        if (audited)
+          await this.audit
+            .complete(request, response)
+            .catch((error) => this.audit.report_failure(request, error));
         return value;
       }),
     );

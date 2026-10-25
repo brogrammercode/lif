@@ -74,6 +74,12 @@ const CONFIG_SCHEMA = z.object({
   GOOGLE_CLIENT_ID: z.string().default(''),
   MAIL_USER: z.union([z.literal(''), z.email()]).default(''),
   GOOGLE_APP_PASSWORD: z.string().default(''),
+  SMTP_HOST: z.string().trim().min(1).default('smtp.gmail.com'),
+  SMTP_PORT: z.coerce.number().int().positive().max(65535).default(587),
+  SMTP_SECURE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
   MAIL_FROM_NAME: z.string().trim().min(1).default('1More Partner Program'),
   ADMIN_NOTIFICATION_ORIGIN: origin_list
     .refine((value) => !value.includes(','), 'Provide one admin panel origin.')

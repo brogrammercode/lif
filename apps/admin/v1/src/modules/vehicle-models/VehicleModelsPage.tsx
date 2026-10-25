@@ -1,3 +1,5 @@
+import { useSearchParams } from "react-router-dom";
+import { PendingBadge, usePending } from "../pending/PendingProvider";
 import { CatalogImport } from "./CatalogImport";
 import { PageHeading } from "../../components/layout/PageHeading";
 import { CatalogPanel, TableLoading } from "../../components/ui/CatalogPanel";
@@ -48,12 +50,19 @@ function ReviewFilter({
   );
 }
 export function VehicleModelsPage() {
+  const [params, setParams] = useSearchParams();
+  const pendingOnly = params.get("pending_only") === "true";
+  const pending = usePending();
   const [brandQuery, setBrandQuery] = useState("");
   const [modelQuery, setModelQuery] = useState("");
   const brandSearch = useDebouncedText(brandQuery);
   const modelSearch = useDebouncedText(modelQuery);
-  const [brandStatus, setBrandStatus] = useState("all");
-  const [modelStatus, setModelStatus] = useState("all");
+  const [brandStatus, setBrandStatus] = useState(
+    params.get("pending_only") === "true" ? "REQUESTED" : "all",
+  );
+  const [modelStatus, setModelStatus] = useState(
+    pendingOnly ? "REQUESTED" : "all",
+  );
   const [brandPage, setBrandPage] = useState(1);
   const [modelPage, setModelPage] = useState(1);
   const [selected, setSelected] = useState<Brand | null>(null);
@@ -69,6 +78,29 @@ export function VehicleModelsPage() {
   const models = useAdminResource<Paged<VehicleModel>>(
     `/admin/vehicle-models?${new URLSearchParams({ query: modelSearch, status: modelStatus, page: String(modelPage), ...(selected ? { brand_id: selected.id } : {}) })}`,
   );
+  useEffect(() => {
+    if (pendingOnly) {
+      setBrandStatus("REQUESTED");
+      setModelStatus("REQUESTED");
+      setBrandQuery("");
+      setModelQuery("");
+      setBrandPage(1);
+      setModelPage(1);
+      setSelected(null);
+    } else {
+      setBrandStatus((current) => (current === "REQUESTED" ? "all" : current));
+      setModelStatus((current) => (current === "REQUESTED" ? "all" : current));
+    }
+  }, [pendingOnly]);
+  const leavePending = () =>
+    setParams(
+      (current) => {
+        const p = new URLSearchParams(current);
+        p.delete("pending_only");
+        return p;
+      },
+      { replace: true },
+    );
   useEffect(() => {
     if (brands.loading) return;
     setSelected((current) =>
@@ -108,6 +140,12 @@ export function VehicleModelsPage() {
         <CatalogPanel
           className="catalog-directory"
           title="Brands"
+          actions={
+            <PendingBadge
+              count={pending?.data?.queues.brands}
+              label="brand requests"
+            />
+          }
           description="Select a brand to manage its models."
           count={brands.data?.total ?? "…"}
           busy={brands.loading}
@@ -127,6 +165,7 @@ export function VehicleModelsPage() {
                 value={brandStatus}
                 onChange={(value) => {
                   setBrandStatus(value);
+                  if (value !== "REQUESTED") leavePending();
                   setBrandPage(1);
                 }}
                 label="Brand review status"
@@ -219,17 +258,23 @@ export function VehicleModelsPage() {
           count={models.data?.total ?? "…"}
           busy={models.loading}
           actions={
-            <Button
-              disabled={!selected}
-              title={!selected ? "Select a brand first" : undefined}
-              onClick={() => {
-                if (selected)
-                  setEditor({ kind: "model", record: null, brand: selected });
-              }}
-            >
-              <Icon name="plus" size={18} />
-              Add model
-            </Button>
+            <>
+              <PendingBadge
+                count={pending?.data?.queues.models}
+                label="model requests"
+              />
+              <Button
+                disabled={!selected}
+                title={!selected ? "Select a brand first" : undefined}
+                onClick={() => {
+                  if (selected)
+                    setEditor({ kind: "model", record: null, brand: selected });
+                }}
+              >
+                <Icon name="plus" size={18} />
+                Add model
+              </Button>
+            </>
           }
           toolbar={
             <ManagementToolbar
@@ -246,6 +291,7 @@ export function VehicleModelsPage() {
                 value={modelStatus}
                 onChange={(value) => {
                   setModelStatus(value);
+                  if (value !== "REQUESTED") leavePending();
                   setModelPage(1);
                 }}
                 label="Model review status"

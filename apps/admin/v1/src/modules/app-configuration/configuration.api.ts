@@ -1,3 +1,4 @@
+import type { RidePerson } from "../users/ride-presentation";
 import { apiRequest } from "../../lib/api-client";
 import type { CategoryFare, VehicleFamily } from "../../types/domain";
 export type FareRate = {
@@ -84,6 +85,7 @@ export type TripReview = {
   id: string;
   ride_id: string;
   reported_by_id: string;
+  reported_by?: RidePerson | null;
   driver_id: string | null;
   kind: string;
   status: string;
@@ -94,6 +96,14 @@ export type TripReview = {
   version: number;
   created_at: string;
   ride: {
+    rider?: RidePerson;
+    driver?: { user: RidePerson } | null;
+    vehicle?: {
+      make: string;
+      model: string;
+      plate_number: string;
+      vehicle_category: { name: string } | null;
+    } | null;
     rider_id: string;
     status: string;
     pickup_address: string;

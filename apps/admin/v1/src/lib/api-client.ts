@@ -186,7 +186,7 @@ export function restoreBrowserSession(): Promise<BrowserSession | null> {
   return refreshing;
 }
 
-export async function apiRequest<T>(
+async function apiRequestInternal<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
@@ -237,3 +237,18 @@ export async function apiRequest<T>(
 }
 export const safeMessage = (error: unknown) =>
   error instanceof Error ? error.message : NETWORK_COPY.UNKNOWN_ERROR;
+
+export async function apiRequest<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  const result = await apiRequestInternal<T>(path, options);
+  if (
+    !["GET", "HEAD", "OPTIONS"].includes(
+      (options.method ?? "GET").toUpperCase(),
+    ) &&
+    !options.anonymous
+  )
+    window.dispatchEvent(new Event("admin:mutation"));
+  return result;
+}
