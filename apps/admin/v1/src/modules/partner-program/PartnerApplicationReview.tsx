@@ -12,7 +12,7 @@ import { Dialog } from "../../components/ui/Dialog";
 import { CatalogPanel, TableLoading } from "../../components/ui/CatalogPanel";
 import { Icon } from "../../components/ui/Icon";
 import { FileUpload } from "../../components/ui/FileUpload";
-import { DocumentPreview } from "../../components/ui/DocumentPreview";
+import { DocumentDialog } from "../../components/ui/DocumentPreview";
 import { InlineError, StateCard } from "../../components/feedback/StateCard";
 import { Toast } from "../../components/feedback/Toast";
 import { apiRequest, safeMessage } from "../../lib/api-client";
@@ -81,6 +81,7 @@ export function PartnerApplicationReview({
   const [snapshot, setSnapshot] = useState<{
     title: string;
     html: string;
+    version?: number;
   } | null>(null);
   const [code, setCode] = useState<string | null>(null);
   useEffect(() => {
@@ -795,9 +796,12 @@ export function PartnerApplicationReview({
         />
       )}
       {snapshot && (
-        <Dialog title={snapshot.title} onClose={() => setSnapshot(null)}>
-          <DocumentPreview html={snapshot.html} />
-        </Dialog>
+        <DocumentDialog
+          title={snapshot.title}
+          html={snapshot.html}
+          version={snapshot.version}
+          onClose={() => setSnapshot(null)}
+        />
       )}
       {code && (
         <Dialog

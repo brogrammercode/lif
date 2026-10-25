@@ -170,6 +170,10 @@ The completed review and verification record is in [`context/ADMIN_REVIEW.md`](.
 
 ## Expanded management workspace
 
+The shared configuration/review layout was reworked on 25 October 2026. Fare cards and previews, ride reports, vehicle verification, accepted-document readers and private attachment viewers use the common panels, fields and actions. See [the UI rework record](../../../context/ADMIN_UI_CONSISTENCY_REWORK.md) and [design specifications](../../../context/WEB_DESIGN.md).
+
+Users currently exposes **Personal** and **Vehicle Verification**. The admin **Driver Account** tab/page is deferred; old bookmarks redirect to Personal without loading driver-account or finance information.
+
 Admin Access now includes the location recorded at the last sign-in. Google sign-in asks for browser geolocation; declined/unavailable location falls back to an IP estimate with ISP details where available. Browser coordinates, IP estimates and unavailable results are labeled distinctly. Existing sessions need a fresh sign-in before a location snapshot appears. See [ADMIN_LOGIN_LOCATION.md](../../../context/ADMIN_LOGIN_LOCATION.md) for provider use, timeouts and trust limits.
 
 - **Admin / Access / 1More Admin**: access removal uses the grant version rather than the profile timestamp. Last admin login is visible. **Audit log** records recognized admin requests, session activity and outcomes with search/filters/pagination.

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import "../../styles/partner-program.css";
 import { Dialog } from "../../components/ui/Dialog";
 import { Button } from "../../components/ui/Button";
 import { InlineError } from "../../components/feedback/StateCard";
@@ -47,11 +48,12 @@ export function PrivateAssetPreview({
   }, [assetId, revision, loadFile]);
   return (
     <Dialog
+      reader
       title={file?.name ?? "Attachment preview"}
       onClose={onClose}
       description="Private attachment. Download a copy only when you need one."
     >
-      <div className="review-panel-body space-y-4">
+      <div className="document-reader attachment-reader">
         {error ? (
           <>
             <InlineError message={error} />
@@ -87,14 +89,19 @@ export function PrivateAssetPreview({
             it to open in a compatible application.
           </p>
         )}
-        {file && (
-          <div className="dialog-footer">
+      </div>
+      <div className="document-reader-footer">
+        <span>Private attachment</span>
+        <div className="review-actions">
+          {file && (
             <Button variant="secondary" onClick={() => downloadFile(file)}>
               Download original
             </Button>
-            <Button onClick={onClose}>Done</Button>
-          </div>
-        )}
+          )}
+          <Button variant="secondary" onClick={onClose}>
+            Done
+          </Button>
+        </div>
       </div>
     </Dialog>
   );

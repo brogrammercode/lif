@@ -1,6 +1,12 @@
 import { TripReviewsPage } from "../modules/app-configuration/TripReviewsPage";
 import { lazy, Suspense } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import {
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useParams,
+} from "react-router-dom";
 import { AppShell } from "../components/layout/AppShell";
 import { LoadingState, StateCard } from "../components/feedback/StateCard";
 import { AuthPage } from "../modules/auth/AuthPage";
@@ -9,7 +15,6 @@ import { WORKSPACE_PATH } from "../modules/auth/auth.constant";
 import { VehicleCategoriesPage } from "../modules/vehicle-categories/VehicleCategoriesPage";
 import { VehicleVerificationPage } from "../modules/users/VehicleVerificationPage";
 import { PersonalPage } from "../modules/users/PersonalPage";
-import { DriverAccountPage } from "../modules/users/DriverAccountPage";
 import { AdminAccessPage } from "../modules/admin-access/AdminAccessPage";
 import { ADMIN_ACCESS_PATH } from "../modules/admin-access/admin-access.constant";
 import { AdminActivityPage } from "../modules/admin-access/AdminActivityPage";
@@ -79,7 +84,7 @@ export function App() {
         <Route path="/users/:userId/personal" element={<PersonalPage />} />
         <Route
           path="/users/:userId/driver-account"
-          element={<DriverAccountPage />}
+          element={<DeferredDriverAccount />}
         />
         <Route
           path="/users/:userId/vehicle-verification"
@@ -189,5 +194,15 @@ export function App() {
         }
       />
     </Routes>
+  );
+}
+
+function DeferredDriverAccount() {
+  const { userId } = useParams();
+  return (
+    <Navigate
+      replace
+      to={userId ? `/users/${encodeURIComponent(userId)}/personal` : "/users"}
+    />
   );
 }

@@ -7,7 +7,8 @@ import {
   StateCard,
 } from "../../components/feedback/StateCard";
 import { Button } from "../../components/ui/Button";
-import { EditorSection } from "../../components/ui/EditorSection";
+import { CatalogPanel } from "../../components/ui/CatalogPanel";
+import { Icon } from "../../components/ui/Icon";
 import { Field } from "../../components/ui/Field";
 import { Badge } from "../../components/ui/Badge";
 import { ManagementPagination } from "../../components/ui/ManagementControls";
@@ -15,6 +16,17 @@ import { useAdminResource, useAdminSave } from "../../lib/useAdminResource";
 import { ApiError, apiRequest } from "../../lib/api-client";
 import type { TripReview, TripReviewPage } from "./configuration.api";
 import { decodeTripReviews } from "./configuration.validation";
+
+const reviewLabel = (value: string) =>
+  value
+    .toLowerCase()
+    .replaceAll("_", " ")
+    .replace(/^./, (letter) => letter.toUpperCase());
+const reviewTime = (value: string) =>
+  new Date(value).toLocaleString([], {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 
 export function TripReviewsPage() {
   const [status, setStatus] = useState("");
@@ -68,137 +80,231 @@ export function TripReviewsPage() {
       <PageHeading
         eyebrow="App / User"
         title="Ride Reviews"
-        description="Review unpaid fares, cancellation and no-show evidence. Fees belong to the affected driver and are never added to another ride."
+        description="Review unpaid fares, cancellations and no-shows. Resolve each report using the trip evidence."
       />
-      <div className="personal-card editor-form">
-        <Field id="trip-review-filter" label="Review status">
-          <select
-            id="trip-review-filter"
-            className="field"
-            value={status}
-            disabled={save.busy}
-            onChange={(e) => {
-              setStatus(e.target.value);
-              setPage(1);
-            }}
-          >
-            <option value="">All statuses</option>
-            {[
-              "REQUESTED",
-              "DISPUTED",
-              "APPROVED",
-              "WAIVED",
-              "REJECTED",
-              "SETTLED",
-            ].map((value) => (
-              <option key={value}>{value}</option>
-            ))}
-          </select>
-        </Field>
-        <p className="field-hint">
-          An approval records a pending obligation. Mark settled only after
-          verifying receipt by the original driver. A call attempt records that
-          calling was requested; it does not prove connection. Review valid
-          reasons, late/refusing drivers and disputes before approving a fee.
-        </p>
-        {save.error && <InlineError message={save.error} />}
-        <Button
-          variant="secondary"
-          disabled={save.busy || resource.loading}
-          onClick={resource.refresh}
-        >
-          Refresh reviews
-        </Button>
-      </div>
-      {resource.loading ? (
-        <LoadingState />
-      ) : resource.error ? (
-        <StateCard
-          error
-          title="Could not load ride reviews"
-          message={resource.error}
-        >
-          <Button onClick={resource.refresh}>Retry</Button>
-        </StateCard>
-      ) : resource.data?.items.length === 0 ? (
-        <StateCard
-          title="No ride reviews"
-          message="Reports will appear here when submitted from a trip."
-        />
-      ) : (
-        resource.data?.items.map((row, index) => (
-          <div className="personal-card editor-form" key={row.id}>
-            <EditorSection
-              step={String(index + 1).padStart(2, "0")}
-              title={`${row.kind.replaceAll("_", " ")} · INR ${row.fee_amount}`}
-              description={`Trip ${row.ride_id} · Version ${row.version}`}
+      <CatalogPanel
+        title="Ride reports"
+        description="Review reports and record decisions in one place."
+        count={resource.data?.total}
+        busy={resource.loading}
+        toolbar={
+          <div className="review-toolbar">
+            <Field id="trip-review-filter" label="Review status">
+              <select
+                id="trip-review-filter"
+                className="field"
+                value={status}
+                disabled={save.busy}
+                onChange={(e) => {
+                  setStatus(e.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="">All statuses</option>
+                {[
+                  "REQUESTED",
+                  "DISPUTED",
+                  "APPROVED",
+                  "WAIVED",
+                  "REJECTED",
+                  "SETTLED",
+                ].map((value) => (
+                  <option key={value} value={value}>
+                    {reviewLabel(value)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Button
+              variant="secondary"
+              disabled={save.busy || resource.loading}
+              onClick={resource.refresh}
             >
-              <Badge>{row.status}</Badge>
+              <Icon
+                name={resource.loading ? "spinner" : "refresh"}
+                className={resource.loading ? "animate-spin" : ""}
+                size={16}
+              />
+              Refresh reviews
+            </Button>
+          </div>
+        }
+        footer={
+          resource.data && !resource.error && resource.data.total > 0 ? (
+            <ManagementPagination
+              data={resource.data}
+              disabled={save.busy || resource.loading}
+              onPage={setPage}
+            />
+          ) : undefined
+        }
+      >
+        <div className="review-guidance">
+          <Icon name="shield" size={18} />
+          <div>
+            <p>
+              Fees belong to the affected driver and are never added to another
+              ride.
+            </p>
+            <details>
+              <summary>Review guidelines</summary>
               <p>
-                {row.ride.pickup_address} → {row.ride.dropoff_address}
+                An approval records a pending obligation. Mark settled only
+                after verifying receipt by the original driver. A call attempt
+                records that calling was requested; it does not prove
+                connection. Review valid reasons, late/refusing drivers and
+                disputes before approving a fee.
               </p>
-              <p>
-                <Link
-                  to={`/users/${encodeURIComponent(row.ride.rider_id)}/personal`}
-                >
-                  View rider
-                </Link>{" "}
-                · Reported by {row.reported_by_id} · Affected driver profile{" "}
-                {row.driver_id ?? "None"}
-              </p>
-              <div className="form-grid">
+            </details>
+          </div>
+        </div>
+        {save.error && (
+          <div className="catalog-feedback">
+            <InlineError message={save.error} />
+          </div>
+        )}
+        {resource.loading ? (
+          <LoadingState />
+        ) : resource.error ? (
+          <StateCard
+            error
+            title="Could not load ride reviews"
+            message={resource.error}
+          >
+            <Button onClick={resource.refresh}>Retry</Button>
+          </StateCard>
+        ) : resource.data?.items.length === 0 ? (
+          <StateCard
+            title={status ? "No matching reviews" : "No ride reviews"}
+            message={
+              status
+                ? "Choose another status to see more reports."
+                : "Reports will appear here when submitted from a trip."
+            }
+          />
+        ) : (
+          resource.data?.items.map((row) => (
+            <article className="trip-review" key={row.id}>
+              <header className="trip-review-heading">
                 <div>
-                  <span className="field-hint">Reported reason</span>
+                  <h3>{reviewLabel(row.kind)}</h3>
+                  <p className="field-hint">
+                    Trip {row.ride_id} · Version {row.version}
+                  </p>
+                </div>
+                <div className="trip-review-amount">
+                  <strong>
+                    {new Intl.NumberFormat("en-IN", {
+                      style: "currency",
+                      currency: "INR",
+                    }).format(Number(row.fee_amount))}
+                  </strong>
+                  <Badge
+                    tone={
+                      ["SETTLED", "APPROVED"].includes(row.status)
+                        ? "active"
+                        : ["DISPUTED", "REQUESTED"].includes(row.status)
+                          ? "warning"
+                          : row.status === "REJECTED"
+                            ? "danger"
+                            : "inactive"
+                    }
+                  >
+                    {reviewLabel(row.status)}
+                  </Badge>
+                </div>
+              </header>
+              <div className="trip-review-route">
+                <div>
+                  <span>Pickup</span>
+                  <p>{row.ride.pickup_address}</p>
+                </div>
+                <Icon name="arrowRight" size={16} />
+                <div>
+                  <span>Drop-off</span>
+                  <p>{row.ride.dropoff_address}</p>
+                </div>
+              </div>
+              <div className="review-facts">
+                <div>
+                  <span>Reported reason</span>
                   <p>{row.reason}</p>
                 </div>
                 {row.dispute_reason && (
                   <div>
-                    <span className="field-hint">Dispute</span>
+                    <span>Dispute</span>
                     <p>{row.dispute_reason}</p>
                   </div>
                 )}
+                <div>
+                  <span>Driver accepted</span>
+                  <p>
+                    {row.ride.matched_at
+                      ? reviewTime(row.ride.matched_at)
+                      : "Not assigned"}
+                  </p>
+                </div>
+                <div>
+                  <span>Arrival recorded</span>
+                  <p>
+                    {row.ride.arrived_at
+                      ? reviewTime(row.ride.arrived_at)
+                      : "Not recorded"}
+                  </p>
+                </div>
               </div>
-              <p className="field-hint">
-                Accepted:{" "}
-                {row.ride.matched_at
-                  ? new Date(row.ride.matched_at).toLocaleString()
-                  : "Not assigned"}{" "}
-                · Arrival:{" "}
-                {row.ride.arrived_at
-                  ? new Date(row.ride.arrived_at).toLocaleString()
-                  : "Not recorded"}
-              </p>
+              <div className="trip-review-participants">
+                <Link
+                  className="review-text-link"
+                  to={
+                    "/users/" +
+                    encodeURIComponent(row.ride.rider_id) +
+                    "/personal"
+                  }
+                >
+                  View rider <Icon name="arrowRight" size={14} />
+                </Link>
+                <span>
+                  Reported by {row.reported_by_id} · Driver profile{" "}
+                  {row.driver_id ?? "None"}
+                </span>
+              </div>
               {row.ride.events?.length > 0 && (
-                <details>
+                <details className="trip-evidence">
                   <summary>Review trip evidence</summary>
-                  {row.ride.events.map((event) => (
-                    <div key={event.id}>
-                      <strong>{event.event_type.replaceAll("_", " ")}</strong> ·{" "}
-                      {new Date(event.created_at).toLocaleString()}
-                      {event.metadata != null && (
-                        <pre className="field-hint whitespace-pre-wrap">
-                          {JSON.stringify(event.metadata, null, 2)}
-                        </pre>
-                      )}
-                    </div>
-                  ))}
+                  <div className="trip-evidence-list">
+                    {row.ride.events.map((event) => (
+                      <div key={event.id}>
+                        <strong>{reviewLabel(event.event_type)}</strong>
+                        <time>{reviewTime(event.created_at)}</time>
+                        {event.metadata != null && (
+                          <pre>{JSON.stringify(event.metadata, null, 2)}</pre>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </details>
               )}
-              {row.resolution_note && <p>{row.resolution_note}</p>}
+              {row.resolution_note && (
+                <div className="workspace-notice">
+                  <strong>Resolution</strong>
+                  <p>{row.resolution_note}</p>
+                </div>
+              )}
               {blocked[row.id] && (
                 <p className="field-hint">
                   Refresh reviews before making another decision on this report.
                 </p>
               )}
               {!["WAIVED", "REJECTED", "SETTLED"].includes(row.status) && (
-                <>
+                <div className="trip-review-decision">
                   <Field
-                    id={`review-${row.id}`}
+                    id={"review-" + row.id}
                     label="Review note"
                     hint="Explain the evidence and the decision (at least 5 characters)."
                   >
                     <textarea
-                      id={`review-${row.id}`}
+                      id={"review-" + row.id}
                       className="field"
                       rows={3}
                       maxLength={2000}
@@ -208,7 +314,7 @@ export function TripReviewsPage() {
                       }
                     />
                   </Field>
-                  <div className="dialog-footer">
+                  <div className="review-actions">
                     {(row.status === "APPROVED"
                       ? ["REJECTED", "WAIVED", "SETTLED"]
                       : ["REJECTED", "WAIVED", "APPROVED"]
@@ -233,19 +339,12 @@ export function TripReviewsPage() {
                       </Button>
                     ))}
                   </div>
-                </>
+                </div>
               )}
-            </EditorSection>
-          </div>
-        ))
-      )}
-      {resource.data && !resource.error && (
-        <ManagementPagination
-          data={resource.data}
-          disabled={save.busy || resource.loading}
-          onPage={setPage}
-        />
-      )}
+            </article>
+          ))
+        )}
+      </CatalogPanel>
     </div>
   );
 }

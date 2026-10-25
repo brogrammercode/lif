@@ -122,6 +122,39 @@ async function workspace(page: Page) {
   ).toBeVisible();
   return state;
 }
+test("vehicle selection and approval progress share a bounded registration panel", async ({
+  page,
+}) => {
+  await workspace(page);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const panel = page.getByRole("region", {
+      name: "Vehicle registrations",
+      exact: false,
+    });
+    await expect(panel.getByLabel("Vehicle", { exact: true })).toHaveValue(
+      "vehicle",
+    );
+    await expect(
+      panel.getByRole("progressbar", { name: "Vehicle field approvals" }),
+    ).toHaveAttribute("value", "0");
+    await expect(
+      page.getByRole("link", { name: "Driver Account", exact: true }),
+    ).toHaveCount(0);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await panel.screenshot({
+      path: `test-results/ui-vehicle-selector-${width}.png`,
+    });
+    await page
+      .locator(".application-form")
+      .screenshot({ path: `test-results/ui-vehicle-fields-${width}.png` });
+  }
+});
+
 test("reviews grouped fields with version checks, reasons, and private inline previews", async ({
   page,
 }) => {
@@ -158,6 +191,24 @@ test("reviews grouped fields with version checks, reasons, and private inline pr
   await expect(
     page.getByRole("dialog").getByRole("img", { name: "insurance.webp" }),
   ).toBeVisible();
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    const preview = page.getByRole("dialog");
+    await expect(
+      preview.getByRole("button", { name: "Download original", exact: true }),
+    ).toBeVisible();
+    await expect(
+      preview.getByRole("button", { name: "Done", exact: true }),
+    ).toBeVisible();
+    expect(
+      await preview.evaluate(
+        (node) => node.scrollWidth <= node.clientWidth + 1,
+      ),
+    ).toBe(true);
+    await preview.screenshot({
+      path: `.artifacts/admin-ui/attachment-reader-${width}.png`,
+    });
+  }
 });
 test("offers Driver/User filtering and keeps the vehicle tab while switching users", async ({
   page,

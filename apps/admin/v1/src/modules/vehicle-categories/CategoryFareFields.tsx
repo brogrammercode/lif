@@ -33,7 +33,7 @@ export function CategoryFareFields({
         }
       />
       {value !== null && (
-        <div className="form-grid">
+        <div className="form-grid category-fare-fields">
           {categoryRateFields.map((field) => (
             <Field
               key={field.key}

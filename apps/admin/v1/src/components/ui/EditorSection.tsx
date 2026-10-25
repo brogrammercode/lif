@@ -6,20 +6,27 @@ export function EditorSection({
   title,
   description,
   children,
+  card = false,
 }: {
   step: string;
   title: string;
   description?: string;
   children: ReactNode;
+  card?: boolean;
 }) {
   const id = useId();
   return (
-    <section className="editor-section" aria-labelledby={id}>
-      <div className="editor-section-heading">
-        <span className="section-step">{step}</span>
-        <h3 id={id}>{title}</h3>
-      </div>
-      {description && <p className="field-hint">{description}</p>}
+    <section
+      className={`editor-section${card ? " personal-card" : ""}`}
+      aria-labelledby={id}
+    >
+      <header className="editor-section-header">
+        <div className="editor-section-heading">
+          <span className="section-step">{step}</span>
+          <h3 id={id}>{title}</h3>
+        </div>
+        {description && <p className="field-hint">{description}</p>}
+      </header>
       {children}
     </section>
   );

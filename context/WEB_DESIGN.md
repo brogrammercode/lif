@@ -22,6 +22,19 @@ The desktop primary/secondary navigation, wide tables, stats grid, editor dialog
 
 ## Foundations
 
+### Configuration and review layout update — 25 October 2026
+
+Use the same amber, Space Grotesk, white bordered surfaces and 12px card corners across the workspace. Configuration and review pages use a centered 1100px content column with a 24px gap between independent panels. Page headings do not add a second bottom margin inside this stack. Catalog pages retain their wider table layout.
+
+- Shared `EditorSection` groups its title, step and supporting copy in one header. Standalone configuration sections use its `card` option; embedded form sections use one separator between groups rather than a line above every title. Helper copy is 12px/18px and uses the muted text token.
+- Fare configuration uses independent category cards, a compact shared-settings revision strip, a separate save-action surface and a shared `CatalogPanel` for previews. Preview tiles distinguish a numeric estimate, an unconfigured fare and invalid draft values. Physical-family icons are compatibility cues, never pricing groups.
+- Ride reviews use one `CatalogPanel` containing the status filter, compact refresh control, guidance, report entries and result pagination. Put empty/loading/error states inside that panel. Hide pagination when there are no results. Reports group route, reasons, timestamps, participants, expandable evidence and decision controls.
+- Vehicle verification starts with a `CatalogPanel` containing the selected registration, its review status and a real field-approval progress indicator. Reuse `ApplicationFieldsReview` for details and documents; do not add another duplicate identity/status card.
+- Accepted policies/confirmations and private attachments use the shared `Dialog` reader variant: 960px maximum width, bounded viewport height, fixed header/footer and one scrolling reading area. Keep download actions explicit. Preserve rich document content and sandboxing; no automatic download on preview. Closing any dialog returns keyboard focus to the opener when it is still mounted.
+- The admin **Driver Account** tab and page are deferred. Users exposes **Personal** and **Vehicle Verification**. Existing `/users/:userId/driver-account` bookmarks redirect to that user's Personal page and do not fetch driver-finance/private-payout data. Backend and mobile account capabilities are outside this UI deferral.
+
+See [the UI rework record](ADMIN_UI_CONSISTENCY_REWORK.md) for scope and verification.
+
 ### Colors
 
 | Token | Value | Use |

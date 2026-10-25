@@ -1,3 +1,7 @@
+import { CatalogPanel } from "../../components/ui/CatalogPanel";
+import { Badge } from "../../components/ui/Badge";
+import { Icon } from "../../components/ui/Icon";
+import { isCategoryFare } from "../vehicle-categories/category-fare";
 import { CategoryFareFields } from "../vehicle-categories/CategoryFareFields";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -65,14 +69,15 @@ export function FarePolicyPage() {
         title="Fare Policy"
         description="Configure independent distance fares for every vehicle category and subcategory. Saved settings apply to new ride quotes."
       />
-      <ConfigurationMetadata value={draft} />
-      <p className="field-hint">
-        Version and administrator above refer to shared payment and matching
-        settings. Category fares have their own update checks and can also be
-        edited in Vehicle Categories.
-      </p>
+      <div className="configuration-summary">
+        <ConfigurationMetadata value={draft} />
+        <p className="field-hint">
+          Shared payment and matching settings. Category fares can also be
+          edited in Vehicle Categories.
+        </p>
+      </div>
       <form
-        className="personal-card editor-form"
+        className="editor-form configuration-form"
         onSubmit={(event) => {
           event.preventDefault();
           if (save.busy || blocked) return;
@@ -107,6 +112,7 @@ export function FarePolicyPage() {
           )}
           {draft.rates.map((rate, index) => (
             <EditorSection
+              card
               key={rate.category_id}
               step={String(index + 1).padStart(2, "0")}
               title={
@@ -147,6 +153,7 @@ export function FarePolicyPage() {
             added. Existing quotes keep their saved policy.
           </p>
           <EditorSection
+            card
             step={String(draft.rates.length + 1).padStart(2, "0")}
             title="Cancellation & Payment Policy"
             description="Payment follows ride completion. Drivers receive the full fare and cannot change it manually."
@@ -267,6 +274,7 @@ export function FarePolicyPage() {
             </p>
           </EditorSection>
           <EditorSection
+            card
             step={String(draft.rates.length + 2).padStart(2, "0")}
             title="Matching & Trip Operations"
             description="Search expands while no driver accepts. Arrival is verified separately against pickup and a fresh, accurate driver fix."
@@ -378,12 +386,11 @@ export function FarePolicyPage() {
           </div>
         </fieldset>
       </form>
-      <div className="personal-card editor-form">
-        <EditorSection
-          step={String(draft.rates.length + 3).padStart(2, "0")}
-          title="Fare preview"
-          description="An estimate using the unsaved values above; final quotes are calculated by the API."
-        >
+      <CatalogPanel
+        title="Fare preview"
+        description="Estimate with your unsaved rates. Riders see fares from the saved policy."
+      >
+        <div className="fare-preview-controls">
           <Field id="fare-preview-km" label="Ride distance (km)">
             <input
               id="fare-preview-km"
@@ -396,45 +403,79 @@ export function FarePolicyPage() {
               onChange={(event) => setDistance(event.target.value)}
             />
           </Field>
-          <dl className="form-grid">
-            {draft.rates.map((category) => {
-              const rate = category.fare_policy;
-              const valid =
-                rate !== null &&
-                distance.trim() !== "" &&
-                Number.isFinite(previewKm) &&
-                previewKm >= 0 &&
-                Object.values(rate).every(
-                  (value) => Number.isFinite(value) && value >= 0,
-                );
-              const price =
-                valid && rate
-                  ? Math.min(previewKm, rate.max_profit_km) *
-                      rate.profit_fare_per_km +
-                    Math.max(previewKm - rate.max_profit_km, 0) *
-                      rate.normal_fare_per_km
-                  : null;
-              return (
-                <div key={category.category_id}>
-                  <dt className="field-hint">
-                    {category.parent_name
-                      ? category.parent_name + " / " + category.name
-                      : category.name}
-                  </dt>
-                  <dd>
-                    {price === null
-                      ? "Fare not configured"
-                      : new Intl.NumberFormat("en-IN", {
+          <span className="field-hint">
+            Distance fares only · No time charge or commission
+          </span>
+        </div>
+        <dl className="fare-preview-grid">
+          {draft.rates.map((category) => {
+            const rate = category.fare_policy;
+            const valid =
+              rate !== null &&
+              isCategoryFare(rate) &&
+              distance.trim() !== "" &&
+              Number.isFinite(previewKm) &&
+              previewKm >= 0 &&
+              previewKm <= 100000;
+            const price =
+              valid && rate
+                ? Math.min(previewKm, rate.max_profit_km) *
+                    rate.profit_fare_per_km +
+                  Math.max(previewKm - rate.max_profit_km, 0) *
+                    rate.normal_fare_per_km
+                : null;
+            return (
+              <div className="fare-preview-item" key={category.category_id}>
+                <dt>
+                  <span className="stat-icon">
+                    <Icon
+                      name={
+                        ["BIKE", "SCOOTER"].includes(category.vehicle_type)
+                          ? "bike"
+                          : "car"
+                      }
+                      size={18}
+                    />
+                  </span>
+                  <span>
+                    <strong>{category.name}</strong>
+                    {category.parent_name && (
+                      <small>{category.parent_name}</small>
+                    )}
+                  </span>
+                </dt>
+                <dd>
+                  {price === null ? (
+                    <Badge tone="inactive">
+                      {rate === null
+                        ? "Fare not configured"
+                        : "Enter valid values"}
+                    </Badge>
+                  ) : (
+                    <>
+                      <strong className="fare-preview-price">
+                        {new Intl.NumberFormat("en-IN", {
                           style: "currency",
                           currency: "INR",
                         }).format(price)}
-                  </dd>
-                </div>
-              );
-            })}
-          </dl>
-        </EditorSection>
-      </div>
+                      </strong>
+                      <span className="field-hint">for {previewKm} km</span>
+                    </>
+                  )}
+                </dd>
+                {!category.is_selectable && (
+                  <span className="field-hint">Not an enabled ride choice</span>
+                )}
+              </div>
+            );
+          })}
+        </dl>
+        {draft.rates.length === 0 && (
+          <p className="catalog-feedback field-hint">
+            Create a category to preview its fare.
+          </p>
+        )}
+      </CatalogPanel>
     </div>
   );
 }

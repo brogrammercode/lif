@@ -303,8 +303,15 @@ fieldset {
   flex-shrink: 0;
 }
 .personal-page {
+  display: grid;
+  gap: 24px;
+  width: 100%;
+  min-width: 0;
   max-width: 1100px;
   margin: 0 auto;
+}
+.personal-page > .page-heading {
+  margin-bottom: 0;
 }
 .personal-card {
   border: 1px solid var(--color-line);
@@ -1156,9 +1163,9 @@ tbody tr:hover {
   font-size: 11px;
 }
 .field-hint {
-  font-size: 10px;
-  color: var(--color-subtle);
-  line-height: 17px;
+  font-size: 12px;
+  color: var(--color-muted);
+  line-height: 18px;
 }
 .currency-field {
   position: relative;
@@ -1817,6 +1824,29 @@ tbody tr:hover {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
+}
+.editor-section-header {
+  display: grid;
+  gap: 6px;
+}
+.editor-section-header .editor-section-heading {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.editor-section-header .field-hint {
+  max-width: 80ch;
+}
+.editor-section + .editor-section:not(.personal-card) {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--color-line);
+}
+.editor-form > .editor-section-heading:first-child,
+.personal-card > fieldset > .editor-section-heading:first-child {
+  border-top: 0;
+  padding-top: 0;
 }
 .editor-form > .workspace-notice {
   margin: 0;
@@ -2164,11 +2194,323 @@ tbody tr:hover {
 }
 .vehicle-review-list {
   display: grid;
-  gap: 12px;
+  gap: 24px;
 }
-.vehicle-review-select {
+.configuration-summary {
+  display: grid;
+  gap: 8px;
+}
+.configuration-metadata {
   display: flex;
-  gap: 12px;
   align-items: center;
   flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+.metadata-version {
+  padding: 3px 8px;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  background: white;
+  color: var(--color-ink);
+  font-weight: 500;
+}
+.category-fare-fields {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  align-items: start;
+}
+.configuration-form > .field-hint {
+  padding: 0 4px;
+}
+.configuration-form .dialog-footer {
+  background: white;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin: 0;
+}
+.fare-preview-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px 24px;
+  padding: 0 24px 20px;
+}
+.fare-preview-controls .field-group {
+  width: 200px;
+  max-width: 100%;
+}
+.fare-preview-controls > .field-hint {
+  padding-bottom: 12px;
+}
+.fare-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 12px;
+  padding: 0 24px 24px;
+}
+.fare-preview-item {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  min-width: 0;
+}
+.fare-preview-item dt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+}
+.fare-preview-item dt > span:last-child {
+  min-width: 0;
+}
+.fare-preview-item dt strong {
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.fare-preview-item small {
+  display: block;
+  color: var(--color-muted);
+  font-size: 11px;
+  margin-top: 3px;
+}
+.fare-preview-item dd {
+  display: grid;
+  gap: 3px;
+  justify-items: start;
+}
+.fare-preview-price {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.6px;
+  overflow-wrap: anywhere;
+}
+.review-toolbar {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 0 24px 20px;
+}
+.review-toolbar .field-group {
+  width: 240px;
+  max-width: 100%;
+}
+.review-toolbar > .button {
+  margin-left: auto;
+}
+.review-guidance {
+  display: flex;
+  align-items: start;
+  gap: 10px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--color-line);
+  background: #fafafa;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--color-muted);
+}
+.review-guidance > svg {
+  flex-shrink: 0;
+  color: var(--color-brand);
+  margin-top: 2px;
+}
+.review-guidance summary {
+  color: var(--color-brand);
+  cursor: pointer;
+  margin-top: 4px;
+}
+.review-guidance details p {
+  max-width: 80ch;
+  margin-top: 8px;
+}
+.trip-review {
+  display: grid;
+  gap: 20px;
+  padding: 24px;
+  border-top: 1px solid var(--color-line);
+  font-size: 13px;
+  line-height: 20px;
+}
+.trip-review-heading,
+.trip-review-participants,
+.review-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.trip-review-heading h3 {
+  font-size: 14px;
+  font-weight: 600;
+}
+.trip-review-heading .field-hint {
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+.trip-review-amount {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+}
+.trip-review-amount > strong {
+  font-size: 22px;
+  font-weight: 600;
+}
+.trip-review-route {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  background: #fafafa;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  padding: 16px;
+}
+.trip-review-route span,
+.review-facts span {
+  display: block;
+  font-size: 11px;
+  color: var(--color-muted);
+  margin-bottom: 4px;
+}
+.trip-review-route p,
+.review-facts p {
+  overflow-wrap: anywhere;
+}
+.review-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 16px 24px;
+}
+.trip-review-participants {
+  font-size: 12px;
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+.trip-evidence {
+  border-top: 1px solid var(--color-line);
+  border-bottom: 1px solid var(--color-line);
+  padding: 12px 0;
+}
+.trip-evidence summary {
+  cursor: pointer;
+  font-weight: 500;
+}
+.trip-evidence-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+.trip-evidence-list > div {
+  border-left: 2px solid var(--color-line);
+  padding-left: 12px;
+}
+.trip-evidence-list strong,
+.trip-evidence-list time {
+  display: block;
+  font-size: 12px;
+}
+.trip-evidence-list time {
+  color: var(--color-muted);
+}
+.trip-evidence-list pre {
+  background: var(--color-canvas);
+  padding: 12px;
+  margin-top: 8px;
+  font-size: 11px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.trip-review-decision {
+  display: grid;
+  gap: 16px;
+}
+.review-actions {
+  justify-content: flex-end;
+}
+.vehicle-selection {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 24px 24px;
+  flex-wrap: wrap;
+}
+.vehicle-selection-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  background: var(--color-brand-soft);
+  color: var(--color-brand);
+  flex-shrink: 0;
+}
+.vehicle-selection > .field-group {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+.vehicle-review-progress {
+  flex: 0 1 180px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.vehicle-review-progress progress {
+  display: block;
+  width: 100%;
+  height: 6px;
+  margin-top: 10px;
+  accent-color: var(--color-brand);
+  border: 0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.vehicle-review-progress progress::-webkit-progress-bar {
+  background: var(--color-canvas);
+}
+.vehicle-review-progress progress::-webkit-progress-value {
+  background: var(--color-brand);
+}
+@media (max-width: 639px) {
+  .fare-preview-controls,
+  .review-toolbar,
+  .vehicle-selection {
+    padding: 0 16px 16px;
+  }
+  .fare-preview-grid {
+    padding: 0 16px 16px;
+  }
+  .review-toolbar .field-group,
+  .review-toolbar > .button,
+  .vehicle-review-progress {
+    width: 100%;
+    flex-basis: 100%;
+  }
+  .vehicle-selection-icon {
+    display: none;
+  }
+  .trip-review,
+  .review-guidance {
+    padding: 16px;
+  }
+  .trip-review-route {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .trip-review-route > svg {
+    display: none;
+  }
+  .review-actions > .button {
+    flex: 1 1 140px;
+    white-space: normal;
+  }
 }

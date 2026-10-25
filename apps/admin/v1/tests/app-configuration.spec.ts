@@ -232,6 +232,92 @@ test("invalid category fare values and revisions block editing and recover after
   ).toBeVisible();
 });
 
+test("fare cards and preview stay separated and bounded at desktop and mobile widths", async ({
+  page,
+}) => {
+  await mockConfiguration(page, {
+    transformPolicy(value) {
+      const policy = value as { rates: { fare_policy: unknown }[] };
+      policy.rates[1]!.fare_policy = null;
+      return policy;
+    },
+  });
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/app/user/fare-policy");
+    const cards = page.locator(
+      ".configuration-form .editor-section.personal-card",
+    );
+    await expect(cards).toHaveCount(categories.length + 2);
+    const first = await cards.nth(0).boundingBox(),
+      second = await cards.nth(1).boundingBox();
+    expect(second!.y - first!.y - first!.height).toBeGreaterThanOrEqual(16);
+    const preview = page.getByRole("region", {
+      name: "Fare preview",
+      exact: true,
+    });
+    await expect(
+      preview.getByText("Fare not configured", { exact: true }),
+    ).toBeVisible();
+    await expect(preview.locator(".fare-preview-item")).toHaveCount(
+      categories.length,
+    );
+    await page.getByLabel("Ride distance (km)").fill("10");
+    await expect(preview.locator(".fare-preview-price").first()).toHaveText(
+      "₹120.00",
+    );
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await preview.screenshot({
+      path: `test-results/ui-fare-preview-${width}.png`,
+    });
+    await cards
+      .first()
+      .screenshot({ path: `test-results/ui-fare-card-${width}.png` });
+  }
+});
+
+test("empty ride reports use a compact toolbar and keep their empty state inside the panel", async ({
+  page,
+}) => {
+  await mockConfiguration(page);
+  await page.route("**/api/v2/admin/trip-reviews**", (route) =>
+    route.fulfill({
+      json: {
+        status: "success",
+        data: { items: [], total: 0, page: 1, page_size: 20 },
+      },
+    }),
+  );
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/app/user/ride-reviews");
+    const panel = page.getByRole("region", {
+      name: "Ride reports",
+      exact: false,
+    });
+    await expect(
+      panel.getByRole("heading", { name: "No ride reviews", exact: true }),
+    ).toBeVisible();
+    await expect(panel.locator(".catalog-pagination")).toHaveCount(0);
+    const select = await page
+      .getByLabel("Review status", { exact: true })
+      .boundingBox();
+    if (width === 1440) expect(select!.width).toBeLessThanOrEqual(260);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await panel.screenshot({
+      path: `test-results/ui-ride-reviews-${width}.png`,
+    });
+  }
+});
+
 test("fare policy lists every category independently, including same-family and disabled choices", async ({
   page,
 }) => {
@@ -461,6 +547,19 @@ test("ride review shows evidence and requires approval before verified manual se
   await expect(
     page.getByRole("button", { name: "Record verified settlement" }),
   ).toHaveCount(0);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page.screenshot({
+      path: `.artifacts/admin-ui/ride-report-populated-${width}.png`,
+      fullPage: true,
+    });
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
   await expect(
     page.getByRole("button", { name: "Approve charge" }),
   ).toBeDisabled();
@@ -485,7 +584,7 @@ test("ride review shows evidence and requires approval before verified manual se
   ).toHaveCount(0);
   expect(writes[1]).toMatchObject({ status: "SETTLED", expected_version: 2 });
   await expect(
-    page.locator(".badge").filter({ hasText: "SETTLED" }),
+    page.locator(".badge").filter({ hasText: "Settled" }),
   ).toBeVisible();
 });
 

@@ -7,6 +7,7 @@ export function Dialog({
   busy = false,
   children,
   small = false,
+  reader = false,
 }: {
   title: string;
   description?: string;
@@ -14,23 +15,30 @@ export function Dialog({
   busy?: boolean;
   children: ReactNode;
   small?: boolean;
+  reader?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const id = useId();
   useEffect(() => {
     const dialog = ref.current;
+    const previousFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     dialog?.showModal();
     return () => {
       dialog?.close();
       document.body.style.overflow = previousOverflow;
+      if (previousFocus?.isConnected)
+        previousFocus.focus({ preventScroll: true });
     };
   }, []);
   return (
     <dialog
       ref={ref}
-      className={`dialog ${small ? "dialog-small" : ""}`}
+      className={`dialog ${small ? "dialog-small" : ""} ${reader ? "dialog-document" : ""}`}
       aria-labelledby={id}
       aria-describedby={description ? `${id}-description` : undefined}
       onCancel={(event) => {

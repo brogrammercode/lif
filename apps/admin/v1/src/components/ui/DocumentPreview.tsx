@@ -1,5 +1,40 @@
 import "../../styles/partner-program.css";
 import documentStyles from "../../styles/document-content.css?raw";
+import { Dialog } from "./Dialog";
+import { Button } from "./Button";
+
+export function DocumentDialog({
+  title,
+  html,
+  version,
+  onClose,
+}: {
+  title: string;
+  html: string;
+  version?: number;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog
+      reader
+      title={title}
+      description={
+        version ? `Accepted document · Version ${version}` : "Document preview"
+      }
+      onClose={onClose}
+    >
+      <div className="document-reader">
+        <DocumentPreview html={html} />
+      </div>
+      <div className="document-reader-footer">
+        <span>Read-only document</span>
+        <Button variant="secondary" onClick={onClose}>
+          Done
+        </Button>
+      </div>
+    </Dialog>
+  );
+}
 export function DocumentPreview({ html }: { html: string }) {
   const theme = getComputedStyle(document.documentElement);
   const variables = [

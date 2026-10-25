@@ -501,7 +501,8 @@ test("confirmation review shows acceptance only and never loads submitted field 
 test("confirmation review remains compact within desktop and mobile viewports", async ({
   page,
 }) => {
-  await workspace(page, "CONFIRMATION_SUBMITTED");
+  const state = await workspace(page, "CONFIRMATION_SUBMITTED");
+  state.app.confirmation!.document_snapshot!.html = `<h2>Partner Program Confirmation</h2><p>Review the terms accepted by the applicant before approving their confirmation.</p><h3>1. Applicant understanding</h3><ul><li><strong>Accuracy of information:</strong> Personal details and submitted documents are authentic and belong to the applicant.</li><li><strong>Policy acceptance:</strong> The applicant has read and accepted the published partner policy.</li></ul><h3>2. Confirmation record</h3><table><tr><th>Applicant</th><td>Partner Applicant</td></tr><tr><th>Document version</th><td>Version 1</td></tr></table>${Array.from({ length: 14 }, (_, index) => `<h3>${index + 3}. Service requirement</h3><p>Keep account information current, follow the published safety guidelines and contact support if help is needed. Changes are reviewed before taking effect.</p>`).join("")}<p>End of accepted document.</p>`;
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(
@@ -519,5 +520,44 @@ test("confirmation review remains compact within desktop and mobile viewports", 
       path: "test-results/partner-confirmation-" + width + ".png",
       fullPage: true,
     });
+    await page
+      .getByRole("button", { name: "Read accepted confirmation" })
+      .click();
+    const dialog = page.getByRole("dialog");
+    await expect(
+      dialog.getByRole("button", { name: "Done", exact: true }),
+    ).toBeVisible();
+    const box = await dialog.boundingBox();
+    expect(box!.width).toBeLessThanOrEqual(width);
+    if (width === 1440) expect(box!.width).toBeGreaterThan(800);
+    expect(box!.height).toBeLessThanOrEqual(900);
+    const reader = await dialog.locator("iframe").boundingBox();
+    expect(reader!.height).toBeGreaterThan(450);
+    expect(
+      await dialog.evaluate(
+        (node) => node.scrollHeight <= node.clientHeight + 1,
+      ),
+    ).toBe(true);
+    const frame = page.frameLocator('iframe[title="Document preview"]');
+    await frame
+      .getByText("End of accepted document.", { exact: true })
+      .scrollIntoViewIfNeeded();
+    await expect(
+      dialog.getByRole("button", { name: "Done", exact: true }),
+    ).toBeVisible();
+    await frame
+      .getByRole("heading", {
+        name: "Partner Program Confirmation",
+        exact: true,
+      })
+      .scrollIntoViewIfNeeded();
+    await dialog.screenshot({
+      path: `test-results/ui-document-reader-${width}.png`,
+    });
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Read accepted confirmation" }),
+    ).toBeFocused();
   }
 });

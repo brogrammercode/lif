@@ -43,7 +43,7 @@ Settings includes a rider/driver switch for activated drivers and exited partner
 
 Driver mode still requires an eligible verified vehicle. Required vehicle registration includes Settings for returning to rider mode, Help and sign-out. Driver trips/history are owner-scoped. Phase B extends the recovery page into the map-first operational trip below. Support combines configured contact actions with existing tickets. Home's bell opens Notifications, its no-GPS/no-cache fallback is Bhagalpur, and scheduling is represented as Now until the next release.
 
-Fresh fare quotes use the saved admin Fare Policy rather than category base/time rates. Configure actual rates for all three fare groups in **App > User > Fare Policy** before requesting quotes. No monetary defaults are invented. **Support > Configure > Contact** supplies public help channels.
+Fresh fare quotes use each vehicle category's independent distance-band fare rather than category base/time rates. Configure actual rates for each selectable category or subcategory in **App > User > Fare Policy** or **Vehicle Categories** before requesting quotes. Unconfigured categories are excluded from new quotes; parent and physical-family prices are never inherited. **Support > Configure > Contact** supplies public help channels.
 
 Deploy the matching API V2 routes and configuration migrations before releasing this mobile change. No new APK or Shorebird patch was published for Phase A or B. See [Phase A implementation, accepted rules and rollout](../../../context/PHASE_A_IMPLEMENTATION.md).
 
@@ -81,7 +81,7 @@ Shorebird's default updater checks for patches in the background on launch and u
 
 1. Run `flutter pub get` and `flutter analyze`.
 2. Set the local `.env` to the intended environment. For production, use `API_BASE_URL=https://apionemore.vercel.app/api/v2` and the matching public Google web client ID. This file is bundled into the app; it must contain only public client configuration.
-3. Check the version in `pubspec.yaml` (`0.1.2+2` currently). Each new base release needs a new version/build number, for example `0.1.3+3` after releasing `0.1.2+2`.
+3. Check the version in `pubspec.yaml` (`0.1.3+3` currently). Each new base release needs a new version/build number, for example `0.1.4+4` after releasing `0.1.3+3`.
 4. Build and publish the Shorebird base release:
 
 ```powershell
@@ -115,7 +115,7 @@ adb install -r build/app/outputs/flutter-apk/app-release.apk
 
 ### Publish a Dart fix to an existing release
 
-Use the target release's original environment/build settings. The repository is prepared for the next base release, `0.1.2+2`; the existing Android base release is `0.1.1+1`. Explicitly override both build values when patching that installed release:
+Use the target release's original environment/build settings. To patch the older installed Android base `0.1.1+1`, explicitly override both build values:
 
 ```powershell
 shorebird patch android --release-version 0.1.1+1 --build-name 0.1.1 --build-number 1 --track stable
@@ -131,7 +131,16 @@ When a patch depends on new API endpoints, publish it to `--track staging` first
 | --- | --- | --- | --- | --- | --- |
 | 2026-10-23 | Android | `0.1.1+1` | `1` | stable | Driver vehicle registration, review feedback, draft recovery, and eligibility gate. |
 
-Patch 1 passed Shorebird's native-code and asset compatibility checks. The vehicle screens reuse the car and image icons already bundled in the base release; adding new tree-shaken icon glyphs would require a new base APK. The required API V2 routes were deployed before stable promotion. The repository's `0.1.2+2` version is prepared for a future base release and is not a newly published APK.
+Patch 1 passed Shorebird's native-code and asset compatibility checks. The vehicle screens reuse the car and image icons already bundled in that base release; adding new tree-shaken icon glyphs requires a new base APK. The required API V2 routes were deployed before stable promotion.
+
+**Android base release `0.1.3+3` was published to Shorebird on 25 October 2026**, using Flutter `3.47.7` (Shorebird revision `7dbbfb1fc6`) and the existing release signing identity. Package metadata and the APK signature were verified: `com.brogrammer.onemore`, version name `0.1.3`, version code `3`.
+
+- APK: `build/app/outputs/flutter-apk/app-release.apk` (103,583,557 bytes, approximately 98.8 MiB).
+- APK SHA-256: `ad97b5d2ab8c68f02fba724f0eeee87ee739fc2df6bbcfad94c00690c688a47e`.
+- Companion bundle: `build/app/outputs/bundle/release/app-release.aab`.
+- Distribute the APK separately; Shorebird publication does not install a new base version on existing devices or publish it to Google Play. Native Phase B changes require this new base rather than a patch to `0.1.1+1`.
+
+On this 8 GB Windows machine, the release used process-only Gradle overrides for a 2 GB heap, two workers and Kotlin compilation in process. The project's Gradle settings were not changed.
 
 ### Maintenance and checks
 

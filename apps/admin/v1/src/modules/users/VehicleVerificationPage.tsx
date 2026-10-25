@@ -9,6 +9,9 @@ import {
 } from "../../components/feedback/StateCard";
 import { Button } from "../../components/ui/Button";
 import { Badge } from "../../components/ui/Badge";
+import { CatalogPanel } from "../../components/ui/CatalogPanel";
+import { Field } from "../../components/ui/Field";
+import { Icon } from "../../components/ui/Icon";
 import { ApiError, safeMessage } from "../../lib/api-client";
 import { ApplicationFieldsReview } from "../partner-program/ApplicationFieldsReview";
 import { PrivateAssetPreview } from "../partner-program/PrivateAssetPreview";
@@ -161,29 +164,71 @@ function UserVehicles({ id }: { id: string }) {
       </PageHeading>
       {data.vehicles.length ? (
         <>
-          <div className="personal-card vehicle-review-select">
-            <label htmlFor="verification-vehicle" className="field-label">
-              Vehicle ({data.vehicles.length})
-            </label>
-            <select
-              id="verification-vehicle"
-              className="field"
-              value={selected}
-              disabled={busy || loading}
-              onChange={(e) => {
-                setSelected(e.target.value);
-                setActionError(null);
-                setPreview(null);
-              }}
-            >
-              {data.vehicles.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.plate_number} — {v.make} {v.model} ·{" "}
-                  {partnerStatus(v.status)}
-                </option>
-              ))}
-            </select>
-          </div>
+          <CatalogPanel
+            title="Vehicle registrations"
+            description="Choose a submitted vehicle to review its details and documents."
+            count={data.vehicles.length}
+            actions={
+              vehicle && (
+                <Badge
+                  tone={
+                    vehicle.status === "ACTIVE"
+                      ? "active"
+                      : partnerTone(vehicle.status)
+                  }
+                >
+                  {partnerStatus(vehicle.status)}
+                </Badge>
+              )
+            }
+          >
+            <div className="vehicle-selection">
+              <span className="vehicle-selection-icon">
+                <Icon name="shield" size={22} />
+              </span>
+              <Field id="verification-vehicle" label="Vehicle">
+                <select
+                  id="verification-vehicle"
+                  className="field"
+                  value={selected}
+                  disabled={busy || loading}
+                  onChange={(e) => {
+                    setSelected(e.target.value);
+                    setActionError(null);
+                    setPreview(null);
+                  }}
+                >
+                  {data.vehicles.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.plate_number} — {v.make} {v.model} ·{" "}
+                      {partnerStatus(v.status)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              {vehicle && (
+                <div className="vehicle-review-progress">
+                  <span>
+                    {
+                      vehicle.verification_fields.filter(
+                        (field) => field.status === "APPROVED",
+                      ).length
+                    }{" "}
+                    / {vehicle.verification_fields.length} fields approved
+                  </span>
+                  <progress
+                    aria-label="Vehicle field approvals"
+                    value={
+                      vehicle.verification_fields.filter(
+                        (field) => field.status === "APPROVED",
+                      ).length
+                    }
+                    max={Math.max(vehicle.verification_fields.length, 1)}
+                  />
+                </div>
+              )}
+            </div>
+          </CatalogPanel>
           {vehicle && (
             <VehicleReview
               key={vehicle.id}
@@ -260,27 +305,14 @@ function VehicleReview({
     vehicle.catalog_model.status !== "VERIFIED";
   return (
     <>
-      <div className="personal-card vehicle-review-select">
-        <strong>
-          {vehicle.make} {vehicle.model}
-        </strong>
-        <Badge
-          tone={
-            vehicle.status === "ACTIVE" ? "active" : partnerTone(vehicle.status)
-          }
-        >
-          {partnerStatus(vehicle.status)}
-        </Badge>
-        <span className="field-hint">{vehicle.plate_number}</span>
-      </div>
       {pendingCatalog && (
-        <p className="field-hint">
+        <p className="workspace-notice">
           Verify requested brands and models in App → User → Vehicle Models
           before approving those fields.
         </p>
       )}
       {vehicle.status === "ACTIVE" && vehicle.is_eligible === false && (
-        <p className="field-hint">
+        <p className="workspace-notice">
           This approved vehicle is unavailable. Check its catalog and category
           configuration, or request a correction to reopen the affected fields.
         </p>
