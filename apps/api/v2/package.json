@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "npm run build:dependencies && nest start --watch",
-    "build": "prisma generate && prisma db push --skip-generate && npm run build:compile",
+    "build": "prisma generate && prisma migrate deploy && prisma db push --skip-generate && npm run build:compile",
     "build:dependencies": "node scripts/build_dependencies.mjs",
     "build:compile": "npm run build:dependencies && nest build",
     "start": "node dist/src/main.js",

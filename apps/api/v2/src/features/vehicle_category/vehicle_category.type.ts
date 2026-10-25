@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { image_upload_schema } from '../../infra/media/image_upload.js';
+import { category_fare_input } from '../app_configuration/fare_calculation.js';
 const rate = z
   .number()
   .finite()
@@ -27,9 +28,10 @@ export const category_schema = z
     parent_id: z.string().min(1).max(100).nullable().default(null),
     vehicle_type: vehicle_family_schema,
     capacity: z.number().int().min(1).max(8),
-    base_fare: rate,
-    per_kilometer: rate,
-    per_minute: rate,
+    base_fare: rate.optional(),
+    per_kilometer: rate.optional(),
+    per_minute: rate.optional(),
+    fare_policy: category_fare_input.nullable().optional(),
     is_active: z.boolean(),
     sort_order: z.number().int().min(0).max(100000).default(0),
   })

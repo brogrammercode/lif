@@ -27,6 +27,7 @@ function category(
     parent_name: parent?.name ?? null,
     vehicle_type: "SEDAN",
     capacity: 4,
+    fare_policy: null,
     base_fare: 80,
     per_kilometer: 18,
     per_minute: 3,
@@ -161,6 +162,43 @@ test("navigation, category creation, subcategory creation, search, editing and m
   expect(
     await page.evaluate(() => localStorage.length + sessionStorage.length),
   ).toBe(0);
+});
+
+test("category creation saves its own fare and a new child does not inherit it", async ({
+  page,
+}) => {
+  await mockWorkspace(page);
+  await page.goto(path);
+  await page.getByRole("button", { name: "Add category", exact: true }).click();
+  await page.getByLabel("Category name", { exact: true }).fill("Priced parent");
+  await page
+    .getByRole("switch", { name: "Configure category fare", exact: true })
+    .click();
+  await page.locator("#category-fare-max_profit_km").fill("3");
+  await page.locator("#category-fare-normal_fare_per_km").fill("12");
+  await page.locator("#category-fare-profit_fare_per_km").fill("22");
+  await page
+    .getByRole("button", { name: "Create category", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Edit Priced parent", exact: true })
+    .click();
+  await expect(page.locator("#category-fare-normal_fare_per_km")).toHaveValue(
+    "12",
+  );
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "Add subcategory under Priced parent",
+      exact: true,
+    })
+    .click();
+  await expect(
+    page.getByRole("switch", { name: "Configure category fare", exact: true }),
+  ).not.toBeChecked();
+  await expect(page.locator("#category-fare-normal_fare_per_km")).toHaveCount(
+    0,
+  );
 });
 
 test("expired access token refreshes and retries without browser token storage", async ({
@@ -521,6 +559,45 @@ test("invalid catalog records cannot crash the workspace", async ({ page }) => {
   await expect(page.getByRole("alert")).toContainText("unexpected response");
   await expect(
     page.getByRole("heading", { name: "Vehicle categories", exact: true }),
+  ).toBeVisible();
+});
+
+test("invalid category fare responses stay recoverable in the category editor", async ({
+  page,
+}) => {
+  await mockWorkspace(page);
+  let fault: Record<string, unknown> = {};
+  await page.route("**/api/v2/admin/vehicle-categories", (route) =>
+    route.fulfill({
+      json: {
+        status: "success",
+        data: [{ ...category("sedan", "Sedan"), ...fault }],
+      },
+    }),
+  );
+  const validFare = {
+    max_profit_km: 2,
+    normal_fare_per_km: 10,
+    profit_fare_per_km: 20,
+  };
+  for (const invalid of [
+    { fare_policy: { ...validFare, profit_fare_per_km: 1000000.01 } },
+    { fare_policy: { ...validFare, max_profit_km: 2.0001 } },
+    { fare_policy: { ...validFare, unexpected_rate: 99 } },
+    { updated_at: "2026-10-25" },
+    { updated_at: "2026-02-30T00:00:00.000Z" },
+  ]) {
+    fault = invalid;
+    await page.goto(path);
+    await expect(page.getByRole("alert")).toContainText("unexpected response");
+    await expect(
+      page.getByRole("button", { name: "Edit Sedan", exact: true }),
+    ).toHaveCount(0);
+  }
+  fault = { fare_policy: validFare, updated_at: "2026-10-25T00:00:00Z" };
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Edit Sedan", exact: true }),
   ).toBeVisible();
 });
 

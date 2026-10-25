@@ -87,7 +87,7 @@ Saves validate on the API, reject duplicate phone numbers, and require `expected
 
 ## Categories and subcategories
 
-Create/edit category names, descriptions, optional uploaded images, physical vehicle families, passenger capacity, base/per-km/per-minute fares in INR, enabled state, and display order. Codes are generated on the server. Search, enabled/disabled filters, refresh, pagination, loading, error, no-results, and empty states use real API data.
+Create/edit category names, descriptions, optional uploaded images, physical vehicle families, passenger capacity, independent fare policy, enabled state, and display order. Each category/subcategory owns its profit-distance limit, normal INR/km and profit INR/km. The same values can be edited in App > User > Fare Policy; families and parents never supply a fallback fare. Unconfigured categories are visible for configuration/registration but receive no fresh rider quotes. Codes are generated on the server. Search, filters, refresh, pagination and feedback use real API data.
 
 - A root with no children is selectable. Once it contains subcategories it becomes a group, and its enabled leaves become the selectable choices.
 - The initial hierarchy is two levels: category and subcategory. Self-parenting, cycles, and a third level are rejected.

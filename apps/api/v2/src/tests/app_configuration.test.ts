@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { it } from 'node:test';
+import { it, mock } from 'node:test';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../infra/database/prisma.service.js';
 import { AppConfigurationService } from '../features/app_configuration/app_configuration.service.js';
@@ -7,10 +7,18 @@ import {
   fare_policy_input,
   support_contact_input,
 } from '../features/app_configuration/app_configuration.type.js';
-import { calculate_distance_fare } from '../features/app_configuration/fare_calculation.js';
+import {
+  calculate_distance_fare,
+  category_fare_values,
+} from '../features/app_configuration/fare_calculation.js';
 import { require_supported_ride_payment } from '../features/app_configuration/payment_policy.js';
 import { availability_after_trip } from '../features/driver/driver_eligibility.js';
 import { PaymentRepository } from '../features/payment/payment.repo.js';
+import { VehicleCategoryRepository } from '../features/vehicle_category/vehicle_category.repo.js';
+import {
+  category_schema,
+  update_category_schema,
+} from '../features/vehicle_category/vehicle_category.type.js';
 
 const settings = fare_policy_input.parse({
   expected_version: 1,
@@ -22,11 +30,14 @@ const settings = fare_policy_input.parse({
   free_pickup_wait_minutes: 5,
   cancellation_fee_percent: 10,
   maximum_cancellation_fee: 100,
-  rates: ['AUTO_TOTO', 'BIKE_SCOOTER', 'CAR'].map((group) => ({
-    group,
-    max_profit_km: 2,
-    normal_fare_per_km: 10,
-    profit_fare_per_km: 20,
+  rates: ['economy', 'premium', 'family'].map((category_id) => ({
+    category_id,
+    expected_updated_at: '2026-10-25T00:00:00.000Z',
+    fare_policy: {
+      max_profit_km: 2,
+      normal_fare_per_km: 10,
+      profit_fare_per_km: 20,
+    },
   })),
 });
 const row = () => ({
@@ -42,9 +53,13 @@ const row = () => ({
   maximum_cancellation_fee: new Prisma.Decimal(100),
   rates: settings.rates.map((rate) => ({
     ...rate,
-    max_profit_km: new Prisma.Decimal(rate.max_profit_km),
-    normal_fare_per_km: new Prisma.Decimal(rate.normal_fare_per_km),
-    profit_fare_per_km: new Prisma.Decimal(rate.profit_fare_per_km),
+    max_profit_km: new Prisma.Decimal(rate.fare_policy!.max_profit_km),
+    normal_fare_per_km: new Prisma.Decimal(
+      rate.fare_policy!.normal_fare_per_km,
+    ),
+    profit_fare_per_km: new Prisma.Decimal(
+      rate.fare_policy!.profit_fare_per_km,
+    ),
   })),
 });
 const database = (client: unknown) => {
@@ -72,7 +87,7 @@ it('prices both distance bands and rounds once after summing', () => {
     });
 });
 
-it('rejects missing/duplicate groups, unsupported charges and disabled payment channels', () => {
+it('rejects duplicate categories, unsupported charges and disabled payment channels', () => {
   assert.equal(
     fare_policy_input.safeParse({
       ...settings,
@@ -94,6 +109,330 @@ it('rejects missing/duplicate groups, unsupported charges and disabled payment c
   );
 });
 
+it('supports any category count and rejects partial, negative, duplicate or group-keyed fares', () => {
+  for (const count of [0, 1, 4, 9]) {
+    assert.equal(
+      fare_policy_input.safeParse({
+        ...settings,
+        rates: Array.from({ length: count }, (_, i) => ({
+          ...settings.rates[0]!,
+          category_id: `custom-${i}`,
+        })),
+      }).success,
+      true,
+    );
+  }
+  assert.equal(
+    fare_policy_input.safeParse({
+      ...settings,
+      rates: [
+        { ...settings.rates[0]!, fare_policy: { normal_fare_per_km: 10 } },
+      ],
+    }).success,
+    false,
+  );
+  assert.equal(
+    fare_policy_input.safeParse({
+      ...settings,
+      rates: [
+        {
+          ...settings.rates[0]!,
+          fare_policy: {
+            ...settings.rates[0]!.fare_policy!,
+            profit_fare_per_km: -1,
+          },
+        },
+      ],
+    }).success,
+    false,
+  );
+  assert.equal(
+    fare_policy_input.safeParse({
+      ...settings,
+      rates: [
+        {
+          group: 'old-group',
+          max_profit_km: 2,
+          profit_fare_per_km: 10,
+          normal_fare_per_km: 10,
+        },
+      ],
+    }).success,
+    false,
+  );
+  assert.equal(
+    category_fare_values({
+      max_profit_km: new Prisma.Decimal(2),
+      normal_fare_per_km: null,
+      profit_fare_per_km: new Prisma.Decimal(10),
+    }),
+    null,
+  );
+});
+
+it('category saves remain independent, support clearing one fare and reject renamed/deleted rows', async () => {
+  let policy = row();
+  const categories = settings.rates.map((rate) => ({
+    id: rate.category_id,
+    name: rate.category_id,
+    parent: null,
+    vehicle_type: 'SEDAN',
+    is_active: true,
+    updated_at: new Date(rate.expected_updated_at),
+    _count: { children: 0 },
+    max_profit_km: new Prisma.Decimal(2),
+    normal_fare_per_km: new Prisma.Decimal(10),
+    profit_fare_per_km: new Prisma.Decimal(20),
+  }));
+  let writes = 0;
+  const tx = {
+    $executeRaw: async () => 1,
+    user: {
+      findUnique: async () => ({
+        id: 'admin',
+        role: 'ADMIN',
+        status: 'ACTIVE',
+        deleted_at: null,
+      }),
+    },
+    rideFarePolicy: {
+      findUnique: async () => policy,
+      update: async () => (policy = { ...policy, version: policy.version + 1 }),
+    },
+    vehicleCategory: {
+      findMany: async () => categories,
+      updateMany: async ({
+        where,
+        data,
+      }: {
+        where: { id: string };
+        data: Record<string, unknown>;
+      }) => {
+        writes++;
+        const category = categories.find((c) => c.id === where.id)!;
+        Object.assign(category, {
+          ...data,
+          ...Object.fromEntries(
+            ['max_profit_km', 'normal_fare_per_km', 'profit_fare_per_km'].map(
+              (key) => [
+                key,
+                data[key] === null
+                  ? null
+                  : new Prisma.Decimal(data[key] as number),
+              ],
+            ),
+          ),
+        });
+        return { count: 1 };
+      },
+    },
+    userLog: { create: async () => ({}) },
+  };
+  const service = new AppConfigurationService(
+    database({
+      ...tx,
+      $transaction: (action: (client: typeof tx) => Promise<unknown>) =>
+        action(tx),
+    }),
+  );
+  const saved = await service.save_fare_policy('admin', {
+    ...settings,
+    rates: [
+      {
+        ...settings.rates[0]!,
+        // Equivalent ISO instants must not produce a false stale-write conflict.
+        expected_updated_at: '2026-10-25T00:00:00Z',
+        fare_policy: {
+          max_profit_km: 1,
+          normal_fare_per_km: 33,
+          profit_fare_per_km: 44,
+        },
+      },
+    ],
+  });
+  assert.equal(
+    saved.rates.find((r) => r.category_id === 'economy')!.fare_policy!
+      .normal_fare_per_km,
+    33,
+  );
+  assert.equal(
+    saved.rates.find((r) => r.category_id === 'premium')!.fare_policy!
+      .normal_fare_per_km,
+    10,
+  );
+  assert.equal(writes, 1);
+  await assert.rejects(
+    service.save_fare_policy('admin', { ...settings, expected_version: 2 }),
+    { error_code: 'CATEGORY_FARE_CONFLICT' },
+  );
+  await assert.rejects(
+    service.save_fare_policy('admin', {
+      ...settings,
+      expected_version: 2,
+      rates: [{ ...settings.rates[0]!, category_id: 'removed-category' }],
+    }),
+    { error_code: 'CATEGORY_FARE_CONFLICT' },
+  );
+  assert.equal(writes, 1);
+  const premium = saved.rates.find((r) => r.category_id === 'premium')!;
+  const cleared = await service.save_fare_policy('admin', {
+    ...settings,
+    expected_version: 2,
+    rates: [
+      {
+        category_id: premium.category_id,
+        expected_updated_at: premium.updated_at.toISOString(),
+        fare_policy: null,
+      },
+    ],
+  });
+  assert.equal(
+    cleared.rates.find((r) => r.category_id === 'premium')!.fare_policy,
+    null,
+  );
+  assert.equal(
+    cleared.rates.find((r) => r.category_id === 'economy')!.fare_policy!
+      .normal_fare_per_km,
+    33,
+  );
+});
+
+it('new subcategories do not inherit a parent fare and may save their own fare at creation', async () => {
+  const parent = {
+    id: 'parent',
+    parent_id: null,
+    _count: { children: 0, vehicles: 0, quotes: 0 },
+    max_profit_km: new Prisma.Decimal(99),
+    normal_fare_per_km: new Prisma.Decimal(99),
+    profit_fare_per_km: new Prisma.Decimal(99),
+  };
+  let created = 0;
+  const tx = {
+    $executeRaw: async () => 1,
+    user: {
+      findUnique: async () => ({
+        status: 'ACTIVE',
+        deleted_at: null,
+        role: 'ADMIN',
+      }),
+    },
+    vehicleCategory: {
+      findUnique: async () => parent,
+      create: async ({ data }: { data: Record<string, unknown> }) => ({
+        id: `child-${++created}`,
+        max_profit_km: null,
+        normal_fare_per_km: null,
+        profit_fare_per_km: null,
+        ...data,
+      }),
+    },
+    userLog: { create: async () => ({}) },
+  };
+  const repo = new VehicleCategoryRepository(
+    database({
+      $transaction: (action: (client: typeof tx) => Promise<unknown>) =>
+        action(tx),
+    }),
+  );
+  const input = category_schema.parse({
+    name: 'New category',
+    parent_id: 'parent',
+    vehicle_type: 'SEDAN',
+    capacity: 4,
+    is_active: true,
+  });
+  const unpriced = await repo.write_category('admin', input);
+  assert.equal(unpriced.normal_fare_per_km, null);
+  const own = await repo.write_category('admin', {
+    ...input,
+    fare_policy: {
+      max_profit_km: 1,
+      normal_fare_per_km: 12,
+      profit_fare_per_km: 22,
+    },
+  });
+  assert.equal(own.normal_fare_per_km, 12);
+  assert.equal(own.profit_fare_per_km, 22);
+  assert.equal(parent.normal_fare_per_km.toNumber(), 99);
+});
+
+it('category edits preserve fares, advance revisions across clock skew and reject stale writes', async () => {
+  const initial = new Date('2026-10-25T00:00:00.000Z');
+  let current = {
+    id: 'category',
+    parent_id: null,
+    name: 'Economy',
+    vehicle_type: 'SEDAN',
+    capacity: 4,
+    updated_at: initial,
+    _count: { children: 0, vehicles: 0, quotes: 0 },
+    max_profit_km: new Prisma.Decimal(2),
+    normal_fare_per_km: new Prisma.Decimal(10),
+    profit_fare_per_km: new Prisma.Decimal(20),
+  };
+  let writes = 0;
+  const tx = {
+    $executeRaw: async () => 1,
+    user: {
+      findUnique: async () => ({
+        role: 'ADMIN',
+        status: 'ACTIVE',
+        deleted_at: null,
+      }),
+    },
+    vehicleCategory: {
+      findUnique: async () => ({ ...current }),
+      update: async ({ data }: { data: Record<string, unknown> }) => {
+        writes++;
+        current = {
+          ...current,
+          ...Object.fromEntries(
+            Object.entries(data).filter(([, value]) => value !== undefined),
+          ),
+        };
+        return { ...current };
+      },
+    },
+    userLog: { create: async () => ({}) },
+  };
+  const repo = new VehicleCategoryRepository(
+    database({
+      $transaction: (action: (client: typeof tx) => Promise<unknown>) =>
+        action(tx),
+    }),
+  );
+  const input = update_category_schema.parse({
+    name: 'Updated Economy',
+    vehicle_type: 'SEDAN',
+    capacity: 4,
+    is_active: true,
+    expected_updated_at: '2026-10-25T00:00:00Z',
+  });
+  const clock = mock.method(Date, 'now', () => initial.getTime() - 100);
+  try {
+    const saved = await repo.write_category('admin', input, 'category');
+    assert.equal(saved.updated_at.getTime(), initial.getTime() + 1);
+    assert.ok(saved.normal_fare_per_km);
+    assert.equal(saved.normal_fare_per_km.toString(), '10');
+    await assert.rejects(repo.write_category('admin', input, 'category'), {
+      error_code: 'CATEGORY_CONFLICT',
+    });
+    const next = await repo.write_category(
+      'admin',
+      {
+        ...input,
+        expected_updated_at: saved.updated_at.toISOString(),
+      },
+      'category',
+    );
+    assert.equal(next.updated_at.getTime(), initial.getTime() + 2);
+    assert.equal(writes, 2);
+    assert.equal(current.profit_fare_per_km.toString(), '20');
+  } finally {
+    clock.mock.restore();
+  }
+});
+
 it('normalizes support contact whitespace including blank optional channels', () => {
   const input = support_contact_input.parse({
     expected_version: 0,
@@ -110,17 +449,12 @@ it('normalizes support contact whitespace including blank optional channels', ()
   assert.equal(input.support_email, 'help@example.test');
 });
 
-it('rejects corrupt stored rates and policies before quoting', async () => {
+it('rejects unsupported shared policies before quoting', async () => {
   for (const policy of [
-    null,
-    { ...row(), rates: [] },
     { ...row(), cash_enabled: false, direct_upi_enabled: false },
     {
       ...row(),
-      rates: row().rates.map((rate) => ({
-        ...rate,
-        normal_fare_per_km: new Prisma.Decimal(-1),
-      })),
+      online_payment_enabled: true,
     },
   ]) {
     const service = new AppConfigurationService(
@@ -130,6 +464,18 @@ it('rejects corrupt stored rates and policies before quoting', async () => {
       error_code: 'FARE_POLICY_NOT_CONFIGURED',
     });
   }
+});
+
+it('category fares can use the agreed shared defaults before a global settings row is saved', async () => {
+  const service = new AppConfigurationService(
+    database({ rideFarePolicy: { findUnique: async () => null } }),
+  );
+  const snapshot = await service.fare_snapshot();
+  assert.equal(snapshot.version, 0);
+  assert.equal(snapshot.cash_enabled, true);
+  assert.equal(snapshot.direct_upi_enabled, true);
+  assert.equal(snapshot.commission_percent.toNumber(), 0);
+  assert.equal(snapshot.maximum_cancellation_fee.toNumber(), 100);
 });
 
 it('acknowledges the committed fare version and rejects a stale admin edit', async () => {
@@ -151,6 +497,21 @@ it('acknowledges the committed fare version and rejects a stale admin edit', asy
         writes++;
         return { ...row(), version: 2 };
       },
+    },
+    vehicleCategory: {
+      findMany: async () =>
+        row().rates.map((rate) => ({
+          id: rate.category_id,
+          name: rate.category_id,
+          parent: null,
+          vehicle_type: 'SEDAN',
+          is_active: true,
+          updated_at: new Date(rate.expected_updated_at),
+          _count: { children: 0 },
+          max_profit_km: rate.max_profit_km,
+          normal_fare_per_km: rate.normal_fare_per_km,
+          profit_fare_per_km: rate.profit_fare_per_km,
+        })),
     },
     userLog: {
       create: async () => {

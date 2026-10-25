@@ -48,10 +48,10 @@ Set `PAYMENT_WEBHOOK_SECRET` to the actual secret shared with the service signin
 The requested API build runs:
 
 ```text
-prisma generate && prisma db push --skip-generate && npm run build:compile
+prisma generate && prisma migrate deploy && prisma db push --skip-generate && npm run build:compile
 ```
 
-It generates the client, synchronizes the schema, prepares the HTML sanitizer dependency, then compiles Nest. Failures stop the build; there is no reset or `--accept-data-loss` flag. `build:compile` bundles dependencies and compiles without generation/database writes. `prisma:push` runs the schema step separately. The current sanitizer/parser is bundled into an ESM asset because Vercel does not support its unbundled CommonJS `require()` of an ESM parser; Nest copies the generated asset into the compiled output.
+It generates the client, deploys migrations, synchronizes the schema, prepares the HTML sanitizer dependency, then compiles Nest. Migrations run before schema push so data backfills such as category fare migration 0013 are preserved. Failures stop the build; there is no reset or `--accept-data-loss` flag. `build:compile` bundles dependencies and compiles without generation/database writes. `prisma:push` runs the schema step separately after migrations are deployed. The sanitizer/parser is bundled into an ESM asset because Vercel does not support its unbundled CommonJS require of an ESM parser; Nest copies that asset into the output.
 
 `db push` does not execute migration SQL, backfills or seed data. Existing V2 migrations remain available. Provision a fresh database with `prisma:deploy` first if it needs the project's existing category seeds/backfills. Do not run the development seed in production; it creates example accounts. Use `admin:grant -- --email <approved-google-email>` with the production database configuration when initial administrator provisioning is needed.
 

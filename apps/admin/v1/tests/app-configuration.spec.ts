@@ -10,7 +10,12 @@ const admin = {
   avatar_url: null,
 };
 const token = `e30.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString("base64url")}.fixture`;
-const groups = ["AUTO_TOTO", "BIKE_SCOOTER", "CAR"];
+const categories = [
+  { id: "economy", name: "Economy Sedan" },
+  { id: "premium", name: "Premium Sedan" },
+  { id: "child", name: "Airport Sedan" },
+  { id: "disabled", name: "Disabled Sedan" },
+];
 
 for (const entry of [
   {
@@ -87,7 +92,12 @@ for (const entry of [
 }
 async function mockConfiguration(
   page: Page,
-  options: { empty?: boolean; conflict?: boolean } = {},
+  options: {
+    empty?: boolean;
+    conflict?: boolean;
+    catalog?: typeof categories;
+    transformPolicy?: (policy: unknown) => unknown;
+  } = {},
 ) {
   let version = options.empty ? 0 : 1;
   const writes: Record<string, unknown>[] = [];
@@ -103,27 +113,45 @@ async function mockConfiguration(
     free_pickup_wait_minutes: 5,
     cancellation_fee_percent: 10,
     maximum_cancellation_fee: 100,
-    rates: version
-      ? groups.map((group) => ({
-          group,
-          max_profit_km: 2,
-          normal_fare_per_km: version === 2 ? 30 : 10,
-          profit_fare_per_km: 20,
-        }))
-      : [],
+    rates: (options.catalog ?? categories).map((category) => ({
+      category_id: category.id,
+      name: category.name,
+      parent_name: category.id === "child" ? "Airport" : null,
+      vehicle_type: "SEDAN",
+      is_active: category.id !== "disabled",
+      is_selectable: category.id !== "disabled",
+      updated_at: "2026-10-25T00:00:00.000Z",
+      fare_policy: version
+        ? {
+            max_profit_km: 2,
+            normal_fare_per_km: version === 2 ? 30 : 10,
+            profit_fare_per_km: 20,
+          }
+        : null,
+    })),
   });
   await page.route("**/api/v2/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     const respond = (data: unknown, status = 200, message = "Saved") =>
       route.fulfill({
         status,
-        json: { status: status < 400 ? "success" : "error", data, message },
+        json: {
+          status: status < 400 ? "success" : "error",
+          data,
+          message,
+          ...(status === 409 ? { error_code: "FARE_POLICY_CONFLICT" } : {}),
+        },
       });
     if (path.endsWith("/auth/refresh"))
       return respond({ user: admin, access_token: token });
     if (path.endsWith("/auth/me")) return respond(admin);
     if (path.endsWith("/admin/fare-policy")) {
-      if (route.request().method() === "GET") return respond(policy());
+      if (route.request().method() === "GET") {
+        const value = policy();
+        return respond(
+          options.transformPolicy ? options.transformPolicy(value) : value,
+        );
+      }
       writes.push(route.request().postDataJSON());
       version++;
       if (options.conflict)
@@ -162,7 +190,49 @@ async function mockConfiguration(
   return writes;
 }
 
-test("fare policy starts without invented rates and saves all three groups with policy metadata", async ({
+test("invalid category fare values and revisions block editing and recover after reload", async ({
+  page,
+}) => {
+  let fault: Record<string, unknown> | null = null;
+  await mockConfiguration(page, {
+    transformPolicy(value) {
+      const policy = value as { rates: Record<string, unknown>[] };
+      if (fault) policy.rates[0] = { ...policy.rates[0], ...fault };
+      return policy;
+    },
+  });
+  const validFare = {
+    max_profit_km: 2,
+    normal_fare_per_km: 10,
+    profit_fare_per_km: 20,
+  };
+  for (const invalid of [
+    { fare_policy: { ...validFare, max_profit_km: 100000.001 } },
+    { fare_policy: { ...validFare, normal_fare_per_km: 10.001 } },
+    { fare_policy: { ...validFare, unexpected_rate: 99 } },
+    { updated_at: "2026-10-25" },
+    { updated_at: "2026-02-30T00:00:00.000Z" },
+  ]) {
+    fault = invalid;
+    await page.goto("/app/user/fare-policy");
+    await expect(
+      page.getByText(
+        "The server returned incomplete configuration data. Reload to try again.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Save fare policy" }),
+    ).toHaveCount(0);
+  }
+  fault = { updated_at: "2026-10-25T00:00:00Z" };
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Save fare policy" }),
+  ).toBeVisible();
+});
+
+test("fare policy lists every category independently, including same-family and disabled choices", async ({
   page,
 }) => {
   const writes = await mockConfiguration(page, { empty: true });
@@ -170,13 +240,19 @@ test("fare policy starts without invented rates and saves all three groups with 
   await expect(
     page.getByRole("heading", { name: "Fare Policy", exact: true }),
   ).toBeVisible();
-  for (const group of groups) {
+  for (const category of categories) {
+    await page
+      .getByRole("switch", {
+        name: "Configure fare for " + category.name,
+        exact: true,
+      })
+      .click();
     for (const [key, value] of Object.entries({
       max_profit_km: "2",
       normal_fare_per_km: "10",
       profit_fare_per_km: "20",
     })) {
-      const input = page.locator(`#${group}-${key}`);
+      const input = page.locator(`#fare-${category.id}-${key}`);
       await expect(input).toHaveValue("");
       await input.fill(value);
     }
@@ -194,10 +270,73 @@ test("fare policy starts without invented rates and saves all three groups with 
     free_cancellation_minutes: 2,
     maximum_cancellation_fee: 100,
   });
-  expect(writes[0]!.rates).toHaveLength(3);
+  expect(writes[0]!.rates).toHaveLength(categories.length);
+  expect(
+    (writes[0]!.rates as { category_id: string }[]).map(
+      (rate) => rate.category_id,
+    ),
+  ).toEqual(categories.map((category) => category.id));
   await expect(
     page.getByText(/Version 1.*Last updated by Test Admin/),
   ).toBeVisible();
+});
+
+test("new and removed categories are reflected after reload without fixed family slots", async ({
+  page,
+}) => {
+  const catalog = categories.map((category) => ({ ...category }));
+  await mockConfiguration(page, { catalog });
+  await page.goto("/app/user/fare-policy");
+  await expect(
+    page.getByRole("switch", {
+      name: "Configure fare for Economy Sedan",
+      exact: true,
+    }),
+  ).toBeVisible();
+  catalog.push({ id: "future-category", name: "Night City Ride" });
+  catalog.splice(0, 1);
+  await page.reload();
+  await expect(
+    page.getByRole("switch", {
+      name: "Configure fare for Night City Ride",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("switch", {
+      name: "Configure fare for Economy Sedan",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("switch", {
+      name: "Configure fare for Premium Sedan",
+      exact: true,
+    }),
+  ).toBeVisible();
+});
+
+test("two sedan categories can save different fares", async ({ page }) => {
+  const writes = await mockConfiguration(page);
+  await page.goto("/app/user/fare-policy");
+  await page.locator("#fare-economy-normal_fare_per_km").fill("12");
+  await page.locator("#fare-premium-normal_fare_per_km").fill("28");
+  await page
+    .getByRole("button", { name: "Save fare policy", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toHaveText("Fare policy saved.");
+  const rates = writes[0]!.rates as {
+    category_id: string;
+    fare_policy: { normal_fare_per_km: number };
+  }[];
+  expect(
+    rates.find((rate) => rate.category_id === "economy")!.fare_policy
+      .normal_fare_per_km,
+  ).toBe(12);
+  expect(
+    rates.find((rate) => rate.category_id === "premium")!.fare_policy
+      .normal_fare_per_km,
+  ).toBe(28);
 });
 
 test("a stale fare edit keeps the draft and provides an explicit reload", async ({
@@ -205,14 +344,24 @@ test("a stale fare edit keeps the draft and provides an explicit reload", async 
 }) => {
   await mockConfiguration(page, { conflict: true });
   await page.goto("/app/user/fare-policy");
-  await page.locator("#CAR-normal_fare_per_km").fill("99");
+  await page.locator("#fare-premium-normal_fare_per_km").fill("99");
   await page.getByRole("button", { name: "Save fare policy" }).click();
   await expect(
     page.getByText("The fare policy changed. Reload before saving."),
   ).toBeVisible();
-  await expect(page.locator("#CAR-normal_fare_per_km")).toHaveValue("99");
+  await expect(page.locator("#fare-premium-normal_fare_per_km")).toHaveValue(
+    "99",
+  );
+  await expect(
+    page.getByRole("button", { name: "Save fare policy", exact: true }),
+  ).toBeDisabled();
   await page.getByRole("button", { name: "Reload latest policy" }).click();
-  await expect(page.locator("#CAR-normal_fare_per_km")).toHaveValue("30");
+  await expect(page.locator("#fare-premium-normal_fare_per_km")).toHaveValue(
+    "30",
+  );
+  await expect(
+    page.getByRole("button", { name: "Save fare policy", exact: true }),
+  ).toBeEnabled();
   await expect(
     page.getByText(/Version 2.*Last updated by Test Admin/),
   ).toBeVisible();

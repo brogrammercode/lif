@@ -30,9 +30,9 @@ Follow-up: [Phase A/B audit findings and verification](PHASE_AB_AUDIT.md) record
 ## Exact PDF fare contract
 
 - Launch in Bhagalpur, Bihar.
-- Fare groups: Auto / Toto, Bike / Scooter, Car.
+- Fare ownership: each actual vehicle category and subcategory has independent pricing. The user's 25 October correction replaces the former vehicle-family grouping; see [category fare implementation](CATEGORY_FARE_POLICY_IMPLEMENTATION.md).
 - Admin location: **App > User > Fare Policy** (the existing secondary menu uses singular User).
-- Exactly three configurable numeric settings per fare group:
+- Exactly three configurable numeric settings per vehicle category:
   - Max KM for Profit Fare.
   - Normal Fare per KM.
   - Profit Fare per KM.
@@ -42,7 +42,7 @@ Follow-up: [Phase A/B audit findings and verification](PHASE_AB_AUDIT.md) record
 - No base/time/surge/commission component is part of this policy.
 - No monetary rates are supplied in the PDF. Admin must configure them; zero/default prices must not be silently invented.
 - Version number and Last Updated By must be visible. Quote snapshots preserve the selected saved settings.
-- Existing physical types map to fare groups: AUTO -> Auto/Toto; BIKE and SCOOTER -> Bike/Scooter; SEDAN and SUV -> Car. Existing category IDs/hierarchy and registered vehicles are retained.
+- Physical vehicle types determine compatibility only. They do not select prices. Categories and children retain their own IDs/hierarchy and registered vehicles; no parent price is inherited.
 - Money is computed with decimal arithmetic and rounded once to two decimal places. Route metres are converted to kilometres without rounding to whole kilometres first.
 - Existing historical/selected fares are retained; fresh quotes use the new configured policy.
 
@@ -111,7 +111,7 @@ The user's answers and the PDF are product inputs. Operational settings, credent
 
 - [x] Read the complete supplied PDF and record all 20 decisions.
 - [x] Add versioned, audited fare-policy persistence and validation.
-- [x] Add App > User > Fare Policy with exactly three controls per fare group, formula explanation, preview, version and editor identity.
+- [x] Add App > User > Fare Policy with three controls per actual category/subcategory, formula explanation, preview, shared-settings version and editor identity. Category rates can also be edited in their category form.
 - [x] Use the saved policy in new quotes and remove misleading legacy pricing controls from category editing.
 - [x] Preserve old quotes/history; reject unconfigured or concurrently changed policy instead of fabricating prices.
 
@@ -147,7 +147,7 @@ Migration `0010_phase_a_configuration` was applied successfully to the configure
 
 | Platform | Surface | Implemented behavior |
 | --- | --- | --- |
-| Admin | App > User > Fare Policy | Three distance-band rates per group, editable payment/cancellation settings, unsaved preview, saved version, editor and conflict reload. |
+| Admin | App > User > Fare Policy | Three distance-band values per vehicle category/subcategory, editable shared payment/cancellation settings, independent previews, version/timestamp checks and conflict reload. |
 | Admin | Support > Configure > Contact | Public help phone, urgent phone, WhatsApp, email, hours and instructions; versioned and audited. |
 | Mobile | Settings | Account-scoped rider/driver switch; driver history in driver mode; server active-trip check before changing mode. |
 | Mobile | Session gate | Restore the current rider/driver trip before routing to the selected home; partner activation still required. |
@@ -163,7 +163,7 @@ Cross-role booking, offer acceptance and availability changes coordinate through
 ## Rollout and remaining work
 
 1. Deploy API V2 before the new clients: startup now calls travel-context. The additive migration is applied locally; other deployment databases must receive it as well.
-2. In Fare Policy, enter the actual three values for **each** of Auto/Toto, Bike/Scooter and Car, then save. The document supplies no numerical rates. Fresh quotes intentionally return FARE_POLICY_NOT_CONFIGURED until this is done. Existing quotes/history are preserved.
+2. Apply migration 0013, then enter the actual three fare values for each selectable category/subcategory in Fare Policy or its category form. No numerical rates are invented. Unconfigured categories are excluded from fresh quotes; new categories require their own configuration. Shared payment/cancellation/matching defaults remain as agreed. Existing saved quote amounts/history are preserved.
 3. Fill Support > Configure > Contact with real operational channels; blank channels are hidden in mobile.
 4. Saved payment and cancellation settings accompany fresh quote snapshots. Booking and checkout reject disabled cash methods against the selected quote's snapshot; digital booking is explicitly unavailable until its operational flow is delivered. Direct UPI destination/receipt screens, driver collection confirmation, cancellation/no-show assessment, disputes, fee ledger/waivers and notifications are **not operationally implemented in Phase A**. Existing cash checkout remains pending; no automatic fee is collected.
 5. Phase B builds the map-first driver home, readiness/online controls, real offers (view-only during an existing trip), pickup/destination navigation, combined trip start, completed fare/payment outcome and current-trip lifecycle. Migrate legacy single-proof start endpoints together with the new controls.
@@ -182,7 +182,7 @@ Bhagalpur's approximate initial map center is 25.23 N, 86.95 E, consistent with 
 
 - [x] Apply one shared eligibility calculation after rider cancellation and driver completion. Current vehicle/catalog/category, driver verification and account status are rechecked; SUSPENDED remains SUSPENDED. Category writes and trip-finalization checks use the same advisory-lock order.
 - [x] Enforce selected-quote cash availability at booking and checkout. Preserve historical cash records; reject malformed versioned payment snapshots and unavailable digital operations before writing a booking/payment.
-- [x] Validate stored fare policies as well as incoming writes, so invalid rates, missing groups or entirely disabled payment settings cannot produce fresh quotes.
+- [x] Validate stored category rates and shared policies as well as incoming writes, so invalid/unconfigured category rates or unsupported payment settings cannot produce fresh quotes. No fixed group completeness rule remains.
 - [x] Return the version actually saved by an admin rather than rereading another administrator's newer write after commit. The same response handling applies to Support configuration.
 - [x] Trim optional phone/email values before validation, including whitespace-only empty channels. Keep conflict reloads explicit and remove the transient initial error shown before an editor draft initialized.
 - [x] Provide a Return to home action after a restored rider trip ends. Pause rider polling in the background/on covered routes, avoid overlapping refreshes, refresh on return/resume, and handle checkout-loading failures.

@@ -92,7 +92,7 @@ export function VehicleCategoriesPage() {
       label: "Enabled choices",
       value: categories.filter((category) => category.is_selectable).length,
       icon: "zap",
-      detail: "Ready for riders & drivers",
+      detail: "Rider quotes also require a category fare",
     },
     {
       label: "Subcategories",
@@ -321,6 +321,12 @@ export function VehicleCategoriesPage() {
                             ? "Parent disabled"
                             : undefined}
                         </Badge>
+                        {category._count.children === 0 &&
+                          !category.fare_policy && (
+                            <span className="field-hint block">
+                              Fare not configured
+                            </span>
+                          )}
                       </td>
                       <td>
                         <div className="row-actions">
@@ -371,8 +377,8 @@ export function VehicleCategoriesPage() {
         <Icon name="shield" size={17} />
         <p>
           One catalog, a consistent experience. Enabled categories are used in
-          driver registration and rider choices. Disabling a category preserves
-          its ride history.
+          driver registration. Rider quotes require the category's own fare
+          policy. Disabling a category preserves its ride history.
         </p>
       </div>
       {editor && (

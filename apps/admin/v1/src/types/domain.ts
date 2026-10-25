@@ -9,6 +9,11 @@ export type AdminUser = {
   avatar_url: string | null;
 };
 export type VehicleFamily = "BIKE" | "SCOOTER" | "AUTO" | "SEDAN" | "SUV";
+export type CategoryFare = {
+  max_profit_km: number;
+  normal_fare_per_km: number;
+  profit_fare_per_km: number;
+};
 export type VehicleCategory = {
   id: string;
   code: string;
@@ -22,6 +27,7 @@ export type VehicleCategory = {
   base_fare: number;
   per_kilometer: number;
   per_minute: number;
+  fare_policy: CategoryFare | null;
   is_active: boolean;
   effective_active: boolean;
   is_selectable: boolean;
@@ -38,10 +44,7 @@ export type CategoryInput = Pick<
   | "parent_id"
   | "vehicle_type"
   | "capacity"
-  | "base_fare"
-  | "per_kilometer"
-  | "per_minute"
   | "is_active"
   | "sort_order"
-> & { image_upload?: ImageUpload };
+> & { image_upload?: ImageUpload; fare_policy?: CategoryFare | null };
 export type BrowserSession = { access_token: string; user: AdminUser };

@@ -1,6 +1,6 @@
 import { z } from 'zod';
+import { category_fare_input } from './fare_calculation.js';
 
-export const FARE_GROUPS = ['AUTO_TOTO', 'BIKE_SCOOTER', 'CAR'] as const;
 export const FARE_POLICY_LOCK = 720051;
 export const SUPPORT_CONFIGURATION_LOCK = 720053;
 export const CONFIGURATION_KEY = 'default';
@@ -40,21 +40,21 @@ export const fare_policy_input = z
       .array(
         z
           .object({
-            group: z.enum(FARE_GROUPS),
-            max_profit_km: decimal(3, 100000),
-            normal_fare_per_km: decimal(2, 1000000),
-            profit_fare_per_km: decimal(2, 1000000),
+            category_id: z.string().min(1).max(100),
+            expected_updated_at: z.iso.datetime(),
+            fare_policy: category_fare_input.nullable(),
           })
           .strict(),
       )
-      .length(3),
+      .max(10000),
   })
   .strict()
   .refine(
-    (value) => new Set(value.rates.map((rate) => rate.group)).size === 3,
+    (value) =>
+      new Set(value.rates.map((rate) => rate.category_id)).size ===
+      value.rates.length,
     {
-      message:
-        'Configure exactly one rate for Auto/Toto, Bike/Scooter and Car.',
+      message: 'Each vehicle category can appear only once.',
       path: ['rates'],
     },
   )

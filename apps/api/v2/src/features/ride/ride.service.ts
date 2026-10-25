@@ -5,7 +5,7 @@ import { GeocodeService } from '../geocode/geocode.service.js';
 import { AppConfigurationService } from '../app_configuration/app_configuration.service.js';
 import {
   calculate_distance_fare,
-  fare_group_for,
+  category_fare_values,
 } from '../app_configuration/fare_calculation.js';
 import { RideRepository } from './ride.repo.js';
 import { AppError } from '../../core/error.js';
@@ -44,13 +44,14 @@ export class RideService {
       to_latitude: input.dropoff.latitude,
       to_longitude: input.dropoff.longitude,
     });
-    const categories =
-      await this.vehicleCategoryRepository.list_category_choices();
+    const categories = (
+      await this.vehicleCategoryRepository.list_category_choices()
+    ).filter((category) => category_fare_values(category) !== null);
     if (categories.length === 0)
       throw new AppError(
         409,
         'CATEGORIES_UNAVAILABLE',
-        CATEGORY_MESSAGES.EMPTY,
+        'No enabled vehicle category has a configured fare. Ask your administrator to configure category fares.',
       );
     const distance_m = route.distance_m;
     const duration_s = route.duration_s;
@@ -58,13 +59,12 @@ export class RideService {
       Date.now() + QUOTE_LIFETIME_MINUTES * 60 * 1000,
     );
     const calculations = categories.map((category) => {
-      const group = fare_group_for(category.vehicle_type);
-      const rate = fare_policy.rates.find((item) => item.group === group);
+      const rate = category_fare_values(category);
       if (!rate)
         throw new AppError(
           409,
           'FARE_POLICY_NOT_CONFIGURED',
-          'Configure every fare group before quoting rides.',
+          'Configure this vehicle category fare before quoting rides.',
         );
       const base_fare = 0;
       const distance_amount = calculate_distance_fare(distance_m, rate);
@@ -89,10 +89,9 @@ export class RideService {
           capacity: category.capacity,
           parent_name: category.parent?.name ?? null,
           fare_policy_version: fare_policy.version,
-          fare_group: group,
-          max_profit_km: rate.max_profit_km.toNumber(),
-          profit_fare_per_km: rate.profit_fare_per_km.toNumber(),
-          normal_fare_per_km: rate.normal_fare_per_km.toNumber(),
+          fare_category_id: category.id,
+          fare_category_updated_at: category.updated_at.toISOString(),
+          ...rate,
           payment_policy: {
             cash_enabled: fare_policy.cash_enabled,
             direct_upi_enabled: fare_policy.direct_upi_enabled,

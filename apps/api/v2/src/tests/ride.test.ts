@@ -92,6 +92,18 @@ it('rounds the distance-only fare using saved profit and normal rates', async ()
     'fare_snapshot',
     async () =>
       ({
+        id: 'policy',
+        key: 'default',
+        updated_by_id: 'admin',
+        created_at: new Date(),
+        updated_at: new Date(),
+        arrival_radius_m: 150,
+        location_max_age_s: 60,
+        matching_initial_radius_km: 1,
+        matching_max_radius_km: 10,
+        matching_expansion_s: 30,
+        search_timeout_s: 180,
+        offer_lifetime_s: 45,
         version: 1,
         cash_enabled: true,
         direct_upi_enabled: true,
@@ -101,14 +113,6 @@ it('rounds the distance-only fare using saved profit and normal rates', async ()
         free_pickup_wait_minutes: 5,
         cancellation_fee_percent: new Prisma.Decimal(10),
         maximum_cancellation_fee: new Prisma.Decimal(100),
-        rates: [
-          {
-            group: 'CAR',
-            max_profit_km: new Prisma.Decimal(3),
-            profit_fare_per_km: new Prisma.Decimal('2.01'),
-            normal_fare_per_km: new Prisma.Decimal('2.01'),
-          },
-        ],
       }) as Awaited<ReturnType<AppConfigurationService['fare_snapshot']>>,
   );
   const category = {
@@ -123,13 +127,39 @@ it('rounds the distance-only fare using saved profit and normal rates', async ()
     base_fare: new Prisma.Decimal(0),
     per_kilometer: new Prisma.Decimal('2.01'),
     per_minute: new Prisma.Decimal('2.01'),
+    max_profit_km: new Prisma.Decimal(3),
+    profit_fare_per_km: new Prisma.Decimal('2.01'),
+    normal_fare_per_km: new Prisma.Decimal('2.01'),
     is_active: true,
     sort_order: 0,
     created_at: new Date(),
     updated_at: new Date(),
     parent: null,
   };
-  mock.method(categories, 'list_category_choices', async () => [category]);
+  mock.method(categories, 'list_category_choices', async () => [
+    category,
+    {
+      ...category,
+      id: 'premium',
+      name: 'Premium Sedan',
+      profit_fare_per_km: new Prisma.Decimal(20),
+    },
+    {
+      ...category,
+      id: 'child',
+      name: 'Airport',
+      parent_id: 'parent',
+      parent: { ...category, id: 'parent' },
+      profit_fare_per_km: new Prisma.Decimal(30),
+    },
+    {
+      ...category,
+      id: 'unpriced',
+      max_profit_km: null,
+      normal_fare_per_km: null,
+      profit_fare_per_km: null,
+    },
+  ]);
   mock.method(geocode, 'driving_route', async () => ({
     distance_m: 500,
     duration_s: 30,
@@ -165,9 +195,140 @@ it('rounds the distance-only fare using saved profit and normal rates', async ()
     assert.equal(captured[0]?.distance_fare, 1.01);
     assert.equal(captured[0]?.time_fare, 0);
     assert.equal(captured[0]?.total_fare, 1.01);
+    assert.equal(captured.length, 3);
+    assert.equal(captured[1]?.total_fare, 10);
+    assert.equal(captured[2]?.total_fare, 15);
+    assert.equal(captured[1]?.vehicle_type, captured[0]?.vehicle_type);
+    assert.equal(captured[1]?.category_snapshot.fare_category_id, 'premium');
+    assert.equal(captured[2]?.category_snapshot.parent_name, 'Fixture');
+    assert.equal('fare_group' in captured[0]!.category_snapshot, false);
   } finally {
     mock.restoreAll();
   }
+});
+
+it('a configured category can persist quotes with default shared settings, but a concurrent settings change invalidates construction', async () => {
+  const db = new PrismaService();
+  const updated = new Date('2026-10-25T00:00:00Z');
+  let policy: { version: number } | null = null;
+  let writes = 0;
+  const tx = {
+    $executeRaw: async () => 1,
+    user: {
+      findUnique: async () => ({
+        status: 'ACTIVE',
+        role: 'RIDER',
+        deleted_at: null,
+      }),
+    },
+    rideFarePolicy: { findUnique: async () => policy },
+    vehicleCategory: {
+      findMany: async () => [
+        { id: 'category', vehicle_type: 'SEDAN', updated_at: updated },
+      ],
+    },
+    ride: {
+      create: async () => {
+        writes++;
+        return { id: 'draft' };
+      },
+    },
+    userLog: { create: async () => ({}) },
+  };
+  Object.defineProperty(db, 'client', {
+    value: {
+      $transaction: (action: (client: typeof tx) => Promise<unknown>) =>
+        action(tx),
+    },
+  });
+  const calculation: FareCalculation = {
+    vehicle_category_id: 'category',
+    vehicle_type: 'SEDAN',
+    category_updated_at: updated.toISOString(),
+    fare_policy_version: 0,
+    category_snapshot: { fare_category_id: 'category', fare_policy_version: 0 },
+    distance_m: 1000,
+    duration_s: 60,
+    pickup_eta_s: 0,
+    base_fare: 0,
+    distance_fare: 12,
+    time_fare: 0,
+    total_fare: 12,
+  };
+  const input = {
+    pickup: { address: 'Pickup', latitude: 25, longitude: 86 },
+    dropoff: { address: 'Dropoff', latitude: 25.1, longitude: 86.1 },
+  };
+  const repo = new RideRepository(db);
+  assert.equal(
+    (
+      await repo.create_quote(
+        'rider',
+        input,
+        [calculation],
+        new Date(Date.now() + 60000),
+        [],
+      )
+    ).id,
+    'draft',
+  );
+  policy = { version: 1 };
+  await assert.rejects(
+    repo.create_quote(
+      'rider',
+      input,
+      [calculation],
+      new Date(Date.now() + 60000),
+      [],
+    ),
+    { error_code: 'FARE_POLICY_CHANGED' },
+  );
+  assert.equal(writes, 1);
+});
+
+it('a deleted category cannot turn an unbooked quote into a family-wide booking', async () => {
+  const db = new PrismaService();
+  const tx = {
+    $executeRaw: async () => 1,
+    user: {
+      findUnique: async () => ({
+        status: 'ACTIVE',
+        deleted_at: null,
+        role: 'RIDER',
+      }),
+    },
+    driverProfile: { findUnique: async () => null },
+    ride: {
+      findFirst: async ({ where }: { where: { id?: string } }) =>
+        where.id === 'draft'
+          ? {
+              id: 'draft',
+              status: 'DRAFT',
+              quotes: [
+                {
+                  id: 'quote',
+                  expires_at: new Date(Date.now() + 60000),
+                  vehicle_category_id: null,
+                  category_snapshot: null,
+                },
+              ],
+            }
+          : null,
+    },
+  };
+  Object.defineProperty(db, 'client', {
+    value: {
+      $transaction: (action: (client: typeof tx) => Promise<unknown>) =>
+        action(tx),
+    },
+  });
+  assert.deepEqual(
+    await new RideRepository(db).request_ride('rider', {
+      draft_ride_id: 'draft',
+      quote_id: 'quote',
+    }),
+    { kind: 'quote_unavailable' },
+  );
 });
 
 it('serializes driver reviews and updates rating statistics in the review transaction', async () => {

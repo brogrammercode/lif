@@ -15,9 +15,7 @@ export const EMPTY_CATEGORY: CategoryInput = {
   parent_id: null,
   vehicle_type: "BIKE",
   capacity: 1,
-  base_fare: 0,
-  per_kilometer: 0,
-  per_minute: 0,
+  fare_policy: null,
   is_active: true,
   sort_order: 0,
 };

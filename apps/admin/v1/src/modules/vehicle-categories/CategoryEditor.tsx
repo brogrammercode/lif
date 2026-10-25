@@ -18,6 +18,7 @@ import {
 import { CategoryImage } from "./CategoryImage";
 import { ImageUpload } from "../../components/ui/ImageUpload";
 import { useImageUpload } from "../../lib/useImageUpload";
+import { CategoryFareFields } from "./CategoryFareFields";
 
 export function CategoryEditor({
   category,
@@ -47,9 +48,7 @@ export function CategoryEditor({
           parent_id: category.parent_id,
           vehicle_type: category.vehicle_type,
           capacity: category.capacity,
-          base_fare: category.base_fare,
-          per_kilometer: category.per_kilometer,
-          per_minute: category.per_minute,
+          fare_policy: category.fare_policy ?? null,
           is_active: category.is_active,
           sort_order: category.sort_order,
         }
@@ -60,9 +59,6 @@ export function CategoryEditor({
                 parent_id: parent.id,
                 vehicle_type: parent.vehicle_type,
                 capacity: parent.capacity,
-                base_fare: parent.base_fare,
-                per_kilometer: parent.per_kilometer,
-                per_minute: parent.per_minute,
               }
             : {}),
         },
@@ -248,10 +244,24 @@ export function CategoryEditor({
             </Field>
           </div>
           <p className="field-hint">
-            Ride prices are configured in App &gt; User &gt; Fare Policy.
+            Configure this category's independent fare below or in App &gt; User
+            &gt; Fare Policy.
           </p>
           <div className="editor-section-heading">
             <span className="section-step">03</span>
+            <h3>Category fare policy</h3>
+          </div>
+          <CategoryFareFields
+            prefix="category-fare"
+            value={form.fare_policy ?? null}
+            onChange={(value) => change("fare_policy", value)}
+          />
+          <p className="field-hint">
+            These values are also editable in Fare Policy. Changes affect new
+            quotes; accepted prices remain unchanged.
+          </p>
+          <div className="editor-section-heading">
+            <span className="section-step">04</span>
             <h3>Visibility</h3>
           </div>
           <div className="visibility-row">

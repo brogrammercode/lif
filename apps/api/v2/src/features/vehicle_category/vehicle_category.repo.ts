@@ -3,6 +3,11 @@ import { PrismaService } from '../../infra/database/prisma.service.js';
 import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { AppError } from '../../core/error.js';
+import { require_active_admin } from '../../infra/database/account_lifecycle.js';
+import {
+  category_fare_data,
+  category_fare_values,
+} from '../app_configuration/fare_calculation.js';
 import { create_user_log } from '../../infra/database/user_log.js';
 import { CATEGORY_MESSAGES } from './vehicle_category.constant.js';
 import type {
@@ -47,6 +52,7 @@ export class VehicleCategoryRepository {
   ) =>
     this.prismaService.client.$transaction(
       async (tx) => {
+        await require_active_admin(tx, actor_id);
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(720041)`;
         const before = id
           ? await tx.vehicleCategory.findUnique({
@@ -63,7 +69,8 @@ export class VehicleCategoryRepository {
         if (
           before &&
           'expected_updated_at' in input &&
-          before.updated_at.toISOString() !== input.expected_updated_at
+          before.updated_at.getTime() !==
+            new Date(input.expected_updated_at).getTime()
         ) {
           throw new AppError(
             409,
@@ -132,8 +139,16 @@ export class VehicleCategoryRepository {
           base_fare: input.base_fare,
           per_kilometer: input.per_kilometer,
           per_minute: input.per_minute,
+          ...(input.fare_policy !== undefined
+            ? category_fare_data(input.fare_policy)
+            : {}),
           is_active: input.is_active,
           sort_order: input.sort_order,
+          // Bulk fare edits use the same monotonic revision rule. Preserve it
+          // across both editors even when server clocks differ or writes share a millisecond.
+          updated_at: before
+            ? new Date(Math.max(Date.now(), before.updated_at.getTime() + 1))
+            : undefined,
         };
         const category = id
           ? await tx.vehicleCategory.update({
@@ -144,6 +159,9 @@ export class VehicleCategoryRepository {
           : await tx.vehicleCategory.create({
               data: {
                 ...data,
+                base_fare: input.base_fare ?? 0,
+                per_kilometer: input.per_kilometer ?? 0,
+                per_minute: input.per_minute ?? 0,
                 code: `CAT-${randomBytes(5).toString('hex').toUpperCase()}`,
               },
               include: this.CATEGORY_INCLUDE,
@@ -174,6 +192,7 @@ export class VehicleCategoryRepository {
     base_fare: category.base_fare.toNumber(),
     per_kilometer: category.per_kilometer.toNumber(),
     per_minute: category.per_minute.toNumber(),
+    fare_policy: category_fare_values(category),
     parent_name: category.parent?.name ?? null,
     effective_active:
       category.is_active && (category.parent?.is_active ?? true),

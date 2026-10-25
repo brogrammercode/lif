@@ -1,27 +1,14 @@
 import { apiRequest } from "../../lib/api-client";
-export const fareGroups = [
-  {
-    key: "AUTO_TOTO",
-    label: "Auto / Toto",
-    description: "Auto categories and their subcategories.",
-  },
-  {
-    key: "BIKE_SCOOTER",
-    label: "Bike / Scooter",
-    description: "Bike and scooter categories share this policy.",
-  },
-  {
-    key: "CAR",
-    label: "Car",
-    description: "Sedan and SUV categories share this policy.",
-  },
-] as const;
-export type FareGroup = (typeof fareGroups)[number]["key"];
+import type { CategoryFare, VehicleFamily } from "../../types/domain";
 export type FareRate = {
-  group: FareGroup;
-  max_profit_km: number;
-  normal_fare_per_km: number;
-  profit_fare_per_km: number;
+  category_id: string;
+  name: string;
+  parent_name: string | null;
+  vehicle_type: VehicleFamily;
+  is_active: boolean;
+  is_selectable: boolean;
+  updated_at: string;
+  fare_policy: CategoryFare | null;
 };
 export type ConfigurationMetadata = {
   version: number;
@@ -60,11 +47,19 @@ export type SupportContacts = ConfigurationMetadata & {
   instructions: string | null;
 };
 export const saveFarePolicy = (value: FarePolicy, signal: AbortSignal) => {
-  const { version, updated_at: _, updated_by: __, ...settings } = value;
+  const { version, updated_at: _, updated_by: __, rates, ...settings } = value;
   return apiRequest<FarePolicy>("/admin/fare-policy", {
     method: "PATCH",
     signal,
-    data: { expected_version: version, ...settings },
+    data: {
+      expected_version: version,
+      ...settings,
+      rates: rates.map((rate) => ({
+        category_id: rate.category_id,
+        expected_updated_at: rate.updated_at,
+        fare_policy: rate.fare_policy,
+      })),
+    },
   });
 };
 export const saveSupportContacts = (

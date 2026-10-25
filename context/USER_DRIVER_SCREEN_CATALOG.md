@@ -6,6 +6,8 @@
 
 **Mobile codebase:** `apps/user/v1`. **Backend reference:** `apps/api/v2`.
 
+**Fare ownership correction - 25 October 2026:** every vehicle category and subcategory now owns its independent distance-band rates. Physical families are compatibility labels and do not select prices; parents do not supply inherited prices. Admin's category editor and Fare Policy page edit the same data. Quotes snapshot category identity/update time and its rates; unconfigured choices receive no fresh quotes. See [category fare implementation](CATEGORY_FARE_POLICY_IMPLEMENTATION.md) for migration, lifecycle, API and verification details. This supersedes former group-based pricing descriptions.
+
 **Combined Phases A-D audit - 25 October 2026:** see [PHASE_ABCD_AUDIT.md](PHASE_ABCD_AUDIT.md) for cross-phase verification and fixes to driver navigation transitions, tracking restart/cancellation, trip snapshot validation, lost-response recovery and transaction-level account checks in older driver writes. This supplements the implementation overlays and individual audit reports below.
 
 This document describes the screens, forms, dialogs, background behavior, and transitions that exist today, then specifies the screens and improvements proposed next. It is a product and implementation discussion document; proposed screens are not an approved final visual design.

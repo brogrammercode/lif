@@ -1,3 +1,4 @@
+import { CategoryFareFields } from "../vehicle-categories/CategoryFareFields";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { PageHeading } from "../../components/layout/PageHeading";
@@ -12,35 +13,9 @@ import { Field } from "../../components/ui/Field";
 import { useAdminResource, useAdminSave } from "../../lib/useAdminResource";
 import { ConfigurationMetadata } from "./ConfigurationMetadata";
 import { decodeFarePolicy } from "./configuration.validation";
-import {
-  fareGroups,
-  saveFarePolicy,
-  type FarePolicy,
-} from "./configuration.api";
+import { ApiError } from "../../lib/api-client";
+import { saveFarePolicy, type FarePolicy } from "./configuration.api";
 
-const rateFields = [
-  {
-    key: "max_profit_km",
-    label: "Max KM for Profit Fare",
-    hint: "Distance charged at the profit rate, before normal-rate distance begins.",
-    step: "0.001",
-    max: 100000,
-  },
-  {
-    key: "normal_fare_per_km",
-    label: "Normal Fare per KM",
-    hint: "INR per km beyond the profit distance band.",
-    step: "0.01",
-    max: 1000000,
-  },
-  {
-    key: "profit_fare_per_km",
-    label: "Profit Fare per KM",
-    hint: "INR per km within the profit distance band.",
-    step: "0.01",
-    max: 1000000,
-  },
-] as const;
 export function FarePolicyPage() {
   const resource = useAdminResource<FarePolicy>(
     "/admin/fare-policy",
@@ -50,10 +25,12 @@ export function FarePolicyPage() {
   const { clearError } = save;
   const [draft, setDraft] = useState<FarePolicy | null>(null);
   const [saved, setSaved] = useState(false);
+  const [blocked, setBlocked] = useState(false);
   const [distance, setDistance] = useState("5");
   useEffect(() => {
     if (resource.data) {
       clearError();
+      setBlocked(false);
       setDraft({
         ...{
           arrival_radius_m: 150,
@@ -65,15 +42,7 @@ export function FarePolicyPage() {
           offer_lifetime_s: 45,
         },
         ...resource.data,
-        rates: fareGroups.map(
-          (group) =>
-            resource.data!.rates.find((rate) => rate.group === group.key) ?? {
-              group: group.key,
-              max_profit_km: NaN,
-              normal_fare_per_km: NaN,
-              profit_fare_per_km: NaN,
-            },
-        ),
+        rates: resource.data.rates,
       });
     }
   }, [resource.data, clearError]);
@@ -94,87 +63,91 @@ export function FarePolicyPage() {
       <PageHeading
         eyebrow="App / User"
         title="Fare Policy"
-        description="Distance-based fares for Bhagalpur. Saved settings apply to new ride quotes."
+        description="Configure independent distance fares for every vehicle category and subcategory. Saved settings apply to new ride quotes."
       />
       <ConfigurationMetadata value={draft} />
+      <p className="field-hint">
+        Version and administrator above refer to shared payment and matching
+        settings. Category fares have their own update checks and can also be
+        edited in Vehicle Categories.
+      </p>
       <form
         className="personal-card editor-form"
         onSubmit={(event) => {
           event.preventDefault();
-          if (save.busy) return;
+          if (save.busy || blocked) return;
           void save.run(
             async (signal) => {
-              const value = decodeFarePolicy(
-                await saveFarePolicy(draft, signal),
-              );
-              resource.setData(value);
+              try {
+                const value = decodeFarePolicy(
+                  await saveFarePolicy(draft, signal),
+                );
+                resource.setData(value);
+              } catch (cause) {
+                if (
+                  cause instanceof ApiError &&
+                  ["FARE_POLICY_CONFLICT", "CATEGORY_FARE_CONFLICT"].includes(
+                    cause.code,
+                  )
+                )
+                  setBlocked(true);
+                throw cause;
+              }
             },
             () => setSaved(true),
           );
         }}
       >
         <fieldset disabled={save.busy} className="contents">
-          {fareGroups.map((group, index) => {
-            const rate = draft.rates.find(
-              (value) => value.group === group.key,
-            )!;
-            return (
-              <EditorSection
-                key={group.key}
-                step={String(index + 1).padStart(2, "0")}
-                title={group.label}
-                description={group.description}
-              >
-                <div className="form-grid">
-                  {rateFields.map((field) => (
-                    <Field
-                      key={field.key}
-                      id={`${group.key}-${field.key}`}
-                      label={field.label}
-                      hint={field.hint}
-                    >
-                      <input
-                        id={`${group.key}-${field.key}`}
-                        className="field"
-                        type="number"
-                        min={0}
-                        max={field.max}
-                        step={field.step}
-                        required
-                        value={
-                          Number.isFinite(rate[field.key])
-                            ? rate[field.key]
-                            : ""
-                        }
-                        onChange={(event) => {
-                          const value = event.target.valueAsNumber;
-                          setSaved(false);
-                          setDraft(
-                            (current) =>
-                              current && {
-                                ...current,
-                                rates: current.rates.map((item) =>
-                                  item.group === group.key
-                                    ? { ...item, [field.key]: value }
-                                    : item,
-                                ),
-                              },
-                          );
-                        }}
-                      />
-                    </Field>
-                  ))}
-                </div>
-              </EditorSection>
-            );
-          })}
+          {draft.rates.length === 0 && (
+            <StateCard
+              title="No vehicle categories"
+              message="Create categories first, then configure each category's independent fare."
+            />
+          )}
+          {draft.rates.map((rate, index) => (
+            <EditorSection
+              key={rate.category_id}
+              step={String(index + 1).padStart(2, "0")}
+              title={
+                rate.parent_name
+                  ? rate.parent_name + " / " + rate.name
+                  : rate.name
+              }
+              description={
+                rate.is_selectable
+                  ? "Enabled ride choice. This category has its own fare."
+                  : "Disabled or grouping category. Its fare is retained independently; subcategories need their own fares."
+              }
+            >
+              <CategoryFareFields
+                prefix={"fare-" + rate.category_id}
+                value={rate.fare_policy}
+                label={"Configure fare for " + rate.name}
+                onChange={(value) => {
+                  setSaved(false);
+                  setDraft(
+                    (current) =>
+                      current && {
+                        ...current,
+                        rates: current.rates.map((item) =>
+                          item.category_id === rate.category_id
+                            ? { ...item, fare_policy: value }
+                            : item,
+                        ),
+                      },
+                  );
+                }}
+              />
+            </EditorSection>
+          ))}
           <p className="field-hint">
             Fare = profit-band kilometres × profit rate + remaining kilometres ×
             normal rate. No base fare, time charge, surge or commission is
             added. Existing quotes keep their saved policy.
           </p>
           <EditorSection
-            step="04"
+            step={String(draft.rates.length + 1).padStart(2, "0")}
             title="Cancellation & Payment Policy"
             description="Payment follows ride completion. Drivers receive the full fare and cannot change it manually."
           >
@@ -294,7 +267,7 @@ export function FarePolicyPage() {
             </p>
           </EditorSection>
           <EditorSection
-            step="05"
+            step={String(draft.rates.length + 2).padStart(2, "0")}
             title="Matching & Trip Operations"
             description="Search expands while no driver accepts. Arrival is verified separately against pickup and a fresh, accurate driver fix."
           >
@@ -399,7 +372,7 @@ export function FarePolicyPage() {
             >
               Vehicle categories
             </Link>
-            <Button type="submit" busy={save.busy}>
+            <Button type="submit" busy={save.busy} disabled={blocked}>
               Save fare policy
             </Button>
           </div>
@@ -407,7 +380,7 @@ export function FarePolicyPage() {
       </form>
       <div className="personal-card editor-form">
         <EditorSection
-          step="06"
+          step={String(draft.rates.length + 3).padStart(2, "0")}
           title="Fare preview"
           description="An estimate using the unsaved values above; final quotes are calculated by the API."
         >
@@ -424,29 +397,33 @@ export function FarePolicyPage() {
             />
           </Field>
           <dl className="form-grid">
-            {fareGroups.map((group) => {
-              const rate = draft.rates.find(
-                (value) => value.group === group.key,
-              )!;
+            {draft.rates.map((category) => {
+              const rate = category.fare_policy;
               const valid =
+                rate !== null &&
                 distance.trim() !== "" &&
                 Number.isFinite(previewKm) &&
                 previewKm >= 0 &&
-                Object.values(rate)
-                  .filter((value) => typeof value === "number")
-                  .every((value) => Number.isFinite(value) && value >= 0);
-              const price = valid
-                ? Math.min(previewKm, rate.max_profit_km) *
-                    rate.profit_fare_per_km +
-                  Math.max(previewKm - rate.max_profit_km, 0) *
-                    rate.normal_fare_per_km
-                : null;
+                Object.values(rate).every(
+                  (value) => Number.isFinite(value) && value >= 0,
+                );
+              const price =
+                valid && rate
+                  ? Math.min(previewKm, rate.max_profit_km) *
+                      rate.profit_fare_per_km +
+                    Math.max(previewKm - rate.max_profit_km, 0) *
+                      rate.normal_fare_per_km
+                  : null;
               return (
-                <div key={group.key}>
-                  <dt className="field-hint">{group.label}</dt>
+                <div key={category.category_id}>
+                  <dt className="field-hint">
+                    {category.parent_name
+                      ? category.parent_name + " / " + category.name
+                      : category.name}
+                  </dt>
                   <dd>
                     {price === null
-                      ? "Enter all three values"
+                      ? "Fare not configured"
                       : new Intl.NumberFormat("en-IN", {
                           style: "currency",
                           currency: "INR",

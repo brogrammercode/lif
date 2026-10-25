@@ -3,7 +3,10 @@ import type {
   SupportContacts,
   TripReviewPage,
 } from "./configuration.api";
-import { fareGroups } from "./configuration.api";
+import {
+  isCategoryFare,
+  isCategoryRevision,
+} from "../vehicle-categories/category-fare";
 
 const record = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
@@ -46,19 +49,22 @@ export function decodeFarePolicy(v: unknown): FarePolicy {
       number(v.maximum_cancellation_fee) &&
       Array.isArray(v.rates),
   );
-  const groups = fareGroups.map((g) => g.key as string);
   requireShape(
-    (v.version === 0 && v.rates.length === 0) ||
-      (v.rates.length === 3 &&
-        v.rates.every(
-          (r) =>
-            record(r) &&
-            groups.includes(String(r.group)) &&
-            number(r.max_profit_km) &&
-            number(r.normal_fare_per_km) &&
-            number(r.profit_fare_per_km),
+    v.rates.every(
+      (r) =>
+        record(r) &&
+        typeof r.category_id === "string" &&
+        r.category_id.length > 0 &&
+        typeof r.name === "string" &&
+        textOrNull(r.parent_name) &&
+        ["BIKE", "SCOOTER", "AUTO", "SEDAN", "SUV"].includes(
+          String(r.vehicle_type),
         ) &&
-        new Set(v.rates.map((r) => r.group)).size === 3),
+        typeof r.is_active === "boolean" &&
+        typeof r.is_selectable === "boolean" &&
+        isCategoryRevision(r.updated_at) &&
+        (r.fare_policy === null || isCategoryFare(r.fare_policy)),
+    ) && new Set(v.rates.map((r) => r.category_id)).size === v.rates.length,
   );
   for (const key of [
     "arrival_radius_m",

@@ -56,9 +56,8 @@ export class RideRepository {
             select: { version: true },
           });
           if (
-            !policy ||
             calculations.some(
-              (item) => item.fare_policy_version !== policy.version,
+              (item) => item.fare_policy_version !== (policy?.version ?? 0),
             )
           ) {
             throw new AppError(
@@ -220,6 +219,8 @@ export class RideRepository {
           quote.category_snapshot,
           payment_method?.type ?? input.payment_preference ?? 'CASH',
         );
+        if (!quote.vehicle_category_id)
+          return { kind: 'quote_unavailable' as const };
         if (quote.vehicle_category_id) {
           const category = await tx.vehicleCategory.findUnique({
             where: { id: quote.vehicle_category_id },

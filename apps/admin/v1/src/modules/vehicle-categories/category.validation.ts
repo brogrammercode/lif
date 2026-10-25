@@ -2,6 +2,7 @@ import { ApiError } from "../../lib/api-client";
 import { NETWORK_COPY } from "../../lib/network.constant";
 import type { VehicleCategory } from "../../types/domain";
 import { VEHICLE_FAMILIES } from "./vehicle-categories.constant";
+import { isCategoryFare, isCategoryRevision } from "./category-fare";
 
 export function readCategory(value: unknown): VehicleCategory {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -37,6 +38,8 @@ export function readCategory(value: unknown): VehicleCategory {
     item.effective_active,
     item.is_selectable,
   ].every((field) => typeof field === "boolean");
+  const fare = item.fare_policy;
+  const validFare = fare === undefined || fare === null || isCategoryFare(fare);
   const validDates = [item.created_at, item.updated_at].every(
     (field) => typeof field === "string" && Number.isFinite(Date.parse(field)),
   );
@@ -46,7 +49,9 @@ export function readCategory(value: unknown): VehicleCategory {
     !validNumbers ||
     !validCounts ||
     !validFlags ||
+    !validFare ||
     !validDates ||
+    !isCategoryRevision(item.updated_at) ||
     !VEHICLE_FAMILIES.some((family) => family.value === item.vehicle_type) ||
     !Number.isInteger(item.capacity) ||
     item.capacity! < 1 ||
@@ -54,7 +59,7 @@ export function readCategory(value: unknown): VehicleCategory {
     !Number.isInteger(item.sort_order)
   )
     throw new ApiError(NETWORK_COPY.INVALID_RESPONSE, 502);
-  return item as VehicleCategory;
+  return { ...item, fare_policy: fare ?? null } as VehicleCategory;
 }
 
 export function readCatalog(value: unknown): VehicleCategory[] {
