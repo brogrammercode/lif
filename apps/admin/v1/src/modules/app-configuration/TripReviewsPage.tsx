@@ -1,5 +1,12 @@
+import { VehicleIdentity } from "../../components/ui/VehicleIdentity";
+import {
+  TripRoute,
+  TripPeople,
+  TripFacts,
+  TripSection,
+} from "../users/TripDetails";
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { PageHeading } from "../../components/layout/PageHeading";
 import {
   InlineError,
@@ -10,11 +17,7 @@ import { Button } from "../../components/ui/Button";
 import { CatalogPanel } from "../../components/ui/CatalogPanel";
 import { Icon } from "../../components/ui/Icon";
 import { Dialog } from "../../components/ui/Dialog";
-import {
-  personName,
-  moneyLabel,
-  type RidePerson,
-} from "../users/ride-presentation";
+import { personName, moneyLabel } from "../users/ride-presentation";
 import { Field } from "../../components/ui/Field";
 import { Badge } from "../../components/ui/Badge";
 import { ManagementPagination } from "../../components/ui/ManagementControls";
@@ -200,6 +203,7 @@ export function TripReviewsPage() {
                 <tr>
                   <th>Trip</th>
                   <th>Passenger / Driver</th>
+                  <th>Vehicle</th>
                   <th>Report</th>
                   <th>Amount</th>
                   <th>Status</th>
@@ -225,6 +229,9 @@ export function TripReviewsPage() {
                       <span className="table-subtitle">
                         {personName(row.ride.driver?.user)}
                       </span>
+                    </td>
+                    <td>
+                      <VehicleIdentity vehicle={row.ride.vehicle} />
                     </td>
                     <td>
                       {reviewLabel(row.kind)}
@@ -269,7 +276,7 @@ export function TripReviewsPage() {
       </CatalogPanel>
       {selected && (
         <Dialog
-          reader
+          compact
           title={reviewLabel(selected.kind) + " report"}
           description={reviewTime(selected.created_at)}
           busy={save.busy}
@@ -278,8 +285,8 @@ export function TripReviewsPage() {
             clearError();
           }}
         >
-          <div className="ride-detail-body">
-            <div className="trip-review-heading">
+          <div className="trip-dialog-body">
+            <div className="trip-summary">
               <Badge
                 tone={
                   ["REQUESTED", "DISPUTED", "APPROVED"].includes(
@@ -291,67 +298,16 @@ export function TripReviewsPage() {
               >
                 {reviewLabel(selected.status)}
               </Badge>
-              <strong>{moneyLabel(selected.fee_amount)}</strong>
-            </div>
-            <div className="trip-review-route">
               <div>
-                <span>Pickup</span>
-                <p>{selected.ride.pickup_address}</p>
-              </div>
-              <Icon name="arrowRight" size={16} />
-              <div>
-                <span>Drop-off</span>
-                <p>{selected.ride.dropoff_address}</p>
+                <span>Reported charge</span>
+                <strong>{moneyLabel(selected.fee_amount)}</strong>
               </div>
             </div>
-            <div className="review-facts">
-              {(
-                [
-                  ["Passenger", selected.ride.rider],
-                  ["Driver", selected.ride.driver?.user],
-                ] as [string, RidePerson | null | undefined][]
-              ).map(([label, p]) => (
-                <div key={label}>
-                  <span>{label}</span>
-                  <p>
-                    {p ? (
-                      <Link
-                        className="review-text-link"
-                        to={"/users/" + encodeURIComponent(p.id) + "/personal"}
-                      >
-                        {personName(p)}
-                      </Link>
-                    ) : (
-                      personName(p)
-                    )}
-                  </p>
-                  <p>{p?.phone_e164 ?? p?.email}</p>
-                </div>
-              ))}
-              <div>
-                <span>Reported by</span>
-                <p>
-                  {selected.reported_by
-                    ? personName(selected.reported_by)
-                    : selected.reported_by_id === selected.ride.rider?.id
-                      ? personName(selected.ride.rider)
-                      : selected.reported_by_id ===
-                          selected.ride.driver?.user.id
-                        ? personName(selected.ride.driver.user)
-                        : "Account no longer available"}
-                </p>
-              </div>
-              <div>
-                <span>Vehicle</span>
-                <p>
-                  {selected.ride.vehicle
-                    ? selected.ride.vehicle.make +
-                      " " +
-                      selected.ride.vehicle.model
-                    : "Not assigned"}
-                </p>
-                <p>{selected.ride.vehicle?.plate_number}</p>
-              </div>
+            <TripRoute
+              pickup={selected.ride.pickup_address}
+              dropoff={selected.ride.dropoff_address}
+            />
+            <div className="trip-report-reasons">
               <div>
                 <span>Reported reason</span>
                 <p>{selected.reason}</p>
@@ -362,48 +318,73 @@ export function TripReviewsPage() {
                   <p>{selected.dispute_reason}</p>
                 </div>
               )}
-              <div>
-                <span>Driver accepted</span>
-                <p>
-                  {selected.ride.matched_at
-                    ? reviewTime(selected.ride.matched_at)
-                    : "Not assigned"}
-                </p>
-              </div>
-              <div>
-                <span>Arrival recorded</span>
-                <p>
-                  {selected.ride.arrived_at
-                    ? reviewTime(selected.ride.arrived_at)
-                    : "Not recorded"}
-                </p>
-              </div>
             </div>
-            {selected.ride.events?.length > 0 && (
-              <details className="trip-evidence">
-                <summary>Trip evidence ({selected.ride.events.length})</summary>
-                <div className="trip-evidence-list">
-                  {selected.ride.events.map((event) => (
-                    <div key={event.id}>
-                      <strong>{reviewLabel(event.event_type)}</strong>
-                      <time>{reviewTime(event.created_at)}</time>
-                      {event.event_type === "CALL_ATTEMPT" && (
-                        <p className="field-hint">
-                          Call requested; connection is not verified.
-                        </p>
-                      )}
-                      {evidenceFacts(event.metadata).map(([label, value]) => (
-                        <p key={label} className="field-hint">
-                          {label}: {value}
-                        </p>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              </details>
-            )}
+            <TripSection title="People & vehicle">
+              <TripPeople
+                rider={selected.ride.rider}
+                driver={selected.ride.driver?.user}
+              />
+              <div className="trip-vehicle">
+                <VehicleIdentity vehicle={selected.ride.vehicle} />
+              </div>
+            </TripSection>
+            <details className="trip-disclosure">
+              <summary>Trip evidence ({selected.ride.events.length})</summary>
+              <TripFacts
+                columns={3}
+                items={[
+                  [
+                    "Reported by",
+                    personName(
+                      selected.reported_by ??
+                        (selected.reported_by_id === selected.ride.rider?.id
+                          ? selected.ride.rider
+                          : selected.reported_by_id ===
+                              selected.ride.driver?.user.id
+                            ? selected.ride.driver.user
+                            : null),
+                    ),
+                  ],
+                  [
+                    "Driver accepted",
+                    selected.ride.matched_at
+                      ? reviewTime(selected.ride.matched_at)
+                      : "Not assigned",
+                  ],
+                  [
+                    "Arrival recorded",
+                    selected.ride.arrived_at
+                      ? reviewTime(selected.ride.arrived_at)
+                      : "Not recorded",
+                  ],
+                ]}
+              />
+
+              <div className="trip-evidence-list">
+                {selected.ride.events.map((event) => (
+                  <div key={event.id}>
+                    <strong>{reviewLabel(event.event_type)}</strong>
+                    <time>{reviewTime(event.created_at)}</time>
+                    {event.event_type === "CALL_ATTEMPT" && (
+                      <p className="field-hint">
+                        Call requested; connection is not verified.
+                      </p>
+                    )}
+                    {evidenceFacts(event.metadata).map(([label, value]) => (
+                      <p key={label} className="field-hint">
+                        {label}: {value}
+                      </p>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              <p className="trip-reference">
+                Trip {selected.ride_id} / Report {selected.id} / Version{" "}
+                {selected.version}
+              </p>
+            </details>
             {selected.resolution_note && (
-              <div className="workspace-notice">
+              <div className="trip-resolution">
                 <strong>Resolution</strong>
                 <p>{selected.resolution_note}</p>
               </div>
@@ -413,16 +394,16 @@ export function TripReviewsPage() {
             )}
             {save.error && <InlineError message={save.error} />}
             {!["WAIVED", "REJECTED", "SETTLED"].includes(selected.status) && (
-              <div className="trip-review-decision">
+              <div className="trip-section trip-review-decision">
                 <Field
                   id={"review-" + selected.id}
                   label="Review note"
-                  hint="Explain your decision in at least 5 characters."
+                  hint="Required. At least 5 characters."
                 >
                   <textarea
                     id={"review-" + selected.id}
                     className="field"
-                    rows={3}
+                    rows={2}
                     maxLength={2000}
                     disabled={save.busy}
                     value={notes[selected.id] ?? ""}
@@ -432,19 +413,11 @@ export function TripReviewsPage() {
                   />
                 </Field>
                 <p className="field-hint">
-                  Approval records an amount owed to the affected driver. Record
-                  settlement only after verifying receipt. Fees are never added
-                  to another trip.
+                  Verify receipt before recording settlement. Charges belong to
+                  the affected driver.
                 </p>
               </div>
             )}
-            <details className="trip-evidence">
-              <summary>Reference</summary>
-              <p className="field-hint">
-                Trip {selected.ride_id} · Report {selected.id} · Version{" "}
-                {selected.version}
-              </p>
-            </details>
           </div>
           <div className="dialog-footer">
             {!["WAIVED", "REJECTED", "SETTLED"].includes(selected.status) &&
@@ -491,7 +464,10 @@ export function TripReviewsPage() {
             <Button
               variant="secondary"
               disabled={save.busy}
-              onClick={() => setSelectedId(null)}
+              onClick={() => {
+                setSelectedId(null);
+                clearError();
+              }}
             >
               Close
             </Button>

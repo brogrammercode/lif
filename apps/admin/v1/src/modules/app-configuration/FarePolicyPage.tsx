@@ -1,6 +1,6 @@
+import { CategoryImage } from "../vehicle-categories/CategoryImage";
 import { CatalogPanel } from "../../components/ui/CatalogPanel";
 import { Badge } from "../../components/ui/Badge";
-import { Icon } from "../../components/ui/Icon";
 import { isCategoryFare } from "../vehicle-categories/category-fare";
 import { CategoryFareFields } from "../vehicle-categories/CategoryFareFields";
 import { useEffect, useState } from "react";
@@ -116,9 +116,17 @@ export function FarePolicyPage() {
               key={rate.category_id}
               step={String(index + 1).padStart(2, "0")}
               title={
-                rate.parent_name
-                  ? rate.parent_name + " / " + rate.name
-                  : rate.name
+                <span className="vehicle-inline">
+                  <CategoryImage
+                    src={rate.image_url ?? null}
+                    family={rate.vehicle_type}
+                  />
+                  <span>
+                    {rate.parent_name
+                      ? rate.parent_name + " / " + rate.name
+                      : rate.name}
+                  </span>
+                </span>
               }
               description={
                 rate.is_selectable
@@ -427,16 +435,10 @@ export function FarePolicyPage() {
             return (
               <div className="fare-preview-item" key={category.category_id}>
                 <dt>
-                  <span className="stat-icon">
-                    <Icon
-                      name={
-                        ["BIKE", "SCOOTER"].includes(category.vehicle_type)
-                          ? "bike"
-                          : "car"
-                      }
-                      size={18}
-                    />
-                  </span>
+                  <CategoryImage
+                    src={category.image_url ?? null}
+                    family={category.vehicle_type}
+                  />
                   <span>
                     <strong>{category.name}</strong>
                     {category.parent_name && (

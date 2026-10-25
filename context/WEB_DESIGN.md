@@ -35,6 +35,16 @@ Use the same amber, Space Grotesk, white bordered surfaces and 12px card corners
 
 See [the UI rework record](ADMIN_UI_CONSISTENCY_REWORK.md) for scope and verification.
 
+### Compact rides and vehicle identities — 25 October 2026
+
+- Ride details and report reviews use `Dialog compact`, never the fixed-height document reader. Maximum width is 700px; height follows content within the viewport. Keep a fixed header/footer, one scrolling body, 20px desktop insets (16px on phones), 12px content gaps, 12px labels and 13px values. Document and attachment readers retain their existing layout.
+- Share `TripRoute`, `TripPeople`, `TripFacts` and `TripSection`. Show the route, fare/status, named passenger/driver and vehicle first. Collapse supporting timeline/evidence and technical references. Review notes and valid decision actions remain available; preserve required reasons and stale-version protection.
+- Share `VehicleIdentity` for registrations, trips, reviews, categories, brands and models. Use a 40px circular avatar, contained public logo, 13px semibold name, 12px muted details and existing semantic badges. Keep registration and category on one compact metadata row when space permits. Supporting table metadata is 12px/18px, not tiny text competing with oversized headings.
+- For registered vehicles, try the model logo, then brand logo, then category image; try the next source on image failure. Missing logos use the actual bike/scooter or car family icon. Generic brands use the catalog icon. Never substitute private verification photographs for logos.
+- Fare category headings/previews use the same circular category avatar. Native selection fields retain accessible labels; the selected registration also has the shared identity above its review fields.
+
+See [the ride and vehicle UI rework](ADMIN_RIDE_VEHICLE_UI_REWORK.md) for implementation and verification.
+
 ### Colors
 
 | Token | Value | Use |
@@ -114,7 +124,7 @@ White card toolbar containing search input, status filter (All/Enabled/Disabled)
 
 White bordered 12px panel, horizontal overflow within the panel rather than the page. Column header 11px uppercase muted text on a very light background. Data rows minimum 76px with 16px horizontal inset and 1px separators. Columns: category, vehicle family, capacity, base fare, per-km fare, per-minute fare, status, actions. Currency is INR formatted consistently with `Intl.NumberFormat`.
 
-Category cell includes a 42px image/icon tile, name, description and subcategory label. Subcategories are indented with a light connector and parent name; root rows include child count. Missing/broken images show a vehicle-family icon on brand-soft. Long names wrap or ellipsize within a constrained cell. Actions use a labeled edit button; status changes happen in the editor with explicit explanation. Existing records are disabled rather than hard-deleted.
+Category cells use the shared 40px circular avatar, name, description and subcategory label. Subcategories are indented with a light connector and parent name; root rows include a child-count badge. Missing/broken images use the vehicle-family icon. Long names wrap within a constrained cell. Actions use a labeled edit button; status changes happen in the editor with explicit explanation. Existing records are disabled rather than hard-deleted.
 
 ### Status badge
 

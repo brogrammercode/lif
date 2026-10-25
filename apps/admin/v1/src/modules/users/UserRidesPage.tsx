@@ -1,5 +1,10 @@
+import {
+  VehicleIdentity,
+  type DisplayVehicle,
+} from "../../components/ui/VehicleIdentity";
+import { TripRoute, TripPeople, TripFacts, TripSection } from "./TripDetails";
 import { useState, useEffect } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { PageHeading } from "../../components/layout/PageHeading";
 import { CatalogPanel } from "../../components/ui/CatalogPanel";
 import { Button } from "../../components/ui/Button";
@@ -38,12 +43,9 @@ type Ride = {
   currency: string;
   rider: RidePerson;
   driver: { user: RidePerson } | null;
-  vehicle: {
-    make: string;
-    model: string;
-    plate_number: string;
-    vehicle_category: { name: string } | null;
-  } | null;
+  vehicle:
+    | (DisplayVehicle & { make: string; model: string; plate_number: string })
+    | null;
   payment: { status: string; collection_method: string | null } | null;
 };
 type Rides = {
@@ -241,16 +243,7 @@ export function UserRidesPage() {
                       )}
                     </td>
                     <td>
-                      {r.vehicle ? (
-                        <>
-                          {r.vehicle.make} {r.vehicle.model}
-                          <span className="table-subtitle">
-                            {r.vehicle.plate_number}
-                          </span>
-                        </>
-                      ) : (
-                        "Not assigned"
-                      )}
+                      <VehicleIdentity vehicle={r.vehicle} />
                     </td>
                     <td>
                       <Badge
@@ -289,109 +282,97 @@ export function UserRidesPage() {
         )}
       </CatalogPanel>
       {selected && (
-        <Dialog
-          reader
-          title="Ride details"
-          description={`${selected.pickup_address} to ${selected.dropoff_address}`}
-          onClose={() => setSelected(null)}
-        >
-          <div className="ride-detail-body">
-            <div className="review-facts">
-              {[
-                ["Trip status", statusLabel(selected.status)],
+        <Dialog compact title="Ride details" onClose={() => setSelected(null)}>
+          <div className="trip-dialog-body">
+            <div className="trip-summary">
+              <Badge
+                tone={
+                  selected.status === "COMPLETED"
+                    ? "active"
+                    : selected.status === "CANCELLED"
+                      ? "danger"
+                      : "inactive"
+                }
+              >
+                {statusLabel(selected.status)}
+              </Badge>
+              <div>
+                <span>
+                  {selected.final_fare == null
+                    ? "Estimated fare"
+                    : "Final fare"}
+                </span>
+                <strong>
+                  {moneyLabel(
+                    selected.final_fare ?? selected.estimated_fare,
+                    selected.currency,
+                  )}
+                </strong>
+              </div>
+            </div>
+            <TripRoute
+              pickup={selected.pickup_address}
+              dropoff={selected.dropoff_address}
+            />
+            <TripFacts
+              columns={3}
+              items={[
                 [
                   "Booked",
                   timeLabel(selected.requested_at ?? selected.created_at),
                 ],
-                ["Driver accepted", timeLabel(selected.matched_at)],
-                ["Arrived", timeLabel(selected.arrived_at)],
-                ["Started", timeLabel(selected.started_at)],
-                ["Completed", timeLabel(selected.completed_at)],
                 [
-                  selected.final_fare == null ? "Estimated fare" : "Final fare",
-                  moneyLabel(
-                    selected.final_fare ?? selected.estimated_fare,
-                    selected.currency,
-                  ),
+                  "Distance",
+                  (selected.actual_distance_m ??
+                    selected.estimated_distance_m) == null
+                    ? "Not recorded"
+                    : (
+                        (selected.actual_distance_m ??
+                          selected.estimated_distance_m)! / 1000
+                      ).toFixed(1) + " km",
                 ],
                 [
                   "Payment",
                   selected.payment
-                    ? `${statusLabel(selected.payment.status)} · ${statusLabel(selected.payment.collection_method ?? "Not set")}`
+                    ? statusLabel(selected.payment.status) +
+                      " · " +
+                      statusLabel(
+                        selected.payment.collection_method ?? "Not set",
+                      )
                     : "Not recorded",
                 ],
-                [
-                  "Distance",
-                  selected.actual_distance_m ?? selected.estimated_distance_m,
-                ],
-              ]
-                .filter(
-                  ([key, value]) =>
-                    ![
-                      "Driver accepted",
-                      "Arrived",
-                      "Started",
-                      "Completed",
-                    ].includes(String(key)) || value !== "Not recorded",
+              ]}
+            />
+            <TripSection title="People & vehicle">
+              <TripPeople
+                rider={selected.rider}
+                driver={selected.driver?.user}
+              />
+              <div className="trip-vehicle">
+                <VehicleIdentity vehicle={selected.vehicle} />
+              </div>
+            </TripSection>
+            {selected.cancel_reason && (
+              <TripSection title="Cancellation reason">
+                <p>{selected.cancel_reason}</p>
+              </TripSection>
+            )}
+            <details className="trip-disclosure">
+              <summary>Trip timeline & reference</summary>
+              <TripFacts
+                items={(
+                  [
+                    ["Driver accepted", selected.matched_at],
+                    ["Arrived", selected.arrived_at],
+                    ["Started", selected.started_at],
+                    ["Completed", selected.completed_at],
+                    ["Cancelled", selected.cancelled_at],
+                  ] as [string, string | null][]
                 )
-                .map(([k, v]) => (
-                  <div key={k}>
-                    <span>{k}</span>
-                    <p>
-                      {k === "Distance"
-                        ? v == null
-                          ? "Not recorded"
-                          : `${(Number(v) / 1000).toFixed(1)} km`
-                        : v}
-                    </p>
-                  </div>
-                ))}
-              {[
-                ["Passenger", selected.rider],
-                ["Driver", selected.driver?.user],
-              ].map(([label, p]) => {
-                const person = p as RidePerson | undefined;
-                return (
-                  <div key={String(label)}>
-                    <span>{String(label)}</span>
-                    <p>
-                      {person ? (
-                        <Link
-                          className="review-text-link"
-                          to={`/users/${encodeURIComponent(person.id)}/personal`}
-                        >
-                          {personName(person)}
-                        </Link>
-                      ) : (
-                        "Not assigned"
-                      )}
-                    </p>
-                    <p>{person?.phone_e164 ?? person?.email}</p>
-                  </div>
-                );
-              })}
-              {selected.vehicle && (
-                <div>
-                  <span>Vehicle</span>
-                  <p>
-                    {selected.vehicle.make} {selected.vehicle.model}
-                  </p>
-                  <p>{selected.vehicle.plate_number}</p>
-                  {selected.vehicle.vehicle_category && (
-                    <p>{selected.vehicle.vehicle_category.name}</p>
-                  )}
-                </div>
-              )}
-              {selected.cancel_reason && (
-                <div>
-                  <span>Cancellation reason</span>
-                  <p>{selected.cancel_reason}</p>
-                </div>
-              )}
-            </div>
-            <details className="trip-evidence">
-              <summary>Reference</summary>
-              <p>Trip ID: {selected.id}</p>
+                  .filter(([, value]) => value)
+                  .map(([label, value]) => [label, timeLabel(value)])}
+              />
+              <p className="trip-reference">Trip ID: {selected.id}</p>
             </details>
           </div>
           <div className="dialog-footer">

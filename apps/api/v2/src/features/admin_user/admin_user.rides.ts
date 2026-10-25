@@ -16,6 +16,17 @@ export const ride_person = {
   email: true,
   phone_e164: true,
 } satisfies Prisma.UserSelect;
+export const admin_vehicle_select = {
+  type: true,
+  plate_number: true,
+  make: true,
+  model: true,
+  brand: { select: { name: true, logo_url: true } },
+  catalog_model: { select: { name: true, logo_url: true } },
+  vehicle_category: {
+    select: { name: true, image_url: true, vehicle_type: true },
+  },
+} satisfies Prisma.VehicleSelect;
 export const admin_ride_select = {
   id: true,
   status: true,
@@ -36,14 +47,7 @@ export const admin_ride_select = {
   currency: true,
   rider: { select: ride_person },
   driver: { select: { user: { select: ride_person } } },
-  vehicle: {
-    select: {
-      plate_number: true,
-      make: true,
-      model: true,
-      vehicle_category: { select: { name: true } },
-    },
-  },
+  vehicle: { select: admin_vehicle_select },
   payment: { select: { status: true, collection_method: true } },
 } satisfies Prisma.RideSelect;
 

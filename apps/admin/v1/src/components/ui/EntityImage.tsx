@@ -6,18 +6,22 @@ export function EntityImage({
   fallback,
   family,
   contain = false,
+  fallbackSources = [],
 }: {
   src: string | null;
   fallback?: IconName;
   family?: string;
   contain?: boolean;
+  fallbackSources?: (string | null | undefined)[];
 }) {
   const normalizedFamily = family?.trim().toUpperCase();
-  // Keying the image by its source resets a failed URL when a new image is saved.
+  const sources = [
+    ...new Set([src, ...fallbackSources].filter((s): s is string => !!s)),
+  ];
   return (
     <ImageContent
-      key={src}
-      src={src}
+      key={sources.join("|")}
+      sources={sources}
       fallback={
         fallback ??
         (normalizedFamily === "BIKE" || normalizedFamily === "SCOOTER"
@@ -29,27 +33,30 @@ export function EntityImage({
   );
 }
 function ImageContent({
-  src,
+  sources,
   fallback,
   contain,
 }: {
-  src: string | null;
+  sources: string[];
   fallback: IconName;
   contain: boolean;
 }) {
-  const [failed, setFailed] = useState(false);
+  const [index, setIndex] = useState(0);
+  const src = sources[index];
   return (
-    <span className={`category-image${contain ? " entity-image-contain" : ""}`}>
-      {src && !failed ? (
+    <span
+      className={`category-image entity-avatar${contain ? " entity-image-contain" : ""}`}
+    >
+      {src ? (
         <img
           src={src}
           alt=""
           loading="lazy"
           referrerPolicy="no-referrer"
-          onError={() => setFailed(true)}
+          onError={() => setIndex((value) => value + 1)}
         />
       ) : (
-        <Icon name={fallback} size={24} />
+        <Icon name={fallback} size={20} />
       )}
     </span>
   );

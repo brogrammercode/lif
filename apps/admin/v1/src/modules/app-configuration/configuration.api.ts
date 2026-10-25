@@ -1,4 +1,5 @@
 import type { RidePerson } from "../users/ride-presentation";
+import type { DisplayVehicle } from "../../components/ui/VehicleIdentity";
 import { apiRequest } from "../../lib/api-client";
 import type { CategoryFare, VehicleFamily } from "../../types/domain";
 export type FareRate = {
@@ -6,6 +7,7 @@ export type FareRate = {
   name: string;
   parent_name: string | null;
   vehicle_type: VehicleFamily;
+  image_url?: string | null;
   is_active: boolean;
   is_selectable: boolean;
   updated_at: string;
@@ -98,12 +100,7 @@ export type TripReview = {
   ride: {
     rider?: RidePerson;
     driver?: { user: RidePerson } | null;
-    vehicle?: {
-      make: string;
-      model: string;
-      plate_number: string;
-      vehicle_category: { name: string } | null;
-    } | null;
+    vehicle?: DisplayVehicle | null;
     rider_id: string;
     status: string;
     pickup_address: string;

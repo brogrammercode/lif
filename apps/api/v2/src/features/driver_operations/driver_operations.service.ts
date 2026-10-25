@@ -1,5 +1,8 @@
 import { pending_review_statuses } from '../admin_pending/pending.rules.js';
-import { ride_person } from '../admin_user/admin_user.rides.js';
+import {
+  ride_person,
+  admin_vehicle_select,
+} from '../admin_user/admin_user.rides.js';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/database/prisma.service.js';
@@ -1529,14 +1532,7 @@ export class DriverOperationsService {
                 created_at: true,
                 rider: { select: ride_person },
                 driver: { select: { user: { select: ride_person } } },
-                vehicle: {
-                  select: {
-                    plate_number: true,
-                    make: true,
-                    model: true,
-                    vehicle_category: { select: { name: true } },
-                  },
-                },
+                vehicle: { select: admin_vehicle_select },
                 driver_id: true,
                 status: true,
                 pickup_address: true,

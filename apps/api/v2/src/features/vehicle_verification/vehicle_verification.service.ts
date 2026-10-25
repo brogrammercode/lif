@@ -30,6 +30,15 @@ import {
 const options = { maxWait: 10000, timeout: 30000 };
 const include = {
   ...MATCHING_VEHICLE_INCLUDE,
+  brand: {
+    select: { ...MATCHING_VEHICLE_INCLUDE.brand.select, logo_url: true },
+  },
+  catalog_model: {
+    select: {
+      ...MATCHING_VEHICLE_INCLUDE.catalog_model.select,
+      logo_url: true,
+    },
+  },
   verification_assets: {
     select: { id: true, field_key: true, file_name: true },
   },

@@ -35,13 +35,14 @@ async function workspace(page: Page) {
     }[],
     conflict: false,
     vehicle: {
+      type: "BIKE",
       id: "vehicle",
       make: "Brand",
       model: "Bike",
       plate_number: "BR01AA1234",
       status: "UNDER_REVIEW",
       verification_version: 1,
-      brand: { is_active: true, status: "VERIFIED" },
+      brand: { is_active: true, status: "VERIFIED", logo_url: "/logo.png" },
       catalog_model: { is_active: true, status: "VERIFIED" },
       verification_assets: [
         {
@@ -136,6 +137,15 @@ test("vehicle selection and approval progress share a bounded registration panel
     await expect(panel.getByLabel("Vehicle", { exact: true })).toHaveValue(
       "vehicle",
     );
+    await expect(panel.locator(".vehicle-identity img")).toHaveAttribute(
+      "src",
+      "/logo.png",
+    );
+    expect(
+      await panel
+        .locator(".entity-avatar")
+        .evaluate((el) => getComputedStyle(el).borderRadius),
+    ).toBe("50%");
     await expect(
       panel.getByRole("progressbar", { name: "Vehicle field approvals" }),
     ).toHaveAttribute("value", "0");

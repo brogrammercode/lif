@@ -9,7 +9,7 @@ export function EditorSection({
   card = false,
 }: {
   step: string;
-  title: string;
+  title: ReactNode;
   description?: string;
   children: ReactNode;
   card?: boolean;

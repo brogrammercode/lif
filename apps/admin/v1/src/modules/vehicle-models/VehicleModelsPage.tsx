@@ -3,7 +3,7 @@ import { PendingBadge, usePending } from "../pending/PendingProvider";
 import { CatalogImport } from "./CatalogImport";
 import { PageHeading } from "../../components/layout/PageHeading";
 import { CatalogPanel, TableLoading } from "../../components/ui/CatalogPanel";
-import { EntityImage } from "../../components/ui/EntityImage";
+import { VehicleIdentity } from "../../components/ui/VehicleIdentity";
 import { VEHICLE_FAMILIES } from "../vehicle-categories/vehicle-categories.constant";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../../components/ui/Button";
@@ -225,19 +225,31 @@ export function VehicleModelsPage() {
                       setModelPage(1);
                     }}
                   >
-                    <EntityImage
-                      src={brand.logo_url}
+                    <VehicleIdentity
+                      name={brand.name}
                       fallback="layers"
-                      contain
+                      logo={brand.logo_url}
+                      detail={(brand._count?.models ?? 0) + " models"}
+                      badges={
+                        <>
+                          <Badge
+                            tone={
+                              brand.status === "VERIFIED"
+                                ? "active"
+                                : brand.status === "REJECTED"
+                                  ? "danger"
+                                  : "warning"
+                            }
+                          >
+                            {brand.status[0] +
+                              brand.status.slice(1).toLowerCase()}
+                          </Badge>
+                          {!brand.is_active && (
+                            <Badge tone="inactive">Disabled</Badge>
+                          )}
+                        </>
+                      }
                     />
-                    <span>
-                      <strong>{brand.name}</strong>
-                      <small>
-                        {brand._count?.models ?? 0} models ·{" "}
-                        {brand.status[0] + brand.status.slice(1).toLowerCase()}
-                        {!brand.is_active ? " · Disabled" : ""}
-                      </small>
-                    </span>
                   </button>
                   <button
                     className="icon-button"
@@ -345,17 +357,13 @@ export function VehicleModelsPage() {
                   {models.data.rows.map((model) => (
                     <tr key={model.id}>
                       <td>
-                        <div className="entity-cell">
-                          <EntityImage
-                            src={model.logo_url}
-                            family={model.vehicle_type}
-                            contain
-                          />
-                          <div>
-                            <strong>{model.name}</strong>
-                            <small>{model.brand.name}</small>
-                          </div>
-                        </div>
+                        <VehicleIdentity
+                          name={model.name}
+                          detail={model.brand.name}
+                          logo={model.logo_url}
+                          vehicle={{ brand: model.brand }}
+                          family={model.vehicle_type}
+                        />
                       </td>
                       <td>
                         <span className="family-label">

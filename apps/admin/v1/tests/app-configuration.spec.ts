@@ -514,10 +514,12 @@ function reviewFixture() {
         },
       },
       vehicle: {
+        type: "SCOOTER",
         make: "TVS",
         model: "Jupiter",
         plate_number: "BR01AA1234",
         vehicle_category: { name: "Scooter" },
+        brand: { logo_url: "/logo.png" },
       },
       status: "CANCELLED",
       pickup_address: "Station",
@@ -585,6 +587,27 @@ test("ride review shows evidence and requires approval before verified manual se
   await page
     .getByRole("button", { name: "Review report", exact: true })
     .click();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toHaveClass(/dialog-compact/);
+    const bounds = await dialog.boundingBox();
+    expect(bounds!.width).toBeLessThanOrEqual(700);
+    expect(bounds!.y).toBeGreaterThanOrEqual(0);
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(901);
+    expect(
+      await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth),
+    ).toBe(true);
+    const logo = dialog.locator(".trip-vehicle .entity-avatar");
+    await expect(logo.locator("img")).toHaveAttribute("src", "/logo.png");
+    expect(await logo.evaluate((el) => getComputedStyle(el).borderRadius)).toBe(
+      "50%",
+    );
+    await dialog.screenshot({
+      path: `.artifacts/admin-ui/ride-review-compact-${width}.png`,
+    });
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
   await expect(
     page.getByRole("dialog").getByRole("link", { name: "Riya Sharma" }),
   ).toBeVisible();

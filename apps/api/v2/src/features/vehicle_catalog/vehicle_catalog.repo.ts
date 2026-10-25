@@ -146,7 +146,13 @@ export class VehicleCatalogRepository {
           include: {
             ...(!public_only ? include : {}),
             brand: {
-              select: { id: true, name: true, status: true, is_active: true },
+              select: {
+                id: true,
+                name: true,
+                status: true,
+                is_active: true,
+                logo_url: true,
+              },
             },
           },
           orderBy: [{ brand: { name: 'asc' } }, { name: 'asc' }, { id: 'asc' }],

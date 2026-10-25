@@ -1,6 +1,7 @@
 import { apiRequest } from "../../lib/api-client";
 import { privateFile } from "../partner-program/partner-program.api";
 import type { UserSummary } from "./users.type";
+import type { DisplayVehicle } from "../../components/ui/VehicleIdentity";
 export type VehicleField = {
   key: string;
   label: string;
@@ -11,7 +12,7 @@ export type VehicleField = {
   reviewed_at: string | null;
   reviewed_by: string | null;
 };
-export type VerificationVehicle = {
+export type VerificationVehicle = DisplayVehicle & {
   id: string;
   make: string;
   model: string;
@@ -22,8 +23,18 @@ export type VerificationVehicle = {
   verification_version: number;
   is_eligible?: boolean;
   verification_fields: VehicleField[];
-  brand: { status: string; is_active: boolean } | null;
-  catalog_model: { status: string; is_active: boolean } | null;
+  brand: {
+    name?: string;
+    logo_url?: string | null;
+    status: string;
+    is_active: boolean;
+  } | null;
+  catalog_model: {
+    name?: string;
+    logo_url?: string | null;
+    status: string;
+    is_active: boolean;
+  } | null;
   verification_assets: { id: string; file_name: string; field_key: string }[];
 };
 export const getVehicleVerifications = (id: string, signal: AbortSignal) =>

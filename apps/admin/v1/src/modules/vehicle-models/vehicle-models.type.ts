@@ -25,7 +25,7 @@ export type VehicleModel = {
   id: string;
   brand_id: string;
   brand: Pick<Brand, "id" | "name"> &
-    Partial<Pick<Brand, "status" | "is_active">>;
+    Partial<Pick<Brand, "status" | "is_active" | "logo_url">>;
   name: string;
   description: string | null;
   vehicle_type: string;

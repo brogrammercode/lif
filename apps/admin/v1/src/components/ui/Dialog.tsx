@@ -8,6 +8,7 @@ export function Dialog({
   children,
   small = false,
   reader = false,
+  compact = false,
 }: {
   title: string;
   description?: string;
@@ -16,6 +17,7 @@ export function Dialog({
   children: ReactNode;
   small?: boolean;
   reader?: boolean;
+  compact?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const id = useId();
@@ -38,7 +40,7 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
-      className={`dialog ${small ? "dialog-small" : ""} ${reader ? "dialog-document" : ""}`}
+      className={`dialog ${small ? "dialog-small" : ""} ${reader ? "dialog-document" : ""} ${compact ? "dialog-compact" : ""}`}
       aria-labelledby={id}
       aria-describedby={description ? `${id}-description` : undefined}
       onCancel={(event) => {

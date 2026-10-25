@@ -7,5 +7,5 @@ export function CategoryImage({
   src: string | null;
   family: VehicleFamily;
 }) {
-  return <EntityImage src={src} family={family} />;
+  return <EntityImage src={src} family={family} contain />;
 }

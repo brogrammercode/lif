@@ -86,6 +86,7 @@ async function present(
     rates: categories.map((category) => ({
       category_id: category.id,
       name: category.name,
+      image_url: category.image_url,
       parent_name: category.parent?.name ?? null,
       vehicle_type: category.vehicle_type,
       is_active: category.is_active,

@@ -14,7 +14,7 @@ import { Toast } from "../../components/feedback/Toast";
 import { safeMessage } from "../../lib/api-client";
 import type { CategoryInput, VehicleCategory } from "../../types/domain";
 import { CategoryEditor } from "./CategoryEditor";
-import { CategoryImage } from "./CategoryImage";
+import { VehicleIdentity } from "../../components/ui/VehicleIdentity";
 import { filterCatalog, type CategoryStatus } from "./category.view";
 import { getCategories, saveCategory } from "./vehicle-categories.api";
 import {
@@ -278,30 +278,34 @@ export function VehicleCategoriesPage() {
                               className="shrink-0 text-subtle"
                             />
                           )}
-                          <CategoryImage
-                            src={category.image_url}
+                          <VehicleIdentity
+                            logo={category.image_url}
                             family={category.vehicle_type}
+                            name={
+                              <button
+                                className="category-name"
+                                onClick={() => setEditor({ category })}
+                              >
+                                {category.name}
+                              </button>
+                            }
+                            detail={
+                              category.parent_name
+                                ? category.parent_name + " / Subcategory"
+                                : category.description || "Top-level category"
+                            }
+                            badges={
+                              category._count.children > 0 ? (
+                                <Badge tone="inactive">
+                                  {category._count.children} subcategor
+                                  {category._count.children === 1
+                                    ? "y"
+                                    : "ies"}{" "}
+                                  · Group
+                                </Badge>
+                              ) : null
+                            }
                           />
-                          <div className="min-w-0">
-                            <button
-                              className="category-name"
-                              onClick={() => setEditor({ category })}
-                            >
-                              {category.name}
-                            </button>
-                            <p className="category-description">
-                              {category.parent_name
-                                ? `${category.parent_name} / Subcategory`
-                                : category.description || "Top-level category"}
-                            </p>
-                            {category._count.children > 0 && (
-                              <span className="text-[10px] font-semibold text-brand">
-                                {category._count.children} subcategor
-                                {category._count.children === 1 ? "y" : "ies"} ·
-                                Group
-                              </span>
-                            )}
-                          </div>
                         </div>
                       </td>
                       <td>

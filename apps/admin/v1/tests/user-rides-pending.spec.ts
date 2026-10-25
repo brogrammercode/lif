@@ -32,6 +32,9 @@ const account = (id: string) => ({
   last_known_longitude: null,
 });
 async function workspace(page: Page) {
+  await page.route("https://vehicle.test/missing-model.svg", (route) =>
+    route.fulfill({ status: 404, body: "" }),
+  );
   let invalidRide = false;
   let registrationFailed = true;
   let emailRetries = 0;
@@ -159,10 +162,15 @@ async function workspace(page: Page) {
             rider: account("rider"),
             driver: { user: account("driver") },
             vehicle: {
+              type: "SCOOTER",
               make: "TVS",
               model: "Jupiter",
               plate_number: "BR01AA1234",
               vehicle_category: { name: "Scooter" },
+              catalog_model: {
+                logo_url: "https://vehicle.test/missing-model.svg",
+              },
+              brand: { logo_url: "/logo.png" },
             },
             payment: { status: "PAID", collection_method: "CASH" },
           },
@@ -269,7 +277,18 @@ test("pending badges share a bounded request and consistent navigation at narrow
     }
     await page.getByRole("button", { name: "View ride", exact: true }).click();
     const dialog = page.getByRole("dialog");
+    await expect(dialog).toHaveClass(/dialog-compact/);
+    await expect(dialog.locator(".trip-vehicle img")).toHaveAttribute(
+      "src",
+      "/logo.png",
+    );
+    expect(
+      await dialog
+        .locator(".trip-vehicle .entity-avatar")
+        .evaluate((el) => getComputedStyle(el).borderRadius),
+    ).toBe("50%");
     const bounds = await dialog.boundingBox();
+    expect(bounds!.height).toBeLessThan(700);
     expect(bounds!.width).toBeLessThanOrEqual(width);
     expect(bounds!.y).toBeGreaterThanOrEqual(0);
     expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(901);
@@ -308,6 +327,19 @@ test("registration email failures show account details and provide a retry throu
     page.getByRole("heading", { name: "No email deliveries to review" }),
   ).toBeVisible();
   expect(state.emailRetries()).toBe(1);
+});
+
+test("unavailable vehicle logos fall back to the actual two-wheeler family instead of a car", async ({
+  page,
+}) => {
+  await workspace(page);
+  await page.route("**/logo.png", (route) => route.abort());
+  await page.goto("/users/driver/rides");
+  const vehicle = page.getByRole("main").locator(".vehicle-identity");
+  await expect(vehicle.locator(".lucide-bike")).toBeVisible();
+  await expect(vehicle.locator("img")).toHaveCount(0);
+  await expect(vehicle).toContainText("TVS Jupiter");
+  await expect(vehicle.locator(".badge")).toHaveText("Scooter");
 });
 
 test("normal navigation shows the full directory; separate badges open pending filters that survive account and tab selection", async ({

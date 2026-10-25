@@ -11,7 +11,7 @@ import { Button } from "../../components/ui/Button";
 import { Badge } from "../../components/ui/Badge";
 import { CatalogPanel } from "../../components/ui/CatalogPanel";
 import { Field } from "../../components/ui/Field";
-import { Icon } from "../../components/ui/Icon";
+import { VehicleIdentity } from "../../components/ui/VehicleIdentity";
 import { ApiError, safeMessage } from "../../lib/api-client";
 import { ApplicationFieldsReview } from "../partner-program/ApplicationFieldsReview";
 import { PrivateAssetPreview } from "../partner-program/PrivateAssetPreview";
@@ -183,9 +183,7 @@ function UserVehicles({ id }: { id: string }) {
             }
           >
             <div className="vehicle-selection">
-              <span className="vehicle-selection-icon">
-                <Icon name="shield" size={22} />
-              </span>
+              {vehicle && <VehicleIdentity vehicle={vehicle} />}
               <Field id="verification-vehicle" label="Vehicle">
                 <select
                   id="verification-vehicle"

@@ -2529,31 +2529,6 @@ tbody tr:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ride-detail-body {
-  padding: 0 24px 24px;
-  display: grid;
-  gap: 20px;
-  overflow: auto;
-  min-height: 0;
-}
-.ride-detail-body .trip-evidence {
-  margin: 0;
-}
-.ride-detail-body .review-facts {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.ride-detail-body p {
-  overflow-wrap: anywhere;
-}
-@media (max-width: 639px) {
-  .ride-detail-body {
-    padding: 0 16px 16px;
-  }
-  .ride-detail-body .review-facts {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 .pending-badge {
   display: inline-flex;
   align-items: center;
@@ -2570,6 +2545,332 @@ tbody tr:hover {
   color: var(--color-brand);
   flex-shrink: 0;
   vertical-align: middle;
+}
+
+/* Vehicle identities share one logo, type scale and metadata treatment. */
+.category-image.entity-avatar {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 50%;
+  border: 1px solid var(--color-line);
+  background: #fff;
+  color: var(--color-brand);
+  overflow: hidden;
+}
+.entity-avatar.entity-image-contain img {
+  padding: 5px;
+  object-fit: contain;
+}
+.vehicle-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  text-align: left;
+}
+.vehicle-identity-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 8px;
+  min-width: 0;
+}
+.vehicle-identity .vehicle-identity-name {
+  flex-basis: 100%;
+  font-size: 13px;
+  line-height: 19px;
+  font-weight: 600;
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+.vehicle-identity .vehicle-identity-detail {
+  display: block;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 400;
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.vehicle-identity-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 0;
+}
+.vehicle-identity-name .category-name {
+  font: inherit;
+}
+.cell-detail,
+.entity-cell small,
+.catalog-choice small {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--color-muted);
+}
+.fare-preview-item dt small {
+  font-size: 12px;
+  line-height: 18px;
+}
+.vehicle-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.vehicle-selection .vehicle-identity {
+  flex: 1 1 220px;
+}
+.vehicle-selection .field-group {
+  flex: 1 1 240px;
+}
+
+/* Trip dialogs size to their content; document readers keep their own layout. */
+.dialog.dialog-compact {
+  width: min(700px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.dialog-compact .dialog-content {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 50px);
+}
+.dialog-compact .dialog-header {
+  padding: 16px 20px;
+  margin: 0;
+  border-bottom: 1px solid var(--color-line);
+  flex-shrink: 0;
+}
+.dialog-compact .dialog-header h2 {
+  font-size: 17px;
+  line-height: 24px;
+  letter-spacing: -0.3px;
+}
+.dialog-compact .dialog-header p {
+  font-size: 12px;
+  line-height: 18px;
+  margin-top: 3px;
+}
+.dialog-compact .dialog-header .icon-button {
+  margin: -4px -6px 0 0;
+}
+.trip-dialog-body {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 16px 20px;
+  overflow-y: auto;
+  min-height: 0;
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.dialog-compact .dialog-footer {
+  margin: 0;
+  padding: 12px 20px;
+  border-top: 1px solid var(--color-line);
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: #fafafa;
+}
+.dialog-compact .dialog-footer .button {
+  min-height: 36px;
+  padding: 7px 12px;
+  font-size: 12px;
+}
+.trip-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.trip-summary > div {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.trip-summary > div > span {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.trip-summary strong {
+  font-size: 20px;
+  line-height: 26px;
+  font-weight: 600;
+}
+.trip-route {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: #fafafa;
+}
+.trip-route > div {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  position: relative;
+  min-width: 0;
+}
+.trip-route i {
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--color-brand);
+  border-radius: 50%;
+  flex: 0 0 8px;
+  margin-top: 6px;
+}
+.trip-route > div:last-child i {
+  border-radius: 2px;
+  background: var(--color-brand);
+}
+.trip-route span,
+.trip-facts dt,
+.trip-people dt,
+.trip-report-reasons span {
+  display: block;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 400;
+  color: var(--color-muted);
+}
+.trip-route p {
+  margin-top: 1px;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+}
+.trip-facts,
+.trip-people {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 24px;
+  align-content: start;
+}
+.trip-facts dd,
+.trip-people dd {
+  margin: 3px 0 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+.trip-facts.has-three-columns {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.trip-people dd > span {
+  display: block;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 18px;
+  margin-top: 2px;
+}
+.trip-section {
+  border-top: 1px solid var(--color-line);
+  padding-top: 12px;
+  display: grid;
+  gap: 12px;
+}
+.trip-section > h3 {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 600;
+}
+.trip-vehicle {
+  padding: 10px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+}
+.trip-disclosure {
+  padding-top: 12px;
+  border-top: 1px solid var(--color-line);
+}
+.trip-disclosure summary {
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--color-muted);
+}
+.trip-disclosure[open] > :not(summary) {
+  margin-top: 12px;
+}
+.trip-reference {
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.trip-report-reasons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 24px;
+}
+.trip-report-reasons p {
+  margin-top: 3px;
+}
+.trip-resolution {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fafafa;
+  border: 1px solid var(--color-line);
+}
+.trip-resolution strong {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 3px;
+}
+.trip-review-decision .field-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+.dialog-compact .trip-review-decision textarea.field {
+  min-height: 64px;
+  padding: 9px 11px;
+}
+.trip-dialog-body .trip-review-decision {
+  gap: 8px;
+}
+@media (max-width: 639px) {
+  .dialog.dialog-compact {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+  .trip-route {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .trip-facts.has-three-columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .dialog-compact .dialog-content {
+    max-height: calc(100dvh - 26px);
+  }
+  .dialog-compact .dialog-header,
+  .trip-dialog-body {
+    padding: 14px 16px;
+  }
+  .dialog-compact .dialog-footer {
+    padding: 12px 16px;
+  }
+  .dialog-compact .dialog-footer .button {
+    flex: 1 1 130px;
+  }
+  .trip-facts,
+  .trip-people {
+    gap: 12px 16px;
+  }
+  .trip-report-reasons {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .pending-badge.is-stale {
   opacity: 0.6;
@@ -2707,16 +3008,6 @@ tbody tr:hover {
   padding: 16px 24px;
   flex-shrink: 0;
   flex-wrap: wrap;
-}
-.dialog-document .ride-detail-body {
-  padding-top: 20px;
-  flex: 1;
-}
-
-@media (min-width: 360px) and (max-width: 639px) {
-  .ride-detail-body .review-facts {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 @media (max-width: 767px) {
   .pending-nav-primary.has-count .primary-nav-item {
