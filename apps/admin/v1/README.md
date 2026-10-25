@@ -177,8 +177,11 @@ Users currently exposes **Personal** and **Vehicle Verification**. The admin **D
 Admin Access now includes the location recorded at the last sign-in. Google sign-in asks for browser geolocation; declined/unavailable location falls back to an IP estimate with ISP details where available. Browser coordinates, IP estimates and unavailable results are labeled distinctly. Existing sessions need a fresh sign-in before a location snapshot appears. See [ADMIN_LOGIN_LOCATION.md](../../../context/ADMIN_LOGIN_LOCATION.md) for provider use, timeouts and trust limits.
 
 - **Admin / Access / 1More Admin**: access removal uses the grant version rather than the profile timestamp. Last admin login is visible. **Audit log** records recognized admin requests, session activity and outcomes with search/filters/pagination.
+
 - **Users / Personal**: last login timestamps and confirmed deactivation, with sessions/devices revoked and history retained. Self-deactivation and accounts with active rides are protected.
 - **App / User / Vehicle Models**: create/edit brands and models, local logo previews, approve/reject driver requests, filter moderation states and enable verified catalog entries.
 - **Partner program / Requirements / Details, Documents**: one dynamic field entity, shared editable categories, type-specific validation, required/active state and display order. These configure the fields collected by the user app's partner application form.
+
+Audit log now shows readable actions such as **Approve partner application** and defaults to changes/session actions, with read/all filters available. Existing request-only labels remain searchable. Database audit history has no automatic expiry. See [audit reliability and retention](../../../context/ADMIN_AUDIT_RELIABILITY.md).
 
 See [ADMIN_EXPANSION_IMPLEMENTATION.md](../../../context/ADMIN_EXPANSION_IMPLEMENTATION.md) for the complete V2 API contract and limits. Apply V2 migrations 0005/0006 and generate its Prisma client before running the updated server. Existing test results above predate this expansion; only compilation/build/format/schema checks were run for the new features.

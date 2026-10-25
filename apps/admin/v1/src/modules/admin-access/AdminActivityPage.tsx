@@ -26,14 +26,16 @@ export function AdminActivityPage() {
   const [query, setQuery] = useState("");
   const search = useDebouncedText(query);
   const [outcome, setOutcome] = useState("all");
+  const [activity, setActivity] = useState("changes");
   const [page, setPage] = useState(1);
   const resource = useAdminResource<{
     activities: Activity[];
     total: number;
     page: number;
     page_size: number;
+    retention_days?: number | null;
   }>(
-    `/admin/activity?${new URLSearchParams({ query: search, outcome, page: String(page) })}`,
+    `/admin/activity?${new URLSearchParams({ query: search, outcome, activity, page: String(page) })}`,
   );
   return (
     <div className="catalog-page">
@@ -45,7 +47,7 @@ export function AdminActivityPage() {
       />
       <CatalogPanel
         title="Workspace activity"
-        description="Search recorded actions, sign-ins and request outcomes."
+        description="Changes and session actions are shown first. Use the activity filter to include reads and private-file access."
         count={resource.data?.total ?? "…"}
         busy={resource.loading}
         toolbar={
@@ -55,10 +57,22 @@ export function AdminActivityPage() {
               setQuery(value);
               setPage(1);
             }}
-            placeholder="Search actor, route or request ID"
+            placeholder="Search action, administrator or request ID"
             refresh={resource.refresh}
             busy={resource.loading}
           >
+            <FilterSelect
+              label="Activity type"
+              value={activity}
+              onChange={(event) => {
+                setActivity(event.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="changes">Changes &amp; session actions</option>
+              <option value="reads">Read activity</option>
+              <option value="all">All activity</option>
+            </FilterSelect>
             <FilterSelect
               label="Activity outcome"
               value={outcome}
@@ -70,12 +84,13 @@ export function AdminActivityPage() {
               <option value="all">All outcomes</option>
               <option value="success">Succeeded</option>
               <option value="failure">Failed</option>
-              <option value="pending">In progress</option>
+              <option value="pending">Outcome not recorded</option>
             </FilterSelect>
           </ManagementToolbar>
         }
         footer={
           resource.data &&
+          resource.data.total > 0 &&
           !resource.error && (
             <ManagementPagination
               data={resource.data}
@@ -94,7 +109,7 @@ export function AdminActivityPage() {
         ) : !resource.data?.activities.length ? (
           <StateCard
             title="No activity found"
-            message="Recorded admin requests will appear here."
+            message="No entries match these filters. Choose All activity to include reads, or clear your search."
           />
         ) : (
           <div className="table-scroll">
@@ -117,27 +132,31 @@ export function AdminActivityPage() {
                     <td>{new Date(row.started_at).toLocaleString()}</td>
                     <td>
                       <strong className="cell-title">
-                        {row.actor
-                          ? accessName(row.actor)
-                          : "Unauthenticated session request"}
+                        {row.actor ? accessName(row.actor) : "Not identified"}
                       </strong>
                       <small className="cell-detail">
                         {row.actor?.id ?? row.ip_address ?? ""}
                       </small>
                     </td>
                     <td>
-                      <strong className="cell-title">{row.method}</strong>
-                      <span className="cell-detail">{row.path}</span>
+                      <strong className="cell-title">{row.action}</strong>
+                      <span className="cell-detail">
+                        {row.method} {row.path}
+                      </span>
                     </td>
                     <td>
                       {row.status_code === null ? (
-                        <Badge tone="warning">In progress</Badge>
+                        <Badge tone="warning">Outcome not recorded</Badge>
                       ) : (
                         <Badge
                           tone={row.status_code < 400 ? "active" : "danger"}
                         >
-                          {row.status_code < 400 ? "Succeeded" : "Failed"} ·{" "}
-                          {row.status_code}
+                          {row.status_code === 499
+                            ? "Connection closed"
+                            : row.status_code < 400
+                              ? "Succeeded"
+                              : "Failed"}{" "}
+                          · {row.status_code}
                         </Badge>
                       )}
                     </td>
@@ -149,6 +168,9 @@ export function AdminActivityPage() {
           </div>
         )}
       </CatalogPanel>
+      {resource.data?.retention_days === null && (
+        <p className="catalog-note">Audit history has no automatic expiry.</p>
+      )}
     </div>
   );
 }

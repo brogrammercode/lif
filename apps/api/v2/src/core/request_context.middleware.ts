@@ -5,7 +5,8 @@ import type { Request, Response, NextFunction } from 'express';
 import { HTTP_CONFIG } from './http.constant.js';
 import {
   AdminAuditService,
-  is_admin_auth_path,
+  is_admin_path,
+  should_audit_admin,
 } from './admin_audit.service.js';
 @Injectable()
 export class RequestContextMiddleware implements NestMiddleware {
@@ -15,28 +16,32 @@ export class RequestContextMiddleware implements NestMiddleware {
     response.setHeader(HTTP_CONFIG.REQUEST_ID_HEADER, request.request_id);
     const completion = new Promise<void>((resolve) => {
       response.once('finish', () => {
-        if (
-          request.admin_actor_id ||
-          request.admin_activity_id ||
-          is_admin_auth_path(request.path)
-        )
+        if (should_audit_admin(request))
           void this.audit
-            .complete(request, response)
-            .catch((error) =>
-              console.error({
-                event: 'ADMIN_ACTIVITY_SAVE_FAILED',
-                request_id: request.request_id,
-                error,
-              }),
-            )
+            .complete(request, response, { source: 'response' })
+            .catch((error) => this.audit.report_failure(request, error))
             .finally(resolve);
         else resolve();
       });
       response.once('close', () => {
-        if (!response.writableFinished) resolve();
+        if (!response.writableFinished) {
+          if (should_audit_admin(request))
+            void this.audit
+              .complete(request, response, {
+                status_code: 499,
+                source: 'abort',
+              })
+              .catch((error) => this.audit.report_failure(request, error))
+              .finally(resolve);
+          else resolve();
+        }
       });
     });
     waitUntil(completion);
-    next();
+    // Record admin attempts before guards/body parsing. No request body, token
+    // or query is stored.
+    if (is_admin_path(request.originalUrl || request.path))
+      void this.audit.start(request).then(() => next(), next);
+    else next();
   }
 }

@@ -760,6 +760,7 @@ export class PartnerProgramService {
       );
       if (!confirmation)
         throw fail('Publish the confirmation document in Requirements first.');
+      const approval_before = { status: app.status, version: app.version };
       const updated = await tx.partnerApplication.update({
         where: { id },
         data: {
@@ -770,7 +771,12 @@ export class PartnerProgramService {
           version: { increment: 1 },
         },
       });
-      await this.audit(tx, actor_id, id, 'APPROVE_PARTNER_APPLICATION');
+      await this.audit(tx, actor_id, id, 'APPROVE_PARTNER_APPLICATION', {
+        previous_status: approval_before.status,
+        status: updated.status,
+        previous_version: approval_before.version,
+        version: updated.version,
+      });
       await this.notify(
         tx,
         app.user_id,

@@ -33,6 +33,7 @@ type Cached = {
   status_code: number | null;
 };
 const cache = new Map<string, Cached>();
+const activities = new Map<string, Record<string, unknown>>();
 const users = new Map([
   ['admin', { role: 'ADMIN', status: 'ACTIVE', sessions: [{ id: 'live' }] }],
   [
@@ -43,8 +44,37 @@ const users = new Map([
 const fake = {
   partnerApplication: { findUnique: async () => null },
   adminActivity: {
-    create: async () => ({ id: randomUUID() }),
-    update: async () => ({}),
+    upsert: async ({
+      where,
+      create,
+    }: {
+      where: { request_id: string };
+      create: Record<string, unknown>;
+    }) => {
+      let row = activities.get(where.request_id);
+      if (!row) {
+        row = {
+          id: randomUUID(),
+          status_code: null,
+          completed_at: null,
+          ...create,
+        };
+        activities.set(where.request_id, row);
+      }
+      return row;
+    },
+    update: async ({
+      where,
+      data,
+    }: {
+      where: { id: string };
+      data: Record<string, unknown>;
+    }) => {
+      const row = [...activities.values()].find((item) => item.id === where.id);
+      assert.ok(row);
+      Object.assign(row, data);
+      return row;
+    },
   },
   user: {
     findUnique: async ({ where }: { where: { id: string } }) =>
@@ -144,6 +174,7 @@ before(async () => {
 afterEach(() => {
   mock.restoreAll();
   cache.clear();
+  activities.clear();
 });
 after(async () => {
   if (app) await app.close();
@@ -318,6 +349,85 @@ const category = {
   per_minute: 3,
   is_active: true,
 };
+
+it('records partner approval with its actor and completed outcome before returning success', async () => {
+  mock.method(
+    app.get(PartnerProgramService),
+    'approve_application',
+    async () => {
+      assert.ok(
+        [...activities.values()].some((row) =>
+          String(row.path).endsWith(
+            '/applications/application-fixture/approve',
+          ),
+        ),
+      );
+      return { status: 'APPROVED', version: 2 };
+    },
+  );
+  const result = await request(
+    '/api/v2/admin/partner-program/applications/application-fixture/approve',
+    json({ version: 1, decision: 'APPROVED' }, token('admin', 'ADMIN')),
+  );
+  assert.equal(result.response.status, 200);
+  const id = result.response.headers.get('x-request-id')!;
+  const audit = activities.get(id)!;
+  assert.equal(audit.actor_id, 'admin');
+  assert.equal(audit.action, 'Approve partner application');
+  assert.equal(audit.status_code, 200);
+  assert.ok(audit.completed_at instanceof Date);
+  assert.equal(activities.size, 1);
+});
+
+it('records guard and body-parser failures without storing tokens or query payloads', async () => {
+  const denied = await request('/api/v1/admin/users', {
+    headers: { Authorization: `Bearer ${token()}` },
+  });
+  assert.equal(denied.response.status, 403);
+  assert.equal(
+    activities.get(denied.response.headers.get('x-request-id')!)!.status_code,
+    403,
+  );
+  const malformed = await request(
+    '/api/V2/admin/vehicle-categories?private=do-not-store-query',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token('admin', 'ADMIN')}`,
+      },
+      body: '{"private":"do-not-store-body",',
+    },
+  );
+  assert.equal(malformed.response.status, 400);
+  assert.equal(
+    activities.get(malformed.response.headers.get('x-request-id')!)!
+      .status_code,
+    400,
+  );
+  const stored = JSON.stringify([...activities.values()]);
+  assert.equal(stored.includes('do-not-store'), false);
+  assert.equal(stored.includes('Bearer'), false);
+});
+
+it('finishes a rejected approval with its actual failure outcome', async () => {
+  mock.method(
+    app.get(PartnerProgramService),
+    'approve_application',
+    async () => {
+      throw new AppError(409, 'STALE_APPROVAL', 'Refresh this application.');
+    },
+  );
+  const result = await request(
+    '/api/v2/admin/partner-program/applications/application-fixture/approve',
+    json({ version: 1, decision: 'APPROVED' }, token('admin', 'ADMIN')),
+  );
+  assert.equal(result.response.status, 409);
+  const audit = activities.get(result.response.headers.get('x-request-id')!)!;
+  assert.equal(audit.status_code, 409);
+  assert.equal(audit.actor_id, 'admin');
+  assert.ok(audit.completed_at instanceof Date);
+});
 
 it('checks current roles, suspension and browser-family revocation', async () => {
   const forged = await request('/api/v2/admin/vehicle-categories', {

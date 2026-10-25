@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
 import type { Request, Response } from 'express';
 import { is_app_error } from './error.js';
+import { AdminAuditService } from './admin_audit.service.js';
 import {
   UNKNOWN_ERROR_MESSAGE,
   VALIDATION_ERROR_MESSAGE,
@@ -21,7 +22,8 @@ import {
 } from './http.constant.js';
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
-  catch(error: unknown, host: ArgumentsHost): void {
+  constructor(private readonly audit: AdminAuditService) {}
+  async catch(error: unknown, host: ArgumentsHost): Promise<void> {
     const request = host.switchToHttp().getRequest<Request>();
     const response = host.switchToHttp().getResponse<Response>();
     const validation = error instanceof ZodError;
@@ -118,6 +120,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
       });
     if (status_code === 503 && !response.headersSent)
       response.setHeader('Retry-After', '3');
+    await this.audit
+      .complete(request, response, { status_code })
+      .catch((auditError) => this.audit.report_failure(request, auditError));
     if (!response.headersSent)
       response.status(status_code).json({
         status: 'error',

@@ -36,6 +36,7 @@ function fixture() {
     committed: 0,
     driverWrites: 0,
     losePromotion: false,
+    publishedConfirmation: false,
     onPartnerLock: () => {},
   };
   const app = {
@@ -86,6 +87,9 @@ function fixture() {
     partnerApplication: {
       findUnique: async () => app,
       update: async ({ data }: { data: Record<string, unknown> }) => {
+        const version = data.version as { increment?: number } | undefined;
+        if (version?.increment)
+          data = { ...data, version: app.version + version.increment };
         const attempts = data.activation_attempts as
           { increment?: number } | undefined;
         if (attempts?.increment)
@@ -97,7 +101,19 @@ function fixture() {
         return app;
       },
     },
-    partnerDocument: { findUnique: async () => null },
+    partnerDocument: {
+      findUnique: async () =>
+        state.publishedConfirmation
+          ? {
+              title: 'Confirmation',
+              published_title: 'Confirmation',
+              published_html: '<p>Accepted terms</p>',
+              published_version: 1,
+              published_at: new Date(),
+            }
+          : null,
+    },
+    notification: { create: async () => ({}) },
     partnerAsset: {
       findMany: async ({
         where,
@@ -325,6 +341,54 @@ it('activation cannot overwrite a concurrently granted administrator role', asyn
   assert.equal(f.state.driverWrites, 0);
   assert.equal(f.app.status, 'COMPLETED');
   assert.notEqual(f.app.activation_hash, null);
+});
+
+it('application approval commits an actor, target and safe status/version audit snapshot', async () => {
+  const f = fixture();
+  f.app.status = 'SUBMITTED';
+  f.state.publishedConfirmation = true;
+  f.app.fields = [
+    {
+      id: 'selfie-answer',
+      requirement_id: '__live_selfie__',
+      status: 'APPROVED',
+      value: ['selfie'],
+      definition: {
+        id: '__live_selfie__',
+        label: 'Live selfie',
+        field_type: 'IMAGE',
+        is_required: true,
+      },
+    },
+  ];
+  f.setAssets([
+    {
+      id: 'selfie',
+      owner_id: f.app.user_id,
+      purpose: 'APPLICATION_SELFIE',
+      field_id: '__live_selfie__',
+      file_name: 'selfie.webp',
+      mime_type: 'image/webp',
+      size: 100,
+    },
+  ]);
+  await f.service.approve_application('fixture-admin', f.app.id, {
+    version: 1,
+    decision: 'APPROVED',
+  });
+  assert.equal(f.state.committed, 1);
+  const log = f.audits.find(
+    (row) => row.action === 'APPROVE_PARTNER_APPLICATION',
+  )!;
+  assert.equal(log.actor_id, 'fixture-admin');
+  assert.equal(log.entity_id, f.app.id);
+  assert.deepEqual(log.after_data, {
+    previous_status: 'SUBMITTED',
+    status: 'APPROVED',
+    previous_version: 1,
+    version: 2,
+  });
+  assert.equal(JSON.stringify(log).includes('selfie.webp'), false);
 });
 
 it('an optional empty rejected answer still blocks application approval', async () => {

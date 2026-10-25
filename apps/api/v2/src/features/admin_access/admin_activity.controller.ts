@@ -5,11 +5,16 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/database/prisma.service.js';
 import { AuthGuard, AdminGuard } from '../../core/guards.js';
 import { send_success } from '../../core/response.js';
+import {
+  admin_action_label,
+  legacy_action_aliases,
+} from '../../core/admin_audit.action.js';
 
 const filter = z.object({
   query: z.string().trim().max(100).default(''),
   actor_id: z.string().max(100).optional(),
   outcome: z.enum(['all', 'success', 'failure', 'pending']).default('all'),
+  activity: z.enum(['all', 'changes', 'reads']).default('all'),
   page: z.coerce.number().int().min(1).max(1000000).default(1),
 });
 @Controller()
@@ -23,6 +28,11 @@ export class AdminActivityController {
   ) {
     const input = filter.parse(request.query);
     const where: Prisma.AdminActivityWhereInput = {
+      ...(input.activity === 'changes'
+        ? { method: { notIn: ['GET', 'HEAD', 'OPTIONS'] } }
+        : input.activity === 'reads'
+          ? { method: { in: ['GET', 'HEAD', 'OPTIONS'] } }
+          : {}),
       ...(input.actor_id ? { actor_id: input.actor_id } : {}),
       ...(input.outcome === 'success'
         ? { status_code: { gte: 200, lt: 400 } }
@@ -52,7 +62,20 @@ export class AdminActivityController {
                   last_name: { contains: input.query, mode: 'insensitive' },
                 },
               },
-              { action: { contains: input.query, mode: 'insensitive' } },
+              {
+                action: {
+                  ...(input.query.includes('_')
+                    ? { equals: input.query.replaceAll('_', ' ').trim() }
+                    : { contains: input.query }),
+                  mode: 'insensitive',
+                },
+              },
+              {
+                action: {
+                  in: legacy_action_aliases(input.query),
+                  mode: 'insensitive',
+                },
+              },
             ],
           }
         : {}),
@@ -78,7 +101,20 @@ export class AdminActivityController {
             },
           },
         });
-        return { activities, total, page, page_size: 20 };
+        return {
+          activities: activities.map((row) => ({
+            ...row,
+            action: /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+\//i.test(
+              row.action,
+            )
+              ? admin_action_label(row.method, row.path)
+              : row.action,
+          })),
+          total,
+          page,
+          page_size: 20,
+          retention_days: null,
+        };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
