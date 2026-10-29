@@ -1,3 +1,4 @@
+import { ActionMenu } from "../../components/ui/ActionMenu";
 import { PageHeading } from "../../components/layout/PageHeading";
 import { CatalogPanel, TableLoading } from "../../components/ui/CatalogPanel";
 import {
@@ -280,20 +281,25 @@ export function AdminAccessPage() {
                       <LoginLocation location={admin.last_login_location} />
                     </td>
                     <td>
-                      <Button
-                        variant="ghost"
-                        disabled={admin.id === user?.id}
-                        title={
-                          admin.id === user?.id
-                            ? "Another administrator must remove your access."
-                            : `Remove admin access for ${accessName(admin)}`
-                        }
-                        onClick={() => setEditor({ target: admin })}
-                      >
-                        {admin.id === user?.id
-                          ? "Your access"
-                          : "Remove access"}
-                      </Button>
+                      <ActionMenu
+                        label={"administrator " + accessName(admin)}
+                        items={[
+                          {
+                            label:
+                              admin.id === user?.id
+                                ? "Your access"
+                                : "Remove access",
+                            icon: "trash",
+                            danger: true,
+                            disabled: admin.id === user?.id,
+                            title:
+                              admin.id === user?.id
+                                ? "Another administrator must remove your access."
+                                : undefined,
+                            onSelect: () => setEditor({ target: admin }),
+                          },
+                        ]}
+                      />
                     </td>
                   </tr>
                 ))}

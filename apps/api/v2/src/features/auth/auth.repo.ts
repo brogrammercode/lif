@@ -1,3 +1,4 @@
+import { transaction_with_connection_retry } from '../../infra/database/transaction_retry.js';
 import {
   queue_new_user_emails,
   schedule_new_user_emails,
@@ -35,105 +36,112 @@ export class AuthRepository {
     provider: AuthProvider,
     input: ExternalLoginInput,
   ) => {
-    const result = await this.prismaService.client.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${input.provider_account_id}))`;
-      const account = await tx.authAccount.findUnique({
-        where: {
-          provider_provider_account_id: {
-            provider,
-            provider_account_id: input.provider_account_id,
+    const result = await transaction_with_connection_retry(
+      this.prismaService.client,
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${input.provider_account_id}))`;
+        const account = await tx.authAccount.findUnique({
+          where: {
+            provider_provider_account_id: {
+              provider,
+              provider_account_id: input.provider_account_id,
+            },
           },
-        },
-        include: { user: true },
-      });
-      let existing = account?.user ?? null;
-      if (input.provider_email) {
-        const email = input.provider_email.trim().toLowerCase();
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(720047, hashtext(${email}))`;
-        const email_owners = await tx.user.findMany({
-          where: { email: { equals: email, mode: 'insensitive' } },
-          take: 2,
+          include: { user: true },
         });
-        if (email_owners.length > 1)
-          throw new AppError(
-            409,
-            'IDENTITY_CONFLICT',
-            AUTH_IDENTITY_CONFLICT_MESSAGE,
-          );
-        const email_owner = email_owners[0];
-        if (existing && email_owner && existing.id !== email_owner.id)
-          throw new AppError(
-            409,
-            'IDENTITY_CONFLICT',
-            AUTH_IDENTITY_CONFLICT_MESSAGE,
-          );
-        if (!account && email_owner) {
-          const linked = await tx.authAccount.findFirst({
-            where: { user_id: email_owner.id, provider },
+        let existing = account?.user ?? null;
+        if (input.provider_email) {
+          const email = input.provider_email.trim().toLowerCase();
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(720047, hashtext(${email}))`;
+          const email_owners = await tx.user.findMany({
+            where: { email: { equals: email, mode: 'insensitive' } },
+            take: 2,
           });
-          if (linked)
+          if (email_owners.length > 1)
             throw new AppError(
               409,
               'IDENTITY_CONFLICT',
               AUTH_IDENTITY_CONFLICT_MESSAGE,
             );
-          existing = email_owner;
+          const email_owner = email_owners[0];
+          if (existing && email_owner && existing.id !== email_owner.id)
+            throw new AppError(
+              409,
+              'IDENTITY_CONFLICT',
+              AUTH_IDENTITY_CONFLICT_MESSAGE,
+            );
+          if (!account && email_owner) {
+            const linked = await tx.authAccount.findFirst({
+              where: { user_id: email_owner.id, provider },
+            });
+            if (linked)
+              throw new AppError(
+                409,
+                'IDENTITY_CONFLICT',
+                AUTH_IDENTITY_CONFLICT_MESSAGE,
+              );
+            existing = email_owner;
+          }
         }
-      }
-      if (existing && (existing.status !== 'ACTIVE' || existing.deleted_at))
-        throw new AppError(403, 'USER_INACTIVE', AUTH_ACCOUNT_INACTIVE_MESSAGE);
-      const email = input.provider_email?.trim().toLowerCase();
-      const data = account
-        ? { email }
-        : {
-            first_name: existing?.first_name ?? input.first_name,
-            last_name: existing?.last_name ?? input.last_name,
-            email,
-            avatar_url: existing?.avatar_url ?? input.avatar_url,
-          };
-      const user = existing
-        ? await tx.user.update({
-            where: { id: existing.id },
-            data,
-            include: {
-              driver_profile: true,
-              partner_application: {
-                select: { status: true, activation_issued_at: true },
+        if (existing && (existing.status !== 'ACTIVE' || existing.deleted_at))
+          throw new AppError(
+            403,
+            'USER_INACTIVE',
+            AUTH_ACCOUNT_INACTIVE_MESSAGE,
+          );
+        const email = input.provider_email?.trim().toLowerCase();
+        const data = account
+          ? { email }
+          : {
+              first_name: existing?.first_name ?? input.first_name,
+              last_name: existing?.last_name ?? input.last_name,
+              email,
+              avatar_url: existing?.avatar_url ?? input.avatar_url,
+            };
+        const user = existing
+          ? await tx.user.update({
+              where: { id: existing.id },
+              data,
+              include: {
+                driver_profile: true,
+                partner_application: {
+                  select: { status: true, activation_issued_at: true },
+                },
               },
-            },
-          })
-        : await tx.user.create({
-            data,
-            include: {
-              driver_profile: true,
-              partner_application: {
-                select: { status: true, activation_issued_at: true },
+            })
+          : await tx.user.create({
+              data,
+              include: {
+                driver_profile: true,
+                partner_application: {
+                  select: { status: true, activation_issued_at: true },
+                },
               },
+            });
+        if (!account)
+          await tx.authAccount.create({
+            data: {
+              user_id: user.id,
+              provider,
+              provider_account_id: input.provider_account_id,
+              provider_email: input.provider_email,
             },
           });
-      if (!account)
-        await tx.authAccount.create({
-          data: {
-            user_id: user.id,
+        if (!existing)
+          await queue_new_user_emails(tx, user, `${provider} sign-in`);
+        await create_user_log(tx, {
+          actor_id: user.id,
+          entity_type: 'User',
+          entity_id: user.id,
+          action: existing ? 'UPDATE_EXTERNAL_USER' : 'CREATE_EXTERNAL_USER',
+          after_data: {
             provider,
             provider_account_id: input.provider_account_id,
-            provider_email: input.provider_email,
-          },
+          } as Prisma.InputJsonObject,
         });
-      if (!existing)
-        await queue_new_user_emails(tx, user, `${provider} sign-in`);
-      await create_user_log(tx, {
-        actor_id: user.id,
-        entity_type: 'User',
-        entity_id: user.id,
-        action: existing ? 'UPDATE_EXTERNAL_USER' : 'CREATE_EXTERNAL_USER',
-        after_data: {
-          provider,
-          provider_account_id: input.provider_account_id,
-        } as Prisma.InputJsonObject,
-      });
-      return user;
-    });
+        return user;
+      },
+    );
     schedule_new_user_emails();
     return result;
   };
@@ -145,7 +153,8 @@ export class AuthRepository {
     user_agent: string | undefined,
     ip_address: string | undefined,
   ) =>
-    this.prismaService.client.$transaction(
+    transaction_with_connection_retry(
+      this.prismaService.client,
       async (tx) => {
         await require_active_account(tx, user_id);
         await partner_lock(tx, user_id);
@@ -189,7 +198,7 @@ export class AuthRepository {
         }
         return session;
       },
-      { maxWait: 10000, timeout: 20000 },
+      { maxWait: 30000, timeout: 20000 },
     );
 
   readonly find_session = async (refresh_token_hash: string) =>
@@ -215,7 +224,8 @@ export class AuthRepository {
       ip_address?: string;
     },
   ) =>
-    this.prismaService.client.$transaction(
+    transaction_with_connection_retry(
+      this.prismaService.client,
       async (tx) => {
         const session = await tx.session.findUnique({
           where: { refresh_token_hash },
@@ -268,11 +278,11 @@ export class AuthRepository {
         });
         return session.user;
       },
-      { maxWait: 10000, timeout: 15000 },
+      { maxWait: 30000, timeout: 15000 },
     );
 
   readonly revoke_session = async (session_id: string, actor_uid: string) =>
-    this.prismaService.client.$transaction(async (tx) => {
+    transaction_with_connection_retry(this.prismaService.client, async (tx) => {
       const session = await tx.session.update({
         where: { id: session_id },
         data: { revoked_at: new Date() },

@@ -7,7 +7,11 @@ import {
 } from "react";
 import { useParams } from "react-router-dom";
 import { PageHeading } from "../../components/layout/PageHeading";
-import { InlineError, StateCard } from "../../components/feedback/StateCard";
+import {
+  InlineError,
+  StateCard,
+  LoadingState,
+} from "../../components/feedback/StateCard";
 import { Toast } from "../../components/feedback/Toast";
 import { Avatar } from "../../components/ui/Avatar";
 import { Button } from "../../components/ui/Button";
@@ -57,12 +61,7 @@ function UserPersonal({ id }: { id: string }) {
     return () => controller.abort();
   }, [id, revision]);
   if (loading)
-    return (
-      <div className="personal-card" role="status" aria-busy="true">
-        <p>Loading personal details…</p>
-        <div className="skeleton mt-5 h-64 w-full" />
-      </div>
-    );
+    return <LoadingState variant="form" label="Loading personal details" />;
   if (error || !user)
     return (
       <StateCard

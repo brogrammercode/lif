@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { Icon } from "./Icon";
+import { InlineLoading } from "./Skeleton";
 
 export function Button({
   variant = "primary",
@@ -21,7 +21,7 @@ export function Button({
       className={`button button-${variant} ${className}`}
       aria-busy={busy || undefined}
     >
-      {busy && <Icon name="spinner" size={16} className="animate-spin" />}
+      {busy && <InlineLoading />}
       {children}
     </button>
   );

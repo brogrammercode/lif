@@ -1,4 +1,5 @@
 import { PendingService } from '../features/admin_pending/pending.service.js';
+import { AuditRetentionService } from '../core/audit_retention.service.js';
 import { DriverOperationsService } from '../features/driver_operations/driver_operations.service.js';
 import assert from 'node:assert/strict';
 import { after, afterEach, before, it, mock } from 'node:test';
@@ -181,6 +182,26 @@ after(async () => {
   if (app) await app.close();
 });
 
+it('allows audit cleanup without credentials and does not accept caller-selected retention settings', async () => {
+  const cleanup = mock.method(
+    app.get(AuditRetentionService),
+    'prune',
+    async () => ({ admin_activity: 0, user_logs: 0, has_more: false }),
+  );
+  const result = await request(
+    '/api/v2/internal/audit-retention?days=0&cutoff=2100-01-01',
+  );
+  assert.equal(result.response.status, 200);
+  assert.equal(result.response.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(result.body.data, {
+    admin_activity: 0,
+    user_logs: 0,
+    has_more: false,
+  });
+  assert.equal(cleanup.mock.callCount(), 1);
+  assert.deepEqual(cleanup.mock.calls[0]!.arguments, []);
+});
+
 it('keeps the route manifest aligned with compiled Nest routes and security metadata', () => {
   type Route = {
     feature: string;
@@ -253,7 +274,7 @@ it('registers and protects every authenticated route on both URI versions', asyn
     path: string;
     guards: string[];
   }[];
-  assert.equal(routes.length, 182);
+  assert.equal(routes.length, 185);
   for (const version of ['1', '2'])
     for (const route of routes.filter((value) =>
       value.guards.includes('AuthGuard'),
@@ -448,6 +469,20 @@ it('checks current roles, suspension and browser-family revocation', async () =>
     ).body.error_code,
     'USER_INACTIVE',
   );
+});
+
+it('records administrator browsing outside the admin route prefix as read activity', async () => {
+  mock.method(app.get(RideService), 'get_rides', async () => []);
+  const result = await request('/api/v2/rides', {
+    headers: { Authorization: `Bearer ${token('admin', 'ADMIN')}` },
+  });
+  assert.equal(result.response.status, 200);
+  const audit = activities.get(result.response.headers.get('x-request-id')!)!;
+  assert.equal(audit.actor_id, 'admin');
+  assert.equal(audit.method, 'GET');
+  assert.equal(audit.action, 'View ride history');
+  assert.equal(audit.status_code, 200);
+  assert.ok(audit.completed_at instanceof Date);
 });
 
 it('rejects malformed JSON and unsupported charsets with client errors', async () => {

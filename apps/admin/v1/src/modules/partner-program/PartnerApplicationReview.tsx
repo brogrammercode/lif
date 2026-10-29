@@ -6,14 +6,20 @@ import { openWhatsAppWeb } from "./partner-sharing";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PageHeading } from "../../components/layout/PageHeading";
 import { Button } from "../../components/ui/Button";
+import { ActionMenu } from "../../components/ui/ActionMenu";
+import { DeleteApplicationDialog } from "./DeleteApplicationDialog";
 import { Badge } from "../../components/ui/Badge";
 import { Field } from "../../components/ui/Field";
 import { Dialog } from "../../components/ui/Dialog";
-import { CatalogPanel, TableLoading } from "../../components/ui/CatalogPanel";
+import { CatalogPanel } from "../../components/ui/CatalogPanel";
 import { Icon } from "../../components/ui/Icon";
 import { FileUpload } from "../../components/ui/FileUpload";
 import { DocumentDialog } from "../../components/ui/DocumentPreview";
-import { InlineError, StateCard } from "../../components/feedback/StateCard";
+import {
+  InlineError,
+  StateCard,
+  LoadingState,
+} from "../../components/feedback/StateCard";
 import { Toast } from "../../components/feedback/Toast";
 import { apiRequest, safeMessage } from "../../lib/api-client";
 import { useAdminResource } from "../../lib/useAdminResource";
@@ -61,6 +67,7 @@ export function PartnerApplicationReview({
       : undefined;
   const assets = resource.data?.assets ?? [];
   const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const blocked = busy || resource.loading || !!resource.error;
   const [previewAsset, setPreviewAsset] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -213,13 +220,16 @@ export function PartnerApplicationReview({
         }
         busy
       >
-        <TableLoading
-          label={
-            section === "confirmations"
-              ? "Loading confirmation"
-              : "Loading application"
-          }
-        />
+        <div className="catalog-feedback">
+          <LoadingState
+            variant="detail"
+            label={
+              section === "confirmations"
+                ? "Loading confirmation"
+                : "Loading application"
+            }
+          />
+        </div>
       </CatalogPanel>
     );
   if (!app)
@@ -258,15 +268,38 @@ export function PartnerApplicationReview({
           <Icon name="arrowLeft" size={16} />
           Back to list
         </Button>
-        <Button variant="secondary" disabled={busy} onClick={resource.refresh}>
-          <Icon
-            name={resource.loading ? "spinner" : "refresh"}
-            className={resource.loading ? "animate-spin" : ""}
-            size={16}
-          />
-          Refresh
-        </Button>
+        <ActionMenu
+          label={`application ${app.id}`}
+          disabled={busy}
+          items={[
+            {
+              label: "Refresh application",
+              icon: "refresh",
+              onSelect: resource.refresh,
+            },
+            ...(section === "applications"
+              ? [
+                  {
+                    label: "Delete application",
+                    icon: "trash" as const,
+                    danger: true,
+                    disabled: ["ACTIVATED", "EXITED"].includes(app.status),
+                    title:
+                      "Deletion is available only before driver activation.",
+                    onSelect: () => setDeleting(true),
+                  },
+                ]
+              : []),
+          ]}
+        />
       </PageHeading>
+      {deleting && (
+        <DeleteApplicationDialog
+          id={app.id}
+          onClose={() => setDeleting(false)}
+          onDeleted={onBack}
+        />
+      )}
       {(error || resource.error) && (
         <InlineError message={error ?? resource.error!} />
       )}

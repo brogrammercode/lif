@@ -30,6 +30,14 @@ npm run start
 
 `npm run type-check` checks TypeScript without emitting files; `npm run format:check` checks source formatting. Development uses the Nest CLI watch compiler, including decorator metadata.
 
+### Database connection waits
+
+Runtime PostgreSQL URLs default to `connect_timeout=15` and `pool_timeout=30` seconds. On Vercel, `connection_limit=5` bounds each function instance's pool; a local persistent server retains Prisma's normal pool sizing. Explicit parameters in `DB_STRING` are respected, including provider/SSL settings. Hosted application traffic should use the database provider's pooled endpoint. These runtime defaults require no edit to a private `.env` file and do not change Prisma migration configuration.
+
+Mobile and admin authentication transactions wait up to 30 seconds for acquisition. A `P2024` pool timeout or pre-start `P2028` is retried at most once with a short delay, only if Prisma has not entered the transaction callback. Entered transaction errors, commit failures, identity conflicts and revoked/expired sessions are never replayed. Transaction execution time limits and authorization/locking rules remain unchanged. Persistent database unavailability still returns the existing `503 DATABASE_BUSY` response with `Retry-After`.
+
+After changing runtime connection defaults, restart the API process or redeploy API V2. See [the connection-pool investigation](../../../context/DATABASE_POOL_AUTH_FIX.md) for verification and limitations.
+
 The API emits native ES modules for NestJS 12: package `type: module`, TypeScript `NodeNext`, and explicit `.js` extensions on relative imports. Preserve these settings for Vercel; CommonJS output can fail there with `ERR_REQUIRE_ESM`. The existing unit-test script preloads its environment using `--import`.
 
 ## Architecture
@@ -164,7 +172,7 @@ Admin sign-in now records optional browser-permitted coordinates or an explicitl
 
 Migration 0005 adds brand/model moderation, shared partner requirement categories/fields, login timestamps and central admin activity records. Migration 0006 backfills login timestamps from retained authentication events. V2 is the only API package updated for this expansion; do not synchronize these new migrations into V1.
 
-Access removal uses `expected_access_version` from the directory, avoiding unrelated profile/location/login conflicts. Missing/already-removed access is idempotent. Users can be deactivated with confirmation while retaining history; sessions/devices are revoked and active rides block deactivation. Admin requests are centrally audited alongside transactional business logs, including denied and malformed admin-route attempts. Handler outcomes are saved before returning success, with finish/close recovery and readable action names for current and historical entries. `GET /admin/activity` supports `activity=changes|reads|all` (API default `all`) plus existing query/outcome filters. Database audit records have no automatic expiry or cleanup. See [audit reliability and retention](../../../context/ADMIN_AUDIT_RELIABILITY.md).
+Access removal uses `expected_access_version` from the directory, avoiding unrelated profile/location/login conflicts. Missing/already-removed access is idempotent. Users can be deactivated with confirmation while retaining history; sessions/devices are revoked and active rides block deactivation. Admin requests are centrally audited alongside transactional business logs, including denied and malformed admin-route attempts. Handler outcomes are saved before returning success, with finish/close recovery and readable action names for current and historical entries. `GET /admin/activity` supports `activity=changes|reads|all` (API default `all`) plus existing query/outcome filters. Database request and business audit logs expire after seven days and are purged in batches. See [audit reliability and retention](../../../context/ADMIN_AUDIT_RELIABILITY.md).
 
 See [ADMIN_EXPANSION_IMPLEMENTATION.md](../../../context/ADMIN_EXPANSION_IMPLEMENTATION.md) for all new endpoints, future driver proposal integration, dynamic field configuration, concurrency protections and audit/check limits. No automated tests were run for the expansion.
 
@@ -230,3 +238,5 @@ New quotes use pickup_eta_s=0 to mean unknown until assignment. The rider client
 Apply migration `0012_driver_account` before serving the updated driver account, matching and payment routes. Driver account/finance and vehicle-document reads are owner scoped and remain available after partner exit; operational writes retain exit guards. Admin Users > Driver Account provides the same statement and versioned destination review. Payout values are encrypted with the existing private JWT secret: preserve it or re-encrypt records before a rotation. Private reveals are audited, and old receipt destinations remain unchanged. Vehicle document replacement blocks active trips and preserves other field reviews; RC/insurance/PUC now support validated PDF as well as converted images.
 
 See [Phase D implementation](../../../context/PHASE_D_IMPLEMENTATION.md) for API/UI contracts, direct-collection accounting boundaries, checks and rollout. No automatic platform payout or expiry enforcement is introduced.
+
+See [entity menus, application deletion and seven-day audit cleanup](../../../context/ADMIN_ENTITY_ACTIONS_AND_AUDIT_RETENTION.md) for the exact deletion scope, safeguards, maintenance command and Vercel cron configuration.

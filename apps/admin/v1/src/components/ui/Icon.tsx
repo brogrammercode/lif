@@ -11,7 +11,6 @@ import {
   CircleCheck,
   Clock3,
   Layers,
-  LoaderCircle,
   LogOut,
   Menu,
   Pencil,
@@ -27,6 +26,7 @@ import {
   Grid2X2,
   Upload,
   Trash2,
+  Ellipsis,
 } from "lucide-react";
 const icons = {
   app: AppWindow,
@@ -41,7 +41,6 @@ const icons = {
   success: CircleCheck,
   clock: Clock3,
   layers: Layers,
-  spinner: LoaderCircle,
   logout: LogOut,
   menu: Menu,
   edit: Pencil,
@@ -57,6 +56,7 @@ const icons = {
   grid: Grid2X2,
   upload: Upload,
   trash: Trash2,
+  more: Ellipsis,
 };
 export type IconName = keyof typeof icons;
 export function Icon({

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Icon } from "../ui/Icon";
+import { LoadingSkeleton, type LoadingVariant } from "../ui/Skeleton";
 export function StateCard({
   title,
   message,
@@ -33,11 +34,12 @@ export function InlineError({ message }: { message: string }) {
     </div>
   );
 }
-export function LoadingState() {
-  return (
-    <div className="loading-state" role="status">
-      <Icon name="spinner" className="animate-spin text-brand" size={26} />
-      <span>Loading your workspace…</span>
-    </div>
-  );
+export function LoadingState({
+  variant = "page",
+  label = "Loading content",
+}: {
+  variant?: LoadingVariant;
+  label?: string;
+}) {
+  return <LoadingSkeleton variant={variant} label={label} />;
 }

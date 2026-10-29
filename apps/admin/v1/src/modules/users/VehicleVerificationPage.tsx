@@ -133,7 +133,8 @@ function UserVehicles({ id }: { id: string }) {
       action.current = null;
     }
   }
-  if (loading && !data) return <LoadingState />;
+  if (loading && !data)
+    return <LoadingState variant="form" label="Loading vehicle verification" />;
   if (!data || error)
     return (
       <StateCard

@@ -760,6 +760,7 @@ model UserLog {
 
   @@index([entity_type, entity_id, created_at])
   @@index([actor_id, created_at])
+  @@index([created_at])
   @@map("user_logs")
 }
 

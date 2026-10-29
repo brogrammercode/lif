@@ -1,3 +1,4 @@
+import { entityAction } from "./fixtures";
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import type {
@@ -94,6 +95,9 @@ async function workspace(page: Page, initialStatus = "SUBMITTED") {
     documentError: false,
     listError: false,
     document: null as PartnerDocument | null,
+    deleted: false,
+    deleteConflict: false,
+    deleteAllowed: true,
   };
   await page.route("**/api/v2/**", async (route) => {
     const request = route.request();
@@ -130,9 +134,43 @@ async function workspace(page: Page, initialStatus = "SUBMITTED") {
     }
     if (path.endsWith("/applications"))
       return send(
-        { rows: [state.app], total: 1, page: 1, page_size: 20 },
+        {
+          rows: state.deleted ? [] : [state.app],
+          total: state.deleted ? 0 : 1,
+          page: 1,
+          page_size: 20,
+        },
         state.listError ? 503 : 200,
       );
+    if (path.endsWith("/deletion-preview"))
+      return send({
+        id: state.app.id,
+        version: state.app.version,
+        status: state.app.status,
+        name: "Partner Applicant",
+        contact_email: state.app.contact_email,
+        allowed: state.deleteAllowed,
+        blocked_reason: state.deleteAllowed
+          ? null
+          : "Applications can be deleted only before driver activation.",
+        counts: {
+          fields: 2,
+          confirmations: 1,
+          deliveries: 2,
+          uploads: 3,
+          upload_bytes: 2048,
+          notifications: 4,
+        },
+      });
+    if (
+      path.endsWith("/applications/partner-123") &&
+      request.method() === "DELETE"
+    ) {
+      state.writes.push({ path, body: request.postDataJSON() });
+      if (state.deleteConflict) return send(null, 409);
+      state.deleted = true;
+      return send({ id: state.app.id });
+    }
     if (
       path.endsWith("/applications/partner-123") &&
       request.method() === "GET"
@@ -205,6 +243,126 @@ async function workspace(page: Page, initialStatus = "SUBMITTED") {
   return state;
 }
 
+test("application menus support keyboard access and deletion previews require typed confirmation", async ({
+  page,
+}) => {
+  const state = await workspace(page);
+  await page.goto(base + "/applications");
+  const trigger = page.getByRole("button", {
+    name: "Actions for application partner-123",
+    exact: true,
+  });
+  await trigger.focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(
+    page.getByRole("menuitem", { name: "Review application partner-123" }),
+  ).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(
+    page.getByRole("menuitem", { name: "Delete application", exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await (await entityAction(page, "Delete application")).click();
+  const dialog = page.getByRole("dialog", {
+    name: "Delete partner application?",
+  });
+  await expect(
+    dialog.getByText("Partner Applicant", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByText("Submitted fields & review decisions", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByText(
+      /The user account, vehicles, rides and shared configuration stay/,
+    ),
+  ).toBeVisible();
+  const remove = dialog.getByRole("button", {
+    name: "Delete application",
+    exact: true,
+  });
+  await expect(remove).toBeDisabled();
+  await dialog
+    .getByLabel("Confirm applicant email", { exact: true })
+    .fill("wrong@example.test");
+  await expect(remove).toBeDisabled();
+  await dialog
+    .getByLabel("Confirm applicant email", { exact: true })
+    .fill("PARTNER@example.test");
+  await remove.click();
+  await expect(dialog).toHaveCount(0);
+  await expect(
+    page.getByRole("button", {
+      name: "Actions for application partner-123",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  expect(state.deleted).toBe(true);
+  expect(state.writes).toEqual([
+    {
+      path: "/api/v2/admin/partner-program/applications/partner-123",
+      body: { version: 1, confirmation: "PARTNER@example.test" },
+    },
+  ]);
+});
+
+test("deletion keeps the dialog on conflict and refreshes the revision before retry", async ({
+  page,
+}) => {
+  const state = await workspace(page);
+  state.deleteConflict = true;
+  await page.goto(base + "/applications");
+  await (await entityAction(page, "Delete application")).click();
+  const dialog = page.getByRole("dialog");
+  await dialog
+    .getByLabel("Confirm applicant email", { exact: true })
+    .fill(state.app.contact_email);
+  await dialog
+    .getByRole("button", { name: "Delete application", exact: true })
+    .click();
+  await expect(dialog.getByRole("alert")).toBeVisible();
+  expect(state.deleted).toBe(false);
+  state.deleteConflict = false;
+  state.app.version = 4;
+  await dialog.getByRole("button", { name: "Refresh preview" }).click();
+  await expect(
+    dialog.getByLabel("Confirm applicant email", { exact: true }),
+  ).toHaveValue("");
+  await dialog
+    .getByLabel("Confirm applicant email", { exact: true })
+    .fill(state.app.contact_email);
+  await dialog
+    .getByRole("button", { name: "Delete application", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  expect(state.writes.at(-1)?.body.version).toBe(4);
+});
+
+test("activated applications and changed eligibility cannot be deleted", async ({
+  page,
+}) => {
+  const state = await workspace(page, "ACTIVATED");
+  await page.goto(base + "/applications");
+  await expect(await entityAction(page, "Delete application")).toBeDisabled();
+  state.app.status = "SUBMITTED";
+  state.deleteAllowed = false;
+  await page.reload();
+  await (await entityAction(page, "Delete application")).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("alert")).toContainText(
+    "before driver activation",
+  );
+  await expect(
+    dialog.getByRole("button", { name: "Delete application", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    dialog.getByLabel("Confirm applicant email", { exact: true }),
+  ).toHaveCount(0);
+  expect(state.writes).toEqual([]);
+});
+
 test("document uses shared fields, supports draft/publish/preview and blocks saves after a fetch failure", async ({
   page,
 }) => {
@@ -260,9 +418,7 @@ test("review requires field approval and retains rejection reasons with the shar
 }) => {
   const state = await workspace(page);
   await page.goto(base + "/applications");
-  await page
-    .getByRole("button", { name: "Review application partner-123" })
-    .click();
+  await (await entityAction(page, "Review application partner-123")).click();
   const approve = page.getByRole("button", {
     name: "Approve application",
     exact: true,
@@ -271,12 +427,7 @@ test("review requires field approval and retains rejection reasons with the shar
   await expect(
     page.getByRole("textbox", { name: "Rejection reason", exact: true }),
   ).toHaveCount(0);
-  await page
-    .getByRole("button", {
-      name: "Request correction: Legal name",
-      exact: true,
-    })
-    .click();
+  await (await entityAction(page, "Request correction: Legal name")).click();
   const dialog = page.getByRole("dialog", {
     name: /Request correction.*Legal name/,
   });
@@ -295,10 +446,7 @@ test("review requires field approval and retains rejection reasons with the shar
       .getByRole("note")
       .filter({ hasText: "Please enter your full legal name." }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Approve field: Legal name", exact: true })
-    .first()
-    .click();
+  await (await entityAction(page, "Approve field: Legal name")).first().click();
   await expect(approve).toBeEnabled();
   await approve.click();
   await page
@@ -312,9 +460,7 @@ test("final PDF previews locally and uploads once only after explicit approval",
 }) => {
   const state = await workspace(page, "CONFIRMATION_SUBMITTED");
   await page.goto(base + "/applications/confirmations");
-  await page
-    .getByRole("button", { name: "Review application partner-123" })
-    .click();
+  await (await entityAction(page, "Review application partner-123")).click();
   const picker = page.getByLabel("Final approved PDF", { exact: true });
   await picker.setInputFiles({
     name: "invalid.pdf",
@@ -365,15 +511,11 @@ test("a rejected optional blank answer blocks approval until reviewed again", as
   state.app.fields[0]!.value = null;
   state.app.fields[0]!.definition.is_required = false;
   await page.goto(base + "/applications");
-  await page
-    .getByRole("button", { name: "Review application partner-123" })
-    .click();
+  await (await entityAction(page, "Review application partner-123")).click();
   await expect(
     page.getByRole("button", { name: "Approve application", exact: true }),
   ).toBeDisabled();
-  await page
-    .getByRole("button", { name: "Approve field: Legal name", exact: true })
-    .click();
+  await (await entityAction(page, "Approve field: Legal name")).click();
   await expect(
     page.getByRole("button", { name: "Approve application", exact: true }),
   ).toBeEnabled();
@@ -409,9 +551,7 @@ test("list failures stay recoverable and editor/review stay within desktop and m
       fullPage: true,
     });
     await page.goto(base + "/applications");
-    await page
-      .getByRole("button", { name: "Review application partner-123" })
-      .click();
+    await (await entityAction(page, "Review application partner-123")).click();
     await expect(
       page.getByText("Legal name", { exact: false }).first(),
     ).toBeVisible();
@@ -461,9 +601,9 @@ test("confirmation review shows acceptance only and never loads submitted field 
     page.getByRole("img", { name: "Applicant live selfie" }),
   ).toHaveCount(0);
   await expect(
-    page.getByRole("button", {
+    page.getByRole("menuitem", {
       name: "Approve field: Legal name",
-      exact: true,
+      includeHidden: true,
     }),
   ).toHaveCount(0);
   expect(state.assetRequests).toEqual([]);

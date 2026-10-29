@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PartnerApplicationDeletionService } from './partner_application_deletion.service.js';
 import { PartnerExitService } from './partner_exit.service.js';
 import {
   PartnerExitController,
@@ -19,6 +20,7 @@ import {
     AdminPartnerExitController,
   ],
   providers: [
+    PartnerApplicationDeletionService,
     PartnerProgramService,
     PartnerDocumentService,
     PartnerDeliveryService,

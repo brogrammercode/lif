@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { PageHeading } from "../../components/layout/PageHeading";
-import { CatalogPanel, TableLoading } from "../../components/ui/CatalogPanel";
+import { CatalogPanel } from "../../components/ui/CatalogPanel";
 import { Button } from "../../components/ui/Button";
 import { Badge } from "../../components/ui/Badge";
 import { Field } from "../../components/ui/Field";
 import { Dialog } from "../../components/ui/Dialog";
 import { FileUpload } from "../../components/ui/FileUpload";
-import { InlineError } from "../../components/feedback/StateCard";
+import { InlineError, LoadingState } from "../../components/feedback/StateCard";
 import { ApiError, apiRequest, safeMessage } from "../../lib/api-client";
 import { useAdminResource } from "../../lib/useAdminResource";
 import { openWhatsAppWeb } from "./partner-sharing";
@@ -213,7 +213,7 @@ export function PartnerExitReview({
             <Button onClick={resource.refresh}>Try again</Button>
           </>
         ) : (
-          <TableLoading label="Loading exit request" />
+          <LoadingState variant="form" label="Loading exit request" />
         )}
       </div>
     );

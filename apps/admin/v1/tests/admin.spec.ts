@@ -1,3 +1,4 @@
+import { entityAction } from "./fixtures";
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import type { VehicleCategory } from "../src/types/domain";
@@ -127,27 +128,19 @@ test("navigation, category creation, subcategory creation, search, editing and m
   await page.getByLabel("Passenger seats", { exact: true }).fill("4");
   await expect(page.getByLabel("Base fare", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Create category" }).click();
-  await expect(
-    page.getByRole("button", { name: "Edit City rides" }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Add subcategory under City rides" })
-    .click();
+  await expect(await entityAction(page, "Edit City rides")).toBeVisible();
+  await (await entityAction(page, "Add subcategory under City rides")).click();
   await expect(page.getByLabel("Parent category", { exact: true })).toHaveValue(
     "new-2",
   );
   await page.getByLabel("Category name", { exact: true }).fill("Comfort ride");
   await page.getByRole("button", { name: "Create category" }).click();
-  await expect(
-    page.getByRole("button", { name: "Edit Comfort ride", exact: true }),
-  ).toBeVisible();
+  await expect(await entityAction(page, "Edit Comfort ride")).toBeVisible();
   await page.getByLabel("Search categories").fill("Comfort ride");
   await expect(
-    page.getByRole("button", { name: "Edit Sedan", exact: true }),
+    page.getByRole("menuitem", { name: "Edit Sedan", includeHidden: true }),
   ).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Edit Comfort ride", exact: true })
-    .click();
+  await (await entityAction(page, "Edit Comfort ride")).click();
   await page.getByRole("switch", { name: "Enable category" }).click();
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(
@@ -156,7 +149,7 @@ test("navigation, category creation, subcategory creation, search, editing and m
   await page.getByLabel("Filter category status").selectOption("enabled");
   await expect(page.getByText("No matching categories")).toBeVisible();
   await page.getByRole("button", { name: "Clear filters" }).click();
-  await page.getByRole("button", { name: "Edit Sedan", exact: true }).click();
+  await (await entityAction(page, "Edit Sedan")).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   expect(
@@ -180,19 +173,14 @@ test("category creation saves its own fare and a new child does not inherit it",
   await page
     .getByRole("button", { name: "Create category", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: "Edit Priced parent", exact: true })
-    .click();
+  await (await entityAction(page, "Edit Priced parent")).click();
   await expect(page.locator("#category-fare-normal_fare_per_km")).toHaveValue(
     "12",
   );
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  await page
-    .getByRole("button", {
-      name: "Add subcategory under Priced parent",
-      exact: true,
-    })
-    .click();
+  await (
+    await entityAction(page, "Add subcategory under Priced parent")
+  ).click();
   await expect(
     page.getByRole("switch", { name: "Configure category fare", exact: true }),
   ).not.toBeChecked();
@@ -206,9 +194,7 @@ test("expired access token refreshes and retries without browser token storage",
 }) => {
   const workspace = await mockWorkspace(page);
   await page.goto(path);
-  await expect(
-    page.getByRole("button", { name: "Edit Sedan", exact: true }),
-  ).toBeVisible();
+  await expect(await entityAction(page, "Edit Sedan")).toBeVisible();
   workspace.expireNext();
   await page.getByRole("button", { name: "Refresh categories" }).click();
   await expect.poll(workspace.refreshes).toBe(2);
@@ -316,9 +302,7 @@ test("desktop and mobile workspace remain bounded, including editor dialog", asy
   await mockWorkspace(page);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(path);
-  await expect(
-    page.getByRole("button", { name: "Edit Sedan", exact: true }),
-  ).toBeVisible();
+  await expect(await entityAction(page, "Edit Sedan")).toBeVisible();
   await page.screenshot({
     path: ".artifacts/admin-desktop.png",
     fullPage: true,
@@ -393,9 +377,7 @@ test("signing out updates other open tabs without storing credentials", async ({
   await mockWorkspace(other);
   await page.goto(path);
   await other.goto(path);
-  await expect(
-    other.getByRole("button", { name: "Edit Sedan", exact: true }),
-  ).toBeVisible();
+  await expect(await entityAction(other, "Edit Sedan")).toBeVisible();
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
   await page
     .getByRole("dialog")
@@ -420,15 +402,11 @@ test("successful saves keep hierarchy consistent if the follow-up refresh fails"
     return route.fallback();
   });
   await page.goto(path);
-  await page
-    .getByRole("button", { name: "Add subcategory under Sedan" })
-    .click();
+  await (await entityAction(page, "Add subcategory under Sedan")).click();
   await page.getByLabel("Category name", { exact: true }).fill("Comfort");
   await page.getByRole("button", { name: "Create category" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "Edit Comfort", exact: true }),
-  ).toBeVisible();
+  await expect(await entityAction(page, "Edit Comfort")).toBeVisible();
   await expect(page.getByText(/1 subcategory.*Group/)).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("could not complete");
 });
@@ -479,7 +457,7 @@ test("conflicting edits offer a deliberate reload of server state", async ({
     }),
   );
   await page.goto(path);
-  await page.getByRole("button", { name: "Edit Sedan", exact: true }).click();
+  await (await entityAction(page, "Edit Sedan")).click();
   await page
     .getByLabel("Category name", { exact: true })
     .fill("My pending edit");
@@ -490,7 +468,7 @@ test("conflicting edits offer a deliberate reload of server state", async ({
   );
   await page.getByRole("button", { name: "Reload latest category" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await page.getByRole("button", { name: "Edit Sedan", exact: true }).click();
+  await (await entityAction(page, "Edit Sedan")).click();
   await expect(page.getByLabel("Category name", { exact: true })).toHaveValue(
     "Sedan",
   );
@@ -516,9 +494,7 @@ test("logout waits for an in-flight refresh and remains signed out", async ({
     return route.fallback();
   });
   await page.goto(path);
-  await expect(
-    page.getByRole("button", { name: "Edit Sedan", exact: true }),
-  ).toBeVisible();
+  await expect(await entityAction(page, "Edit Sedan")).toBeVisible();
   workspace.expireNext();
   await page.getByRole("button", { name: "Refresh categories" }).click();
   await expect.poll(() => refreshes).toBe(2);
@@ -591,14 +567,12 @@ test("invalid category fare responses stay recoverable in the category editor", 
     await page.goto(path);
     await expect(page.getByRole("alert")).toContainText("unexpected response");
     await expect(
-      page.getByRole("button", { name: "Edit Sedan", exact: true }),
+      page.getByRole("menuitem", { name: "Edit Sedan", includeHidden: true }),
     ).toHaveCount(0);
   }
   fault = { fare_policy: validFare, updated_at: "2026-10-25T00:00:00Z" };
   await page.getByRole("button", { name: "Try again", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Edit Sedan", exact: true }),
-  ).toBeVisible();
+  await expect(await entityAction(page, "Edit Sedan")).toBeVisible();
 });
 
 test("invalid session data never grants access to the workspace", async ({
@@ -639,4 +613,219 @@ test("an inactive account ends the browser session", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "Add category", exact: true }),
   ).toHaveCount(0);
+});
+
+for (const failure of ["server", "connection"] as const) {
+  test(`temporary ${failure} failure restoring a session allows retry without sending logout`, async ({
+    page,
+  }) => {
+    await mockWorkspace(page);
+    let fail = true;
+    let logouts = 0;
+    await page.route("**/api/v2/admin/auth/logout", (route) => {
+      logouts++;
+      return route.fallback();
+    });
+    await page.route("**/api/v2/admin/auth/refresh", (route) => {
+      if (!fail) return route.fallback();
+      return failure === "connection"
+        ? route.abort("connectionreset")
+        : route.fulfill({
+            status: 503,
+            json: {
+              status: "error",
+              error_code: "DATABASE_BUSY",
+              message: "Database temporarily busy",
+            },
+          });
+    });
+    await page.goto(path);
+    await expect(
+      page.getByRole("heading", {
+        name: "Connection interrupted",
+        exact: true,
+      }),
+    ).toBeVisible();
+    expect(logouts).toBe(0);
+    expect(
+      await page.evaluate(() =>
+        localStorage.getItem("onemore-admin-restore-blocked"),
+      ),
+    ).toBeNull();
+    fail = false;
+    await page
+      .getByRole("button", { name: "Retry connection", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Vehicle categories", exact: true }),
+    ).toBeVisible();
+    expect(logouts).toBe(0);
+  });
+}
+
+test("a temporary refresh failure keeps the authenticated workspace and recovers on retry", async ({
+  page,
+}) => {
+  const workspace = await mockWorkspace(page);
+  let fail = false;
+  let logouts = 0;
+  await page.route("**/api/v2/admin/auth/logout", (route) => {
+    logouts++;
+    return route.fallback();
+  });
+  await page.route("**/api/v2/admin/auth/refresh", (route) =>
+    fail
+      ? route.fulfill({
+          status: 503,
+          json: { status: "error", message: "Temporary database outage" },
+        })
+      : route.fallback(),
+  );
+  await page.goto(path);
+  await expect(
+    page.getByRole("heading", { name: "Vehicle categories", exact: true }),
+  ).toBeVisible();
+  fail = true;
+  workspace.expireNext();
+  await page.getByRole("button", { name: "Refresh categories" }).click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`${path}$`));
+  await expect(
+    page.getByRole("button", { name: "Sign out", exact: true }),
+  ).toBeVisible();
+  expect(logouts).toBe(0);
+  fail = false;
+  workspace.expireNext();
+  await page
+    .getByRole("button", { name: "Refresh categories", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Actions for Sedan", exact: true }),
+  ).toBeVisible();
+  expect(logouts).toBe(0);
+});
+
+test("a tab with a temporary restore failure does not sign out another authenticated tab", async ({
+  page,
+  context,
+}) => {
+  await mockWorkspace(page);
+  await page.goto(path);
+  await expect(
+    page.getByRole("heading", { name: "Vehicle categories", exact: true }),
+  ).toBeVisible();
+  const other = await context.newPage();
+  await mockWorkspace(other);
+  let logouts = 0;
+  await other.route("**/api/v2/admin/auth/logout", (route) => {
+    logouts++;
+    return route.fallback();
+  });
+  await other.route("**/api/v2/admin/auth/refresh", (route) =>
+    route.fulfill({
+      status: 503,
+      json: { status: "error", message: "Temporary failure" },
+    }),
+  );
+  await other.goto(path);
+  await expect(
+    other.getByRole("heading", { name: "Connection interrupted", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Refresh categories" }).click();
+  await expect(
+    page.getByRole("button", { name: "Actions for Sedan", exact: true }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`${path}$`));
+  expect(logouts).toBe(0);
+});
+
+test("a timed-out session refresh leaves the cookie session available for retry", async ({
+  page,
+}) => {
+  await page.clock.install();
+  await mockWorkspace(page);
+  let stalled = true;
+  let requested = false;
+  let logouts = 0;
+  await page.route("**/api/v2/admin/auth/logout", (route) => {
+    logouts++;
+    return route.fallback();
+  });
+  await page.route("**/api/v2/admin/auth/refresh", (route) => {
+    requested = true;
+    if (!stalled) return route.fallback();
+  });
+  await page.goto(path);
+  await expect.poll(() => requested).toBe(true);
+  await page.clock.fastForward(60_100);
+  await expect(
+    page.getByRole("heading", { name: "Connection interrupted", exact: true }),
+  ).toBeVisible();
+  expect(logouts).toBe(0);
+  stalled = false;
+  await page
+    .getByRole("button", { name: "Retry connection", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Vehicle categories", exact: true }),
+  ).toBeVisible();
+  expect(logouts).toBe(0);
+});
+
+test("an old permission failure cannot clear a newer explicit sign-in", async ({
+  page,
+}) => {
+  await mockWorkspace(page);
+  let requested = false;
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/v2/admin/session-race-fixture", async (route) => {
+    requested = true;
+    await gate;
+    await route.fulfill({
+      status: 403,
+      json: {
+        status: "error",
+        error_code: "ADMIN_ACCESS_DENIED",
+        message: "Old session denied",
+      },
+    });
+  });
+  await page.goto(path);
+  await expect(
+    page.getByRole("heading", { name: "Vehicle categories", exact: true }),
+  ).toBeVisible();
+  // Exercise the real request/session modules while controlling response order.
+  await page.evaluate(async () => {
+    const modulePath = "/src/lib/api-client.ts";
+    const { apiRequest } = await import(modulePath);
+    void apiRequest("/admin/session-race-fixture").catch(() => {});
+  });
+  await expect.poll(() => requested).toBe(true);
+  await page.evaluate(
+    async ({ token, user }) => {
+      const modulePath = "/src/lib/session.ts";
+      const { rememberSignedInSession } = await import(modulePath);
+      rememberSignedInSession(token, user);
+    },
+    { token, user },
+  );
+  const response = page.waitForResponse((result) =>
+    result.url().includes("session-race-fixture"),
+  );
+  release();
+  await response;
+  await page.getByRole("button", { name: "Refresh categories" }).click();
+  await expect(
+    page.getByRole("button", { name: "Actions for Sedan", exact: true }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`${path}$`));
+  expect(
+    await page.evaluate(() =>
+      localStorage.getItem("onemore-admin-restore-blocked"),
+    ),
+  ).toBeNull();
 });

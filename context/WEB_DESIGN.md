@@ -136,7 +136,7 @@ Local page size 10 for the initial catalog. Footer shows result range/count and 
 
 ### Primary, secondary, and icon buttons
 
-Primary: amber fill, white semibold text, 8px radius, 44–54px height, darker hover. Secondary: white fill, gray border, dark text, amber hover border. Icon buttons: 40px square/circle, clear accessible label. Pending buttons include a small spinner and descriptive verb; disabled opacity 55%, retain disabled semantics. Prevent duplicate submits.
+Primary: amber fill, white semibold text, 8px radius, 44–54px height, darker hover. Secondary: white fill, gray border, dark text, amber hover border. Icon buttons: 40px square/circle, clear accessible label. Pending buttons use the shared small rectangular `InlineLoading` shimmer positioned along the bottom inset so it does not change button width. Keep static icons, descriptive verbs and accessible names; disabled opacity 55%, retain disabled semantics. Prevent duplicate submits.
 
 ### Text and number fields
 
@@ -170,7 +170,15 @@ Alerts have a border, tinted background, semantic icon, short title and concrete
 
 ### Loading and skeleton states
 
-Compact 20–28px thin spinner in brand color; center page restoration indicator. Catalog skeleton rows preserve row dimensions and do not show fake data. Loading buttons retain width. Respect reduced-motion settings. Use `aria-busy` on loading regions.
+Updated 29 October 2026: use the shared `Skeleton`, `LoadingSkeleton` and `InlineLoading` primitives throughout the admin. Circular/spinning loading indicators are removed from the icon registry. Match the destination: workspace rails/header on restoration, rows for directories/tables, field grids for forms/reviews, toolbar/paper lines for documents, a file silhouette for attachments and small rectangular bars in busy controls. The existing dark login page uses the same skeleton rhythm with its surface-appropriate colors.
+
+Use neutral gray shimmer, 12px bordered card corners, 8px field corners, the existing desktop/mobile insets and a visible but restrained contrast against both white panels and the gray canvas. Placeholder shapes contain no fake values or interactive inputs. Loading regions expose one labeled status and `aria-busy`; decorative blocks are hidden from assistive technology. Honor reduced motion and preserve selected entity identity. Embedded states must not reserve a full viewport height. Keep loaded audit rows visible during background refresh.
+
+Use shared `PanelNote` for panel guidance: a 15px muted icon, 12px/18px supporting text, 12px vertical and 24px desktop/16px mobile horizontal padding inside the panel footer. Do not place oversized bare paragraphs below management cards. Audit retention uses the concise copy “Audit entries expire after 7 days.”
+
+The audit page defaults to **All activity** so page reads and file access are visible with mutations/session events. First-page activity refreshes every 30 seconds while visible, skips overlapping requests and refreshes on return to a stale tab. Historical pages keep manual refresh. Changes-only and reads-only remain explicit filters.
+
+Audit results must be validated before rendering. Retain old rows only when refreshing the same query; a changed filter/page uses a skeleton until its matching response arrives. A failed same-query background update shows a compact warning above retained rows and an amber update status. Invalid initial data uses the existing retry state. Open log details follow refreshed outcomes, and pagination follows the server's valid page when retention shrinks the result set. Polling observes a cooldown after manual refresh completion as well as automatic updates.
 
 ### Empty, no-results and error states
 
@@ -186,7 +194,7 @@ Gym-auth dark canvas `#080C10`, thin amber elliptical orbital lines, the One Mor
 
 ### Error boundary and not-found screen
 
-Workspace restoration failure automatically signs out and returns to the existing Google sign-in page. Do not show a blocking restoration error or Retry screen. Clear the authenticated view promptly while server logout cleanup runs; Google sign-in uses its existing pending/error states. Data-fetch failures inside an authenticated page retain their existing error and retry components.
+Confirmed session expiry, revocation, inactive accounts or removed admin access return to Google sign-in. Temporary connection/timeout/server failures must preserve the server session and must never initiate server logout. On first workspace restore, use the shared StateCard with “Connection interrupted” and a Retry connection button. Within an already authenticated page, retain its existing error/retry components. Google sign-in keeps its existing pending/error states; late responses from a previous session must not clear a new sign-in.
 
 Reuse the feedback panel and primary button. Route errors provide a return-to-catalog action. Unexpected rendering errors provide Reload; they do not show tokens, stack traces or raw server messages.
 
@@ -288,6 +296,8 @@ Implement shared `Button`, `Icon`, `Field`, `ImageUpload`, `Badge`, `Switch`, `D
 
 
 ## Partner onboarding components
+
+- Entity actions use the shared `ActionMenu`: a 32px ellipsis trigger, white bordered popup with 8px corners, 12px menu text, amber hover/focus and red destructive actions. Native top-layer placement avoids clipped tables. Arrow keys, Home/End, Escape and focus restoration work consistently. Keep primary form saves and explicit decision confirmations visible. Destructive application deletion uses a compact Dialog with applicant identity, count summary, preserved-data explanation and typed email confirmation; activated applications are protected by the API.
 
 - Reuse PageHeading, CatalogPanel, ManagementToolbar, FilterSelect, ManagementPagination, TableLoading, Button, Field, Badge, Dialog, StateCard and Toast. Lists use the same search, filters, table cells, pagination and retry states as Requirements and Vehicle Categories. Use the defined field class on inputs; do not introduce undefined panel/input/notice classes.
 - RichDocumentEditor: white document surface, restrained gray formatting toolbar, 36px controls with 8px corners, amber active states, existing focus rings, 36px paper padding (20px on narrow screens). On phones the toolbar scrolls horizontally. Image previews stay local until save. Typography defaults to Space Grotesk and follows the author's chosen formatting. Selection controls show the current font settings; changing editability must not mark the draft as changed.

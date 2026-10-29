@@ -12,7 +12,7 @@ import type { BrowserSession } from "../types/domain";
 import {
   NETWORK_COPY,
   REQUEST_TIMEOUT_MS,
-  SESSION_CLEANUP_TIMEOUT_MS,
+  SESSION_REQUEST_TIMEOUT_MS,
 } from "./network.constant";
 
 // Production uses the host's /api rewrite so refresh cookies stay first party.
@@ -41,7 +41,11 @@ type RequestOptions = {
 
 export function readBrowserSession(value: unknown): BrowserSession {
   if (!value || typeof value !== "object")
-    throw new ApiError(NETWORK_COPY.INVALID_RESPONSE, 502);
+    throw new ApiError(
+      NETWORK_COPY.INVALID_RESPONSE,
+      502,
+      "INVALID_BROWSER_SESSION",
+    );
   const session = value as Partial<BrowserSession>;
   const user = session.user;
   if (
@@ -56,7 +60,11 @@ export function readBrowserSession(value: unknown): BrowserSession {
       (field) => field !== null && typeof field !== "string",
     )
   ) {
-    throw new ApiError(NETWORK_COPY.INVALID_RESPONSE, 502);
+    throw new ApiError(
+      NETWORK_COPY.INVALID_RESPONSE,
+      502,
+      "INVALID_BROWSER_SESSION",
+    );
   }
   return session as BrowserSession;
 }
@@ -148,21 +156,24 @@ export function restoreBrowserSession(): Promise<BrowserSession | null> {
         await send<unknown>("/admin/auth/refresh", {
           method: "POST",
           anonymous: true,
+          timeoutMs: SESSION_REQUEST_TIMEOUT_MS,
         }),
       );
-    } catch {
+    } catch (error) {
       if (version !== getSessionVersion()) return null;
-      endUnrestorableSession();
-      try {
-        await send("/admin/auth/logout", {
-          method: "POST",
-          anonymous: true,
-          timeoutMs: SESSION_CLEANUP_TIMEOUT_MS,
-        });
-      } catch {
-        // Local sign-out already completed; the API may be unavailable.
+      if (
+        error instanceof ApiError &&
+        (error.status === 401 ||
+          error.code === "ADMIN_ACCESS_DENIED" ||
+          error.code === "USER_INACTIVE" ||
+          error.code === "INVALID_BROWSER_SESSION")
+      ) {
+        endUnrestorableSession();
+        return null;
       }
-      return null;
+      // A timeout, connection error or 5xx does not prove revocation. In
+      // particular, never revoke the shared cookie's session as error cleanup.
+      throw error;
     }
   });
   refreshing = result
@@ -175,10 +186,6 @@ export function restoreBrowserSession(): Promise<BrowserSession | null> {
         return null;
       rememberAccessToken(session.access_token, session.user);
       return session;
-    })
-    .catch(() => {
-      if (version === getSessionVersion()) endUnrestorableSession();
-      return null;
     })
     .finally(() => {
       refreshing = null;
@@ -220,7 +227,8 @@ async function apiRequestInternal<T>(
             retryError instanceof ApiError &&
             (retryError.status === 401 ||
               retryError.code === "ADMIN_ACCESS_DENIED" ||
-              retryError.code === "USER_INACTIVE")
+              retryError.code === "USER_INACTIVE") &&
+            version === getSessionVersion()
           )
             clearSession(true);
           throw retryError;
@@ -229,7 +237,9 @@ async function apiRequestInternal<T>(
     }
     if (
       error instanceof ApiError &&
-      (error.code === "ADMIN_ACCESS_DENIED" || error.code === "USER_INACTIVE")
+      (error.code === "ADMIN_ACCESS_DENIED" ||
+        error.code === "USER_INACTIVE") &&
+      version === getSessionVersion()
     )
       clearSession(true);
     throw error;

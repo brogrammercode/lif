@@ -1,3 +1,4 @@
+import { entityAction } from "./fixtures";
 import { expect, test } from "./fixtures";
 import type { Page } from "@playwright/test";
 const admin = {
@@ -210,7 +211,7 @@ test("user rides show named participants and payment details; vehicle verificati
   await expect(
     page.getByText("Amit Sharma", { exact: true }).last(),
   ).toBeVisible();
-  await page.getByRole("button", { name: "View ride", exact: true }).click();
+  await (await entityAction(page, "View ride")).click();
   await expect(
     page.getByRole("dialog").getByText("Paid · Cash", { exact: true }),
   ).toBeVisible();
@@ -275,7 +276,7 @@ test("pending badges share a bounded request and consistent navigation at narrow
           badge!.y + badge!.height <= label!.y,
       ).toBe(true);
     }
-    await page.getByRole("button", { name: "View ride", exact: true }).click();
+    await (await entityAction(page, "View ride")).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toHaveClass(/dialog-compact/);
     await expect(dialog.locator(".trip-vehicle img")).toHaveAttribute(
@@ -322,7 +323,7 @@ test("registration email failures show account details and provide a retry throu
       { exact: true },
     ),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Retry email", exact: true }).click();
+  await (await entityAction(page, "Retry email")).click();
   await expect(
     page.getByRole("heading", { name: "No email deliveries to review" }),
   ).toBeVisible();
@@ -391,7 +392,7 @@ test("malformed ride responses stay recoverable and changing account clears the 
   ).toBeVisible();
   state.setInvalidRide(false);
   await page.getByRole("button", { name: "Retry", exact: true }).click();
-  await page.getByRole("button", { name: "View ride", exact: true }).click();
+  await (await entityAction(page, "View ride")).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   // Use SPA navigation so the route component is reused instead of a new document.
   await page

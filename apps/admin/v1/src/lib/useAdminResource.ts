@@ -11,6 +11,8 @@ export function useAdminResource<T>(
   decode?: (value: unknown) => T,
 ) {
   const [data, setData] = useState<T | null>(null);
+  const [dataPath, setDataPath] = useState<string | null>(null);
+  const [errorPath, setErrorPath] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
@@ -18,6 +20,8 @@ export function useAdminResource<T>(
   useEffect(() => {
     if (!path) {
       setData(null);
+      setDataPath(null);
+      setErrorPath(null);
       setLoading(false);
       setError(null);
       return;
@@ -28,17 +32,24 @@ export function useAdminResource<T>(
     void apiRequest<unknown>(path, { signal: controller.signal })
       .then((value) => (decode ? decode(value) : (value as T)))
       .then((value) => {
-        if (!controller.signal.aborted) setData(value);
+        if (!controller.signal.aborted) {
+          setData(value);
+          setDataPath(path);
+          setErrorPath(null);
+        }
       })
       .catch((cause) => {
-        if (!controller.signal.aborted) setError(safeMessage(cause));
+        if (!controller.signal.aborted) {
+          setError(safeMessage(cause));
+          setErrorPath(path);
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
   }, [path, revision, decode]);
-  return { data, loading, error, refresh, setData };
+  return { data, dataPath, errorPath, loading, error, refresh, setData };
 }
 export function useDebouncedText(value: string) {
   const [text, setText] = useState(value);

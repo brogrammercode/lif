@@ -1,13 +1,19 @@
+import { ActionMenu } from "../../components/ui/ActionMenu";
 import {
   PendingBadge,
   usePending,
   usePendingEntities,
 } from "../pending/PendingProvider";
-import { NavLink, useLocation, useSearchParams } from "react-router-dom";
+import {
+  NavLink,
+  useLocation,
+  useSearchParams,
+  useNavigate,
+} from "react-router-dom";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
-import { InlineError } from "../../components/feedback/StateCard";
+import { InlineError, LoadingState } from "../../components/feedback/StateCard";
 import { personalPath } from "./users.constant";
 import { useUsers } from "./UsersProvider";
 import { userName, isDriverAccount } from "./users.type";
@@ -25,6 +31,7 @@ export function UsersNavigation() {
     filter,
   } = useUsers();
   const pending = usePending();
+  const navigate = useNavigate();
   usePendingEntities("users", result?.users.map((user) => user.id) ?? []);
   const [params, setParams] = useSearchParams();
   const location = useLocation();
@@ -85,9 +92,7 @@ export function UsersNavigation() {
       </div>
       <nav className="users-list" aria-label="Users" aria-busy={loading}>
         {loading ? (
-          <p className="users-directory-message" role="status">
-            Loading users…
-          </p>
+          <LoadingState variant="directory" label="Loading users" />
         ) : error ? (
           <>
             <InlineError message={error} />
@@ -97,45 +102,80 @@ export function UsersNavigation() {
           </>
         ) : result?.users.length ? (
           result.users.map((user) => (
-            <NavLink
-              key={user.id}
-              to={
-                (rides
-                  ? `/users/${encodeURIComponent(user.id)}/rides`
-                  : vehicles && isDriverAccount(user)
-                    ? `/users/${encodeURIComponent(user.id)}/vehicle-verification`
-                    : personalPath(user.id)) +
-                (params.get("pending_only") === "true"
-                  ? "?pending_only=true"
-                  : "")
-              }
-              className="user-nav-item"
-            >
-              <span className="user-nav-heading">
-                <span className="user-nav-name" title={userName(user)}>
-                  {userName(user)}
+            <div className="user-nav-row" key={user.id}>
+              <NavLink
+                key={user.id}
+                to={
+                  (rides
+                    ? `/users/${encodeURIComponent(user.id)}/rides`
+                    : vehicles && isDriverAccount(user)
+                      ? `/users/${encodeURIComponent(user.id)}/vehicle-verification`
+                      : personalPath(user.id)) +
+                  (params.get("pending_only") === "true"
+                    ? "?pending_only=true"
+                    : "")
+                }
+                className="user-nav-item"
+              >
+                <span className="user-nav-heading">
+                  <span className="user-nav-name" title={userName(user)}>
+                    {userName(user)}
+                  </span>
+                  <PendingBadge
+                    count={
+                      pending?.data?.entities.users[user.id]
+                        ?.vehicle_verification
+                    }
+                  />
+                  <Badge
+                    tone={
+                      user.role === "DRIVER" || user.partner_activated_at
+                        ? "active"
+                        : "inactive"
+                    }
+                  >
+                    {user.role === "DRIVER" || user.partner_activated_at
+                      ? "Driver"
+                      : "User"}
+                  </Badge>
                 </span>
-                <PendingBadge
-                  count={
-                    pending?.data?.entities.users[user.id]?.vehicle_verification
-                  }
-                />
-                <Badge
-                  tone={
-                    user.role === "DRIVER" || user.partner_activated_at
-                      ? "active"
-                      : "inactive"
-                  }
-                >
-                  {user.role === "DRIVER" || user.partner_activated_at
-                    ? "Driver"
-                    : "User"}
-                </Badge>
-              </span>
-              <span className="user-nav-id" title={user.id}>
-                {user.id}
-              </span>
-            </NavLink>
+                <span className="user-nav-id" title={user.id}>
+                  {user.id}
+                </span>
+              </NavLink>
+              <ActionMenu
+                label={"user " + userName(user)}
+                items={[
+                  {
+                    label: "Personal details",
+                    icon: "users",
+                    onSelect: () => navigate(personalPath(user.id)),
+                  },
+                  {
+                    label: "Ride history",
+                    icon: "layers",
+                    onSelect: () =>
+                      navigate(
+                        "/users/" + encodeURIComponent(user.id) + "/rides",
+                      ),
+                  },
+                  ...(isDriverAccount(user)
+                    ? [
+                        {
+                          label: "Vehicle verification",
+                          icon: "car" as const,
+                          onSelect: () =>
+                            navigate(
+                              "/users/" +
+                                encodeURIComponent(user.id) +
+                                "/vehicle-verification",
+                            ),
+                        },
+                      ]
+                    : []),
+                ]}
+              />
+            </div>
           ))
         ) : (
           <p className="users-directory-message" role="status">

@@ -42,6 +42,12 @@ export const rememberAccessToken = (value: string, user?: AdminUser) => {
   if (user)
     window.dispatchEvent(new CustomEvent(SESSION_UPDATED, { detail: user }));
 };
+// An explicit sign-in starts a new identity epoch. Responses issued before it
+// must not clear or refresh this newly established session.
+export const rememberSignedInSession = (value: string, user: AdminUser) => {
+  sessionVersion++;
+  rememberAccessToken(value, user);
+};
 export const accessTokenExpiresSoon = () => {
   if (!accessToken) return false;
   try {

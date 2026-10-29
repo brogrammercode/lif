@@ -1,3 +1,4 @@
+import { ActionMenu } from "../../components/ui/ActionMenu";
 import { VehicleIdentity } from "../../components/ui/VehicleIdentity";
 import {
   TripRoute,
@@ -151,13 +152,10 @@ export function TripReviewsPage() {
             <Button
               variant="secondary"
               disabled={save.busy || resource.loading}
+              busy={resource.loading}
               onClick={resource.refresh}
             >
-              <Icon
-                name={resource.loading ? "spinner" : "refresh"}
-                className={resource.loading ? "animate-spin" : ""}
-                size={16}
-              />
+              <Icon name="refresh" size={16} />
               Refresh reviews
             </Button>
           </div>
@@ -178,7 +176,7 @@ export function TripReviewsPage() {
           </div>
         )}
         {resource.loading ? (
-          <LoadingState />
+          <LoadingState variant="table" label="Loading ride reviews" />
         ) : resource.error ? (
           <StateCard
             error
@@ -257,15 +255,19 @@ export function TripReviewsPage() {
                       </Badge>
                     </td>
                     <td>
-                      <Button
-                        variant="secondary"
-                        onClick={() => {
-                          setSelectedId(row.id);
-                          clearError();
-                        }}
-                      >
-                        Review report
-                      </Button>
+                      <ActionMenu
+                        label={"report " + row.id}
+                        items={[
+                          {
+                            label: "Review report",
+                            icon: "edit",
+                            onSelect: () => {
+                              setSelectedId(row.id);
+                              clearError();
+                            },
+                          },
+                        ]}
+                      />
                     </td>
                   </tr>
                 ))}

@@ -1,3 +1,4 @@
+import { ActionMenu } from "../../components/ui/ActionMenu";
 import { useState } from "react";
 import { EditorSection } from "../../components/ui/EditorSection";
 import { Button } from "../../components/ui/Button";
@@ -166,43 +167,33 @@ export function ApplicationFieldsReview({
                         </p>
                       )}
                       {reviewing && (
-                        <div className="application-field-actions">
-                          <Button
-                            variant="ghost"
-                            className="review-small-button"
-                            aria-label={`Approve field: ${field.definition.label}`}
-                            disabled={
-                              blocked ||
-                              field.status === "APPROVED" ||
-                              (field.definition.is_required && missing)
-                            }
-                            onClick={() => void onReview(field.id, "APPROVED")}
-                          >
-                            <Icon name="check" size={14} />
-                            Approve field
-                            <span className="sr-only">
-                              : {field.definition.label}
-                            </span>
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            className="review-small-button"
-                            aria-label={`Request correction: ${field.definition.label}`}
-                            disabled={blocked}
-                            onClick={() =>
-                              setCorrection({
-                                id: field.id,
-                                reason: field.rejection_reason ?? "",
-                              })
-                            }
-                          >
-                            <Icon name="edit" size={14} />
-                            Request correction
-                            <span className="sr-only">
-                              : {field.definition.label}
-                            </span>
-                          </Button>
-                        </div>
+                        <ActionMenu
+                          label={"submitted field " + field.definition.label}
+                          items={[
+                            {
+                              label: "Approve field: " + field.definition.label,
+                              icon: "check",
+                              disabled:
+                                blocked ||
+                                field.status === "APPROVED" ||
+                                (field.definition.is_required && missing),
+                              onSelect: () => {
+                                void onReview(field.id, "APPROVED");
+                              },
+                            },
+                            {
+                              label:
+                                "Request correction: " + field.definition.label,
+                              icon: "edit",
+                              disabled: blocked,
+                              onSelect: () =>
+                                setCorrection({
+                                  id: field.id,
+                                  reason: field.rejection_reason ?? "",
+                                }),
+                            },
+                          ]}
+                        />
                       )}
                     </dd>
                   </div>

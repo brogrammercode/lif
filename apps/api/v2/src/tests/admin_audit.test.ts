@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { AuditRetentionService } from '../core/audit_retention.service.js';
 import { it } from 'node:test';
 import { readFileSync } from 'node:fs';
 import type { Request, Response } from 'express';
@@ -191,7 +192,7 @@ it('keeps serialization failures rather than a provisional handler success', asy
   assert.equal(f.rows.get('request')!.status_code, 500);
 });
 
-it('finds historical approval labels, separates read traffic and preserves indefinite retention', async () => {
+it('finds historical approval labels, separates read traffic and limits retention to seven days', async () => {
   const database = new PrismaService();
   let where: Record<string, unknown> = {};
   const tx = {
@@ -217,7 +218,10 @@ it('finds historical approval labels, separates read traffic and preserves indef
     },
   });
   const response = { status: () => {} } as unknown as Response;
-  const result = await new AdminActivityController(database).list(
+  const result = await new AdminActivityController(
+    database,
+    new AuditRetentionService(database),
+  ).list(
     {
       query: { query: 'APPROVE_PARTNER_APPLICATION', activity: 'changes' },
     } as unknown as Request,
@@ -233,5 +237,6 @@ it('finds historical approval labels, separates read traffic and preserves indef
       'POST /api/v2/admin/partner-program/applications/:id/approve',
     ),
   );
-  assert.equal(result.data.retention_days, null);
+  assert.equal(result.data.retention_days, 7);
+  assert.ok((where.started_at as { gt: unknown }).gt instanceof Date);
 });

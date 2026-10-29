@@ -75,17 +75,14 @@ export function ManagementToolbar({
       <Button
         variant="secondary"
         disabled={busy}
+        busy={busy}
         onClick={refresh}
         aria-label={`Refresh ${placeholder
           .replace(/^Search /i, "")
           .replace(/[.…]+$/, "")
           .toLowerCase()}`}
       >
-        <Icon
-          name={busy ? "spinner" : "refresh"}
-          className={busy ? "animate-spin" : ""}
-          size={16}
-        />
+        <Icon name="refresh" size={16} />
         Refresh
       </Button>
     </div>

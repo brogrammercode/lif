@@ -1,4 +1,21 @@
 import { useId, type ReactNode } from "react";
+import { LoadingSkeleton } from "./Skeleton";
+import { Icon, type IconName } from "./Icon";
+
+export function PanelNote({
+  children,
+  icon = "shield",
+}: {
+  children: ReactNode;
+  icon?: IconName;
+}) {
+  return (
+    <div className="panel-note">
+      <Icon name={icon} size={15} />
+      <p>{children}</p>
+    </div>
+  );
+}
 
 export function CatalogPanel({
   title,
@@ -52,14 +69,5 @@ export function TableLoading({
   label: string;
   rows?: number;
 }) {
-  return (
-    <div className="catalog-loading" role="status">
-      <span className="sr-only">{label}</span>
-      <div aria-hidden="true">
-        {Array.from({ length: rows }, (_, index) => (
-          <div className="skeleton catalog-loading-row" key={index} />
-        ))}
-      </div>
-    </div>
-  );
+  return <LoadingSkeleton variant="table" label={label} rows={rows} />;
 }

@@ -1,5 +1,7 @@
 export const REQUEST_TIMEOUT_MS = 25_000;
-export const SESSION_CLEANUP_TIMEOUT_MS = 5_000;
+// Session creation/rotation may wait for the hosted database to wake or acquire
+// a connection. Resource requests keep their shorter independent timeout.
+export const SESSION_REQUEST_TIMEOUT_MS = 60_000;
 export const IMAGE_SAVE_TIMEOUT_MS = 90_000;
 export const NETWORK_COPY = {
   UNREACHABLE: "Cannot reach 1More Admin. Check your connection and try again.",

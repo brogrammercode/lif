@@ -1,3 +1,4 @@
+import { ActionMenu } from "../../components/ui/ActionMenu";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/Button";
@@ -30,13 +31,18 @@ export function DeactivateUser({
             ride history are retained.
           </p>
         </div>
-        <Button
-          variant="danger"
-          disabled={actor?.id === user.id}
-          onClick={() => setOpen(true)}
-        >
-          {actor?.id === user.id ? "Your account" : "Deactivate user"}
-        </Button>
+        <ActionMenu
+          label={"account " + userName(user)}
+          items={[
+            {
+              label: actor?.id === user.id ? "Your account" : "Deactivate user",
+              icon: "trash",
+              danger: true,
+              disabled: actor?.id === user.id,
+              onSelect: () => setOpen(true),
+            },
+          ]}
+        />
       </section>
       {open && (
         <DeactivateDialog

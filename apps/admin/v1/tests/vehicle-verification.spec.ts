@@ -1,3 +1,4 @@
+import { entityAction } from "./fixtures";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
 
@@ -173,18 +174,14 @@ test("reviews grouped fields with version checks, reasons, and private inline pr
   await expect(
     page.getByRole("heading", { name: "Vehicle details", exact: true }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Approve field: Color", exact: true })
-    .click();
+  await (await entityAction(page, "Approve field: Color")).click();
   await expect.poll(() => state.requests.length).toBe(1);
   expect(state.requests[0]).toMatchObject({
     field_key: "color",
     decision: "APPROVED",
     expected_version: 1,
   });
-  await page
-    .getByRole("button", { name: "Request correction: Insurance", exact: true })
-    .click();
+  await (await entityAction(page, "Request correction: Insurance")).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("Rejection reason").fill("Upload a legible policy.");
   await dialog
@@ -247,11 +244,9 @@ test("approved vehicle fields can be reopened with a required correction reason"
   state.vehicle.verification_fields.forEach((f) => (f.status = "APPROVED"));
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Approve field: Insurance", exact: true }),
+    await entityAction(page, "Approve field: Insurance"),
   ).toBeDisabled();
-  await page
-    .getByRole("button", { name: "Request correction: Insurance", exact: true })
-    .click();
+  await (await entityAction(page, "Request correction: Insurance")).click();
   const dialog = page.getByRole("dialog");
   await dialog
     .getByLabel("Rejection reason")
@@ -271,18 +266,17 @@ test("stale reviews block additional writes until the latest vehicle is reloaded
 }) => {
   const state = await workspace(page);
   state.conflict = true;
-  await page
-    .getByRole("button", { name: "Approve field: Color", exact: true })
-    .click();
+  await (await entityAction(page, "Approve field: Color")).click();
   await expect(
     page.getByRole("button", { name: "Reload vehicles" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Approve field: Color", exact: true }),
+    page.getByRole("menuitem", {
+      name: "Approve field: Color",
+      includeHidden: true,
+    }),
   ).toHaveCount(0);
   state.conflict = false;
   await page.getByRole("button", { name: "Reload vehicles" }).click();
-  await expect(
-    page.getByRole("button", { name: "Approve field: Color", exact: true }),
-  ).toBeEnabled();
+  await expect(await entityAction(page, "Approve field: Color")).toBeEnabled();
 });

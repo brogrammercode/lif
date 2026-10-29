@@ -64,7 +64,8 @@ export function SupportContactsPage() {
       setDraft(resource.data);
     }
   }, [resource.data, clearError]);
-  if (resource.loading || (!draft && !resource.error)) return <LoadingState />;
+  if (resource.loading || (!draft && !resource.error))
+    return <LoadingState variant="form" label="Loading support contacts" />;
   if (resource.error || !draft)
     return (
       <StateCard

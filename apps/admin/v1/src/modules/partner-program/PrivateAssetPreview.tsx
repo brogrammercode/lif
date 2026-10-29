@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import "../../styles/partner-program.css";
 import { Dialog } from "../../components/ui/Dialog";
 import { Button } from "../../components/ui/Button";
-import { InlineError } from "../../components/feedback/StateCard";
+import { InlineError, LoadingState } from "../../components/feedback/StateCard";
 import { safeMessage } from "../../lib/api-client";
 import { privateFile, downloadFile } from "./partner-program.api";
 
@@ -65,9 +65,7 @@ export function PrivateAssetPreview({
             </Button>
           </>
         ) : !file ? (
-          <p role="status" className="field-hint">
-            Loading attachment…
-          </p>
+          <LoadingState variant="attachment" label="Loading attachment" />
         ) : file.type.startsWith("image/") ? (
           <img
             src={url}

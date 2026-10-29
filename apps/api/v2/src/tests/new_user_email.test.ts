@@ -1,4 +1,5 @@
 import { queue_partner_email } from '../infra/mail/partner_email.js';
+import type { PartnerApplicationDeletionService } from '../features/partner_program/partner_application_deletion.service.js';
 import { RegistrationEmailController } from '../features/admin_pending/registration_email.controller.js';
 import { AdminPartnerProgramController } from '../features/partner_program/partner_program.controller.js';
 import type { PartnerProgramService } from '../features/partner_program/partner_program.service.js';
@@ -211,64 +212,74 @@ it('leaves SMTP failures retryable without exposing SMTP error contents', async 
   assert.equal(f.updates.at(-1)!.data.sent_at, undefined);
 });
 
-it('enqueues only on account creation, including when subsequent logins reuse the identity', async () => {
-  let created = 0,
-    queued = 0,
-    linked = false;
-  const user = {
-    id: 'new-user',
-    first_name: 'Example',
-    last_name: null,
-    email: 'new@example.test',
-    phone_e164: null,
-    role: 'RIDER',
-    status: 'ACTIVE',
-    deleted_at: null,
-    created_at: new Date(),
-  };
-  const tx = {
-    $executeRaw: async () => 0,
-    authAccount: {
-      findUnique: async () => (linked ? { user } : null),
-      create: async () => {
-        linked = true;
-      },
+for (const initialPoolFailure of [false, true])
+  it(
+    'enqueues account mail once across sign-in reuse and acquisition failure=' +
+      initialPoolFailure,
+    async () => {
+      let created = 0,
+        queued = 0,
+        linked = false;
+      let attempts = 0;
+      const user = {
+        id: 'new-user',
+        first_name: 'Example',
+        last_name: null,
+        email: 'new@example.test',
+        phone_e164: null,
+        role: 'RIDER',
+        status: 'ACTIVE',
+        deleted_at: null,
+        created_at: new Date(),
+      };
+      const tx = {
+        $executeRaw: async () => 0,
+        authAccount: {
+          findUnique: async () => (linked ? { user } : null),
+          create: async () => {
+            linked = true;
+          },
+        },
+        user: {
+          findMany: async (args: { where: Record<string, unknown> }) =>
+            args.where.role
+              ? [{ id: 'admin', email: 'admin@example.test' }]
+              : created
+                ? [user]
+                : [],
+          create: async () => {
+            created++;
+            return user;
+          },
+          update: async () => user,
+        },
+        notification: {
+          createMany: async () => {
+            queued++;
+          },
+        },
+        userLog: { create: async () => ({}) },
+      };
+      const repo = new AuthRepository({
+        client: {
+          $transaction: async (task: (client: unknown) => Promise<unknown>) => {
+            if (++attempts === 1 && initialPoolFailure)
+              throw { errorCode: 'P2024' };
+            return task(tx);
+          },
+        },
+      } as unknown as PrismaService);
+      const identity = {
+        provider_account_id: 'subject',
+        provider_email: user.email,
+      };
+      await repo.resolve_external_user('GOOGLE', identity);
+      await repo.resolve_external_user('GOOGLE', identity);
+      assert.equal(created, 1);
+      assert.equal(queued, 1);
+      assert.equal(attempts, initialPoolFailure ? 3 : 2);
     },
-    user: {
-      findMany: async (args: { where: Record<string, unknown> }) =>
-        args.where.role
-          ? [{ id: 'admin', email: 'admin@example.test' }]
-          : created
-            ? [user]
-            : [],
-      create: async () => {
-        created++;
-        return user;
-      },
-      update: async () => user,
-    },
-    notification: {
-      createMany: async () => {
-        queued++;
-      },
-    },
-    userLog: { create: async () => ({}) },
-  };
-  const repo = new AuthRepository({
-    client: {
-      $transaction: async (task: (client: unknown) => Promise<unknown>) =>
-        task(tx),
-    },
-  } as unknown as PrismaService);
-  const identity = {
-    provider_account_id: 'subject',
-    provider_email: user.email,
-  };
-  await repo.resolve_external_user('GOOGLE', identity);
-  await repo.resolve_external_user('GOOGLE', identity);
-  assert.equal(created, 1);
-  assert.equal(queued, 1);
-});
+  );
 
 it('partner submission queues a normalized admin alert with a real review link and a separate applicant receipt', async () => {
   const rows: Prisma.NotificationCreateManyInput[] = [];
@@ -484,6 +495,7 @@ for (const lifecycle of [false, true]) {
         {} as PartnerDocumentService,
         {} as PartnerDeliveryService,
         database,
+        {} as PartnerApplicationDeletionService,
       );
       await controller.retry_notifications(req, res);
     } else {

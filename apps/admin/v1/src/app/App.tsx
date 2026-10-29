@@ -10,6 +10,7 @@ import {
 } from "react-router-dom";
 import { AppShell } from "../components/layout/AppShell";
 import { LoadingState, StateCard } from "../components/feedback/StateCard";
+import { Button } from "../components/ui/Button";
 import { AuthPage } from "../modules/auth/AuthPage";
 import { useAuth } from "../modules/auth/AuthProvider";
 import { WORKSPACE_PATH } from "../modules/auth/auth.constant";
@@ -51,7 +52,26 @@ function UserRidesRoute() {
 export function App() {
   const auth = useAuth();
   const location = useLocation();
-  if (!auth.ready) return <LoadingState />;
+  if (!auth.ready)
+    return (
+      <LoadingState variant="workspace" label="Restoring your workspace" />
+    );
+  if (!auth.user && auth.restoreError)
+    return (
+      <StateCard
+        error
+        title="Connection interrupted"
+        message={auth.restoreError}
+      >
+        <Button
+          onClick={() => {
+            void auth.retryRestore();
+          }}
+        >
+          Retry connection
+        </Button>
+      </StateCard>
+    );
   return (
     <Routes>
       <Route path="/login" element={<AuthPage />} />

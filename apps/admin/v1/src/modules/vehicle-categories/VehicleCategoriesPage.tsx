@@ -1,5 +1,10 @@
+import { ActionMenu } from "../../components/ui/ActionMenu";
 import { PageHeading } from "../../components/layout/PageHeading";
-import { CatalogPanel, TableLoading } from "../../components/ui/CatalogPanel";
+import {
+  CatalogPanel,
+  TableLoading,
+  PanelNote,
+} from "../../components/ui/CatalogPanel";
 import {
   ManagementToolbar,
   FilterSelect,
@@ -182,6 +187,13 @@ export function VehicleCategoriesPage() {
         title="Your ride catalog"
         description="Organize your categories. Make every option count."
         count={categories.length}
+        footer={
+          <PanelNote>
+            Enabled categories are used for driver registration and ride quotes.
+            Each category needs its own fare policy. Disabling a category
+            preserves ride history.
+          </PanelNote>
+        }
         busy={loading}
         actions={
           <span className="catalog-live-label">
@@ -333,32 +345,34 @@ export function VehicleCategoriesPage() {
                           )}
                       </td>
                       <td>
-                        <div className="row-actions">
-                          {!category.parent_id && (
-                            <button
-                              className="icon-button"
-                              aria-label={`Add subcategory under ${category.name}`}
-                              title={
-                                category._count.vehicles
-                                  ? "Move registered vehicles before adding subcategories"
-                                  : "Add subcategory"
-                              }
-                              disabled={category._count.vehicles > 0}
-                              onClick={() =>
-                                setEditor({ category: null, parent: category })
-                              }
-                            >
-                              <Icon name="plus" size={16} />
-                            </button>
-                          )}
-                          <button
-                            className="icon-button"
-                            aria-label={`Edit ${category.name}`}
-                            onClick={() => setEditor({ category })}
-                          >
-                            <Icon name="edit" size={16} />
-                          </button>
-                        </div>
+                        <ActionMenu
+                          label={category.name}
+                          items={[
+                            {
+                              label: "Edit " + category.name,
+                              icon: "edit",
+                              onSelect: () => setEditor({ category }),
+                            },
+                            ...(!category.parent_id
+                              ? [
+                                  {
+                                    label:
+                                      "Add subcategory under " + category.name,
+                                    icon: "plus" as const,
+                                    disabled: category._count.vehicles > 0,
+                                    title: category._count.vehicles
+                                      ? "Move registered vehicles before adding subcategories"
+                                      : undefined,
+                                    onSelect: () =>
+                                      setEditor({
+                                        category: null,
+                                        parent: category,
+                                      }),
+                                  },
+                                ]
+                              : []),
+                          ]}
+                        />
                       </td>
                     </tr>
                   ))}
@@ -377,14 +391,6 @@ export function VehicleCategoriesPage() {
           </>
         )}
       </CatalogPanel>
-      <div className="catalog-note">
-        <Icon name="shield" size={17} />
-        <p>
-          One catalog, a consistent experience. Enabled categories are used in
-          driver registration. Rider quotes require the category's own fare
-          policy. Disabling a category preserves its ride history.
-        </p>
-      </div>
       {editor && (
         <CategoryEditor
           key={editor.category?.id ?? editor.parent?.id ?? "new"}

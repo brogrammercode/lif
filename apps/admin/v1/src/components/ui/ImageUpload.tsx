@@ -4,6 +4,7 @@ import type { ImageSelection } from "../../lib/useImageUpload";
 import { InlineError } from "../feedback/StateCard";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
+import { InlineLoading } from "./Skeleton";
 
 export function ImageUpload({
   id,
@@ -78,12 +79,10 @@ export function ImageUpload({
               referrerPolicy="no-referrer"
               onError={() => setFailed(true)}
             />
+          ) : image.selecting ? (
+            <InlineLoading />
           ) : (
-            <Icon
-              name={image.selecting ? "spinner" : "upload"}
-              size={28}
-              className={image.selecting ? "animate-spin" : ""}
-            />
+            <Icon name="upload" size={28} />
           )}
         </span>
         <span className="image-upload-copy">

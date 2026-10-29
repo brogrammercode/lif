@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { Button } from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { InlineError } from "../../components/feedback/StateCard";
 import { safeMessage } from "../../lib/api-client";
 import { useAuth } from "./AuthProvider";
@@ -136,16 +137,25 @@ export function AuthPage() {
               className={`google-button-host ${busy || loading || googleError ? "hidden" : ""}`}
             />
             {busy && (
-              <div className="flex items-center justify-center gap-3 py-3">
-                <Icon name="spinner" className="animate-spin" />
-                <span>Signing you in…</span>
+              <div
+                className="auth-loading"
+                role="status"
+                aria-label="Signing you in"
+              >
+                <span className="sr-only">Signing you in…</span>
+                <Skeleton className="skeleton-control" />
+                <Skeleton style={{ width: "46%" }} />
               </div>
             )}
             {loading && !busy && (
-              <p className="flex items-center justify-center gap-2 py-3 text-sm">
-                <Icon name="spinner" size={16} className="animate-spin" />{" "}
-                Preparing Google sign-in…
-              </p>
+              <div
+                className="auth-loading"
+                role="status"
+                aria-label="Preparing Google sign-in"
+              >
+                <span className="sr-only">Preparing Google sign-in…</span>
+                <Skeleton className="skeleton-control" />
+              </div>
             )}
           </div>
           {googleError && (

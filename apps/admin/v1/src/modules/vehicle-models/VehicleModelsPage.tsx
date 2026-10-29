@@ -1,3 +1,4 @@
+import { ActionMenu } from "../../components/ui/ActionMenu";
 import { useSearchParams } from "react-router-dom";
 import { PendingBadge, usePending } from "../pending/PendingProvider";
 import { CatalogImport } from "./CatalogImport";
@@ -251,14 +252,17 @@ export function VehicleModelsPage() {
                       }
                     />
                   </button>
-                  <button
-                    className="icon-button"
-                    aria-label={`Edit brand ${brand.name}`}
-                    title={`Edit brand ${brand.name}`}
-                    onClick={() => setEditor({ kind: "brand", record: brand })}
-                  >
-                    <Icon name="edit" size={16} />
-                  </button>
+                  <ActionMenu
+                    label={"brand " + brand.name}
+                    items={[
+                      {
+                        label: "Edit brand " + brand.name,
+                        icon: "edit",
+                        onSelect: () =>
+                          setEditor({ kind: "brand", record: brand }),
+                      },
+                    ]}
+                  />
                 </div>
               ))
             )}
@@ -416,22 +420,24 @@ export function VehicleModelsPage() {
                         )}
                       </td>
                       <td>
-                        <div className="row-actions">
-                          <button
-                            className="icon-button"
-                            title={`${model.status === "REQUESTED" ? "Review" : "Edit"} ${model.name}`}
-                            aria-label={`${model.status === "REQUESTED" ? "Review" : "Edit"} ${model.name}`}
-                            onClick={() =>
-                              setEditor({
-                                kind: "model",
-                                record: model,
-                                brand: model.brand,
-                              })
-                            }
-                          >
-                            <Icon name="edit" size={16} />
-                          </button>
-                        </div>
+                        <ActionMenu
+                          label={"model " + model.name}
+                          items={[
+                            {
+                              label:
+                                (model.status === "REQUESTED"
+                                  ? "Review "
+                                  : "Edit ") + model.name,
+                              icon: "edit",
+                              onSelect: () =>
+                                setEditor({
+                                  kind: "model",
+                                  record: model,
+                                  brand: model.brand,
+                                }),
+                            },
+                          ]}
+                        />
                       </td>
                     </tr>
                   ))}

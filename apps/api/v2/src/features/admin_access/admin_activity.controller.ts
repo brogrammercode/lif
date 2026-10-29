@@ -6,8 +6,14 @@ import { PrismaService } from '../../infra/database/prisma.service.js';
 import { AuthGuard, AdminGuard } from '../../core/guards.js';
 import { send_success } from '../../core/response.js';
 import {
+  AuditRetentionService,
+  AUDIT_RETENTION_DAYS,
+  audit_cutoff,
+} from '../../core/audit_retention.service.js';
+import {
   admin_action_label,
   legacy_action_aliases,
+  audit_resource,
 } from '../../core/admin_audit.action.js';
 
 const filter = z.object({
@@ -19,7 +25,10 @@ const filter = z.object({
 });
 @Controller()
 export class AdminActivityController {
-  constructor(private readonly database: PrismaService) {}
+  constructor(
+    private readonly database: PrismaService,
+    private readonly retention: AuditRetentionService,
+  ) {}
   @Get('admin/activity')
   @UseGuards(AuthGuard, AdminGuard)
   async list(
@@ -27,7 +36,9 @@ export class AdminActivityController {
     @Res({ passthrough: true }) response: Response,
   ) {
     const input = filter.parse(request.query);
+    this.retention.schedule();
     const where: Prisma.AdminActivityWhereInput = {
+      started_at: { gt: audit_cutoff() },
       ...(input.activity === 'changes'
         ? { method: { notIn: ['GET', 'HEAD', 'OPTIONS'] } }
         : input.activity === 'reads'
@@ -104,16 +115,18 @@ export class AdminActivityController {
         return {
           activities: activities.map((row) => ({
             ...row,
-            action: /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+\//i.test(
-              row.action,
-            )
-              ? admin_action_label(row.method, row.path)
-              : row.action,
+            resource: audit_resource(row.path),
+            action:
+              /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(\/|administrator request)/i.test(
+                row.action,
+              )
+                ? admin_action_label(row.method, row.path)
+                : row.action,
           })),
           total,
           page,
           page_size: 20,
-          retention_days: null,
+          retention_days: AUDIT_RETENTION_DAYS,
         };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },

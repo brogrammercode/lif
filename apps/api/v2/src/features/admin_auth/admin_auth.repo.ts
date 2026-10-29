@@ -1,3 +1,4 @@
+import { transaction_with_connection_retry } from '../../infra/database/transaction_retry.js';
 import {
   ADMIN_ACCESS_LOCK,
   ADMIN_ACCESS_TRANSACTION,
@@ -40,108 +41,112 @@ export class AdminAuthRepository {
   ) => {
     const token = create_refresh_token();
     const family_id = randomUUID();
-    return this.prismaService.client.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${ADMIN_ACCESS_LOCK})`;
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${identity.provider_account_id}))`;
-      const email = identity.provider_email.trim().toLowerCase();
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(720047, hashtext(${email}))`;
-      const account = await tx.authAccount.findUnique({
-        where: {
-          provider_provider_account_id: {
-            provider: 'GOOGLE',
-            provider_account_id: identity.provider_account_id,
+    return transaction_with_connection_retry(
+      this.prismaService.client,
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${ADMIN_ACCESS_LOCK})`;
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${identity.provider_account_id}))`;
+        const email = identity.provider_email.trim().toLowerCase();
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(720047, hashtext(${email}))`;
+        const account = await tx.authAccount.findUnique({
+          where: {
+            provider_provider_account_id: {
+              provider: 'GOOGLE',
+              provider_account_id: identity.provider_account_id,
+            },
           },
-        },
-        include: { user: true },
-      });
-      const matches = await tx.user.findMany({
-        where: { email: { equals: email, mode: 'insensitive' } },
-        take: 2,
-      });
-      if (
-        matches.length > 1 ||
-        (account && matches[0] && account.user_id !== matches[0].id)
-      )
-        throw new AppError(
-          403,
-          'ADMIN_ACCESS_DENIED',
-          ADMIN_AUTH_MESSAGES.DENIED,
-        );
-      const user = account?.user ?? matches[0];
-      if (
-        !user ||
-        user.role !== 'ADMIN' ||
-        user.status !== 'ACTIVE' ||
-        user.deleted_at
-      )
-        throw new AppError(
-          403,
-          'ADMIN_ACCESS_DENIED',
-          ADMIN_AUTH_MESSAGES.DENIED,
-        );
-      if (!account) {
-        const linked = await tx.authAccount.findFirst({
-          where: { user_id: user.id, provider: 'GOOGLE' },
+          include: { user: true },
         });
-        if (linked)
+        const matches = await tx.user.findMany({
+          where: { email: { equals: email, mode: 'insensitive' } },
+          take: 2,
+        });
+        if (
+          matches.length > 1 ||
+          (account && matches[0] && account.user_id !== matches[0].id)
+        )
           throw new AppError(
             403,
             'ADMIN_ACCESS_DENIED',
             ADMIN_AUTH_MESSAGES.DENIED,
           );
-        await tx.authAccount.create({
+        const user = account?.user ?? matches[0];
+        if (
+          !user ||
+          user.role !== 'ADMIN' ||
+          user.status !== 'ACTIVE' ||
+          user.deleted_at
+        )
+          throw new AppError(
+            403,
+            'ADMIN_ACCESS_DENIED',
+            ADMIN_AUTH_MESSAGES.DENIED,
+          );
+        if (!account) {
+          const linked = await tx.authAccount.findFirst({
+            where: { user_id: user.id, provider: 'GOOGLE' },
+          });
+          if (linked)
+            throw new AppError(
+              403,
+              'ADMIN_ACCESS_DENIED',
+              ADMIN_AUTH_MESSAGES.DENIED,
+            );
+          await tx.authAccount.create({
+            data: {
+              user_id: user.id,
+              provider: 'GOOGLE',
+              provider_account_id: identity.provider_account_id,
+              provider_email: email,
+            },
+          });
+        }
+        const updated = await tx.user.update({
+          where: { id: user.id },
+          data: account
+            ? { last_login_at: new Date(), last_admin_login_at: new Date() }
+            : {
+                last_login_at: new Date(),
+                last_admin_login_at: new Date(),
+                first_name: user.first_name ?? identity.first_name,
+                last_name: user.last_name ?? identity.last_name,
+                avatar_url: user.avatar_url ?? identity.avatar_url,
+              },
+        });
+        const session = await tx.session.create({
           data: {
             user_id: user.id,
-            provider: 'GOOGLE',
-            provider_account_id: identity.provider_account_id,
-            provider_email: email,
+            refresh_token_hash: create_token_hash(token),
+            family_id,
+            expires_at: new Date(
+              Date.now() + config.REFRESH_TOKEN_DAYS * 86400000,
+            ),
+            user_agent: `[admin] ${request_data.user_agent ?? ''}`,
+            ip_address: request_data.ip_address,
           },
         });
-      }
-      const updated = await tx.user.update({
-        where: { id: user.id },
-        data: account
-          ? { last_login_at: new Date(), last_admin_login_at: new Date() }
-          : {
-              last_login_at: new Date(),
-              last_admin_login_at: new Date(),
-              first_name: user.first_name ?? identity.first_name,
-              last_name: user.last_name ?? identity.last_name,
-              avatar_url: user.avatar_url ?? identity.avatar_url,
-            },
-      });
-      const session = await tx.session.create({
-        data: {
-          user_id: user.id,
-          refresh_token_hash: create_token_hash(token),
-          family_id,
-          expires_at: new Date(
-            Date.now() + config.REFRESH_TOKEN_DAYS * 86400000,
-          ),
-          user_agent: `[admin] ${request_data.user_agent ?? ''}`,
-          ip_address: request_data.ip_address,
-        },
-      });
-      await create_user_log(tx, {
-        actor_id: user.id,
-        entity_type: 'Session',
-        entity_id: session.id,
-        action: 'ADMIN_SIGN_IN',
-        after_data: request_data.login_location
-          ? { login_location: request_data.login_location }
-          : undefined,
-      });
-      return {
-        access_token: create_access_token({
-          user_id: user.id,
-          role: user.role,
-          session_family_id: family_id,
-        }),
-        refresh_token: token,
-        expires_at: session.expires_at,
-        user: this.admin_user(updated),
-      };
-    }, ADMIN_ACCESS_TRANSACTION);
+        await create_user_log(tx, {
+          actor_id: user.id,
+          entity_type: 'Session',
+          entity_id: session.id,
+          action: 'ADMIN_SIGN_IN',
+          after_data: request_data.login_location
+            ? { login_location: request_data.login_location }
+            : undefined,
+        });
+        return {
+          access_token: create_access_token({
+            user_id: user.id,
+            role: user.role,
+            session_family_id: family_id,
+          }),
+          refresh_token: token,
+          expires_at: session.expires_at,
+          user: this.admin_user(updated),
+        };
+      },
+      { ...ADMIN_ACCESS_TRANSACTION, maxWait: 30000 },
+    );
   };
 
   readonly rotate_admin_session = async (
@@ -149,70 +154,87 @@ export class AdminAuthRepository {
     request_data: SessionRequest,
   ) => {
     const rotated = create_refresh_token();
-    return this.prismaService.client.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${ADMIN_ACCESS_LOCK})`;
-      const initial = await tx.session.findUnique({
-        where: { refresh_token_hash: create_token_hash(token) },
-        select: { family_id: true },
-      });
-      if (!initial?.family_id)
-        throw new AppError(401, 'INVALID_SESSION', ADMIN_AUTH_MESSAGES.EXPIRED);
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${initial.family_id}))`;
-      const session = await tx.session.findUnique({
-        where: { refresh_token_hash: create_token_hash(token) },
-        include: { user: true },
-      });
-      if (
-        !session ||
-        !session.family_id ||
-        session.revoked_at ||
-        session.expires_at.getTime() <= Date.now() ||
-        session.user.role !== 'ADMIN' ||
-        session.user.status !== 'ACTIVE' ||
-        session.user.deleted_at
-      )
-        throw new AppError(401, 'INVALID_SESSION', ADMIN_AUTH_MESSAGES.EXPIRED);
-      const revoked = await tx.session.updateMany({
-        where: {
-          id: session.id,
-          revoked_at: null,
-          expires_at: { gt: new Date() },
-        },
-        data: { revoked_at: new Date() },
-      });
-      if (revoked.count !== 1)
-        throw new AppError(401, 'INVALID_SESSION', ADMIN_AUTH_MESSAGES.EXPIRED);
-      const next = await tx.session.create({
-        data: {
-          user_id: session.user_id,
-          refresh_token_hash: create_token_hash(rotated),
-          family_id: session.family_id,
+    return transaction_with_connection_retry(
+      this.prismaService.client,
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${ADMIN_ACCESS_LOCK})`;
+        const initial = await tx.session.findUnique({
+          where: { refresh_token_hash: create_token_hash(token) },
+          select: { family_id: true },
+        });
+        if (!initial?.family_id)
+          throw new AppError(
+            401,
+            'INVALID_SESSION',
+            ADMIN_AUTH_MESSAGES.EXPIRED,
+          );
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${initial.family_id}))`;
+        const session = await tx.session.findUnique({
+          where: { refresh_token_hash: create_token_hash(token) },
+          include: { user: true },
+        });
+        if (
+          !session ||
+          !session.family_id ||
+          session.revoked_at ||
+          session.expires_at.getTime() <= Date.now() ||
+          session.user.role !== 'ADMIN' ||
+          session.user.status !== 'ACTIVE' ||
+          session.user.deleted_at
+        )
+          throw new AppError(
+            401,
+            'INVALID_SESSION',
+            ADMIN_AUTH_MESSAGES.EXPIRED,
+          );
+        const revoked = await tx.session.updateMany({
+          where: {
+            id: session.id,
+            revoked_at: null,
+            expires_at: { gt: new Date() },
+          },
+          data: { revoked_at: new Date() },
+        });
+        if (revoked.count !== 1)
+          throw new AppError(
+            401,
+            'INVALID_SESSION',
+            ADMIN_AUTH_MESSAGES.EXPIRED,
+          );
+        const next = await tx.session.create({
+          data: {
+            user_id: session.user_id,
+            refresh_token_hash: create_token_hash(rotated),
+            family_id: session.family_id,
+            expires_at: session.expires_at,
+            user_agent: `[admin] ${request_data.user_agent ?? ''}`,
+            ip_address: request_data.ip_address,
+          },
+        });
+        await create_user_log(tx, {
+          actor_id: session.user_id,
+          entity_type: 'Session',
+          entity_id: next.id,
+          action: 'ADMIN_REFRESH_SESSION',
+        });
+        return {
+          access_token: create_access_token({
+            user_id: session.user_id,
+            role: session.user.role,
+            session_family_id: session.family_id,
+          }),
+          refresh_token: rotated,
           expires_at: session.expires_at,
-          user_agent: `[admin] ${request_data.user_agent ?? ''}`,
-          ip_address: request_data.ip_address,
-        },
-      });
-      await create_user_log(tx, {
-        actor_id: session.user_id,
-        entity_type: 'Session',
-        entity_id: next.id,
-        action: 'ADMIN_REFRESH_SESSION',
-      });
-      return {
-        access_token: create_access_token({
-          user_id: session.user_id,
-          role: session.user.role,
-          session_family_id: session.family_id,
-        }),
-        refresh_token: rotated,
-        expires_at: session.expires_at,
-        user: this.admin_user(session.user),
-      };
-    }, ADMIN_ACCESS_TRANSACTION);
+          user: this.admin_user(session.user),
+        };
+      },
+      { ...ADMIN_ACCESS_TRANSACTION, maxWait: 30000 },
+    );
   };
 
   readonly revoke_admin_session = async (token: string) =>
-    this.prismaService.client.$transaction(
+    transaction_with_connection_retry(
+      this.prismaService.client,
       async (tx) => {
         const session = await tx.session.findUnique({
           where: { refresh_token_hash: create_token_hash(token) },
@@ -237,7 +259,7 @@ export class AdminAuthRepository {
         }
         return null;
       },
-      { maxWait: 10000, timeout: 10000 },
+      { maxWait: 30000, timeout: 10000 },
     );
 
   readonly find_current_admin = async (id: string) => {

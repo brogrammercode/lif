@@ -1454,5 +1454,29 @@
     "path": "admin/registration-emails/:id/retry",
     "guards": ["AuthGuard", "AdminGuard"],
     "idempotent": false
+  },
+  {
+    "feature": "admin_partner_program",
+    "handler": "deletion_preview",
+    "method": "get",
+    "path": "admin/partner-program/applications/:id/deletion-preview",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "admin_partner_program",
+    "handler": "delete_application",
+    "method": "delete",
+    "path": "admin/partner-program/applications/:id",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "audit_retention",
+    "handler": "cleanup",
+    "method": "get",
+    "path": "internal/audit-retention",
+    "guards": [],
+    "idempotent": false
   }
 ]

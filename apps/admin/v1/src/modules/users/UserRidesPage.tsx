@@ -1,3 +1,4 @@
+import { ActionMenu } from "../../components/ui/ActionMenu";
 import {
   VehicleIdentity,
   type DisplayVehicle,
@@ -192,7 +193,7 @@ export function UserRidesPage() {
         }
       >
         {resource.loading ? (
-          <LoadingState />
+          <LoadingState variant="table" label="Loading rides" />
         ) : resource.error ? (
           <StateCard
             error
@@ -267,12 +268,16 @@ export function UserRidesPage() {
                       </span>
                     </td>
                     <td>
-                      <Button
-                        variant="secondary"
-                        onClick={() => setSelected(r)}
-                      >
-                        View ride
-                      </Button>
+                      <ActionMenu
+                        label={"ride " + r.id}
+                        items={[
+                          {
+                            label: "View ride",
+                            icon: "layers",
+                            onSelect: () => setSelected(r),
+                          },
+                        ]}
+                      />
                     </td>
                   </tr>
                 ))}

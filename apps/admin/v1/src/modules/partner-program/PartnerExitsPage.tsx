@@ -1,3 +1,4 @@
+import { ActionMenu } from "../../components/ui/ActionMenu";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { PageHeading } from "../../components/layout/PageHeading";
@@ -224,12 +225,16 @@ export function PartnerExitsPage() {
                       </Badge>
                     </td>
                     <td>
-                      <Button
-                        variant="secondary"
-                        onClick={() => setSelected(row.id)}
-                      >
-                        Review exit
-                      </Button>
+                      <ActionMenu
+                        label={"exit request " + row.id}
+                        items={[
+                          {
+                            label: "Review exit",
+                            icon: "edit",
+                            onSelect: () => setSelected(row.id),
+                          },
+                        ]}
+                      />
                     </td>
                   </tr>
                 ))}

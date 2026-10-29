@@ -1,3 +1,4 @@
+import { ActionMenu } from "../../components/ui/ActionMenu";
 import { useState, type FormEvent } from "react";
 import { Button } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Dialog";
@@ -111,24 +112,23 @@ export function CategoryManager({
                   <Badge active={category.is_active}>
                     {category.is_active ? "Active" : "Disabled"}
                   </Badge>
-                  <div className="row-actions">
-                    <button
-                      className="icon-button"
-                      disabled={loading}
-                      onClick={() => setDeleting(category)}
-                      aria-label={`Delete section ${category.name}`}
-                      title="Delete section and its fields"
-                    >
-                      <Icon name="trash" size={16} />
-                    </button>
-                    <button
-                      className="icon-button"
-                      onClick={() => setEditor({ record: category })}
-                      aria-label={`Edit category ${category.name}`}
-                    >
-                      <Icon name="edit" size={16} />
-                    </button>
-                  </div>
+                  <ActionMenu
+                    label={"section " + category.name}
+                    items={[
+                      {
+                        label: "Edit category " + category.name,
+                        icon: "edit",
+                        onSelect: () => setEditor({ record: category }),
+                      },
+                      {
+                        label: "Delete section " + category.name,
+                        icon: "trash",
+                        danger: true,
+                        disabled: loading,
+                        onSelect: () => setDeleting(category),
+                      },
+                    ]}
+                  />
                 </li>
               ))}
             </ul>

@@ -1,3 +1,4 @@
+import { entityAction } from "./fixtures";
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 
@@ -584,9 +585,7 @@ test("ride review shows evidence and requires approval before verified manual se
     });
   }
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page
-    .getByRole("button", { name: "Review report", exact: true })
-    .click();
+  await (await entityAction(page, "Review report")).click();
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     const dialog = page.getByRole("dialog");
@@ -679,9 +678,7 @@ test("a stale ride review blocks repeated decisions until reload and clears the 
     });
   });
   await page.goto("/app/user/ride-reviews");
-  await page
-    .getByRole("button", { name: "Review report", exact: true })
-    .click();
+  await (await entityAction(page, "Review report")).click();
   const note = page.getByLabel("Review note", { exact: true });
   const approve = page.getByRole("button", {
     name: "Approve charge",

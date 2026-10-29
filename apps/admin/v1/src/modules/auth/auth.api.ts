@@ -1,11 +1,12 @@
 import { apiRequest, readBrowserSession } from "../../lib/api-client";
 import {
   clearSession,
-  rememberAccessToken,
+  rememberSignedInSession,
   withBrowserSessionLock,
 } from "../../lib/session";
 import { AUTH_PATHS } from "./auth.constant";
 import { captureLoginLocation } from "./login-location";
+import { SESSION_REQUEST_TIMEOUT_MS } from "../../lib/network.constant";
 
 export async function signInWithGoogle(idToken: string) {
   const browserLocation = await captureLoginLocation();
@@ -15,9 +16,10 @@ export async function signInWithGoogle(idToken: string) {
         method: "POST",
         data: { id_token: idToken, browser_location: browserLocation },
         anonymous: true,
+        timeoutMs: SESSION_REQUEST_TIMEOUT_MS,
       }),
     );
-    rememberAccessToken(session.access_token, session.user);
+    rememberSignedInSession(session.access_token, session.user);
     return session.user;
   });
 }

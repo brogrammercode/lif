@@ -50,7 +50,8 @@ export function FarePolicyPage() {
       });
     }
   }, [resource.data, clearError]);
-  if (resource.loading || (!draft && !resource.error)) return <LoadingState />;
+  if (resource.loading || (!draft && !resource.error))
+    return <LoadingState variant="form" label="Loading fare policy" />;
   if (resource.error || !draft)
     return (
       <StateCard

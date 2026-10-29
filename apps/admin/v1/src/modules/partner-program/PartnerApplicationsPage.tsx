@@ -4,6 +4,8 @@ import {
   usePendingEntities,
 } from "../pending/PendingProvider";
 import { useEffect, useState } from "react";
+import { ActionMenu } from "../../components/ui/ActionMenu";
+import { DeleteApplicationDialog } from "./DeleteApplicationDialog";
 import { useSearchParams } from "react-router-dom";
 import { PageHeading } from "../../components/layout/PageHeading";
 import { CatalogPanel, TableLoading } from "../../components/ui/CatalogPanel";
@@ -14,7 +16,6 @@ import {
 } from "../../components/ui/ManagementControls";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
-import { Icon } from "../../components/ui/Icon";
 import { StateCard } from "../../components/feedback/StateCard";
 import {
   useAdminResource,
@@ -50,6 +51,7 @@ export function PartnerApplicationsPage({
   const text = useDebouncedText(query);
   const [status, setStatus] = useState("all");
   const [page, setPage] = useState(1);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const pendingOnly = searchParams.get("pending_only") === "true";
   useEffect(() => {
@@ -270,16 +272,34 @@ export function PartnerApplicationsPage({
                       </small>
                     </td>
                     <td>
-                      <div className="row-actions">
-                        <Button
-                          variant="ghost"
-                          onClick={() => setSelected(app.id)}
-                          aria-label={"Review application " + app.id}
-                        >
-                          <Icon name="edit" size={16} />
-                          Review
-                        </Button>
-                      </div>
+                      <ActionMenu
+                        label={`application ${app.id}`}
+                        items={[
+                          {
+                            label: `Review application ${app.id}`,
+                            icon: "edit",
+                            onSelect: () => setSelected(app.id),
+                          },
+                          ...(section === "applications"
+                            ? [
+                                {
+                                  label: "Delete application",
+                                  icon: "trash" as const,
+                                  danger: true,
+                                  disabled: ["ACTIVATED", "EXITED"].includes(
+                                    app.status,
+                                  ),
+                                  title: ["ACTIVATED", "EXITED"].includes(
+                                    app.status,
+                                  )
+                                    ? "Activated driver applications must be retained."
+                                    : undefined,
+                                  onSelect: () => setDeleting(app.id),
+                                },
+                              ]
+                            : []),
+                        ]}
+                      />
                     </td>
                   </tr>
                 ))}
@@ -288,6 +308,16 @@ export function PartnerApplicationsPage({
           </div>
         )}
       </CatalogPanel>
+      {deleting && (
+        <DeleteApplicationDialog
+          id={deleting}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            setDeleting(null);
+            resource.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

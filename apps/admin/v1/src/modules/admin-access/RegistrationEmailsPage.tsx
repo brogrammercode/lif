@@ -1,5 +1,6 @@
+import { ActionMenu } from "../../components/ui/ActionMenu";
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { PageHeading } from "../../components/layout/PageHeading";
 import { CatalogPanel } from "../../components/ui/CatalogPanel";
 import { Badge } from "../../components/ui/Badge";
@@ -57,6 +58,7 @@ function decode(v: unknown): Emails {
   return data;
 }
 export function RegistrationEmailsPage() {
+  const navigate = useNavigate();
   const [status, setStatus] = useState("pending"),
     [page, setPage] = useState(1);
   const resource = useAdminResource<Emails>(
@@ -118,7 +120,7 @@ export function RegistrationEmailsPage() {
           </div>
         )}
         {resource.loading ? (
-          <LoadingState />
+          <LoadingState variant="table" label="Loading registration emails" />
         ) : resource.error ? (
           <StateCard
             error
@@ -196,27 +198,45 @@ export function RegistrationEmailsPage() {
                         <td>{timeLabel(email.created_at)}</td>
                         <td>{email.attempts}</td>
                         <td>
-                          {!email.sent_at &&
-                            (email.status !== "SENDING" ||
-                              Date.now() - Date.parse(email.updated_at) >
-                                300000) && (
-                              <Button
-                                variant="secondary"
-                                disabled={save.busy}
-                                onClick={() =>
-                                  void save.run(
-                                    (signal) =>
-                                      apiRequest(
-                                        `/admin/registration-emails/${encodeURIComponent(email.id)}/retry`,
-                                        { method: "POST", signal },
-                                      ),
-                                    resource.refresh,
-                                  )
-                                }
-                              >
-                                Retry email
-                              </Button>
-                            )}
+                          <ActionMenu
+                            label={"email delivery " + email.id}
+                            items={[
+                              {
+                                label: "View new account",
+                                icon: "users",
+                                onSelect: () =>
+                                  navigate(
+                                    "/users/" +
+                                      encodeURIComponent(email.user.id) +
+                                      "/personal",
+                                  ),
+                              },
+                              ...(!email.sent_at &&
+                              (email.status !== "SENDING" ||
+                                Date.now() - Date.parse(email.updated_at) >
+                                  300000)
+                                ? [
+                                    {
+                                      label: "Retry email",
+                                      icon: "refresh" as const,
+                                      disabled: save.busy,
+                                      onSelect: () => {
+                                        void save.run(
+                                          (signal) =>
+                                            apiRequest(
+                                              "/admin/registration-emails/" +
+                                                encodeURIComponent(email.id) +
+                                                "/retry",
+                                              { method: "POST", signal },
+                                            ),
+                                          resource.refresh,
+                                        );
+                                      },
+                                    },
+                                  ]
+                                : []),
+                            ]}
+                          />
                         </td>
                       </tr>
                     ))}

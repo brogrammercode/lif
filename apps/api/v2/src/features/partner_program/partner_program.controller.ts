@@ -3,10 +3,15 @@ import { PARTNER_EMAIL_TITLE } from '../../infra/mail/partner_email.js';
 import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import {
+  PartnerApplicationDeletionService,
+  application_delete_input,
+} from './partner_application_deletion.service.js';
+import {
   Controller,
   Get,
   Post,
   Patch,
+  Delete,
   Req,
   Res,
   UseGuards,
@@ -193,7 +198,36 @@ export class AdminPartnerProgramController {
     private readonly documents: PartnerDocumentService,
     private readonly delivery: PartnerDeliveryService,
     private readonly database: PrismaService,
+    private readonly deletion: PartnerApplicationDeletionService,
   ) {}
+  @Get('applications/:id/deletion-preview') async deletion_preview(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    res.setHeader('Cache-Control', 'no-store');
+    return send_success(
+      res,
+      await this.deletion.preview(
+        req.auth!.user_id,
+        id_input.parse(req.params.id),
+      ),
+      'Application deletion preview loaded',
+    );
+  }
+  @Delete('applications/:id') async delete_application(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return send_success(
+      res,
+      await this.deletion.remove(
+        req.auth!.user_id,
+        id_input.parse(req.params.id),
+        application_delete_input.parse(req.body),
+      ),
+      'Application and related data deleted',
+    );
+  }
   private queue_email(id: string) {
     background_mail(
       this.delivery.send_email(id),

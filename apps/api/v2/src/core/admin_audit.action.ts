@@ -1,6 +1,17 @@
 // One description per administrator route. Keep transport details separate from
+import { OPERATIONAL_ACTIONS } from './operational_audit.action.js';
 // the label so old request-only rows remain readable without rewriting history.
 export const ADMIN_ACTIONS = [
+  [
+    'GET',
+    'admin/partner-program/applications/:id/deletion-preview',
+    'Preview partner application deletion',
+  ],
+  [
+    'DELETE',
+    'admin/partner-program/applications/:id',
+    'Delete partner application',
+  ],
   ['GET', 'admin/registration-emails', 'View registration email deliveries'],
   ['POST', 'admin/registration-emails/:id/retry', 'Retry registration email'],
   [
@@ -180,7 +191,7 @@ const canonical = (path: string) =>
     .toLowerCase();
 export function find_admin_action(method: string, path: string) {
   const parts = canonical(path).split('/');
-  return ADMIN_ACTIONS.find(
+  return [...ADMIN_ACTIONS, ...OPERATIONAL_ACTIONS].find(
     ([verb, template]) =>
       method.toUpperCase() === verb &&
       template.split('/').length === parts.length &&
@@ -197,9 +208,25 @@ export function admin_action_label(
   body?: unknown,
 ) {
   const action = find_admin_action(method, path);
-  if (!action) return `${method.toUpperCase()} administrator request`;
+  if (!action)
+    return `${({ GET: 'View', POST: 'Submit', PATCH: 'Update', PUT: 'Save', DELETE: 'Remove', HEAD: 'Check', OPTIONS: 'Check' } as Record<string, string>)[method.toUpperCase()] ?? 'Process'} workspace request`;
   const input =
     body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  if (action[1] === 'trips/:id/issues') {
+    const kind = {
+      PASSENGER_NO_SHOW: 'Passenger no-show reported',
+      NO_SHOW: 'Passenger no-show reported',
+      FARE_UNPAID: 'Unpaid fare reported',
+      CANCELLATION: 'Trip cancellation reported',
+    } as Record<string, string>;
+    if (typeof input.kind === 'string' && kind[input.kind])
+      return kind[input.kind]!;
+  }
+  if (
+    action[1] === 'driver/availability' &&
+    typeof input.is_online === 'boolean'
+  )
+    return input.is_online ? 'Driver went online' : 'Driver went offline';
   if (
     action[2].startsWith('Review ') &&
     typeof input.decision === 'string' &&
@@ -222,15 +249,16 @@ export function legacy_action_aliases(query: string): string[] {
     label.startsWith('Review ')
       ? [label, `Approve ${label.slice(7)}`, `Reject ${label.slice(7)}`]
       : [label];
-  const matching = ADMIN_ACTIONS.filter(([, , label]) =>
-    labels(label).some((candidate) =>
-      words.every((word) =>
-        candidate
-          .toLowerCase()
-          .split(/[\s-]+/)
-          .some((part) => part.startsWith(word)),
+  const matching = [...ADMIN_ACTIONS, ...OPERATIONAL_ACTIONS].filter(
+    ([, , label]) =>
+      labels(label).some((candidate) =>
+        words.every((word) =>
+          candidate
+            .toLowerCase()
+            .split(/[\s-]+/)
+            .some((part) => part.startsWith(word)),
+        ),
       ),
-    ),
   );
   const exact = matching.filter(([, , label]) =>
     labels(label).some(
@@ -244,4 +272,27 @@ export function legacy_action_aliases(query: string): string[] {
     `${method} ${path}`,
     `${method} /${path}`,
   ]);
+}
+
+export function audit_resource(path: string) {
+  const route = canonical(path).replace(/^admin\//, '');
+  if (route.startsWith('partner-program')) return 'Partner Program';
+  if (route.startsWith('vehicle-') || route.includes('vehicle-verification'))
+    return 'Vehicle catalog & verification';
+  if (route.startsWith('driver')) return 'Driver operations';
+  if (
+    route.startsWith('rides') ||
+    route.startsWith('trips') ||
+    route.startsWith('trip-reviews')
+  )
+    return 'Rides & trips';
+  if (route.startsWith('auth') || route.startsWith('access'))
+    return 'Accounts & access';
+  if (route.startsWith('users') || route.startsWith('me'))
+    return 'User accounts';
+  if (route.startsWith('support')) return 'Support';
+  if (route.startsWith('fare-policy') || route.startsWith('payment'))
+    return 'Fares & payments';
+  if (route.startsWith('geocode')) return 'Maps & locations';
+  return 'Workspace';
 }

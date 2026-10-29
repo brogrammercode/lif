@@ -2,9 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { PageHeading } from "../../components/layout/PageHeading";
 import { Button } from "../../components/ui/Button";
 import { Field } from "../../components/ui/Field";
-import { InlineError, StateCard } from "../../components/feedback/StateCard";
+import {
+  InlineError,
+  StateCard,
+  LoadingState,
+} from "../../components/feedback/StateCard";
 import { Toast } from "../../components/feedback/Toast";
-import { CatalogPanel, TableLoading } from "../../components/ui/CatalogPanel";
+import { CatalogPanel } from "../../components/ui/CatalogPanel";
 import { Badge } from "../../components/ui/Badge";
 import { Icon } from "../../components/ui/Icon";
 import { RichDocumentEditor } from "../../components/ui/RichDocumentEditor";
@@ -123,6 +127,7 @@ export function PartnerDocumentPage({
         <Button
           variant="secondary"
           disabled={busy || resource.loading}
+          busy={resource.loading}
           onClick={() => {
             if (
               !dirty ||
@@ -133,11 +138,7 @@ export function PartnerDocumentPage({
               resource.refresh();
           }}
         >
-          <Icon
-            name={resource.loading ? "spinner" : "refresh"}
-            size={16}
-            className={resource.loading ? "animate-spin" : ""}
-          />
+          <Icon name="refresh" size={16} />
           Reload
         </Button>
         <Button
@@ -179,7 +180,7 @@ export function PartnerDocumentPage({
         className="document-panel"
       >
         {resource.loading ? (
-          <TableLoading label="Loading document" rows={5} />
+          <LoadingState variant="document" label="Loading document" />
         ) : resource.error ? (
           <StateCard
             error

@@ -1,3 +1,4 @@
+import { ActionMenu } from "../../components/ui/ActionMenu";
 import { useCallback, useState } from "react";
 import { PageHeading } from "../../components/layout/PageHeading";
 import { CatalogPanel, TableLoading } from "../../components/ui/CatalogPanel";
@@ -213,28 +214,24 @@ export function RequirementsPage({ section }: { section: RequirementSection }) {
                       </Badge>
                     </td>
                     <td>
-                      <div className="row-actions">
-                        <button
-                          className="icon-button"
-                          disabled={fields.loading}
-                          onClick={() => setDeleting(field)}
-                          aria-label={`Delete field ${field.label}`}
-                          title="Delete field"
-                        >
-                          <Icon name="trash" size={16} />
-                        </button>
-                        <button
-                          className="icon-button"
-                          disabled={
-                            categories.loading || Boolean(categories.error)
-                          }
-                          onClick={() => setEditor({ record: field })}
-                          aria-label={`Edit field ${field.label}`}
-                          title={`Edit field ${field.label}`}
-                        >
-                          <Icon name="edit" size={16} />
-                        </button>
-                      </div>
+                      <ActionMenu
+                        label={"field " + field.label}
+                        items={[
+                          {
+                            label: "Edit field " + field.label,
+                            icon: "edit",
+                            disabled:
+                              categories.loading || Boolean(categories.error),
+                            onSelect: () => setEditor({ record: field }),
+                          },
+                          {
+                            label: "Delete field " + field.label,
+                            icon: "trash",
+                            danger: true,
+                            onSelect: () => setDeleting(field),
+                          },
+                        ]}
+                      />
                     </td>
                   </tr>
                 ))}
