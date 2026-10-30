@@ -371,6 +371,7 @@ Future<void> fill(
   await tester.pumpAndSettle();
   await press(tester, find.byType(CheckboxListTile));
   await press(tester, find.text('Continue to application'));
+  await press(tester, find.text('Continue'));
   for (final id in ['first', 'second']) {
     final tile = find.byKey(ValueKey('partner-upload-$id'));
     await tester.scrollUntilVisible(

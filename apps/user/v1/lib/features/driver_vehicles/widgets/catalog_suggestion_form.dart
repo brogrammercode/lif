@@ -1,3 +1,4 @@
+import 'package:user/components/ui/glass_dropdown.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -216,33 +217,41 @@ class _CatalogSuggestionFormState extends State<CatalogSuggestionForm> {
               _input('website_url', 'Website (optional)', max: 2000),
             ],
             if (_model) ...[
-              LiquidGlassSurface(
-                padding: EdgeInsets.zero,
-                radius: 20,
-                child: DropdownButtonFormField<String>(
-                  initialValue: _type,
-                  decoration: const InputDecoration(labelText: 'Vehicle type'),
-                  items: ['BIKE', 'SCOOTER', 'AUTO', 'SEDAN', 'SUV']
-                      .map((v) => DropdownMenuItem(value: v, child: Text(v)))
-                      .toList(),
-                  onChanged: _busy ? null : (v) => setState(() => _type = v!),
-                ),
+              LiquidGlassDropdownFormField<String>(
+                initialValue: _type,
+                decoration: const InputDecoration(labelText: 'Vehicle type'),
+                items: ['BIKE', 'SCOOTER', 'AUTO', 'SEDAN', 'SUV']
+                    .map(
+                      (v) => DropdownMenuItem(
+                        value: v,
+                        child: Text(
+                          v == 'SUV'
+                              ? v
+                              : '${v[0]}${v.substring(1).toLowerCase()}',
+                        ),
+                      ),
+                    )
+                    .toList(),
+                onChanged: _busy ? null : (v) => setState(() => _type = v!),
               ),
               const SizedBox(height: 16),
-              LiquidGlassSurface(
-                padding: EdgeInsets.zero,
-                radius: 20,
-                child: DropdownButtonFormField<String>(
-                  initialValue: _fuel,
-                  decoration: const InputDecoration(labelText: 'Fuel type'),
-                  items:
-                      ['PETROL', 'DIESEL', 'CNG', 'ELECTRIC', 'HYBRID', 'OTHER']
-                          .map(
-                            (v) => DropdownMenuItem(value: v, child: Text(v)),
-                          )
-                          .toList(),
-                  onChanged: _busy ? null : (v) => setState(() => _fuel = v!),
-                ),
+              LiquidGlassDropdownFormField<String>(
+                initialValue: _fuel,
+                decoration: const InputDecoration(labelText: 'Fuel type'),
+                items:
+                    ['PETROL', 'DIESEL', 'CNG', 'ELECTRIC', 'HYBRID', 'OTHER']
+                        .map(
+                          (v) => DropdownMenuItem(
+                            value: v,
+                            child: Text(
+                              v == 'CNG'
+                                  ? v
+                                  : '${v[0]}${v.substring(1).toLowerCase()}',
+                            ),
+                          ),
+                        )
+                        .toList(),
+                onChanged: _busy ? null : (v) => setState(() => _fuel = v!),
               ),
               const SizedBox(height: 16),
               _input(

@@ -267,6 +267,8 @@ void main() {
         400,
         scrollable: find.byType(Scrollable).first,
       );
+      await tester.ensureVisible(find.text('Submit corrections'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Submit corrections'));
       await tester.pumpAndSettle();
       expect(repo.calls, ['discard:abandoned-image', 'submit']);
@@ -304,6 +306,8 @@ void main() {
         400,
         scrollable: find.byType(Scrollable).first,
       );
+      await tester.ensureVisible(find.text('Submit corrections'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Submit corrections'));
       await tester.pumpAndSettle();
       expect(repo.submissions, 1);

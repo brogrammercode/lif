@@ -1,3 +1,4 @@
+import 'package:user/components/ui/glass_dropdown.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -625,36 +626,23 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
           key: ValueKey('$key:${selected?['id']}'),
           validator: (_) =>
               selected == null ? 'Select a ${model ? 'model' : 'brand'}' : null,
-          builder: (state) => Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              OutlinedButton(
-                onPressed:
-                    _busy ||
-                        _locked(key) ||
-                        (model && _brand == null) ||
-                        (!model && _locked('model_id'))
-                    ? null
-                    : () => _choose(model),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        selected == null
-                            ? 'Select ${model ? 'model' : 'brand'}'
-                            : '${selected['name']}',
-                      ),
-                    ),
-                    const Icon(Icons.expand_more),
-                  ],
-                ),
+          builder: (state) => Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: LiquidGlassSelectField(
+              decoration: InputDecoration(
+                labelText: model ? 'Model' : 'Brand',
+                hintText: 'Select ${model ? 'model' : 'brand'}',
+                errorText: state.errorText,
               ),
-              if (state.hasError)
-                Text(
-                  state.errorText!,
-                  style: const TextStyle(color: AppColors.googleRed),
-                ),
-            ],
+              onTap:
+                  _busy ||
+                      _locked(key) ||
+                      (model && _brand == null) ||
+                      (!model && _locked('model_id'))
+                  ? null
+                  : () => _choose(model),
+              selection: selected == null ? null : Text('${selected['name']}'),
+            ),
           ),
         ),
         if (selected?['status'] == 'REQUESTED')
@@ -713,38 +701,33 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
               _catalog(false),
               _catalog(true),
               const SizedBox(height: 8),
-              LiquidGlassSurface(
-                padding: EdgeInsets.zero,
-                radius: 20,
-                child: DropdownButtonFormField<String>(
-                  key: ValueKey('category:$_categoryId:${_model?['id']}'),
-                  initialValue: selectedCategory,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Vehicle category',
-                  ),
-                  items: categories
-                      .map(
-                        (c) => DropdownMenuItem<String>(
-                          value: '${c['id']}',
-                          child: Text(
-                            c['parent_name'] == null
-                                ? '${c['name']}'
-                                : '${c['parent_name']} / ${c['name']}',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: _busy || _locked('vehicle_category_id')
-                      ? null
-                      : (v) => setState(() {
-                          _categoryId = v;
-                          _scheduleDraft();
-                        }),
-                  validator: (v) =>
-                      v == null ? 'Select a compatible category' : null,
+              LiquidGlassDropdownFormField<String>(
+                key: ValueKey('category:$_categoryId:${_model?['id']}'),
+                initialValue: selectedCategory,
+                decoration: const InputDecoration(
+                  labelText: 'Vehicle category',
                 ),
+                items: categories
+                    .map(
+                      (c) => DropdownMenuItem<String>(
+                        value: '${c['id']}',
+                        child: Text(
+                          c['parent_name'] == null
+                              ? '${c['name']}'
+                              : '${c['parent_name']} / ${c['name']}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )
+                    .toList(),
+                onChanged: _busy || _locked('vehicle_category_id')
+                    ? null
+                    : (v) => setState(() {
+                        _categoryId = v;
+                        _scheduleDraft();
+                      }),
+                validator: (v) =>
+                    v == null ? 'Select a compatible category' : null,
               ),
               if (_model != null && categories.isEmpty)
                 const Text(

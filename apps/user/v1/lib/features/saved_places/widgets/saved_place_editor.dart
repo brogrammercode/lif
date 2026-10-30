@@ -1,3 +1,4 @@
+import 'package:user/components/ui/glass_dropdown.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
@@ -96,7 +97,8 @@ class _PlaceEditorState extends State<SavedPlaceEditor> {
               validator: (v) =>
                   v == null || v.trim().isEmpty ? 'Enter a label' : null,
             ),
-            DropdownButtonFormField<String>(
+            const SizedBox(height: 16),
+            LiquidGlassDropdownFormField<String>(
               initialValue: _type,
               decoration: const InputDecoration(labelText: 'Place type'),
               items: const [
@@ -106,6 +108,7 @@ class _PlaceEditorState extends State<SavedPlaceEditor> {
               ],
               onChanged: (v) => setState(() => _type = v!),
             ),
+            const SizedBox(height: 16),
             TextFormField(
               controller: _address,
               maxLength: 300,

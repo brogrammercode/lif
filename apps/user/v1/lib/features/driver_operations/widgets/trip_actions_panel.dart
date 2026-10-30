@@ -1,3 +1,4 @@
+import 'package:user/components/ui/glass_dropdown.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -402,19 +403,26 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
                 'Pay the driver directly after the ride. Opening a UPI app does not confirm payment.',
               ),
               if (driver && allowed.isNotEmpty) ...[
-                DropdownButtonFormField<String>(
+                const SizedBox(height: 16),
+                LiquidGlassDropdownFormField<String>(
                   key: ValueKey(selected),
                   initialValue: selected,
                   decoration: const InputDecoration(
                     labelText: 'Collection method',
                   ),
                   items: allowed
-                      .map((m) => DropdownMenuItem(value: m, child: Text(m)))
+                      .map(
+                        (m) => DropdownMenuItem(
+                          value: m,
+                          child: Text(m == 'UPI' ? 'Direct UPI' : 'Cash'),
+                        ),
+                      )
                       .toList(),
                   onChanged: _busy
                       ? null
                       : (v) => setState(() => _method = v ?? 'CASH'),
                 ),
+                const SizedBox(height: 16),
                 FilledButton(
                   onPressed: _busy
                       ? null

@@ -1,5 +1,7 @@
 # 1more User App
 
+UI guidance: [mobile design entry point](MOBILE_DESIGN.md), linking to the canonical liquid-glass design specification. Dropdowns use the shared glass selector/menu; application uploads are full-width vertical cards.
+
 The Flutter rider app signs in with Google and consumes API V2 at `/api/v2`. The API V2 server also supports its `/api/v1` compatibility prefix.
 
 Home avatar opens Settings, including profile and Partner Program. The program includes published rich policy/confirmation documents, dynamic applications and field feedback, private final PDF download, first-login one-time activation and the driver-home placeholder. See [the phased plan](../../../context/PARTNER_ONBOARDING_PLAN.md) and [implementation/operator guide](../../../context/PARTNER_ONBOARDING_IMPLEMENTATION.md). Use the API V2 server for these features.
@@ -221,5 +223,7 @@ Settings, profile editing and Partner Program use the shared liquid-glass materi
 Profile photo selection uses the existing camera/gallery plugin, previews locally and uploads only after Save (up to 3 MB). Deploy the matching API V2 `POST /me/avatar` update first: it accepts `image_upload` and performs the shared WebP conversion before cloud storage, while retaining legacy URL callers. No new package, Android configuration or database migration is required. See [the redesign and checks](../../../context/SETTINGS_PROFILE_REDESIGN.md).
 
 ## Partner application submission
+
+The editable application starts with contact/delivery and then shows one configured category at a time. Continue validates the current step; Previous/back preserves answers. Image/document fields use compact glass upload cards with a file-review sheet. The draft restores its category, and final Submit validates the entire application before uploading. See [the category-step implementation](../../../context/PARTNER_APPLICATION_CATEGORY_STEPS.md).
 
 Pending documents and the camera selfie now stay in app-private files, with account-scoped encrypted draft metadata. Submit processes one file at a time in a worker isolate, shows progress, and reuses completed uploads after a failure. Reopening restores editable drafts or the server's submitted state. Stop and restart the updated app before testing this change; hot reload cannot replace old in-memory form state. See [submission recovery and device acceptance](../../../context/PARTNER_APPLICATION_SUBMISSION_FIX.md).

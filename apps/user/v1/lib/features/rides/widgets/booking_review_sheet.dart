@@ -1,3 +1,4 @@
+import 'package:user/components/ui/glass_dropdown.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
@@ -201,8 +202,9 @@ class _BookingReviewState extends State<BookingReviewSheet> {
                       ? 'Quote expired'
                       : 'Quote valid until ${rideTime(widget.quote['expires_at'])}',
                 ),
-                if (methods.isNotEmpty)
-                  DropdownButtonFormField<String>(
+                if (methods.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  LiquidGlassDropdownFormField<String>(
                     initialValue: _method,
                     decoration: const InputDecoration(
                       labelText: 'Payment after the ride',
@@ -223,6 +225,8 @@ class _BookingReviewState extends State<BookingReviewSheet> {
                         ? null
                         : (v) => setState(() => _method = v!),
                   ),
+                  const SizedBox(height: 16),
+                ],
                 TextField(
                   controller: _note,
                   enabled: !_busy && !_attempted,

@@ -31,6 +31,8 @@ Use `lib/components/ui/liquid_glass.dart` as the reusable implementation:
 | `LiquidGlassDialog` | Bounded, scrollable glass confirmation/preview dialog. |
 | `LiquidGlassSheet` | Glass action sheet with a handle and scrolling content. |
 | `LiquidGlassFormSkeleton` | Matching form/document loading surfaces. |
+| `LiquidGlassDropdownFormField` | Shared form dropdown: glass field, anchored glass menu, search and selection feedback. |
+| `LiquidGlassSelectField` | Matching trigger for dedicated catalog/search selection routes. |
 
 `AppCard` becomes a glass surface inside the scope, keeping existing feature code reusable. Other existing screens adopt this style when they are reworked; do not silently change unrelated operational UI in a focused task.
 
@@ -67,11 +69,27 @@ Retain Outfit through the existing mobile theme. Use medium/semibold weights and
 
 - Use the scope's rounded input theme and shared glass wells. Filled-field floating labels stay inside the clipped well; focus/error underlines remain visible alongside its reflective rim. Preserve read-only/disabled states, keyboard types, canonical dropdowns, validation, DOB limits and automatic IFSC formatting.
 - Dynamic field labels and categories come from the API. Keep the server's approval/rejection status and reason adjacent to each answer. Approval must not be represented by color alone.
+- The editable Partner Program application uses contact/delivery followed by one step per configured category. Show the current category, progress, Previous/Continue and final-only Submit. Preserve answers and the saved step on navigation/reopening; reveal the relevant category when final validation finds an offscreen error. Submitted review and confirmation remain their existing document/review screens.
+- Application image/document selectors use a single full-width vertical column, with at least 20 px between fields. Do not put upload cards side by side, including on wider screens. Retain the icon or bounded image preview, field label, real size/format guidance and add/retake action. Use the shared file-review sheet for filenames, full previews and remove/open controls. Cards grow with text size and review feedback; their skeleton follows the same vertical layout.
 - File and camera capture share the same glass upload surfaces. Retain bounded previews, real filenames, open/remove controls and explicit replace/retake actions. Never substitute private documents for public avatars or catalog logos.
 - Preserve existing file limits and JPEG/PNG/WebP/PDF acceptance rules. A design reference mentioning 10 MB or DOCX does not change the backend's supported file limits or formats.
 - Keep local preview separate from submission/cloud upload. Preserve sequential uploads, account-scoped draft recovery, retry reuse, protected-route recovery and camera-only live selfie provenance.
 - Policies and confirmations remain rich document surfaces. Retain accepted revisions, field validation and explicit policy/confirmation consent. Keep PDF download and final activation actions clearly visible.
-- Date/option pickers retain their supported native/Flutter behavior and receive the scoped palette. Do not replace working input semantics merely to imitate a mockup.
+- Date pickers retain their supported native/Flutter behavior and receive the scoped palette. Option selectors use the shared glass implementation below, preserving form semantics and original values.
+
+## Dropdowns and selection menus
+
+Use `lib/components/ui/glass_dropdown.dart` throughout the rider and driver application. Do not add native `DropdownButtonFormField` controls or a flat white popup for new dropdowns. Declare choices with `DropdownMenuItem<T>` and render them with `LiquidGlassDropdownFormField<T>`; these items supply data/labels, while the shared component owns the field and menu rendering.
+
+- Closed fields use a 20 px glass well, an in-well label/hint, a consistent down chevron, legible selected text and a visible focus/error treatment. Keep 16–20 px between surrounding controls; Partner Program fields use 20 px. Do not wrap the component in another glass well.
+- Open menus use the same real clipped blur, translucent tint, reflective rim and restrained shadow, with a 24 px corner radius. A lightly dimmed barrier supports outside-tap dismissal. Menus choose a position above/below the field and remain within the viewport, safe areas and keyboard insets.
+- Display readable option names. A selected option has a tinted row plus a check, without relying on color alone. Long lists (eight or more choices) expose a search field and a clear no-matches state. Search matches display labels case-insensitively; rich/custom option content must supply `searchLabel`.
+- Menu content scrolls within bounded height, including in landscape with a keyboard. Labels and rows may grow with text scale. Preserve keyboard opening, Tab/Enter selection and Escape dismissal. High contrast uses the shared readable solid surfaces; reduced motion disables skeleton animation through the existing component.
+- Keep opaque IDs, booleans (including `false`) and optional empty-string values unchanged. Preserve validation, reset/save, required fields and approval locks. Changed dependent options clear stale selections, and a result from an outdated menu cannot select an option that was removed or disabled.
+- Loading options use an in-field skeleton and a stable disabled state. Keep canonical state/city/PIN dependencies and retry feedback. Busy, empty and locked controls do not open menus or mutate answers.
+- Brand/model search retains its dedicated catalog page, pagination and suggestion workflow; its field trigger uses `LiquidGlassSelectField` to match ordinary dropdowns.
+
+The app-local [mobile design entry point](../apps/user/v1/MOBILE_DESIGN.md) links to this authority. See [dropdown implementation and checks](MOBILE_DROPDOWN_REWORK.md).
 
 ## Loading, failure and feedback
 

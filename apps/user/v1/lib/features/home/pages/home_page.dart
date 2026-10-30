@@ -1,3 +1,4 @@
+import 'package:user/components/ui/glass_dropdown.dart';
 import 'package:user/features/rides/widgets/booking_review_sheet.dart';
 import 'package:user/features/rides/ride_display.dart';
 import 'package:user/core/route_observer.dart';
@@ -1786,13 +1787,12 @@ class _HomePageState extends State<HomePage>
                     if (_isSelectingVehicle)
                       Padding(
                         padding: const EdgeInsets.only(top: 8),
-                        child: DropdownButtonFormField<String>(
+                        child: LiquidGlassDropdownFormField<String>(
                           key: ValueKey('booking-payment-$_quoteDraftId'),
                           initialValue: _bookingMethod,
                           decoration: const InputDecoration(
                             labelText: 'Pay driver after ride',
                           ),
-                          dropdownColor: Colors.white,
                           items: [
                             if (((_rideQuotes.firstOrNull?['category_snapshot']
                                         as Map?)?['payment_policy']

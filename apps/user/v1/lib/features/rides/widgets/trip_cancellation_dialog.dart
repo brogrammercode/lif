@@ -1,3 +1,4 @@
+import 'package:user/components/ui/glass_dropdown.dart';
 import 'package:flutter/material.dart';
 import 'package:user/features/rides/ride_display.dart';
 
@@ -45,10 +46,9 @@ class _CancellationState extends State<TripCancellationDialog> {
                   ? 'Before assignment, cancellation is free.'
                   : 'Free cancellation until ${rideTime(freeUntil.toIso8601String())}. After that, up to ${rideMoney(policy['maximum_proposed_fee'])} may be proposed for review. Valid safety, late-driver and refusal reasons can be exempted by the admin. No fee is collected now.',
             ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
+            const SizedBox(height: 16),
+            LiquidGlassDropdownFormField<String>(
               initialValue: _code,
-              isExpanded: true,
               decoration: const InputDecoration(labelText: 'Reason'),
               items: reasons.entries
                   .map(
@@ -60,6 +60,7 @@ class _CancellationState extends State<TripCancellationDialog> {
                   .toList(),
               onChanged: (v) => setState(() => _code = v!),
             ),
+            const SizedBox(height: 16),
             TextField(
               controller: _note,
               maxLength: 900,

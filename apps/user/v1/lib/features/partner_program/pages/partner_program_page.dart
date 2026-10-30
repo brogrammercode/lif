@@ -1,14 +1,17 @@
+import 'package:user/components/ui/glass_dropdown.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:user/features/partner_program/partner_form_validation.dart';
+import 'package:user/features/partner_program/partner_application_step.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:user/features/partner_program/widgets/partner_address_input.dart';
 import 'package:user/features/partner_program/widgets/partner_upload_tile.dart';
+import 'package:user/features/partner_program/widgets/partner_application_skeleton.dart';
 import 'package:user/features/partner_program/partner_draft_store.dart';
 import 'package:user/features/auth/models/user.model.dart';
 import 'package:user/components/ui/app_page.dart';
@@ -69,6 +72,15 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
   String? _error;
   Timer? _poll;
   int _loadRequest = 0;
+  String _stepKey = 'contact';
+  bool get _busy => _saving || _pickingFiles || _capturingSelfie;
+  List<PartnerApplicationStep> get _steps =>
+      PartnerApplicationStep.fromRequirements(_definitions);
+  int get _stepIndex {
+    final index = _steps.indexWhere((step) => step.key == _stepKey);
+    return index < 0 ? 0 : index;
+  }
+
   Map<String, dynamic>? get _application =>
       _workflow?['application'] as Map<String, dynamic>?;
   bool get _needsSelfie =>
@@ -240,7 +252,22 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
               : text;
         }
       }
-      if (draft != null) _applyDraft(draft);
+      if (draft != null) {
+        _applyDraft(draft);
+      } else if (_status == 'CHANGES_REQUESTED') {
+        final rejected = _steps
+            .where(
+              (step) => step.fields.any(
+                (field) => _answers.any(
+                  (answer) =>
+                      answer['requirement_id'] == field['id'] &&
+                      answer['status'] == 'REJECTED',
+                ),
+              ),
+            )
+            .firstOrNull;
+        _stepKey = rejected?.key ?? 'contact';
+      }
       setState(() {
         _loading = false;
         _error = null;
@@ -379,6 +406,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       'phone': _phone.text,
       'accepted': _acceptPolicy,
       'show_form': _showForm,
+      'form_step': _stepKey,
       'values': Map<String, dynamic>.from(_values),
       'text': {for (final e in _controllers.entries) e.key: e.value.text},
       'files': {
@@ -454,6 +482,64 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     if (draft['phone'] is String) _phone.text = draft['phone'] as String;
     _acceptPolicy = draft['accepted'] == true;
     _showForm = draft['show_form'] == true && _acceptPolicy;
+    final savedStep = draft['form_step'];
+    _stepKey = _steps.any((step) => step.key == savedStep)
+        ? savedStep as String
+        : 'contact';
+  }
+
+  Map<String, dynamic> get _draftValues => {
+    for (final definition in _definitions)
+      '${definition['id']}':
+          ['FILE', 'IMAGE', 'PDF'].contains(definition['field_type'])
+          ? _files['${definition['id']}'] ?? []
+          : definition['field_type'] == 'BOOLEAN'
+          ? _values['${definition['id']}']
+          : _controllers['${definition['id']}']?.text.trim(),
+  };
+
+  List<Map<String, dynamic>> _editableFields(PartnerApplicationStep step) =>
+      step.fields
+          .where(
+            (field) => !_answers.any(
+              (answer) =>
+                  answer['requirement_id'] == field['id'] &&
+                  answer['status'] == 'APPROVED',
+            ),
+          )
+          .toList();
+
+  String? _stepError(PartnerApplicationStep step) => validatePartnerDraft(
+    _editableFields(step),
+    _draftValues,
+    // Contacts are checked only in their own step; final submission checks all.
+    email: _email.text,
+    phone: _phone.text,
+    validateContacts: step.key == 'contact',
+  );
+
+  void _goToStep(int index, {String? error}) {
+    if (_busy || index < 0 || index >= _steps.length) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (_scroll.hasClients) _scroll.jumpTo(0);
+    setState(() {
+      _stepKey = _steps[index].key;
+      _error = error;
+      _dirty = true;
+    });
+    _scheduleDraft();
+  }
+
+  void _nextStep() {
+    if (_busy || _stepIndex >= _steps.length - 1) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    final error = _stepError(_steps[_stepIndex]);
+    final valid = _form.currentState?.validate() ?? false;
+    if (error != null || !valid) {
+      _goToStep(_stepIndex, error: error ?? 'Check the highlighted fields.');
+      return;
+    }
+    _goToStep(_stepIndex + 1);
   }
 
   void _validateWorkflow(Map<String, dynamic> data) {
@@ -534,35 +620,14 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     if (_saving || _pickingFiles || _capturingSelfie) return;
     FocusManager.instance.primaryFocus?.unfocus();
     try {
-      final values = <String, dynamic>{
-        for (final definition in _definitions)
-          '${definition['id']}':
-              ['FILE', 'IMAGE', 'PDF'].contains(definition['field_type'])
-              ? _files['${definition['id']}'] ?? []
-              : definition['field_type'] == 'BOOLEAN'
-              ? _values['${definition['id']}']
-              : _controllers['${definition['id']}']?.text.trim(),
-      };
-      final error = validatePartnerDraft(
-        // Approved snapshot values must remain valid under their original rules.
-        _definitions
-            .where(
-              (d) => !_answers.any(
-                (a) =>
-                    a['requirement_id'] == d['id'] && a['status'] == 'APPROVED',
-              ),
-            )
-            .toList(),
-        values,
-        email: _email.text,
-        phone: _phone.text,
-      );
-      if (error != null) {
-        setState(() => _error = error);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error)));
-        return;
+      // Mounted fields cover only the current step. Validate every saved step
+      // before creating upload payloads and reveal the first invalid category.
+      for (var index = 0; index < _steps.length; index++) {
+        final error = _stepError(_steps[index]);
+        if (error != null) {
+          _goToStep(index, error: error);
+          return;
+        }
       }
       if (!(_form.currentState?.validate() ?? false)) return;
     } catch (error) {
@@ -972,7 +1037,26 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     _scheduleDraft();
   }
 
-  Widget _field(Map<String, dynamic> definition, bool editing) {
+  String _uploadHint(Map<String, dynamic> definition) {
+    final extensions = definition['allowed_extensions'] as List? ?? [];
+    final formats = extensions.isNotEmpty
+        ? extensions
+              .map((value) => '$value'.replaceFirst('.', '').toUpperCase())
+              .join(', ')
+        : definition['field_type'] == 'IMAGE'
+        ? 'JPG, PNG, WebP'
+        : definition['field_type'] == 'PDF'
+        ? 'PDF'
+        : 'Documents';
+    final limit = (definition['max_file_size_mb'] as num? ?? 3).clamp(1, 3);
+    return '$formats\nUp to $limit MB';
+  }
+
+  Widget _field(
+    Map<String, dynamic> definition,
+    bool editing, {
+    bool compact = false,
+  }) {
     final id = '${definition['id']}';
     final type = '${definition['field_type']}';
     final kind = '${definition['input_kind'] ?? 'DEFAULT'}';
@@ -987,37 +1071,49 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         !_capturingSelfie &&
         answer?['status'] != 'APPROVED';
     final label = '${definition['label']}${required ? ' *' : ''}';
+    final upload = ['FILE', 'IMAGE', 'PDF'].contains(type);
+    final inlineLabel =
+        compact &&
+        !upload &&
+        !['ADDRESS', 'STATE', 'CITY', 'PINCODE'].contains(kind);
     final children = <Widget>[
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+      if (!inlineLabel && !(compact && upload)) ...[
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
-          ),
-          if (answer != null) _statusBadge('${answer['status']}'),
-        ],
-      ),
-      if ('${definition['description'] ?? ''}'.isNotEmpty)
-        Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Text(
-            '${definition['description']}',
-            style: const TextStyle(
-              fontSize: 12,
-              color: AppColors.textSecondary,
-            ),
-          ),
+            if (answer != null) _statusBadge('${answer['status']}'),
+          ],
         ),
-      const SizedBox(height: 12),
+        if ('${definition['description'] ?? ''}'.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              '${definition['description']}',
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
+        const SizedBox(height: 12),
+      ],
     ];
     if (['FILE', 'IMAGE', 'PDF'].contains(type)) {
       final files = _files[id] ?? [];
       children.add(
         PartnerUploadTile(
           key: ValueKey('partner-upload-$id'),
+          compact: compact,
+          label: label,
           files: files
               .map(
                 (file) => PartnerUploadFile(
@@ -1047,10 +1143,32 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           onChoose: editing && answer?['status'] != 'APPROVED'
               ? () => _pick(definition)
               : null,
-          limitText:
-              'Files are uploaded when you submit. Maximum 3 MB per file (or the configured smaller limit).',
+          limitText: compact
+              ? _uploadHint(definition)
+              : 'Files are uploaded when you submit. Maximum 3 MB per file (or the configured smaller limit).',
         ),
       );
+      if (compact) {
+        if (answer != null) {
+          children.add(
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: _statusBadge('${answer['status']}'),
+            ),
+          );
+        }
+        if ('${definition['description'] ?? ''}'.isNotEmpty) {
+          children.add(
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                '${definition['description']}',
+                style: const TextStyle(fontSize: 12, color: GlassTokens.muted),
+              ),
+            ),
+          );
+        }
+      }
     } else if (['ADDRESS', 'STATE', 'CITY', 'PINCODE'].contains(kind)) {
       final linkedState = _linkedAddressValue(definition, 'STATE');
       final linkedCity = kind == 'PINCODE'
@@ -1077,71 +1195,79 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           .where((option) => option.toLowerCase() == existing.toLowerCase())
           .firstOrNull;
       if (!enabled) {
-        children.add(Text(existing.isEmpty ? 'Not provided' : existing));
-      } else {
         children.add(
           LiquidGlassSurface(
-            padding: EdgeInsets.zero,
-            radius: 20,
-            child: DropdownButtonFormField<String>(
-              key: ValueKey('$id-$selection-$enabled'),
-              initialValue: selection,
-              isExpanded: true,
-              decoration: InputDecoration(
-                border: GlassTokens.inputBorder,
-                hintText: 'Select ${definition['label']}',
-              ),
-              items: [
-                if (!required)
-                  const DropdownMenuItem(
-                    value: '',
-                    child: Text('Not provided'),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (compact)
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: GlassTokens.muted,
+                    ),
                   ),
-                ...options.map(
-                  (option) =>
-                      DropdownMenuItem(value: option, child: Text(option)),
-                ),
+                Text(existing.isEmpty ? 'Not provided' : existing),
               ],
-              onChanged: (value) => setState(() {
-                _controllers[id]!.text = value ?? '';
-                _dirty = true;
-                _scheduleDraft();
-              }),
-              validator: (value) =>
-                  (required || existing.isNotEmpty) &&
-                      (value == null || (required && value.isEmpty))
-                  ? 'Choose an option.'
-                  : null,
             ),
+          ),
+        );
+      } else {
+        children.add(
+          LiquidGlassDropdownFormField<String>(
+            key: ValueKey('$id-$selection-$enabled'),
+            initialValue: selection,
+            decoration: InputDecoration(
+              border: GlassTokens.inputBorder,
+              labelText: compact ? label : null,
+              hintText: 'Select ${definition['label']}',
+            ),
+            items: [
+              if (!required)
+                const DropdownMenuItem(value: '', child: Text('Not provided')),
+              ...options.map(
+                (option) =>
+                    DropdownMenuItem(value: option, child: Text(option)),
+              ),
+            ],
+            onChanged: (value) => setState(() {
+              _controllers[id]!.text = value ?? '';
+              _dirty = true;
+              _scheduleDraft();
+            }),
+            validator: (value) =>
+                (required || existing.isNotEmpty) &&
+                    (value == null || (required && value.isEmpty))
+                ? 'Choose an option.'
+                : null,
           ),
         );
       }
     } else if (type == 'BOOLEAN') {
       children.add(
-        LiquidGlassSurface(
-          padding: EdgeInsets.zero,
-          radius: 20,
-          child: DropdownButtonFormField<bool>(
-            key: ValueKey('$id-${_values[id]}-$enabled'),
-            initialValue: _values[id] as bool?,
-            decoration: const InputDecoration(
-              border: GlassTokens.inputBorder,
-              hintText: 'Choose yes or no',
-            ),
-            items: const [
-              DropdownMenuItem(value: true, child: Text('Yes')),
-              DropdownMenuItem(value: false, child: Text('No')),
-            ],
-            onChanged: enabled
-                ? (value) => setState(() {
-                    _values[id] = value;
-                    _dirty = true;
-                    _scheduleDraft();
-                  })
-                : null,
-            validator: (value) =>
-                required && value == null ? 'Choose yes or no.' : null,
+        LiquidGlassDropdownFormField<bool>(
+          key: ValueKey('$id-${_values[id]}-$enabled'),
+          initialValue: _values[id] as bool?,
+          decoration: InputDecoration(
+            border: GlassTokens.inputBorder,
+            labelText: compact ? label : null,
+            hintText: 'Choose yes or no',
           ),
+          items: const [
+            DropdownMenuItem(value: true, child: Text('Yes')),
+            DropdownMenuItem(value: false, child: Text('No')),
+          ],
+          onChanged: enabled
+              ? (value) => setState(() {
+                  _values[id] = value;
+                  _dirty = true;
+                  _scheduleDraft();
+                })
+              : null,
+          validator: (value) =>
+              required && value == null ? 'Choose yes or no.' : null,
         ),
       );
     } else {
@@ -1177,6 +1303,17 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
                 : TextInputType.text,
             decoration: InputDecoration(
               border: GlassTokens.inputBorder,
+              labelText: compact ? label : null,
+              prefixIcon: compact
+                  ? Icon(
+                      type == 'DATE' || kind == 'DOB'
+                          ? Icons.calendar_today_outlined
+                          : kind == 'UPI' || kind == 'IFSC'
+                          ? Icons.account_balance_outlined
+                          : Icons.person_outline,
+                      size: 20,
+                    )
+                  : null,
               hintText: '${definition['placeholder'] ?? ''}',
               suffixIcon: type == 'DATE' || kind == 'DOB'
                   ? const Icon(Icons.calendar_today_outlined)
@@ -1283,8 +1420,37 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         ),
       );
     }
+    if (inlineLabel && answer != null) {
+      children.add(
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: _statusBadge('${answer['status']}'),
+        ),
+      );
+    }
+    if (inlineLabel && '${definition['description'] ?? ''}'.isNotEmpty) {
+      children.add(
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+            '${definition['description']}',
+            style: const TextStyle(fontSize: 12, color: GlassTokens.muted),
+          ),
+        ),
+      );
+    }
+    if (compact) {
+      return Padding(
+        key: ValueKey('partner-field-$id'),
+        padding: const EdgeInsets.only(bottom: 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: children,
+        ),
+      );
+    }
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 20),
       child: AppCard(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1294,9 +1460,256 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     );
   }
 
+  List<Widget> _contactFields(bool editing) => [
+    LiquidGlassSurface(
+      padding: EdgeInsets.zero,
+      radius: 20,
+      child: TextFormField(
+        key: const ValueKey('partner-contact-email'),
+        controller: _email,
+        enabled: editing && !_saving && !_pickingFiles && !_capturingSelfie,
+        keyboardType: TextInputType.emailAddress,
+        decoration: const InputDecoration(
+          labelText: 'Email for final PDF *',
+          prefixIcon: Icon(Icons.email_outlined, size: 20),
+          border: GlassTokens.inputBorder,
+        ),
+        onChanged: (_) => _markDirty(),
+        validator: (value) =>
+            RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(value?.trim() ?? '')
+            ? null
+            : 'Enter a valid email address.',
+      ),
+    ),
+    const SizedBox(height: 20),
+    LiquidGlassSurface(
+      padding: EdgeInsets.zero,
+      radius: 20,
+      child: TextFormField(
+        key: const ValueKey('partner-contact-phone'),
+        controller: _phone,
+        enabled: editing && !_saving && !_pickingFiles && !_capturingSelfie,
+        keyboardType: TextInputType.phone,
+        decoration: const InputDecoration(
+          labelText: 'WhatsApp number with country code *',
+          prefixIcon: Icon(Icons.phone_outlined, size: 20),
+          hintText: '+919876543210',
+          border: GlassTokens.inputBorder,
+        ),
+        onChanged: (_) => _markDirty(),
+        validator: (value) =>
+            RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(value?.trim() ?? '')
+            ? null
+            : 'Include + and your country code.',
+      ),
+    ),
+    const SizedBox(height: 8),
+    const Text(
+      'Your administrator will review these contacts before sharing your final document.',
+      style: TextStyle(fontSize: 12, color: GlassTokens.muted),
+    ),
+  ];
+
+  List<Widget> _stepFormContents() {
+    final steps = _steps;
+    final index = _stepIndex;
+    final step = steps[index];
+    final last = index == steps.length - 1;
+    final documents = step.fields
+        .where(
+          (field) => ['FILE', 'IMAGE', 'PDF'].contains(field['field_type']),
+        )
+        .toList();
+    final documentsOnly =
+        documents.isNotEmpty && documents.length == step.fields.length;
+    return [
+      const SizedBox(height: 8),
+      Text(
+        'Step ${index + 1} of ${steps.length}',
+        style: const TextStyle(fontSize: 13, color: GlassTokens.muted),
+      ),
+      const SizedBox(height: 10),
+      ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: LinearProgressIndicator(
+          value: (index + 1) / steps.length,
+          minHeight: 4,
+          color: GlassTokens.accent,
+          backgroundColor: Colors.white.withValues(alpha: .55),
+          semanticsLabel:
+              'Application progress, step ${index + 1} of ${steps.length}',
+        ),
+      ),
+      const SizedBox(height: 20),
+      Semantics(
+        header: true,
+        child: Text(
+          step.title,
+          key: ValueKey('partner-step-${step.key}'),
+          style: const TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.w600,
+            color: GlassTokens.ink,
+          ),
+        ),
+      ),
+      const SizedBox(height: 6),
+      Text(
+        step.key == 'contact'
+            ? 'Where we can reach you and share your final document.'
+            : documentsOnly
+            ? 'Upload clear copies. Files stay on your device until Submit.'
+            : 'Add your information. Fields marked * are required.',
+        style: const TextStyle(
+          fontSize: 13,
+          height: 1.5,
+          color: GlassTokens.muted,
+        ),
+      ),
+      const SizedBox(height: 20),
+      if (_error != null) ...[
+        Semantics(
+          liveRegion: true,
+          child: Text(
+            _error!,
+            style: const TextStyle(fontSize: 13, color: AppColors.googleRed),
+          ),
+        ),
+        const SizedBox(height: 12),
+      ],
+      if (_application != null) ...[
+        LiquidGlassSurface(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _statusBadge(_status),
+              const SizedBox(height: 8),
+              Text(
+                _needsSelfie
+                    ? 'Add a live selfie to complete your application. Approved answers stay locked.'
+                    : 'Update the rejected answers and submit your corrections on the last step. Approved answers stay locked.',
+                style: const TextStyle(
+                  fontSize: 13,
+                  height: 1.5,
+                  color: GlassTokens.muted,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
+      if (step.key == 'contact') ..._contactFields(true),
+      for (final field in step.fields)
+        if (!documents.contains(field)) _field(field, true, compact: true),
+      if (documents.isNotEmpty) ...[
+        if (!documentsOnly) ...[
+          const AppSectionLabel('Upload documents'),
+          const SizedBox(height: 8),
+          const Text(
+            'Files stay on your device until you submit the application.',
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.5,
+              color: GlassTokens.muted,
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        for (final field in documents)
+          SizedBox(
+            width: double.infinity,
+            child: _field(field, true, compact: true),
+          ),
+      ],
+      const SizedBox(height: 20),
+      if (_uploadProgress != null) ...[
+        Semantics(
+          liveRegion: true,
+          child: Text(
+            _uploadProgress!,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+        ),
+        const SizedBox(height: 12),
+      ],
+      if (_needsSignIn)
+        OutlinedButton.icon(
+          onPressed: _busy
+              ? null
+              : () async {
+                  try {
+                    await _saveDraft(required: true);
+                  } catch (_) {
+                    return;
+                  }
+                  if (mounted) {
+                    Navigator.pushNamedAndRemoveUntil(
+                      context,
+                      AppRoutes.login,
+                      (_) => false,
+                    );
+                  }
+                },
+          icon: const Icon(Icons.refresh),
+          label: const Text('Sign in again'),
+        )
+      else
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            if (index > 0) ...[
+              LiquidGlassIconButton(
+                icon: Icons.arrow_back,
+                tooltip: 'Previous category',
+                onPressed: _busy ? null : () => _goToStep(index - 1),
+              ),
+              const SizedBox(width: 12),
+            ],
+            Expanded(
+              child: AppButton(
+                text: last
+                    ? (_application == null
+                          ? 'Submit application'
+                          : 'Submit corrections')
+                    : 'Continue',
+                icon: last ? null : const Icon(Icons.arrow_forward, size: 20),
+                onPressed: _busy
+                    ? null
+                    : last
+                    ? _submit
+                    : _nextStep,
+                isLoading: _saving,
+              ),
+            ),
+          ],
+        ),
+      if (!last) ...[
+        const SizedBox(height: 10),
+        Text(
+          'Next: ${steps[index + 1].title}',
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 12, color: GlassTokens.muted),
+        ),
+      ],
+      if (last && _workflow?['policy'] != null) ...[
+        const SizedBox(height: 16),
+        LiquidGlassSurface(
+          padding: const EdgeInsets.all(8),
+          child: ExpansionTile(
+            title: const Text('Read accepted policy'),
+            children: [PartnerDocument(document: _map(_workflow!['policy'])!)],
+          ),
+        ),
+      ],
+    ];
+  }
+
   List<Widget> _formContents() {
     final editing =
         _application == null || _status == 'CHANGES_REQUESTED' || _needsSelfie;
+    if (editing) return _stepFormContents();
     final widgets = <Widget>[
       if (_application != null)
         AppCard(
@@ -1322,59 +1735,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       const SizedBox(height: 16),
       const AppSectionLabel('Contact and delivery'),
       const SizedBox(height: 10),
-      AppCard(
-        child: Column(
-          children: [
-            LiquidGlassSurface(
-              padding: EdgeInsets.zero,
-              radius: 20,
-              child: TextFormField(
-                controller: _email,
-                enabled:
-                    editing && !_saving && !_pickingFiles && !_capturingSelfie,
-                keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(
-                  labelText: 'Email for final PDF *',
-                  border: GlassTokens.inputBorder,
-                ),
-                onChanged: (_) => _markDirty(),
-                validator: (value) =>
-                    RegExp(
-                      r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
-                    ).hasMatch(value?.trim() ?? '')
-                    ? null
-                    : 'Enter a valid email address.',
-              ),
-            ),
-            const SizedBox(height: 14),
-            LiquidGlassSurface(
-              padding: EdgeInsets.zero,
-              radius: 20,
-              child: TextFormField(
-                controller: _phone,
-                enabled:
-                    editing && !_saving && !_pickingFiles && !_capturingSelfie,
-                keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(
-                  labelText: 'WhatsApp number with country code *',
-                  hintText: '+919876543210',
-                  border: GlassTokens.inputBorder,
-                ),
-                onChanged: (_) => _markDirty(),
-                validator: (value) =>
-                    RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(value?.trim() ?? '')
-                    ? null
-                    : 'Include + and your country code.',
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Your administrator will review these contacts before sharing your final document.',
-              style: TextStyle(fontSize: 12, color: GlassTokens.muted),
-            ),
-          ],
-        ),
-      ),
+      AppCard(child: Column(children: _contactFields(editing))),
       const SizedBox(height: 20),
     ];
     String? category;
@@ -1392,75 +1753,13 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       }
       widgets.add(_field(definition, editing));
     }
-    if (editing) {
-      if (_error != null) {
-        widgets.add(
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Text(
-              _error!,
-              style: const TextStyle(color: AppColors.googleRed),
-            ),
-          ),
-        );
-      }
-      if (_uploadProgress != null) {
-        widgets.add(
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Text(
-              _uploadProgress!,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
-        );
-      }
-      if (_needsSignIn) {
-        widgets.add(
-          OutlinedButton.icon(
-            onPressed: _saving
-                ? null
-                : () async {
-                    try {
-                      await _saveDraft(required: true);
-                    } catch (_) {
-                      return;
-                    }
-                    if (mounted) {
-                      Navigator.pushNamedAndRemoveUntil(
-                        context,
-                        AppRoutes.login,
-                        (_) => false,
-                      );
-                    }
-                  },
-            icon: const Icon(Icons.refresh),
-            label: const Text('Sign in again'),
-          ),
-        );
-      } else {
-        widgets.add(
-          AppButton(
-            text: _application == null
-                ? 'Submit application'
-                : 'Submit corrections',
-            onPressed:
-                _saving || _capturingSelfie || _pickingFiles || _needsSignIn
-                ? null
-                : _submit,
-            isLoading: _saving,
-          ),
-        );
-      }
-    } else {
-      widgets.add(
-        OutlinedButton.icon(
-          onPressed: _saving ? null : () => _load(),
-          icon: const Icon(Icons.refresh),
-          label: const Text('Refresh review status'),
-        ),
-      );
-    }
+    widgets.add(
+      OutlinedButton.icon(
+        onPressed: _saving ? null : () => _load(),
+        icon: const Icon(Icons.refresh),
+        label: const Text('Refresh review status'),
+      ),
+    );
     if (_workflow?['policy'] != null) {
       widgets.add(
         LiquidGlassSurface(
@@ -1706,7 +2005,15 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         AppButton(
           text: 'Continue to application',
           onPressed: _acceptPolicy
-              ? () => setState(() => _showForm = true)
+              ? () {
+                  setState(() {
+                    _showForm = true;
+                    _stepKey = 'contact';
+                    _dirty = true;
+                  });
+                  if (_scroll.hasClients) _scroll.jumpTo(0);
+                  _scheduleDraft();
+                }
               : null,
         ),
       ];
@@ -1714,11 +2021,33 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     return _formContents();
   }
 
+  Widget _loadingContent() {
+    if (_workflow != null && _editingApplication) {
+      final step = _steps[_stepIndex];
+      final uploads = step.fields
+          .where(
+            (field) => ['FILE', 'IMAGE', 'PDF'].contains(field['field_type']),
+          )
+          .length;
+      return PartnerApplicationSkeleton(
+        fields: step.key == 'contact' ? 2 : step.fields.length - uploads,
+        uploads: uploads,
+      );
+    }
+    return LiquidGlassFormSkeleton(
+      document: !_showForm && _application == null,
+    );
+  }
+
   @override
   Widget build(BuildContext context) => PopScope(
-    canPop: !_dirty && !_saving && !_pickingFiles && !_capturingSelfie,
+    canPop: !_dirty && !_busy && !(_editingApplication && _stepIndex > 0),
     onPopInvokedWithResult: (didPop, result) async {
       if (didPop || _saving || _pickingFiles || _capturingSelfie) return;
+      if (_editingApplication && _stepIndex > 0) {
+        _goToStep(_stepIndex - 1);
+        return;
+      }
       if (await _discard() && context.mounted) Navigator.pop(context);
     },
     child: AppPage(
@@ -1735,9 +2064,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         icon: const Icon(Icons.refresh),
       ),
       child: _loading
-          ? LiquidGlassFormSkeleton(
-              document: !_showForm && _application == null,
-            )
+          ? _loadingContent()
           : _workflow == null
           ? AppLoadError(
               message: _error ?? 'Could not load Partner Program.',

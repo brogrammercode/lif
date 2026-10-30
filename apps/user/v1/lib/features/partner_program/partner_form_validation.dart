@@ -1,15 +1,18 @@
-/// Validates the entire draft, including fields disposed by the scrolling form.
-/// FormState.validate alone only sees mounted fields on long applications.
+/// Validates supplied draft values, including fields outside the mounted step.
+/// Final submission must include all categories; FormState sees mounted fields.
 String? validatePartnerDraft(
   List<Map<String, dynamic>> definitions,
   Map<String, dynamic> values, {
   required String email,
   required String phone,
+  bool validateContacts = true,
 }) {
-  if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email.trim())) {
+  if (validateContacts &&
+      !RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email.trim())) {
     return 'Enter a valid contact email address.';
   }
-  if (!RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone.trim())) {
+  if (validateContacts &&
+      !RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone.trim())) {
     return 'Include + and your country code in the WhatsApp number.';
   }
   for (final definition in definitions) {
