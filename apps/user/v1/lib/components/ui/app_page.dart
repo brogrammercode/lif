@@ -1,65 +1,75 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:user/core/color.dart';
+import 'package:user/components/ui/liquid_glass.dart';
 
 class AppPage extends StatelessWidget {
   final String title;
   final Widget child;
   final Widget? action;
   final bool scrollable;
+  final bool glass;
   const AppPage({
     super.key,
     required this.title,
     required this.child,
     this.action,
     this.scrollable = false,
+    this.glass = false,
   });
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: const Color(0xFFFAFAFA),
-    body: SafeArea(
-      child: Column(
-        children: [
-          Padding(
-            padding: EdgeInsets.fromLTRB(16.w, 8.h, 16.w, 12.h),
-            child: Row(
+  Widget build(BuildContext context) => glass
+      ? LiquidGlassPage(
+          title: title,
+          action: action,
+          edgeToEdge: scrollable,
+          child: child,
+        )
+      : Scaffold(
+          backgroundColor: const Color(0xFFFAFAFA),
+          body: SafeArea(
+            child: Column(
               children: [
-                IconButton(
-                  onPressed: () => Navigator.maybePop(context),
-                  icon: Icon(
-                    Icons.arrow_back_ios_new,
-                    size: 20.w,
-                    color: AppColors.textPrimary,
+                Padding(
+                  padding: EdgeInsets.fromLTRB(16.w, 8.h, 16.w, 12.h),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        onPressed: () => Navigator.maybePop(context),
+                        icon: Icon(
+                          Icons.arrow_back_ios_new,
+                          size: 20.w,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      SizedBox(width: 4.w),
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: TextStyle(
+                            fontSize: 20.sp,
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ),
+                      ?action,
+                    ],
                   ),
                 ),
-                SizedBox(width: 4.w),
                 Expanded(
-                  child: Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 20.sp,
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
+                  child: scrollable
+                      ? child
+                      : Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 16.w),
+                          child: child,
+                        ),
                 ),
-                ?action,
               ],
             ),
           ),
-          Expanded(
-            child: scrollable
-                ? child
-                : Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16.w),
-                    child: child,
-                  ),
-          ),
-        ],
-      ),
-    ),
-  );
+        );
 }
 
 class AppSectionLabel extends StatelessWidget {
@@ -67,12 +77,16 @@ class AppSectionLabel extends StatelessWidget {
   const AppSectionLabel(this.text, {super.key});
   @override
   Widget build(BuildContext context) => Text(
-    text.toUpperCase(),
+    LiquidGlassTheme.of(context) ? text : text.toUpperCase(),
     style: TextStyle(
       fontSize: 12.sp,
-      fontWeight: FontWeight.w800,
-      color: AppColors.textTertiary,
-      letterSpacing: 0.8,
+      fontWeight: LiquidGlassTheme.of(context)
+          ? FontWeight.w600
+          : FontWeight.w800,
+      color: LiquidGlassTheme.of(context)
+          ? GlassTokens.muted
+          : AppColors.textTertiary,
+      letterSpacing: LiquidGlassTheme.of(context) ? 0 : 0.8,
     ),
   );
 }
@@ -134,23 +148,31 @@ class AppCard extends StatelessWidget {
   final EdgeInsetsGeometry? padding;
   const AppCard({super.key, required this.child, this.padding});
   @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    padding: padding ?? EdgeInsets.all(16.w),
-    decoration: BoxDecoration(
-      color: AppColors.pureWhite,
-      borderRadius: BorderRadius.circular(16.r),
-      border: Border.all(color: AppColors.borderGrey),
-      boxShadow: const [
-        BoxShadow(
-          color: AppColors.shadowColor,
-          blurRadius: 4,
-          offset: Offset(0, 2),
-        ),
-      ],
-    ),
-    child: child,
-  );
+  Widget build(BuildContext context) => LiquidGlassTheme.of(context)
+      ? SizedBox(
+          width: double.infinity,
+          child: LiquidGlassSurface(
+            padding: padding ?? const EdgeInsets.all(18),
+            child: child,
+          ),
+        )
+      : Container(
+          width: double.infinity,
+          padding: padding ?? EdgeInsets.all(16.w),
+          decoration: BoxDecoration(
+            color: AppColors.pureWhite,
+            borderRadius: BorderRadius.circular(16.r),
+            border: Border.all(color: AppColors.borderGrey),
+            boxShadow: const [
+              BoxShadow(
+                color: AppColors.shadowColor,
+                blurRadius: 4,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: child,
+        );
 }
 
 class AppLoadError extends StatelessWidget {

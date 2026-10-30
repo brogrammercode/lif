@@ -1,3 +1,4 @@
+import 'package:user/components/ui/liquid_glass.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/core/color.dart';
@@ -72,6 +73,7 @@ class _DriverVehiclesPageState extends State<DriverVehiclesPage>
         context,
         MaterialPageRoute(
           builder: (context) => AppPage(
+            glass: true,
             title: vehicle == null ? 'Register vehicle' : 'Vehicle corrections',
             child: VehicleRegistrationForm(
               vehicle: vehicle,
@@ -120,6 +122,7 @@ class _DriverVehiclesPageState extends State<DriverVehiclesPage>
   Widget build(BuildContext context) => PopScope(
     canPop: !widget.registrationRequired && !_busy,
     child: AppPage(
+      glass: true,
       title: widget.registrationRequired
           ? 'Vehicle registration'
           : 'My vehicles',
@@ -170,9 +173,7 @@ class _DriverVehiclesPageState extends State<DriverVehiclesPage>
             );
           }
           if (!snapshot.hasData) {
-            return const Center(
-              child: CircularProgressIndicator(color: AppColors.primaryGreen),
-            );
+            return const LiquidGlassFormSkeleton();
           }
           final vehicles = vehicleMaps(snapshot.data!['vehicles']);
           _inlineForm = vehicles.isEmpty;

@@ -1,3 +1,4 @@
+import 'package:user/components/ui/liquid_glass.dart';
 import 'package:flutter/material.dart';
 import 'package:user/core/color.dart';
 import 'package:user/core/network/api_result.dart';
@@ -109,39 +110,43 @@ class _PartnerAddressInputState extends State<PartnerAddressInput> {
     bool linked = false,
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 12),
-    child: DropdownButtonFormField<String>(
-      key: ValueKey('$label-$value-${options.length}'),
-      initialValue: options.contains(value) ? value : null,
-      isExpanded: true,
-      decoration: InputDecoration(
-        labelText: label,
-        border: const OutlineInputBorder(),
+    child: LiquidGlassSurface(
+      padding: EdgeInsets.zero,
+      radius: 20,
+      child: DropdownButtonFormField<String>(
+        key: ValueKey('$label-$value-${options.length}'),
+        initialValue: options.contains(value) ? value : null,
+        isExpanded: true,
+        decoration: InputDecoration(
+          labelText: label,
+          border: GlassTokens.inputBorder,
+        ),
+        items: options
+            .map(
+              (item) => DropdownMenuItem(
+                value: item,
+                child: Text(item, overflow: TextOverflow.ellipsis),
+              ),
+            )
+            .toList(),
+        onChanged: widget.enabled && !_loading && options.isNotEmpty && !linked
+            ? changed
+            : null,
+        validator: (value) {
+          if (!widget.enabled) return null;
+          final hasValue =
+              widget.controller.text.isNotEmpty ||
+              (widget.kind == 'ADDRESS' &&
+                  (_state != null || _city != null || _pin != null));
+          if (_error != null && (widget.required || hasValue)) {
+            return 'Load the address options before submitting.';
+          }
+          if ((widget.required || hasValue) && value == null) {
+            return 'Select $label.';
+          }
+          return null;
+        },
       ),
-      items: options
-          .map(
-            (item) => DropdownMenuItem(
-              value: item,
-              child: Text(item, overflow: TextOverflow.ellipsis),
-            ),
-          )
-          .toList(),
-      onChanged: widget.enabled && !_loading && options.isNotEmpty && !linked
-          ? changed
-          : null,
-      validator: (value) {
-        if (!widget.enabled) return null;
-        final hasValue =
-            widget.controller.text.isNotEmpty ||
-            (widget.kind == 'ADDRESS' &&
-                (_state != null || _city != null || _pin != null));
-        if (_error != null && (widget.required || hasValue)) {
-          return 'Load the address options before submitting.';
-        }
-        if ((widget.required || hasValue) && value == null) {
-          return 'Select $label.';
-        }
-        return null;
-      },
     ),
   );
   @override

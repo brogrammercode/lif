@@ -1,3 +1,4 @@
+import 'package:user/components/ui/liquid_glass.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:user/components/ui/app_page.dart';
@@ -55,6 +56,7 @@ class _PartnerActivationPageState extends State<PartnerActivationPage> {
 
   @override
   Widget build(BuildContext context) => AppPage(
+    glass: true,
     title: 'Activate your driver account',
     child: ListView(
       children: [
@@ -68,7 +70,7 @@ class _PartnerActivationPageState extends State<PartnerActivationPage> {
         const Text(
           'You’re approved. One last step.',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 12),
         const Text(
@@ -77,28 +79,32 @@ class _PartnerActivationPageState extends State<PartnerActivationPage> {
           style: TextStyle(color: AppColors.textSecondary, height: 1.5),
         ),
         const SizedBox(height: 28),
-        TextField(
-          controller: _code,
-          enabled: !_busy,
-          autofillHints: const [AutofillHints.oneTimeCode],
-          keyboardType: TextInputType.number,
-          inputFormatters: [
-            FilteringTextInputFormatter.digitsOnly,
-            LengthLimitingTextInputFormatter(6),
-          ],
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 32,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 12,
+        LiquidGlassSurface(
+          padding: EdgeInsets.zero,
+          radius: 24,
+          child: TextField(
+            controller: _code,
+            enabled: !_busy,
+            autofillHints: const [AutofillHints.oneTimeCode],
+            keyboardType: TextInputType.number,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(6),
+            ],
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 6,
+            ),
+            decoration: const InputDecoration(
+              labelText: 'Activation code',
+              counterText: '',
+              border: GlassTokens.inputBorder,
+            ),
+            onChanged: (_) => setState(() {}),
+            onSubmitted: (_) => _activate(),
           ),
-          decoration: const InputDecoration(
-            labelText: 'Activation code',
-            counterText: '',
-            border: OutlineInputBorder(),
-          ),
-          onChanged: (_) => setState(() {}),
-          onSubmitted: (_) => _activate(),
         ),
         if (_error != null)
           Padding(
@@ -118,7 +124,7 @@ class _PartnerActivationPageState extends State<PartnerActivationPage> {
         const Text(
           'Five incorrect attempts lock activation. Contact your administrator if the code is missing or locked.',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 12, color: AppColors.textTertiary),
+          style: TextStyle(fontSize: 12, color: GlassTokens.muted),
         ),
         TextButton(
           onPressed: _busy

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { UserRepository } from './user.repo.js';
+import { CloudinaryService } from '../../infra/media/cloudinary.js';
 import { AppError } from '../../core/error.js';
 import {
   NOTIFICATION_NOT_FOUND_MESSAGE,
@@ -7,15 +8,28 @@ import {
   USER_NOT_FOUND_MESSAGE,
 } from './user.constant.js';
 import type {
+  AvatarInput,
   LocationUpdateInput,
   ProfileUpdateInput,
   SavedPlaceInput,
 } from './user.type.js';
 @Injectable()
 export class UserService {
-  constructor(private readonly userRepository: UserRepository) {}
+  constructor(
+    private readonly userRepository: UserRepository,
+    private readonly cloudinaryService: CloudinaryService,
+  ) {}
   readonly update_user_profile = (user_id: string, input: ProfileUpdateInput) =>
     this.userRepository.update_profile(user_id, input, user_id);
+
+  readonly update_user_avatar = (user_id: string, input: AvatarInput) => {
+    if ('avatar_url' in input) return this.update_user_profile(user_id, input);
+    return this.cloudinaryService.with_uploaded_image(
+      input.image_upload,
+      'users',
+      (url) => this.update_user_profile(user_id, { avatar_url: url }),
+    );
+  };
 
   readonly save_user_last_known_location = async (
     user_id: string,

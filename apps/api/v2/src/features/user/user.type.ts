@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { image_upload_schema } from '../../infra/media/image_upload.js';
 export const profile_update_schema = z.object({
   first_name: z.string().trim().min(1).max(80).optional(),
   last_name: z.string().trim().max(80).optional(),
@@ -9,7 +10,12 @@ export const profile_update_schema = z.object({
     .optional(),
   avatar_url: z.string().url().optional(),
 });
-export const avatar_schema = z.object({ avatar_url: z.string().url() });
+// Preserve existing URL clients while accepting the mobile preview/save flow.
+// Exactly one source prevents silently uploading an ignored image.
+export const avatar_schema = z.union([
+  z.object({ image_upload: image_upload_schema }).strict(),
+  z.object({ avatar_url: z.string().url() }).strict(),
+]);
 export const location_update_schema = z.object({
   latitude: z.number().gte(-90).lte(90),
   longitude: z.number().gte(-180).lte(180),

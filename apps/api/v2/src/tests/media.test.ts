@@ -6,6 +6,9 @@ import { convert_image_to_webp } from '../infra/media/image_transform.js';
 import { CloudinaryService } from '../infra/media/cloudinary.js';
 import { AppError } from '../core/error.js';
 import { config } from '../core/config.js';
+import { avatar_schema } from '../features/user/user.type.js';
+import { UserService } from '../features/user/user.service.js';
+import type { UserRepository } from '../features/user/user.repo.js';
 import {
   MAX_IMAGE_BYTES,
   type ImageUpload,
@@ -35,6 +38,102 @@ const buffer = (data: string) =>
 const code = (expected: string) => (error: unknown) =>
   error instanceof AppError && error.error_code === expected;
 afterEach(() => mock.restoreAll());
+
+it('accepts exactly one validated avatar source and preserves legacy URL clients', async () => {
+  const image = await input();
+  assert.deepEqual(avatar_schema.parse({ image_upload: image }), {
+    image_upload: image,
+  });
+  assert.deepEqual(
+    avatar_schema.parse({ avatar_url: 'https://example.test/avatar.webp' }),
+    {
+      avatar_url: 'https://example.test/avatar.webp',
+    },
+  );
+  for (const invalid of [
+    {},
+    { image_upload: image, avatar_url: 'https://example.test/a' },
+    {
+      image_upload: {
+        file_name: 'bad.txt',
+        data_url: 'data:text/plain;base64,YQ==',
+      },
+    },
+    { avatar_url: 'not a url' },
+  ]) {
+    assert.equal(avatar_schema.safeParse(invalid).success, false);
+  }
+});
+
+it('converts a mobile profile photo to WebP before upload and persists only its URL for its owner', async () => {
+  const persist = mock.fn(
+    async (id: string, update: unknown, actor: string) => {
+      assert.equal(id, 'owner');
+      assert.equal(actor, 'owner');
+      assert.deepEqual(update, { avatar_url: 'https://example.test/new.webp' });
+      return { id, ...(update as object) };
+    },
+  );
+  const repository = { update_profile: persist } as unknown as UserRepository;
+  mock.method(
+    service,
+    'cloudinary_request',
+    async (
+      action: 'upload' | 'destroy',
+      params: Record<string, string>,
+      file?: string,
+    ) => {
+      assert.equal(action, 'upload');
+      assert.equal((await sharp(buffer(file!)).metadata()).format, 'webp');
+      return {
+        public_id: params.public_id,
+        format: 'webp',
+        secure_url: 'https://example.test/new.webp',
+        width: 12,
+        height: 24,
+        bytes: buffer(file!).length,
+      };
+    },
+  );
+  const users = new UserService(repository, service);
+  await users.update_user_avatar('owner', {
+    image_upload: await input('jpeg'),
+  });
+  assert.equal(persist.mock.callCount(), 1);
+});
+
+it('cleans up a newly uploaded profile photo when persistence fails without masking the failure', async () => {
+  const failure = new Error('database unavailable');
+  const repository = {
+    update_profile: async () => {
+      throw failure;
+    },
+  } as unknown as UserRepository;
+  const actions: string[] = [];
+  mock.method(
+    service,
+    'cloudinary_request',
+    async (action: 'upload' | 'destroy', params: Record<string, string>) => {
+      actions.push(action);
+      return action === 'destroy'
+        ? { result: 'ok' }
+        : {
+            public_id: params.public_id,
+            format: 'webp',
+            secure_url: 'https://example.test/new.webp',
+            width: 12,
+            height: 24,
+            bytes: 100,
+          };
+    },
+  );
+  const users = new UserService(repository, service);
+  await assert.rejects(
+    users.update_user_avatar('owner', { image_upload: await input() }),
+    (error) => error === failure,
+  );
+  assert.deepEqual(actions, ['upload', 'destroy']);
+});
 
 it('preserves animation frames, timing and loop count when re-encoding WebP', async () => {
   const frames = Buffer.concat([

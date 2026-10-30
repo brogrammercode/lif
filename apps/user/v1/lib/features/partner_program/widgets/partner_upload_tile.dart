@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:user/core/color.dart';
+import 'package:user/components/ui/liquid_glass.dart';
 
 class PartnerUploadFile {
   final String name;
@@ -53,14 +54,10 @@ class PartnerUploadTile extends StatelessWidget {
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       ...files.map(
-        (file) => Container(
+        (file) => LiquidGlassSurface(
           margin: const EdgeInsets.only(bottom: 10),
           padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: AppColors.softGrey,
-            border: Border.all(color: AppColors.borderGrey),
-            borderRadius: BorderRadius.circular(12),
-          ),
+          radius: 20,
           child: Column(
             children: [
               if (image && (file.path != null || file.bytes != null))
@@ -120,23 +117,27 @@ class PartnerUploadTile extends StatelessWidget {
         ),
       ),
       if (onChoose != null)
-        OutlinedButton.icon(
-          onPressed: busy ? null : onChoose,
-          icon: Icon(
-            camera ? Icons.photo_camera_outlined : Icons.upload_file_outlined,
-          ),
-          label: Text(
-            busy
-                ? 'Please wait…'
-                : camera
-                ? (files.isEmpty ? 'Take live selfie' : 'Retake selfie')
-                : (files.isEmpty ? 'Choose files' : 'Add / replace files'),
+        LiquidGlassSurface(
+          padding: EdgeInsets.zero,
+          radius: 22,
+          child: OutlinedButton.icon(
+            onPressed: busy ? null : onChoose,
+            icon: Icon(
+              camera ? Icons.photo_camera_outlined : Icons.upload_file_outlined,
+            ),
+            label: Text(
+              busy
+                  ? 'Please wait…'
+                  : camera
+                  ? (files.isEmpty ? 'Take live selfie' : 'Retake selfie')
+                  : (files.isEmpty ? 'Choose files' : 'Add / replace files'),
+            ),
           ),
         ),
       const SizedBox(height: 8),
       Text(
         limitText,
-        style: const TextStyle(fontSize: 11, color: AppColors.textTertiary),
+        style: const TextStyle(fontSize: 11, color: GlassTokens.muted),
       ),
     ],
   );

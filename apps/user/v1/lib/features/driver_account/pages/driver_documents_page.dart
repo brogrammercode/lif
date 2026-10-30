@@ -1,3 +1,4 @@
+import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
@@ -206,6 +207,7 @@ class _DocumentsState extends State<DriverDocumentsPage> {
   Widget build(BuildContext context) => PopScope(
     canPop: !_busy,
     child: AppPage(
+      glass: true,
       title: 'Vehicle documents',
       action: IconButton(
         tooltip: 'Refresh documents',
@@ -222,7 +224,7 @@ class _DocumentsState extends State<DriverDocumentsPage> {
             );
           }
           if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
+            return const LiquidGlassFormSkeleton();
           }
           final vehicles = rideMaps(snapshot.data!['vehicles']);
           return RefreshIndicator(

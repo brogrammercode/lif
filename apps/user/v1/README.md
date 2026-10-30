@@ -13,9 +13,37 @@ Home avatar opens Settings, including profile and Partner Program. The program i
 5. Set `API_BASE_URL` in this app's `.env` to the machine running the API.
 6. Run `flutter pub get` and `flutter run` from `apps/user/v1`.
 
-Android builds need JDK 21 for the MapLibre native plugin. Flutter currently selects Android Studio's JDK automatically; check `flutter doctor -v` if the build reports a Java version error.
+### Android Java setup
+
+Use **JDK 21** for Android builds. MapLibre `0.27.1` compiles its Java and Kotlin sources for Java 21; JDK 17 cannot compile them (`invalid source release: 21`). The app itself can continue targeting Java/Kotlin 17 bytecode. Compiler selection and bytecode targets are different settings; lowering MapLibre's target is not a fix.
+
+Select an installed JDK 21 explicitly, then verify the Java binary in `flutter doctor -v`:
+
+```powershell
+$jdkPath = 'C:\path\to\jdk-21' # Directory containing bin\java.exe and bin\javac.exe.
+flutter config --jdk-dir="$jdkPath"
+# Direct gradlew commands use JAVA_HOME rather than Flutter's jdk-dir setting.
+$env:JAVA_HOME = $jdkPath
+flutter doctor -v
+```
+
+`flutter config --jdk-dir` persists for this user's Flutter tooling and takes priority over automatic Android Studio discovery and `JAVA_HOME`. Restart an existing Flutter debug session or IDE after changing it. The PowerShell `JAVA_HOME` assignment above applies to the current shell only. Keep local JDK paths out of tracked Gradle files.
+
+Keep the project's existing **Gradle 8.14, Android Gradle Plugin 8.11.1 and Kotlin Gradle Plugin 2.2.20** versions. This Java-selection fix does not change Android files, app versions or package versions. Flutter's messages that these toolchain versions will lose support in a future release are warnings, separate from the Java 21 compilation failure. Do not upgrade the Android toolchain or add validation-skip flags just to address this environment mismatch. Any future toolchain migration should be a separate task, coordinated with the team's Flutter setup.
+
+To check the failing native compilation without assembling an APK, from `apps/user/v1/android`, with the same JDK selected:
+
+```powershell
+.\gradlew.bat :maplibre_gl:compileDebugJavaWithJavac :maplibre_gl:compileDebugKotlin :app:checkDebugAarMetadata --console=plain --max-workers=2 "-Dorg.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=1g" "-Pkotlin.compiler.execution.strategy=in-process"
+```
+
+Use `flutter analyze` for routine Dart checks. If `flutter doctor` reports unaccepted Android licenses, review them using `flutter doctor --android-licenses`.
+
+The Java-only repair was verified on 30 October 2026 with JDK 21: both MapLibre compilation tasks and the Android dependency metadata check above passed using the unchanged Android versions. No APK was assembled for verification.
 
 The `html` dependency is pinned to `0.15.6`: `flutter_html 3.0.0` uses a selector function removed in `html 0.15.7`. Keep this compatibility pin when updating dependencies until the renderer supports the newer API. After pulling dependency changes, run `flutter pub get` before starting the app.
+
+The `Got dependencies!` / newer-packages message is informational, not a build failure. Use `flutter pub outdated` to review upgrades separately; preserve intentional pins and assess native/Flutter compatibility before updating a package. The Java 21 failure does not require replacing MapLibre or upgrading every dependency.
 
 The default API URL, `http://10.0.2.2:4001/api/v2`, works from the Android emulator. Use `http://localhost:4001/api/v2` for an iOS simulator, or the computer's LAN address for a physical device. Use HTTPS for deployed builds.
 
@@ -81,7 +109,7 @@ Shorebird's default updater checks for patches in the background on launch and u
 
 1. Run `flutter pub get` and `flutter analyze`.
 2. Set the local `.env` to the intended environment. For production, use `API_BASE_URL=https://apionemore.vercel.app/api/v2` and the matching public Google web client ID. This file is bundled into the app; it must contain only public client configuration.
-3. Check the version in `pubspec.yaml` (`0.1.3+3` currently). Each new base release needs a new version/build number, for example `0.1.4+4` after releasing `0.1.3+3`.
+3. Check the version in `pubspec.yaml` (`0.1.5+5` currently). Each new base release needs a new version/build number; this release increments `0.1.4+4` once to `0.1.5+5`.
 4. Build and publish the Shorebird base release:
 
 ```powershell
@@ -123,7 +151,7 @@ shorebird patch android --release-version 0.1.3+3 --build-name 0.1.3 --build-num
 
 This publishes to installed users of that release. Use the actual released version in all three version arguments. A Dart-only patch keeps the installed base version unchanged and receives its own Shorebird patch number; bumping `pubspec.yaml` does not upgrade installed APK metadata. Changes to native plugins, Gradle, permissions, assets (including `.env`), or Flutter itself need a new base release and APK. Follow [Shorebird patch guidance](https://docs.shorebird.dev/code-push/patch/).
 
-The project version is now `0.1.4+4`, incrementing the version and build once. That version is reserved for the next base APK release. The patch command above intentionally builds with `0.1.3+3` so it can update existing installations; a patch cannot change their Android version name/code.
+The project version is now `0.1.5+5`, incrementing the version and build once from `0.1.4+4` for the new base APK release. The patch command above intentionally builds with the older installed base `0.1.3+3`; a patch cannot change an installed APK's Android version name/code.
 
 When a patch depends on new API endpoints, publish it to `--track staging` first, deploy the matching API V2 changes, and verify those routes before promoting the patch with `shorebird patches set-track --release-version 0.1.3+3 --patch-number <number> --track stable`.
 
@@ -173,6 +201,16 @@ Requires the matching Phase C API V2 and the Phase B native base/location permis
 Driver home and Settings now link to Driver Account: Account, Payout details, My requests and Safety & help. Earnings & transactions separates completed fares, direct receipts, pending amounts and reviewed charges, with UTC date filters and pagination. Reviewed bank/UPI changes preserve the original approved destination until admin approval. Private vehicle documents can be opened and manually replaced for review; active trips block replacement. RC/insurance/PUC accept PDF or images, while vehicle front/back require images. Exited drivers retain account, statement, settlement and private-document reads.
 
 Deploy the matching API V2 and migration 0012 first. Phase D adds no new native package; retain the new base requirement from Phase B. See [Phase D tracker](../../../context/PHASE_D_IMPLEMENTATION.md) for tests and real-device acceptance.
+
+## Profile and Settings
+
+The home avatar opens a profile overview with the signed-in account's photo/name/email, Personal Information, Documents, Saved Vehicles, Payment Methods and Settings. The gear and Settings card expose Partner Program, the eligible rider/driver switch, driver account/history, saved places, notifications, emergency contacts, support and confirmed logout. There is no bottom navigation. Back navigation preserves session/trip recovery, and exited partners retain read access through their existing account/document screens.
+
+The initial loading skeleton mirrors the profile header and five menu cards, respects reduced motion and adapts to the available screen. Failed initial loads offer retry; failed refreshes keep the last loaded profile. Subtitles describe real actions rather than showing invented document/vehicle/payment counts.
+
+Settings, profile editing and Partner Program use the shared liquid-glass material: real clipped backdrop blur, pastel lighting, reflective rims, translucent panels, dark glossy actions and matching skeletons. This includes policy/application/document/selfie/review/confirmation/final-PDF/activation/exit screens and linked vehicle-registration/catalog/document forms. Read [MOBILE_DESIGN.md](../../../context/MOBILE_DESIGN.md) before all future mobile UI reworks; the [implementation tracker](../../../context/LIQUID_GLASS_MOBILE_REWORK.md) records scope and checks. Admin design remains separate.
+
+Profile photo selection uses the existing camera/gallery plugin, previews locally and uploads only after Save (up to 3 MB). Deploy the matching API V2 `POST /me/avatar` update first: it accepts `image_upload` and performs the shared WebP conversion before cloud storage, while retaining legacy URL callers. No new package, Android configuration or database migration is required. See [the redesign and checks](../../../context/SETTINGS_PROFILE_REDESIGN.md).
 
 ## Partner application submission
 

@@ -1,3 +1,4 @@
+import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -669,9 +670,7 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppColors.primaryGreen),
-      );
+      return const LiquidGlassFormSkeleton();
     }
     if (_loadFailed || _categories.isEmpty) {
       return AppLoadError(
@@ -714,34 +713,38 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
               _catalog(false),
               _catalog(true),
               const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                key: ValueKey('category:$_categoryId:${_model?['id']}'),
-                initialValue: selectedCategory,
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  labelText: 'Vehicle category',
-                ),
-                items: categories
-                    .map(
-                      (c) => DropdownMenuItem<String>(
-                        value: '${c['id']}',
-                        child: Text(
-                          c['parent_name'] == null
-                              ? '${c['name']}'
-                              : '${c['parent_name']} / ${c['name']}',
-                          overflow: TextOverflow.ellipsis,
+              LiquidGlassSurface(
+                padding: EdgeInsets.zero,
+                radius: 20,
+                child: DropdownButtonFormField<String>(
+                  key: ValueKey('category:$_categoryId:${_model?['id']}'),
+                  initialValue: selectedCategory,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Vehicle category',
+                  ),
+                  items: categories
+                      .map(
+                        (c) => DropdownMenuItem<String>(
+                          value: '${c['id']}',
+                          child: Text(
+                            c['parent_name'] == null
+                                ? '${c['name']}'
+                                : '${c['parent_name']} / ${c['name']}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                      ),
-                    )
-                    .toList(),
-                onChanged: _busy || _locked('vehicle_category_id')
-                    ? null
-                    : (v) => setState(() {
-                        _categoryId = v;
-                        _scheduleDraft();
-                      }),
-                validator: (v) =>
-                    v == null ? 'Select a compatible category' : null,
+                      )
+                      .toList(),
+                  onChanged: _busy || _locked('vehicle_category_id')
+                      ? null
+                      : (v) => setState(() {
+                          _categoryId = v;
+                          _scheduleDraft();
+                        }),
+                  validator: (v) =>
+                      v == null ? 'Select a compatible category' : null,
+                ),
               ),
               if (_model != null && categories.isEmpty)
                 const Text(
@@ -750,37 +753,47 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
                 ),
               _reviewNote('vehicle_category_id'),
               const SizedBox(height: 12),
-              TextFormField(
-                controller: _plate,
-                enabled: !_busy && !_locked('plate_number'),
-                textCapitalization: TextCapitalization.characters,
-                maxLength: 30,
-                decoration: const InputDecoration(
-                  labelText: 'Registration number',
-                  counterText: '',
+              LiquidGlassSurface(
+                padding: EdgeInsets.zero,
+                radius: 20,
+                child: TextFormField(
+                  controller: _plate,
+                  enabled: !_busy && !_locked('plate_number'),
+                  textCapitalization: TextCapitalization.characters,
+                  maxLength: 30,
+                  decoration: const InputDecoration(
+                    labelText: 'Registration number',
+                    counterText: '',
+                  ),
+                  onChanged: (_) => _scheduleDraft(),
+                  validator: (v) =>
+                      RegExp(r'^[A-Z0-9]{3,20}$').hasMatch(
+                        (v ?? '')
+                            .replaceAll(RegExp(r'[\s-]+'), '')
+                            .toUpperCase(),
+                      )
+                      ? null
+                      : 'Enter a valid registration number',
                 ),
-                onChanged: (_) => _scheduleDraft(),
-                validator: (v) =>
-                    RegExp(r'^[A-Z0-9]{3,20}$').hasMatch(
-                      (v ?? '').replaceAll(RegExp(r'[\s-]+'), '').toUpperCase(),
-                    )
-                    ? null
-                    : 'Enter a valid registration number',
               ),
               _reviewNote('plate_number'),
               const SizedBox(height: 12),
-              TextFormField(
-                controller: _color,
-                enabled: !_busy && !_locked('color'),
-                maxLength: 40,
-                decoration: const InputDecoration(
-                  labelText: 'Color',
-                  counterText: '',
+              LiquidGlassSurface(
+                padding: EdgeInsets.zero,
+                radius: 20,
+                child: TextFormField(
+                  controller: _color,
+                  enabled: !_busy && !_locked('color'),
+                  maxLength: 40,
+                  decoration: const InputDecoration(
+                    labelText: 'Color',
+                    counterText: '',
+                  ),
+                  onChanged: (_) => _scheduleDraft(),
+                  validator: (v) => (v?.trim().isEmpty ?? true)
+                      ? 'Enter the vehicle color'
+                      : null,
                 ),
-                onChanged: (_) => _scheduleDraft(),
-                validator: (v) => (v?.trim().isEmpty ?? true)
-                    ? 'Enter the vehicle color'
-                    : null,
               ),
               _reviewNote('color'),
             ]),

@@ -1,3 +1,4 @@
+import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -152,44 +153,49 @@ class _CatalogSuggestionFormState extends State<CatalogSuggestionForm> {
     bool number = false,
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 16),
-    child: TextFormField(
-      controller: _controllers[key],
-      enabled: !_busy,
-      keyboardType: number ? TextInputType.number : TextInputType.text,
-      maxLength: max,
-      decoration: InputDecoration(labelText: label, counterText: ''),
-      validator: (value) {
-        final text = value?.trim() ?? '';
-        if (required && text.isEmpty) return 'This field is required';
-        if (number && text.isNotEmpty) {
-          final n = int.tryParse(text);
-          if (n == null ||
-              (key == 'seating_capacity'
-                  ? n < 1 || n > 8
-                  : n < 1900 || n > 2050)) {
-            return key == 'seating_capacity'
-                ? 'Enter 1 to 8 passenger seats'
-                : 'Enter a year from 1900 to 2050';
+    child: LiquidGlassSurface(
+      padding: EdgeInsets.zero,
+      radius: 20,
+      child: TextFormField(
+        controller: _controllers[key],
+        enabled: !_busy,
+        keyboardType: number ? TextInputType.number : TextInputType.text,
+        maxLength: max,
+        decoration: InputDecoration(labelText: label, counterText: ''),
+        validator: (value) {
+          final text = value?.trim() ?? '';
+          if (required && text.isEmpty) return 'This field is required';
+          if (number && text.isNotEmpty) {
+            final n = int.tryParse(text);
+            if (n == null ||
+                (key == 'seating_capacity'
+                    ? n < 1 || n > 8
+                    : n < 1900 || n > 2050)) {
+              return key == 'seating_capacity'
+                  ? 'Enter 1 to 8 passenger seats'
+                  : 'Enter a year from 1900 to 2050';
+            }
+            if (key == 'year_to' &&
+                n < (int.tryParse(_controllers['year_from']!.text) ?? 1900)) {
+              return 'Must be after the first model year';
+            }
           }
-          if (key == 'year_to' &&
-              n < (int.tryParse(_controllers['year_from']!.text) ?? 1900)) {
-            return 'Must be after the first model year';
+          if (key == 'website_url' && text.isNotEmpty) {
+            final uri = Uri.tryParse(text);
+            if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) {
+              return 'Enter an https:// website';
+            }
           }
-        }
-        if (key == 'website_url' && text.isNotEmpty) {
-          final uri = Uri.tryParse(text);
-          if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) {
-            return 'Enter an https:// website';
-          }
-        }
-        return null;
-      },
+          return null;
+        },
+      ),
     ),
   );
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: !_busy,
     child: AppPage(
+      glass: true,
       title: 'Suggest ${_model ? 'model' : 'brand'}',
       child: Form(
         key: _form,
@@ -210,23 +216,33 @@ class _CatalogSuggestionFormState extends State<CatalogSuggestionForm> {
               _input('website_url', 'Website (optional)', max: 2000),
             ],
             if (_model) ...[
-              DropdownButtonFormField<String>(
-                initialValue: _type,
-                decoration: const InputDecoration(labelText: 'Vehicle type'),
-                items: ['BIKE', 'SCOOTER', 'AUTO', 'SEDAN', 'SUV']
-                    .map((v) => DropdownMenuItem(value: v, child: Text(v)))
-                    .toList(),
-                onChanged: _busy ? null : (v) => setState(() => _type = v!),
+              LiquidGlassSurface(
+                padding: EdgeInsets.zero,
+                radius: 20,
+                child: DropdownButtonFormField<String>(
+                  initialValue: _type,
+                  decoration: const InputDecoration(labelText: 'Vehicle type'),
+                  items: ['BIKE', 'SCOOTER', 'AUTO', 'SEDAN', 'SUV']
+                      .map((v) => DropdownMenuItem(value: v, child: Text(v)))
+                      .toList(),
+                  onChanged: _busy ? null : (v) => setState(() => _type = v!),
+                ),
               ),
               const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                initialValue: _fuel,
-                decoration: const InputDecoration(labelText: 'Fuel type'),
-                items:
-                    ['PETROL', 'DIESEL', 'CNG', 'ELECTRIC', 'HYBRID', 'OTHER']
-                        .map((v) => DropdownMenuItem(value: v, child: Text(v)))
-                        .toList(),
-                onChanged: _busy ? null : (v) => setState(() => _fuel = v!),
+              LiquidGlassSurface(
+                padding: EdgeInsets.zero,
+                radius: 20,
+                child: DropdownButtonFormField<String>(
+                  initialValue: _fuel,
+                  decoration: const InputDecoration(labelText: 'Fuel type'),
+                  items:
+                      ['PETROL', 'DIESEL', 'CNG', 'ELECTRIC', 'HYBRID', 'OTHER']
+                          .map(
+                            (v) => DropdownMenuItem(value: v, child: Text(v)),
+                          )
+                          .toList(),
+                  onChanged: _busy ? null : (v) => setState(() => _fuel = v!),
+                ),
               ),
               const SizedBox(height: 16),
               _input(

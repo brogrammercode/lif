@@ -1,3 +1,4 @@
+import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
@@ -7,14 +8,15 @@ import 'package:user/core/network/api_result.dart';
 import 'package:user/features/partner_program/partner_program.repo.dart';
 
 class DriverExitPage extends StatefulWidget {
-  const DriverExitPage({super.key});
+  final PartnerProgramRepository? repository;
+  const DriverExitPage({super.key, this.repository});
   @override
   State<DriverExitPage> createState() => _DriverExitPageState();
 }
 
 class _DriverExitPageState extends State<DriverExitPage>
     with WidgetsBindingObserver {
-  final _repo = PartnerProgramRepository();
+  late final _repo = widget.repository ?? PartnerProgramRepository();
   final _form = GlobalKey<FormState>();
   final _reason = TextEditingController();
   Map<String, dynamic>? _request;
@@ -90,7 +92,7 @@ class _DriverExitPageState extends State<DriverExitPage>
     try {
       confirmed = await showDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => LiquidGlassDialog(
           title: const Text('Request partner exit?'),
           content: const Text(
             'Your administrator will review your request, record any dues and issue a settlement PDF. Driver operations will be disabled when the exit is completed.',
@@ -151,6 +153,7 @@ class _DriverExitPageState extends State<DriverExitPage>
 
   @override
   Widget build(BuildContext context) => AppPage(
+    glass: true,
     title: 'Exit Request & Dues',
     action: IconButton(
       tooltip: 'Refresh request',
@@ -158,9 +161,7 @@ class _DriverExitPageState extends State<DriverExitPage>
       icon: const Icon(Icons.refresh),
     ),
     child: _loading
-        ? const Center(
-            child: CircularProgressIndicator(color: AppColors.primaryGreen),
-          )
+        ? const LiquidGlassFormSkeleton()
         : _error != null && _request == null
         ? AppLoadError(message: _error!, onRetry: _load)
         : Form(
@@ -192,7 +193,7 @@ class _DriverExitPageState extends State<DriverExitPage>
                             : 'Partner exit & settlement',
                         style: const TextStyle(
                           fontSize: 20,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -219,7 +220,7 @@ class _DriverExitPageState extends State<DriverExitPage>
                             '${_request!['currency']} ${_request!['dues_amount']}',
                             style: const TextStyle(
                               fontSize: 24,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                           Text(switch (_request!['dues_direction']) {
@@ -259,7 +260,7 @@ class _DriverExitPageState extends State<DriverExitPage>
                           children: [
                             const Text(
                               'Please correct your request',
-                              style: TextStyle(fontWeight: FontWeight.w800),
+                              style: TextStyle(fontWeight: FontWeight.w600),
                             ),
                             const SizedBox(height: 8),
                             Text('${_request!['rejection_reason']}'),
@@ -277,7 +278,7 @@ class _DriverExitPageState extends State<DriverExitPage>
                         labelText: 'Reason for exit',
                         hintText:
                             'Tell us why you would like to leave the Partner Program.',
-                        border: OutlineInputBorder(),
+                        border: GlassTokens.inputBorder,
                       ),
                       validator: (value) => (value?.trim().length ?? 0) < 10
                           ? 'Give a reason of at least 10 characters.'

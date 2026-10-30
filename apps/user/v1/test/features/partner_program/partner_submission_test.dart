@@ -355,6 +355,9 @@ Future<void> press(WidgetTester tester, Finder finder) async {
     scrollable: find.byType(Scrollable).first,
   );
   await tester.ensureVisible(finder);
+  // ensureVisible can jump to a descendant in a newly resized upload card.
+  // Commit that layout before calculating the target's hit-test coordinates.
+  await tester.pumpAndSettle();
   await tester.tap(finder);
   await tester.pumpAndSettle();
 }

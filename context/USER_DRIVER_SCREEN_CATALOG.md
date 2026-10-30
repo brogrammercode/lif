@@ -275,16 +275,16 @@ flowchart TD
 
 | Section | Contents and destination |
 | --- | --- |
-| Profile card | Current avatar/fallback icon, display name, email and account ID; opens Profile |
-| Partner with 1More | Partner Program |
-| Your journeys | My rides, Saved places, Notifications, Payment methods, Emergency contacts |
-| Help and account | Help and support, red Log out tile |
+| Profile header | Centered current avatar/fallback, name and email; camera action previews a replacement locally and uploads only after Save |
+| Primary cards | Personal Information, Documents, Saved Vehicles, Payment Methods, Settings |
+| Settings sheet / top gear | Partner Program; rider/driver switch and driver account where eligible; mode-specific history; saved places; notifications; emergency contacts; support; confirmed Log out; supporting account ID |
+| Navigation | Back and the Settings gear/action sheet; no bottom navigation. Existing session/trip and onboarding gates remain authoritative. |
 
-**Behavior:** returning from Profile reloads its summary. Logout opens a confirmation dialog, clears the session through the auth repository, and returns to Login.
+**Behavior:** a matching avatar/header/five-row skeleton appears until the profile and account-scoped mode resolve. Returning from account subpages refreshes the summary; failed refreshes retain loaded data. Logout opens a confirmation dialog, clears the session through the auth repository, and returns to Login. Document and vehicle shortcuts distinguish riders, activated drivers and exited partners. See [the profile redesign](SETTINGS_PROFILE_REDESIGN.md) for the reference, retained actions, photo API and verification.
 
-**Current limitations:** no language/theme controls, permissions dashboard, account-deletion request, legal/about pages, role-specific driver menu, for the complete operational driver journey. Phase A adds rider/driver switching and selects the appropriate rider or driver history in Settings. Driver payout banking is not this page's Payment methods section.
+**Current limitations:** no language/theme controls, permissions dashboard, account-deletion request or dedicated legal/about pages. Rider/driver switching and role-appropriate history are available in the Settings sheet. Driver payout banking remains separate from Payment Methods.
 
-**Next:** keep the profile card and common account tiles, add clearly separate rider versus driver work sections, and retain a Help entry when vehicle verification blocks driving.
+**Next:** dedicated legal, privacy and permission-management screens remain future work. Keep Help and the existing account actions reachable when vehicle verification blocks driving.
 
 **Source:** [settings](../apps/user/v1/lib/features/settings/pages/settings_page.dart).
 

@@ -1,3 +1,4 @@
+import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:dio/dio.dart';
@@ -871,7 +872,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     final discard =
         await showDialog<bool>(
           context: context,
-          builder: (dialogContext) => AlertDialog(
+          builder: (dialogContext) => LiquidGlassDialog(
             title: const Text('Discard unsaved changes?'),
             content: const Text(
               'Your selected files and unsaved form changes will be discarded.',
@@ -910,18 +911,14 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
   Widget _statusBadge(String status) {
     final rejected = status == 'REJECTED' || status.contains('CHANGES');
     final approved = ['APPROVED', 'COMPLETED', 'ACTIVATED'].contains(status);
-    return Container(
+    return LiquidGlassSurface(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color:
-            (rejected
-                    ? AppColors.googleRed
-                    : approved
-                    ? AppColors.primaryGreen
-                    : AppColors.gold)
-                .withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(10),
-      ),
+      radius: 12,
+      tint: rejected
+          ? AppColors.googleRed
+          : approved
+          ? AppColors.primaryGreen
+          : AppColors.gold,
       child: Text(
         status.toLowerCase().replaceAll('_', ' '),
         style: TextStyle(
@@ -997,7 +994,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
             ),
           ),
           if (answer != null) _statusBadge('${answer['status']}'),
@@ -1083,175 +1080,191 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         children.add(Text(existing.isEmpty ? 'Not provided' : existing));
       } else {
         children.add(
-          DropdownButtonFormField<String>(
-            key: ValueKey('$id-$selection-$enabled'),
-            initialValue: selection,
-            isExpanded: true,
-            decoration: InputDecoration(
-              border: const OutlineInputBorder(),
-              hintText: 'Select ${definition['label']}',
-            ),
-            items: [
-              if (!required)
-                const DropdownMenuItem(value: '', child: Text('Not provided')),
-              ...options.map(
-                (option) =>
-                    DropdownMenuItem(value: option, child: Text(option)),
+          LiquidGlassSurface(
+            padding: EdgeInsets.zero,
+            radius: 20,
+            child: DropdownButtonFormField<String>(
+              key: ValueKey('$id-$selection-$enabled'),
+              initialValue: selection,
+              isExpanded: true,
+              decoration: InputDecoration(
+                border: GlassTokens.inputBorder,
+                hintText: 'Select ${definition['label']}',
               ),
-            ],
-            onChanged: (value) => setState(() {
-              _controllers[id]!.text = value ?? '';
-              _dirty = true;
-              _scheduleDraft();
-            }),
-            validator: (value) =>
-                (required || existing.isNotEmpty) &&
-                    (value == null || (required && value.isEmpty))
-                ? 'Choose an option.'
-                : null,
+              items: [
+                if (!required)
+                  const DropdownMenuItem(
+                    value: '',
+                    child: Text('Not provided'),
+                  ),
+                ...options.map(
+                  (option) =>
+                      DropdownMenuItem(value: option, child: Text(option)),
+                ),
+              ],
+              onChanged: (value) => setState(() {
+                _controllers[id]!.text = value ?? '';
+                _dirty = true;
+                _scheduleDraft();
+              }),
+              validator: (value) =>
+                  (required || existing.isNotEmpty) &&
+                      (value == null || (required && value.isEmpty))
+                  ? 'Choose an option.'
+                  : null,
+            ),
           ),
         );
       }
     } else if (type == 'BOOLEAN') {
       children.add(
-        DropdownButtonFormField<bool>(
-          key: ValueKey('$id-${_values[id]}-$enabled'),
-          initialValue: _values[id] as bool?,
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
-            hintText: 'Choose yes or no',
+        LiquidGlassSurface(
+          padding: EdgeInsets.zero,
+          radius: 20,
+          child: DropdownButtonFormField<bool>(
+            key: ValueKey('$id-${_values[id]}-$enabled'),
+            initialValue: _values[id] as bool?,
+            decoration: const InputDecoration(
+              border: GlassTokens.inputBorder,
+              hintText: 'Choose yes or no',
+            ),
+            items: const [
+              DropdownMenuItem(value: true, child: Text('Yes')),
+              DropdownMenuItem(value: false, child: Text('No')),
+            ],
+            onChanged: enabled
+                ? (value) => setState(() {
+                    _values[id] = value;
+                    _dirty = true;
+                    _scheduleDraft();
+                  })
+                : null,
+            validator: (value) =>
+                required && value == null ? 'Choose yes or no.' : null,
           ),
-          items: const [
-            DropdownMenuItem(value: true, child: Text('Yes')),
-            DropdownMenuItem(value: false, child: Text('No')),
-          ],
-          onChanged: enabled
-              ? (value) => setState(() {
-                  _values[id] = value;
-                  _dirty = true;
-                  _scheduleDraft();
-                })
-              : null,
-          validator: (value) =>
-              required && value == null ? 'Choose yes or no.' : null,
         ),
       );
     } else {
       children.add(
-        TextFormField(
-          controller: _controllers[id],
-          enabled: enabled,
-          readOnly: type == 'DATE' || kind == 'DOB',
-          textCapitalization: kind == 'IFSC'
-              ? TextCapitalization.characters
-              : TextCapitalization.none,
-          inputFormatters: kind == 'IFSC'
-              ? [
-                  FilteringTextInputFormatter.allow(RegExp('[a-zA-Z0-9]')),
-                  LengthLimitingTextInputFormatter(11),
-                  TextInputFormatter.withFunction(
-                    (oldValue, newValue) => newValue.copyWith(
-                      text: newValue.text.toUpperCase(),
-                      composing: TextRange.empty,
+        LiquidGlassSurface(
+          padding: EdgeInsets.zero,
+          radius: 20,
+          child: TextFormField(
+            controller: _controllers[id],
+            enabled: enabled,
+            readOnly: type == 'DATE' || kind == 'DOB',
+            textCapitalization: kind == 'IFSC'
+                ? TextCapitalization.characters
+                : TextCapitalization.none,
+            inputFormatters: kind == 'IFSC'
+                ? [
+                    FilteringTextInputFormatter.allow(RegExp('[a-zA-Z0-9]')),
+                    LengthLimitingTextInputFormatter(11),
+                    TextInputFormatter.withFunction(
+                      (oldValue, newValue) => newValue.copyWith(
+                        text: newValue.text.toUpperCase(),
+                        composing: TextRange.empty,
+                      ),
                     ),
-                  ),
-                ]
-              : null,
-          maxLines: type == 'TEXT' ? 4 : 1,
-          keyboardType: type == 'NUMBER'
-              ? const TextInputType.numberWithOptions(
-                  decimal: true,
-                  signed: true,
-                )
-              : TextInputType.text,
-          decoration: InputDecoration(
-            border: const OutlineInputBorder(),
-            hintText: '${definition['placeholder'] ?? ''}',
-            suffixIcon: type == 'DATE' || kind == 'DOB'
-                ? const Icon(Icons.calendar_today_outlined)
+                  ]
                 : null,
-          ),
-          onChanged: (_) => _markDirty(),
-          onTap: (type == 'DATE' || kind == 'DOB') && enabled
-              ? () async {
-                  final parsed = DateTime.tryParse(
-                    _controllers[id]?.text ?? '',
-                  );
-                  final now = DateTime.now();
-                  final first = DateTime(1900);
-                  final last = kind == 'DOB'
-                      ? DateTime(now.year, now.month, now.day)
-                      : DateTime(2100);
-                  final initial = parsed == null || parsed.isAfter(last)
-                      ? last
-                      : parsed.isBefore(first)
-                      ? first
-                      : parsed;
-                  final date = await showDatePicker(
-                    context: context,
-                    initialDate: initial,
-                    firstDate: first,
-                    lastDate: last,
-                  );
-                  if (date != null && mounted) {
-                    setState(() {
-                      _controllers[id]!.text = date.toIso8601String().substring(
-                        0,
-                        10,
-                      );
-                      _dirty = true;
-                      _scheduleDraft();
-                    });
+            maxLines: type == 'TEXT' ? 4 : 1,
+            keyboardType: type == 'NUMBER'
+                ? const TextInputType.numberWithOptions(
+                    decimal: true,
+                    signed: true,
+                  )
+                : TextInputType.text,
+            decoration: InputDecoration(
+              border: GlassTokens.inputBorder,
+              hintText: '${definition['placeholder'] ?? ''}',
+              suffixIcon: type == 'DATE' || kind == 'DOB'
+                  ? const Icon(Icons.calendar_today_outlined)
+                  : null,
+            ),
+            onChanged: (_) => _markDirty(),
+            onTap: (type == 'DATE' || kind == 'DOB') && enabled
+                ? () async {
+                    final parsed = DateTime.tryParse(
+                      _controllers[id]?.text ?? '',
+                    );
+                    final now = DateTime.now();
+                    final first = DateTime(1900);
+                    final last = kind == 'DOB'
+                        ? DateTime(now.year, now.month, now.day)
+                        : DateTime(2100);
+                    final initial = parsed == null || parsed.isAfter(last)
+                        ? last
+                        : parsed.isBefore(first)
+                        ? first
+                        : parsed;
+                    final date = await showDatePicker(
+                      builder: (context, child) =>
+                          LiquidGlassScope(child: child!),
+                      context: context,
+                      initialDate: initial,
+                      firstDate: first,
+                      lastDate: last,
+                    );
+                    if (date != null && mounted) {
+                      setState(() {
+                        _controllers[id]!.text = date
+                            .toIso8601String()
+                            .substring(0, 10);
+                        _dirty = true;
+                        _scheduleDraft();
+                      });
+                    }
                   }
+                : null,
+            validator: (value) {
+              final text = value?.trim() ?? '';
+              if (required && text.isEmpty) return 'This field is required.';
+              if (text.isEmpty) return null;
+              if (enabled && kind == 'DOB') {
+                final date = DateTime.tryParse(text);
+                final now = DateTime.now();
+                if (date == null ||
+                    date.year < 1900 ||
+                    date.isAfter(DateTime(now.year, now.month, now.day)) ||
+                    date.toIso8601String().substring(0, 10) != text) {
+                  return 'Choose a date of birth on or before today.';
                 }
-              : null,
-          validator: (value) {
-            final text = value?.trim() ?? '';
-            if (required && text.isEmpty) return 'This field is required.';
-            if (text.isEmpty) return null;
-            if (enabled && kind == 'DOB') {
-              final date = DateTime.tryParse(text);
-              final now = DateTime.now();
-              if (date == null ||
-                  date.year < 1900 ||
-                  date.isAfter(DateTime(now.year, now.month, now.day)) ||
-                  date.toIso8601String().substring(0, 10) != text) {
-                return 'Choose a date of birth on or before today.';
               }
-            }
-            if (enabled &&
-                kind == 'IFSC' &&
-                !RegExp(r'^[A-Z]{4}0[A-Z0-9]{6}$').hasMatch(text)) {
-              return 'Enter a valid 11-character IFSC code.';
-            }
-            if (enabled &&
-                kind == 'UPI' &&
-                !RegExp(
-                  r'^[a-zA-Z0-9][a-zA-Z0-9._-]{0,255}@[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,62}[a-zA-Z0-9])$',
-                ).hasMatch(text)) {
-              return 'Enter a valid UPI ID, for example name@bank.';
-            }
-            final maxLength =
-                (definition['max_length'] as num?)?.toInt() ?? 10000;
-            if (text.length > maxLength) {
-              return 'Maximum $maxLength characters.';
-            }
-            if (type == 'NUMBER') {
-              final number = num.tryParse(text);
-              if (number == null || !number.isFinite) {
-                return 'Enter a valid number.';
+              if (enabled &&
+                  kind == 'IFSC' &&
+                  !RegExp(r'^[A-Z]{4}0[A-Z0-9]{6}$').hasMatch(text)) {
+                return 'Enter a valid 11-character IFSC code.';
               }
-              if (definition['min_value'] != null &&
-                  number < (definition['min_value'] as num)) {
-                return 'Minimum ${definition['min_value']}.';
+              if (enabled &&
+                  kind == 'UPI' &&
+                  !RegExp(
+                    r'^[a-zA-Z0-9][a-zA-Z0-9._-]{0,255}@[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,62}[a-zA-Z0-9])$',
+                  ).hasMatch(text)) {
+                return 'Enter a valid UPI ID, for example name@bank.';
               }
-              if (definition['max_value'] != null &&
-                  number > (definition['max_value'] as num)) {
-                return 'Maximum ${definition['max_value']}.';
+              final maxLength =
+                  (definition['max_length'] as num?)?.toInt() ?? 10000;
+              if (text.length > maxLength) {
+                return 'Maximum $maxLength characters.';
               }
-            }
-            return null;
-          },
+              if (type == 'NUMBER') {
+                final number = num.tryParse(text);
+                if (number == null || !number.isFinite) {
+                  return 'Enter a valid number.';
+                }
+                if (definition['min_value'] != null &&
+                    number < (definition['min_value'] as num)) {
+                  return 'Minimum ${definition['min_value']}.';
+                }
+                if (definition['max_value'] != null &&
+                    number > (definition['max_value'] as num)) {
+                  return 'Maximum ${definition['max_value']}.';
+                }
+              }
+              return null;
+            },
+          ),
         ),
       );
     }
@@ -1312,44 +1325,52 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       AppCard(
         child: Column(
           children: [
-            TextFormField(
-              controller: _email,
-              enabled:
-                  editing && !_saving && !_pickingFiles && !_capturingSelfie,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(
-                labelText: 'Email for final PDF *',
-                border: OutlineInputBorder(),
+            LiquidGlassSurface(
+              padding: EdgeInsets.zero,
+              radius: 20,
+              child: TextFormField(
+                controller: _email,
+                enabled:
+                    editing && !_saving && !_pickingFiles && !_capturingSelfie,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Email for final PDF *',
+                  border: GlassTokens.inputBorder,
+                ),
+                onChanged: (_) => _markDirty(),
+                validator: (value) =>
+                    RegExp(
+                      r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+                    ).hasMatch(value?.trim() ?? '')
+                    ? null
+                    : 'Enter a valid email address.',
               ),
-              onChanged: (_) => _markDirty(),
-              validator: (value) =>
-                  RegExp(
-                    r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
-                  ).hasMatch(value?.trim() ?? '')
-                  ? null
-                  : 'Enter a valid email address.',
             ),
             const SizedBox(height: 14),
-            TextFormField(
-              controller: _phone,
-              enabled:
-                  editing && !_saving && !_pickingFiles && !_capturingSelfie,
-              keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                labelText: 'WhatsApp number with country code *',
-                hintText: '+919876543210',
-                border: OutlineInputBorder(),
+            LiquidGlassSurface(
+              padding: EdgeInsets.zero,
+              radius: 20,
+              child: TextFormField(
+                controller: _phone,
+                enabled:
+                    editing && !_saving && !_pickingFiles && !_capturingSelfie,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(
+                  labelText: 'WhatsApp number with country code *',
+                  hintText: '+919876543210',
+                  border: GlassTokens.inputBorder,
+                ),
+                onChanged: (_) => _markDirty(),
+                validator: (value) =>
+                    RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(value?.trim() ?? '')
+                    ? null
+                    : 'Include + and your country code.',
               ),
-              onChanged: (_) => _markDirty(),
-              validator: (value) =>
-                  RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(value?.trim() ?? '')
-                  ? null
-                  : 'Include + and your country code.',
             ),
             const SizedBox(height: 8),
             const Text(
               'Your administrator will review these contacts before sharing your final document.',
-              style: TextStyle(fontSize: 12, color: AppColors.textTertiary),
+              style: TextStyle(fontSize: 12, color: GlassTokens.muted),
             ),
           ],
         ),
@@ -1442,9 +1463,12 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     }
     if (_workflow?['policy'] != null) {
       widgets.add(
-        ExpansionTile(
-          title: const Text('Read accepted policy'),
-          children: [PartnerDocument(document: _map(_workflow!['policy'])!)],
+        LiquidGlassSurface(
+          padding: const EdgeInsets.all(8),
+          child: ExpansionTile(
+            title: const Text('Read accepted policy'),
+            children: [PartnerDocument(document: _map(_workflow!['policy'])!)],
+          ),
         ),
       );
     }
@@ -1495,7 +1519,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         const Text(
           'Welcome to the Partner Program',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 25, fontWeight: FontWeight.w800),
+          style: TextStyle(fontSize: 25, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 12),
         const Text(
@@ -1552,11 +1576,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         const Text(
           'Your first fresh login generates an activation code for your administrator to send manually. Verify that code once; later logins open your driver home directly.',
           textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 12,
-            color: AppColors.textTertiary,
-            height: 1.5,
-          ),
+          style: TextStyle(fontSize: 12, color: GlassTokens.muted, height: 1.5),
         ),
       ];
     }
@@ -1591,33 +1611,40 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
             ),
           ),
         if (!pending) ...[
-          TextFormField(
-            controller: _signature,
-            enabled: !_saving,
-            decoration: const InputDecoration(
-              labelText: 'Your full legal name *',
-              border: OutlineInputBorder(),
+          LiquidGlassSurface(
+            padding: EdgeInsets.zero,
+            radius: 20,
+            child: TextFormField(
+              controller: _signature,
+              enabled: !_saving,
+              decoration: const InputDecoration(
+                labelText: 'Your full legal name *',
+                border: GlassTokens.inputBorder,
+              ),
+              onChanged: (_) => _markDirty(),
+              validator: (value) => (value?.trim().length ?? 0) >= 2
+                  ? null
+                  : 'Enter your full legal name.',
             ),
-            onChanged: (_) => _markDirty(),
-            validator: (value) => (value?.trim().length ?? 0) >= 2
-                ? null
-                : 'Enter your full legal name.',
           ),
           const SizedBox(height: 12),
-          CheckboxListTile(
-            contentPadding: EdgeInsets.zero,
-            value: _acceptConfirmation,
-            onChanged: _saving
-                ? null
-                : (value) => setState(() {
-                    _acceptConfirmation = value ?? false;
-                    _dirty = true;
-                  }),
-            title: const Text(
-              'I have read this confirmation and accept it in my own name.',
+          LiquidGlassSurface(
+            padding: const EdgeInsets.all(8),
+            child: CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _acceptConfirmation,
+              onChanged: _saving
+                  ? null
+                  : (value) => setState(() {
+                      _acceptConfirmation = value ?? false;
+                      _dirty = true;
+                    }),
+              title: const Text(
+                'I have read this confirmation and accept it in my own name.',
+              ),
+              controlAffinity: ListTileControlAffinity.leading,
+              activeColor: AppColors.primaryGreen,
             ),
-            controlAffinity: ListTileControlAffinity.leading,
-            activeColor: AppColors.primaryGreen,
           ),
           AppButton(
             text: 'Submit confirmation',
@@ -1661,14 +1688,18 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       return [
         PartnerDocument(document: policy),
         const SizedBox(height: 16),
-        CheckboxListTile(
-          contentPadding: EdgeInsets.zero,
-          value: _acceptPolicy,
-          onChanged: (value) => setState(() => _acceptPolicy = value ?? false),
-          controlAffinity: ListTileControlAffinity.leading,
-          activeColor: AppColors.primaryGreen,
-          title: const Text(
-            'I have read the policy and agree to apply for the Partner Program.',
+        LiquidGlassSurface(
+          padding: const EdgeInsets.all(8),
+          child: CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _acceptPolicy,
+            onChanged: (value) =>
+                setState(() => _acceptPolicy = value ?? false),
+            controlAffinity: ListTileControlAffinity.leading,
+            activeColor: AppColors.primaryGreen,
+            title: const Text(
+              'I have read the policy and agree to apply for the Partner Program.',
+            ),
           ),
         ),
         const SizedBox(height: 12),
@@ -1691,6 +1722,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       if (await _discard() && context.mounted) Navigator.pop(context);
     },
     child: AppPage(
+      glass: true,
       title: 'Partner Program',
       action: IconButton(
         tooltip: 'Refresh partner status',
@@ -1703,8 +1735,8 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         icon: const Icon(Icons.refresh),
       ),
       child: _loading
-          ? const Center(
-              child: CircularProgressIndicator(color: AppColors.primaryGreen),
+          ? LiquidGlassFormSkeleton(
+              document: !_showForm && _application == null,
             )
           : _workflow == null
           ? AppLoadError(

@@ -65,7 +65,7 @@ export class UserController {
   ) {
     return send_success(
       response,
-      await this.userService.update_user_profile(
+      await this.userService.update_user_avatar(
         this.user_id(request),
         avatar_schema.parse(request.body),
       ),

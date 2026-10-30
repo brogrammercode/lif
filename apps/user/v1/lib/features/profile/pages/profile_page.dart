@@ -1,3 +1,4 @@
+import 'package:user/components/ui/liquid_glass.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:user/components/ui/app_page.dart';
@@ -61,6 +62,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) => AppPage(
+    glass: true,
     title: UserAppCopy.PROFILE,
     child: FutureBuilder<Map<String, dynamic>>(
       future: _profile,
@@ -74,12 +76,7 @@ class _ProfilePageState extends State<ProfilePage> {
           );
         }
         if (!snapshot.hasData) {
-          return const Center(
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: AppColors.primaryGreen,
-            ),
-          );
+          return const LiquidGlassFormSkeleton();
         }
         final user = UserModel.fromJson(snapshot.data!);
         if (!_fieldsLoaded) {
@@ -153,25 +150,25 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
         ),
         SizedBox(height: 7.h),
-        TextField(
-          controller: controller,
-          enabled: enabled,
-          keyboardType: keyboardType,
-          decoration: InputDecoration(
-            hintText: hint,
-            filled: true,
-            fillColor: enabled ? AppColors.pureWhite : AppColors.softGrey,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14.r),
-              borderSide: const BorderSide(color: AppColors.borderGrey),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14.r),
-              borderSide: const BorderSide(color: AppColors.borderGrey),
-            ),
-            contentPadding: EdgeInsets.symmetric(
-              horizontal: 14.w,
-              vertical: 15.h,
+        LiquidGlassSurface(
+          padding: EdgeInsets.zero,
+          radius: 20,
+          child: TextField(
+            controller: controller,
+            enabled: enabled,
+            keyboardType: keyboardType,
+            decoration: InputDecoration(
+              hintText: hint,
+              filled: true,
+              fillColor: enabled
+                  ? const Color(0x18FFFFFF)
+                  : const Color(0x307E8EAB),
+              border: GlassTokens.inputBorder,
+              enabledBorder: GlassTokens.inputBorder,
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: 14.w,
+                vertical: 15.h,
+              ),
             ),
           ),
         ),
