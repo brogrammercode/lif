@@ -73,7 +73,7 @@ Driver mode still requires an eligible verified vehicle. Required vehicle regist
 
 Fresh fare quotes use each vehicle category's independent distance-band fare rather than category base/time rates. Configure actual rates for each selectable category or subcategory in **App > User > Fare Policy** or **Vehicle Categories** before requesting quotes. Unconfigured categories are excluded from new quotes; parent and physical-family prices are never inherited. **Support > Configure > Contact** supplies public help channels.
 
-Deploy the matching API V2 routes and configuration migrations before releasing this mobile change. No new APK or Shorebird patch was published for Phase A or B. See [Phase A implementation, accepted rules and rollout](../../../context/PHASE_A_IMPLEMENTATION.md).
+Deploy the matching API V2 routes and configuration migrations before distributing this mobile change. The Android base release `0.1.5+5` includes these flows; see [its release record](../../../context/ANDROID_RELEASE_0_1_5_BUILD5.md) and [Phase A implementation, accepted rules and rollout](../../../context/PHASE_A_IMPLEMENTATION.md).
 
 ## Phase B: operational driver trip
 
@@ -84,7 +84,7 @@ Deploy the matching API V2 routes and configuration migrations before releasing 
 - Completion shows the server fare and collection controls. Only the assigned driver confirms cash/UPI receipt, or reports unpaid fare with a reason. Cancellation, no-show and disputes retain evidence for admin review. Approved cancellation/no-show charges have a separate direct-UPI link when the original driver's approved UPI is available; Support records verified settlement. They never carry into another driver's fare.
 - Startup restores active trips; final rider/driver pages provide a return-home action. Driver tracking stops on going offline, switching to rider mode or signing out. Stale GPS pauses offer eligibility and is shown to participants.
 
-**A new base APK is required.** Android adds a foreground location service/notification and wake lock; iOS adds location background mode and its permission description. This change must not be shipped as a Dart-only patch to the old base. No APK was built for checks and no Shorebird release was published. Device testing must cover foreground/background tracking, process restart, revoked permissions, native MapLibre rendering and UPI/calling intents on both platforms. Notifications/chat/matching use foreground polling and persisted inbox entries; background push delivery and voice guidance are separate work.
+**A new base APK is required.** Android adds a foreground location service/notification and wake lock; iOS adds location background mode and its permission description. This change must not be shipped as a Dart-only patch to the old base. Android base `0.1.5+5` is published to Shorebird; distribute its APK separately. Device testing must cover foreground/background tracking, process restart, revoked permissions, native MapLibre rendering and UPI/calling intents on both platforms. Notifications/chat/matching use foreground polling and persisted inbox entries; background push delivery and voice guidance are separate work.
 
 See the [Phase B tracker](../../../context/PHASE_B_IMPLEMENTATION.md) and [screen catalog](../../../context/USER_DRIVER_SCREEN_CATALOG.md).
 
@@ -143,19 +143,27 @@ adb install -r build/app/outputs/flutter-apk/app-release.apk
 
 ### Publish a Dart fix to an existing release
 
-Use the target release's original environment/build settings. To patch the current installed Android base `0.1.3+3`, explicitly override both build values:
+Use the target release's original environment/build settings. To patch the latest published Android base `0.1.5+5`, explicitly set both build values:
 
 ```powershell
-shorebird patch android --release-version 0.1.3+3 --build-name 0.1.3 --build-number 3 --track stable
+shorebird patch android --release-version 0.1.5+5 --build-name 0.1.5 --build-number 5 --track stable
 ```
 
 This publishes to installed users of that release. Use the actual released version in all three version arguments. A Dart-only patch keeps the installed base version unchanged and receives its own Shorebird patch number; bumping `pubspec.yaml` does not upgrade installed APK metadata. Changes to native plugins, Gradle, permissions, assets (including `.env`), or Flutter itself need a new base release and APK. Follow [Shorebird patch guidance](https://docs.shorebird.dev/code-push/patch/).
 
-The project version is now `0.1.5+5`, incrementing the version and build once from `0.1.4+4` for the new base APK release. The patch command above intentionally builds with the older installed base `0.1.3+3`; a patch cannot change an installed APK's Android version name/code.
+The project version is now `0.1.5+5`, incrementing the version and build once from `0.1.4+4` for the new base APK release. Devices still running `0.1.3+3` must install the new APK to receive this new base and its assets; a patch cannot change an installed APK's Android version name/code.
 
-When a patch depends on new API endpoints, publish it to `--track staging` first, deploy the matching API V2 changes, and verify those routes before promoting the patch with `shorebird patches set-track --release-version 0.1.3+3 --patch-number <number> --track stable`.
+When a patch depends on new API endpoints, publish it to `--track staging` first, deploy the matching API V2 changes, and verify those routes before promoting the patch with `shorebird patches set-track --release-version 0.1.5+5 --patch-number <number> --track stable`.
 
 ### Published updates
+
+**Latest Android base: `0.1.5+5`, published on 30 October 2026.** Shorebird release `939190` is active for Android, built from source commit `f6f41a1` with Flutter `3.47.7` (revision `01aea2ee0626578b6b30ebbb2605f195833464fa`). It includes the liquid-glass mobile rework and updated assets. The APK's version, existing signing identity, production API configuration and three Android architectures were verified.
+
+- Versioned APK: `build/releases/0.1.5+5/onemore-user-0.1.5+5.apk` (104,009,789 bytes, approximately 99.2 MiB).
+- APK SHA-256: `5b6b567c32b87f2cdc2d76199584a7dcd69e6eaac85d0fa2237a2f3c30663d9e`.
+- Full verification and distribution notes: [Android release record](../../../context/ANDROID_RELEASE_0_1_5_BUILD5.md).
+
+The following entries describe earlier patches and their original base releases:
 
 | Date | Platform | Installed base release | Patch | Track | Changes |
 | --- | --- | --- | --- | --- | --- |
