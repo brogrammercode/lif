@@ -1,5 +1,6 @@
 import 'package:user/components/ui/glass_dropdown.dart';
 import 'package:user/components/ui/liquid_glass.dart';
+import 'package:user/components/ui/focus_field_hint.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:dio/dio.dart';
@@ -1093,17 +1094,6 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
             if (answer != null) _statusBadge('${answer['status']}'),
           ],
         ),
-        if ('${definition['description'] ?? ''}'.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Text(
-              '${definition['description']}',
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ),
         const SizedBox(height: 12),
       ],
     ];
@@ -1114,6 +1104,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           key: ValueKey('partner-upload-$id'),
           compact: compact,
           label: label,
+          showGuidance: false,
           files: files
               .map(
                 (file) => PartnerUploadFile(
@@ -1154,17 +1145,6 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: _statusBadge('${answer['status']}'),
-            ),
-          );
-        }
-        if ('${definition['description'] ?? ''}'.isNotEmpty) {
-          children.add(
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                '${definition['description']}',
-                style: const TextStyle(fontSize: 12, color: GlassTokens.muted),
-              ),
             ),
           );
         }
@@ -1428,85 +1408,80 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         ),
       );
     }
-    if (inlineLabel && '${definition['description'] ?? ''}'.isNotEmpty) {
-      children.add(
-        Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Text(
-            '${definition['description']}',
-            style: const TextStyle(fontSize: 12, color: GlassTokens.muted),
-          ),
-        ),
-      );
-    }
-    if (compact) {
-      return Padding(
-        key: ValueKey('partner-field-$id'),
-        padding: const EdgeInsets.only(bottom: 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: children,
-        ),
-      );
-    }
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 20),
-      child: AppCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: children,
-        ),
+    final content = FocusFieldHint(
+      enabled: enabled,
+      hint: [
+        if ('${definition['description'] ?? ''}'.trim().isNotEmpty)
+          '${definition['description']}',
+        if (upload) _uploadHint(definition),
+      ].join('\n'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: children,
       ),
+    );
+    return Padding(
+      key: ValueKey('partner-field-$id'),
+      padding: const EdgeInsets.only(bottom: 20),
+      child: compact ? content : AppCard(child: content),
     );
   }
 
   List<Widget> _contactFields(bool editing) => [
-    LiquidGlassSurface(
-      padding: EdgeInsets.zero,
-      radius: 20,
-      child: TextFormField(
-        key: const ValueKey('partner-contact-email'),
-        controller: _email,
-        enabled: editing && !_saving && !_pickingFiles && !_capturingSelfie,
-        keyboardType: TextInputType.emailAddress,
-        decoration: const InputDecoration(
-          labelText: 'Email for final PDF *',
-          prefixIcon: Icon(Icons.email_outlined, size: 20),
-          border: GlassTokens.inputBorder,
-        ),
-        onChanged: (_) => _markDirty(),
-        validator: (value) =>
-            RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(value?.trim() ?? '')
-            ? null
-            : 'Enter a valid email address.',
+    FocusFieldHint(
+      enabled: editing && !_busy,
+      hint:
+          'Your administrator will review these contacts before sharing your final document.',
+      child: Column(
+        children: [
+          LiquidGlassSurface(
+            padding: EdgeInsets.zero,
+            radius: 20,
+            child: TextFormField(
+              key: const ValueKey('partner-contact-email'),
+              controller: _email,
+              enabled:
+                  editing && !_saving && !_pickingFiles && !_capturingSelfie,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: 'Email for final PDF *',
+                prefixIcon: Icon(Icons.email_outlined, size: 20),
+                border: GlassTokens.inputBorder,
+              ),
+              onChanged: (_) => _markDirty(),
+              validator: (value) =>
+                  RegExp(
+                    r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+                  ).hasMatch(value?.trim() ?? '')
+                  ? null
+                  : 'Enter a valid email address.',
+            ),
+          ),
+          const SizedBox(height: 20),
+          LiquidGlassSurface(
+            padding: EdgeInsets.zero,
+            radius: 20,
+            child: TextFormField(
+              key: const ValueKey('partner-contact-phone'),
+              controller: _phone,
+              enabled:
+                  editing && !_saving && !_pickingFiles && !_capturingSelfie,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(
+                labelText: 'WhatsApp number with country code *',
+                prefixIcon: Icon(Icons.phone_outlined, size: 20),
+                hintText: '+919876543210',
+                border: GlassTokens.inputBorder,
+              ),
+              onChanged: (_) => _markDirty(),
+              validator: (value) =>
+                  RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(value?.trim() ?? '')
+                  ? null
+                  : 'Include + and your country code.',
+            ),
+          ),
+        ],
       ),
-    ),
-    const SizedBox(height: 20),
-    LiquidGlassSurface(
-      padding: EdgeInsets.zero,
-      radius: 20,
-      child: TextFormField(
-        key: const ValueKey('partner-contact-phone'),
-        controller: _phone,
-        enabled: editing && !_saving && !_pickingFiles && !_capturingSelfie,
-        keyboardType: TextInputType.phone,
-        decoration: const InputDecoration(
-          labelText: 'WhatsApp number with country code *',
-          prefixIcon: Icon(Icons.phone_outlined, size: 20),
-          hintText: '+919876543210',
-          border: GlassTokens.inputBorder,
-        ),
-        onChanged: (_) => _markDirty(),
-        validator: (value) =>
-            RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(value?.trim() ?? '')
-            ? null
-            : 'Include + and your country code.',
-      ),
-    ),
-    const SizedBox(height: 8),
-    const Text(
-      'Your administrator will review these contacts before sharing your final document.',
-      style: TextStyle(fontSize: 12, color: GlassTokens.muted),
     ),
   ];
 

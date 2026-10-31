@@ -91,6 +91,9 @@ class UserAppRepository {
   Future<Map<String, dynamic>> riderHistory({
     int page = 1,
     String section = 'all',
+    String query = '',
+    String? categoryId,
+    String? month,
   }) async => Map<String, dynamic>.from(
     _data(
           await _client.getData(
@@ -99,6 +102,9 @@ class UserAppRepository {
               'page': page,
               'page_size': 20,
               'section': section,
+              if (query.trim().isNotEmpty) 'query': query.trim(),
+              'category_id': ?categoryId,
+              'month': ?month,
             },
           ),
         )

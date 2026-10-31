@@ -15,6 +15,7 @@ type UploadedImage = {
 type ImageScope =
   | 'vehicle-categories'
   | 'users'
+  | 'places'
   | 'vehicle-brands'
   | 'vehicle-models'
   | 'partner-documents';

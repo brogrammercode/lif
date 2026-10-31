@@ -152,6 +152,10 @@ model User {
   devices                  Device[]
   driver_profile           DriverProfile?
   saved_places             SavedPlace[]
+  shared_places_created    CommunityPlace[]
+  place_photos             PlacePhoto[]
+  place_visits             PlaceVisit[]
+  place_reviews            PlaceReview[]
   rider_rides              Ride[]               @relation("rider_rides")
   reviews_given            Review[]             @relation("reviews_given")
   reviews_received         Review[]             @relation("reviews_received")
@@ -450,21 +454,99 @@ model VehicleVerificationAsset {
 }
 
 model SavedPlace {
-  id         String   @id @default(uuid())
-  user_id    String
-  label      String
-  address    String
-  latitude   Decimal  @db.Decimal(9, 6)
-  longitude  Decimal  @db.Decimal(9, 6)
-  place_type String   @default("OTHER")
-  place_data Json?
-  created_at DateTime @default(now()) @db.Timestamptz(3)
-  updated_at DateTime @updatedAt @db.Timestamptz(3)
+  id                 String   @id @default(uuid())
+  user_id            String
+  label              String
+  address            String
+  latitude           Decimal  @db.Decimal(9, 6)
+  longitude          Decimal  @db.Decimal(9, 6)
+  place_type         String   @default("OTHER")
+  place_data         Json?
+  created_at         DateTime @default(now()) @db.Timestamptz(3)
+  updated_at         DateTime @updatedAt @db.Timestamptz(3)
+  community_place_id String?
 
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user            User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  community_place CommunityPlace? @relation(fields: [community_place_id], references: [id], onDelete: SetNull)
 
+  @@unique([user_id, community_place_id])
+  @@index([community_place_id])
   @@index([user_id, place_type])
   @@map("saved_places")
+}
+
+model CommunityPlace {
+  id            String        @id @default(uuid())
+  created_by_id String?
+  dedupe_key    String        @unique
+  name          String
+  address       String
+  latitude      Decimal       @db.Decimal(9, 6)
+  longitude     Decimal       @db.Decimal(9, 6)
+  place_type    String        @default("OTHER")
+  description   String        @default("")
+  phone         String?
+  website       String?
+  version       Int           @default(1)
+  created_at    DateTime      @default(now()) @db.Timestamptz(3)
+  updated_at    DateTime      @updatedAt @db.Timestamptz(3)
+  created_by    User?         @relation(fields: [created_by_id], references: [id], onDelete: SetNull)
+  saved_places  SavedPlace[]
+  photos        PlacePhoto[]
+  visits        PlaceVisit[]
+  reviews       PlaceReview[]
+
+  @@index([created_at, id])
+  @@index([created_by_id])
+  @@index([latitude, longitude])
+  @@map("community_places")
+}
+
+model PlacePhoto {
+  id           String         @id @default(uuid())
+  place_id     String
+  author_id    String?
+  url          String
+  public_id    String
+  request_key  String
+  content_hash String
+  created_at   DateTime       @default(now()) @db.Timestamptz(3)
+  place        CommunityPlace @relation(fields: [place_id], references: [id], onDelete: Cascade)
+  author       User?          @relation(fields: [author_id], references: [id], onDelete: SetNull)
+
+  @@unique([author_id, request_key])
+  @@index([place_id, created_at])
+  @@map("place_photos")
+}
+
+model PlaceVisit {
+  id         String         @id @default(uuid())
+  place_id   String
+  user_id    String
+  visited_at DateTime       @default(now()) @db.Timestamptz(3)
+  place      CommunityPlace @relation(fields: [place_id], references: [id], onDelete: Cascade)
+  user       User           @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([place_id, user_id])
+  @@index([place_id, visited_at])
+  @@index([user_id, visited_at])
+  @@map("place_visits")
+}
+
+model PlaceReview {
+  id         String         @id @default(uuid())
+  place_id   String
+  user_id    String
+  score      Int
+  comment    String
+  created_at DateTime       @default(now()) @db.Timestamptz(3)
+  updated_at DateTime       @updatedAt @db.Timestamptz(3)
+  place      CommunityPlace @relation(fields: [place_id], references: [id], onDelete: Cascade)
+  user       User           @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([place_id, user_id])
+  @@index([place_id, created_at])
+  @@map("place_reviews")
 }
 
 model Ride {

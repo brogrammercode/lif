@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/core/color.dart';
+import 'package:user/components/ui/liquid_glass.dart';
+import 'package:user/components/ui/app_skeleton.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
 class SupportContactCard extends StatefulWidget {
@@ -27,6 +29,67 @@ class _SupportContactCardState extends State<SupportContactCard> {
     }
   }
 
+  Widget _contact(
+    IconData icon,
+    String title,
+    String value,
+    Uri uri, {
+    bool urgent = false,
+  }) => Padding(
+    padding: const EdgeInsets.only(top: 12),
+    child: InkWell(
+      onTap: () => _open(uri),
+      borderRadius: BorderRadius.circular(16),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 64),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 40,
+              height: 40,
+              child: LiquidGlassSurface(
+                radius: 99,
+                padding: EdgeInsets.zero,
+                child: Icon(
+                  icon,
+                  size: 20,
+                  color: urgent ? AppColors.googleRed : GlassTokens.accent,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: urgent ? AppColors.googleRed : GlassTokens.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      height: 1.4,
+                      color: GlassTokens.muted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right, size: 19, color: GlassTokens.muted),
+          ],
+        ),
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) => FutureBuilder<Map<String, dynamic>>(
     future: _data,
@@ -49,7 +112,21 @@ class _SupportContactCardState extends State<SupportContactCard> {
         );
       }
       if (!snapshot.hasData) {
-        return const LinearProgressIndicator(color: AppColors.primaryGreen);
+        return const AppCard(
+          child: AppSkeleton(
+            label: 'Loading support contacts',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SkeletonBox(width: 150, height: 18),
+                SizedBox(height: 20),
+                SkeletonBox(height: 48),
+                SizedBox(height: 16),
+                SkeletonBox(height: 48),
+              ],
+            ),
+          ),
+        );
       }
       final data = snapshot.data!;
       final phone = data['support_phone'] as String?;
@@ -60,15 +137,70 @@ class _SupportContactCardState extends State<SupportContactCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Contact support',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+            const Row(
+              children: [
+                Icon(
+                  Icons.contact_support_outlined,
+                  size: 21,
+                  color: GlassTokens.accent,
+                ),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Direct support channels',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: GlassTokens.ink,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            if (data['support_hours'] != null) Text('${data['support_hours']}'),
+            const SizedBox(height: 5),
+            const Text(
+              'Use a configured channel, or keep a trackable conversation in a support request.',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.4,
+                color: GlassTokens.muted,
+              ),
+            ),
+            if (data['support_hours'] != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.schedule_outlined,
+                      size: 16,
+                      color: GlassTokens.muted,
+                    ),
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: Text(
+                        '${data['support_hours']}',
+                        style: const TextStyle(
+                          color: GlassTokens.muted,
+                          fontSize: 12,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             if (data['instructions'] != null)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
-                child: Text('${data['instructions']}'),
+                child: Text(
+                  '${data['instructions']}',
+                  style: const TextStyle(
+                    color: GlassTokens.muted,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                ),
               ),
             if (phone == null &&
                 emergency == null &&
@@ -78,44 +210,44 @@ class _SupportContactCardState extends State<SupportContactCard> {
                 padding: EdgeInsets.only(top: 8),
                 child: Text(
                   'You can contact the team by creating a support request below.',
-                ),
-              ),
-            if (phone != null)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.phone_outlined),
-                title: const Text('Call support'),
-                subtitle: Text(phone),
-                onTap: () => _open(Uri(scheme: 'tel', path: phone)),
-              ),
-            if (emergency != null)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.health_and_safety_outlined),
-                title: const Text('Urgent help'),
-                subtitle: Text(emergency),
-                onTap: () => _open(Uri(scheme: 'tel', path: emergency)),
-              ),
-            if (whatsapp != null)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.chat_bubble_outline),
-                title: const Text('WhatsApp support'),
-                subtitle: Text(whatsapp),
-                onTap: () => _open(
-                  Uri.https(
-                    'wa.me',
-                    '/${whatsapp.replaceAll(RegExp(r'\D'), '')}',
+                  style: TextStyle(
+                    color: GlassTokens.muted,
+                    fontSize: 12,
+                    height: 1.4,
                   ),
                 ),
               ),
+            if (phone != null)
+              _contact(
+                Icons.phone_outlined,
+                'Call support',
+                phone,
+                Uri(scheme: 'tel', path: phone),
+              ),
+            if (emergency != null)
+              _contact(
+                Icons.health_and_safety_outlined,
+                'Urgent safety help',
+                emergency,
+                Uri(scheme: 'tel', path: emergency),
+                urgent: true,
+              ),
+            if (whatsapp != null)
+              _contact(
+                Icons.chat_bubble_outline,
+                'WhatsApp support',
+                whatsapp,
+                Uri.https(
+                  'wa.me',
+                  '/${whatsapp.replaceAll(RegExp(r'\D'), '')}',
+                ),
+              ),
             if (email != null)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.email_outlined),
-                title: const Text('Email support'),
-                subtitle: Text(email),
-                onTap: () => _open(Uri(scheme: 'mailto', path: email)),
+              _contact(
+                Icons.email_outlined,
+                'Email support',
+                email,
+                Uri(scheme: 'mailto', path: email),
               ),
           ],
         ),

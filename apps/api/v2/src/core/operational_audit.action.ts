@@ -1,6 +1,17 @@
 // Administrators can also use rider/driver features. Their audited requests
 // deserve domain labels instead of falling through to an HTTP method headline.
 export const OPERATIONAL_ACTIONS = [
+  ['GET', 'places', 'Explore shared places'],
+  ['GET', 'places/:id', 'View shared place'],
+  ['GET', 'places/:id/reviews', 'Read place reviews'],
+  ['POST', 'places', 'Shared place added to saved places'],
+  ['PATCH', 'places/:id', 'Shared place details updated'],
+  ['PUT', 'places/:id/bookmark', 'Saved place selection changed'],
+  ['PUT', 'places/:id/visit', 'Place visit updated'],
+  ['PUT', 'places/:id/review', 'Place review saved'],
+  ['DELETE', 'places/:id/review', 'Own place review removed'],
+  ['POST', 'places/:id/photos', 'Shared place photo added'],
+  ['DELETE', 'places/:id/photos/:photo_id', 'Own place photo removed'],
   ['GET', 'health', 'Check service health'],
   ['POST', 'auth/google', 'Google sign-in completed'],
   ['POST', 'auth/refresh', 'Mobile session refreshed'],

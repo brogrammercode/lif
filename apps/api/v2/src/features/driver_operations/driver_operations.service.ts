@@ -651,6 +651,8 @@ export class DriverOperationsService {
             id: trip.payment.id,
             status: trip.payment.status,
             amount: trip.payment.amount,
+            provider_managed:
+              !!trip.payment.provider || !!trip.payment.provider_payment_id,
             method: trip.payment.collection_method,
             recipient_upi: trip.payment.recipient_upi,
             unpaid_reason: trip.payment.unpaid_reason,

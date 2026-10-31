@@ -57,6 +57,14 @@ For iOS Google sign-in, create an iOS OAuth client for `com.brogrammer.onemore` 
 
 ## Connected rider flows
 
+My Rides and Trip details use Settings' liquid-glass design, matching loading skeletons, route/date and pickup/drop-off summaries, real trip metrics/rating and server fare/collection details. Existing All/Active/Past pagination, active-trip actions and recovery remain available. Partner Program field descriptions now appear only during editing focus; errors and review feedback remain visible. See [the UI tracker and checks](../../../context/MY_RIDES_GLASS_REWORK.md).
+
+My Rides also supports destination/pickup/reference search, category/month filters (IST), database-backed outcome counts, contextual retry/rebooking/receipt/help, real driver/vehicle context and recorded activity. Quotes, collections/refunds and cancellation/no-show reviews are displayed separately. Deploy the accompanying API V2 history enhancements before distributing this mobile change; no schema migration is needed. Existing All/Active/Past clients remain compatible.
+
+Saved places now has a map and floating carousel, a map-based Add Place flow, and shared photos, visits and reviews. My Rides tabs/filters use the shared liquid-glass chip. Place details include actual visitor context, account-scoped save/visit/review actions, optional contributed contacts and an in-app driving-route preview. Previous personal addresses remain available under Previous saves. See [the saved-place implementation](../../../context/SAVED_PLACES_GLASS_REWORK.md).
+
+Deploy the API V2 migration `202610310001_shared_places` with `npx prisma migrate deploy` from `apps/api/v2` before using the new shared-place screens. It adds four tables and a nullable link on existing saves; it does not publish, modify or delete existing personal addresses. Existing Cloudinary configuration handles contributed images; the geocoder supplies addresses rather than place photography. Device map, picker and contact/share checks remain necessary before release.
+
 - Google sign-in, secure token storage, session restoration, logout, and access-token refresh.
 - Location search, reverse geocoding, and road routing through the API.
 - On home entry, current location is read with `geolocator`; the latest coordinates are cached locally and synced to the user's API record. A cached coordinate is used as the initial map center while fresh permission/location is resolved.

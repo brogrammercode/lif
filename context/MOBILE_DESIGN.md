@@ -33,6 +33,7 @@ Use `lib/components/ui/liquid_glass.dart` as the reusable implementation:
 | `LiquidGlassFormSkeleton` | Matching form/document loading surfaces. |
 | `LiquidGlassDropdownFormField` | Shared form dropdown: glass field, anchored glass menu, search and selection feedback. |
 | `LiquidGlassSelectField` | Matching trigger for dedicated catalog/search selection routes. |
+| `LiquidGlassChip` | Glass tabs, filters, selected values and compact actions; no native Chip fill. |
 
 `AppCard` becomes a glass surface inside the scope, keeping existing feature code reusable. Other existing screens adopt this style when they are reworked; do not silently change unrelated operational UI in a focused task.
 
@@ -69,6 +70,7 @@ Retain Outfit through the existing mobile theme. Use medium/semibold weights and
 
 - Use the scope's rounded input theme and shared glass wells. Filled-field floating labels stay inside the clipped well; focus/error underlines remain visible alongside its reflective rim. Preserve read-only/disabled states, keyboard types, canonical dropdowns, validation, DOB limits and automatic IFSC formatting.
 - Dynamic field labels and categories come from the API. Keep the server's approval/rejection status and reason adjacent to each answer. Approval must not be represented by color alone.
+- Partner application descriptions/supporting subtitles appear only while their editable field has focus. Reuse `FocusFieldHint`; hide them again on blur and for approved/read-only fields. Required markers, values, validation failures and rejection reasons remain visible. Upload guidance remains available during editing and in the file-review sheet; licensing attribution and actionable errors remain visible.
 - The editable Partner Program application uses contact/delivery followed by one step per configured category. Show the current category, progress, Previous/Continue and final-only Submit. Preserve answers and the saved step on navigation/reopening; reveal the relevant category when final validation finds an offscreen error. Submitted review and confirmation remain their existing document/review screens.
 - Application image/document selectors use a single full-width vertical column, with at least 20 px between fields. Do not put upload cards side by side, including on wider screens. Retain the icon or bounded image preview, field label, real size/format guidance and add/retake action. Use the shared file-review sheet for filenames, full previews and remove/open controls. Cards grow with text size and review feedback; their skeleton follows the same vertical layout.
 - File and camera capture share the same glass upload surfaces. Retain bounded previews, real filenames, open/remove controls and explicit replace/retake actions. Never substitute private documents for public avatars or catalog logos.
@@ -109,7 +111,27 @@ The implementation follows Flutter's [BackdropFilter guidance](https://api.flutt
 
 ## Interaction and scope
 
+### Saved places
+
+Use the shared place map as the canvas. Place discovery/search/type and account filters float in bounded glass controls; map attribution remains exposed. Equal-size bottom cards show photo, name, address and actual type/saved/visited/rating context with side peeks. Do not scale or zoom the active card. Swiping cards and tapping coordinate-anchored map markers select the same place, retaining camera zoom; frame the pin above the bottom card. Pagination makes the bounded set of map pins explicit.
+
+Add Place is a separate map-picker page, with search, a center selection pin and a floating image/location preview card. Resolve the selected camera coordinate after settling and reject stale address results. Follow with the glass name/address/type/description/contact form. Keep local photos local until final Save, validate JPEG/PNG/WebP and 3 MB per photo, upload sequentially through API WebP conversion, and retain the same upload keys on retry. Back to map retains the edited form values. An incomplete upload can finish without the remaining photos after the place is saved.
+
+Place details follow the supplied content order: map, name/address/type, photo carousel, actual visitor avatars/statement, Plot on map and visit actions, secondary actions, then vertically arranged review cards. Contact actions appear only when contributed public phone/website data exists. Directions open an in-app MapLibre route preview from a permitted device location. Use actual photos/reviews/visits, readable empty states and configured place information; reference restaurant photos, visitor counts, categories, prices and reviews are not seed content.
+
+New places, their photos, self-reported visits and reviews are shared with signed-in members. Each account controls its own bookmark, visit and review; only contributors edit a place or remove their own photos. Previous personal saves remain available under Previous saves and can be explicitly saved through the shared map picker. For narrow/short screens and large text, use an accessible scrollable map-and-card layout so floating controls do not obscure the content. No bottom navigation. See [the saved-place tracker](SAVED_PLACES_GLASS_REWORK.md).
+
+### My Rides and account flows
+
+My Rides follows the same Settings surfaces and typography. History uses glass filters/cards and matching skeletons; retain loaded rows during a same-query refresh and clear them on a filter/page change. Details use the reference's content order: map/date, pickup/drop-off timeline, real driver/vehicle and recorded/quoted metrics/rating, then costs and collection. Historical maps show stored coordinates/booking routes, with an explicit unavailable state when missing; active maps retain current GPS/freshness and start/payment/support controls. Do not copy example traffic, tax, discount or currency values from a mockup. See [My Rides implementation](MY_RIDES_GLASS_REWORK.md).
+
+The `Downloads/my_rides` references inform history, unfulfilled detail and safety content. Bind status counts/search/category/month filters to the complete rider-scoped API results, with IST month boundaries and stale-response protection. Cards show opaque trip references, actual route metrics, driver/vehicle/category and collection state; receipt, help and fresh-quote rebooking actions match the outcome. Unfulfilled trips show unassigned identity, recorded search duration/events and a separate quote/collection breakdown. Keep fare, payment/refund and reviewed cancellation obligations distinct. Safety uses configured contact channels and explicit static manual sharing; mockup guarantees, payment holds, encrypted/live sharing, dispatch totals and invoice downloads must not become invented app features.
+
+My Rides status tabs, Date/category action and removable applied filters use `LiquidGlassChip` rather than `ChoiceChip`, `ActionChip` or `InputChip`. The shared surface supplies the bounded blur, reflective rim, translucent tint, semantic selection and removable-value focus targets. Do not rely on a native Chip's default white fill.
+
 Settings keeps its five primary cards, profile photo controls and gear/action sheet. Partner Program, mode switching, relevant history/account links, saved places, notifications, emergency contacts, support and confirmed sign-out remain accessible. Back navigation retains existing session/active-trip gates; no bottom navigation is introduced.
+
+Settings secondary pages use the same page header, intro surface, compact section heading, semantic status pills, destination-shaped skeletons and 12–14 px list rhythm. Notifications show actual unread/all counts and type context. Emergency contacts use a validated E.164 add/edit form, a call/edit/remove action sheet and destructive confirmation; never imply automatic emergency dispatch. Support separates configured contact channels from persisted requests, shows status/priority/message context, and presents the request detail as a clear participant conversation. Payment methods explain Cash and per-ride Direct UPI truthfully, distinguish them from unavailable provider-managed collection, and never collect or reveal provider credentials. Preserve loaded rows during same-query refreshes and never replace them with circular progress indicators. See [the Settings secondary-page tracker](SETTINGS_SECONDARY_PAGES_GLASS_REWORK.md).
 
 Apply the same material across policy, application details, documents/live selfie, submitted/rejected review, confirmation, final PDF, activation, exit/dues, and the linked vehicle-registration/catalog-suggestion/document forms. Maintain every existing business transition, ownership check and approval gate.
 

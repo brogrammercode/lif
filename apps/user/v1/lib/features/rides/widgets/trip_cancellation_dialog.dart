@@ -1,5 +1,6 @@
 import 'package:user/components/ui/glass_dropdown.dart';
 import 'package:flutter/material.dart';
+import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/features/rides/ride_display.dart';
 
 class TripCancellationDialog extends StatefulWidget {
@@ -30,7 +31,7 @@ class _CancellationState extends State<TripCancellationDialog> {
   Widget build(BuildContext context) {
     final policy = rideMap(widget.contextData['cancellation']);
     final freeUntil = DateTime.tryParse('${policy['free_until']}');
-    return AlertDialog(
+    return LiquidGlassDialog(
       title: const Text('Cancel this ride?'),
       content: SingleChildScrollView(
         child: Column(

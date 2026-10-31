@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { mock } from 'node:test';
 import { TravelContextService } from '../features/travel_context/travel_context.service.js';
+import { rider_history_schema } from '../features/travel_context/travel_context.type.js';
 import { DriverRepository } from '../features/driver/driver.repo.js';
 import { Prisma, type RideStartVerification } from '@prisma/client';
 import { PrismaService } from '../infra/database/prisma.service.js';
@@ -1161,6 +1162,7 @@ it('rider history scopes both rows and counts to the rider and excludes unbooked
   Object.defineProperty(db, 'client', {
     value: {
       ride: {
+        groupBy: async () => [{ status: 'COMPLETED', _count: { _all: 21 } }],
         findMany: async (args: (typeof calls)[number]) => {
           calls.push(args);
           return [{ id: 'own-ride' }];
@@ -1183,6 +1185,7 @@ it('rider history scopes both rows and counts to the rider and excludes unbooked
   const result = await service.rider_history('rider', 2, 20, 'past');
   assert.equal(result.total, 21);
   assert.equal(result.page, 2);
+  assert.equal(result.counts.completed, 21);
   assert.equal(calls[0]?.skip, 20);
   assert.equal(calls[0]?.take, 20);
   assert.deepEqual(calls[0]?.where, calls[1]?.where);
@@ -1200,6 +1203,94 @@ it('rider history scopes both rows and counts to the rider and excludes unbooked
   });
   await service.rider_history('rider', 1, 20, 'active');
   assert.ok(JSON.stringify(calls[4]?.where).includes('IN_PROGRESS'));
+});
+
+it('history filters use opaque IDs, IST month bounds, private rider scope and database counts', async () => {
+  let rows: any, totals: any, groups: any;
+  const db = new PrismaService();
+  Object.defineProperty(db, 'client', {
+    value: {
+      ride: {
+        findMany: async (args: unknown) => {
+          rows = args;
+          return [];
+        },
+        count: async (args: unknown) => {
+          totals = args;
+          return 7;
+        },
+        groupBy: async (args: unknown) => {
+          groups = args;
+          return [
+            { status: 'SEARCHING', _count: { _all: 2 } },
+            { status: 'COMPLETED', _count: { _all: 7 } },
+            { status: 'CANCELLED', _count: { _all: 1 } },
+            { status: 'NO_DRIVER_FOUND', _count: { _all: 3 } },
+          ];
+        },
+      },
+      $transaction: async (queries: Promise<unknown>[]) => Promise.all(queries),
+    },
+  });
+  const result = await new TravelContextService(db).rider_history(
+    'owner',
+    1,
+    20,
+    'completed',
+    {
+      query: '#TRP-9007199254740993',
+      category_id: '9007199254740995',
+      month: '2026-10',
+    },
+  );
+  assert.equal(rows.where.rider_id, 'owner');
+  assert.deepEqual(rows.where, totals.where);
+  assert.equal(rows.where.status, 'COMPLETED');
+  assert.equal(rows.where.OR[0].id.contains, '9007199254740993');
+  assert.equal(rows.where.OR[1].pickup_address.mode, 'insensitive');
+  assert.equal(rows.where.quotes.some.vehicle_category_id, '9007199254740995');
+  assert.deepEqual(rows.where.quotes.some.selected_at, { not: null });
+  assert.equal(
+    rows.where.created_at.gte.toISOString(),
+    '2026-09-30T18:30:00.000Z',
+  );
+  assert.equal(
+    rows.where.created_at.lt.toISOString(),
+    '2026-10-31T18:30:00.000Z',
+  );
+  assert.equal(groups.where.rider_id, 'owner');
+  assert.deepEqual(groups.where.status, { not: 'DRAFT' });
+  assert.deepEqual(result.counts, {
+    all: 13,
+    active: 2,
+    completed: 7,
+    cancelled: 1,
+    unfulfilled: 3,
+    past: 11,
+  });
+  assert.equal(result.total, 7);
+  assert.equal(rows.select.driver.select.user.select.phone_e164, undefined);
+  assert.equal(rows.select.payment.select.provider_payment_id, undefined);
+  assert.equal(rows.select.actual_distance_m, true);
+  assert.deepEqual(rows.select.reviews.where, { reviewer_id: 'owner' });
+});
+
+it('history rejects malformed filters and preserves large string identifiers', () => {
+  assert.equal(
+    rider_history_schema.parse({ category_id: '9007199254740995' }).category_id,
+    '9007199254740995',
+  );
+  for (const input of [
+    { month: '2026-13' },
+    { month: '2026-1' },
+    { query: 'x'.repeat(121) },
+    { section: 'everyone' },
+    { category_id: 9007199254740995 },
+    { page_size: 101 },
+    { user_id: 'foreign' },
+  ]) {
+    assert.equal(rider_history_schema.safeParse(input).success, false);
+  }
 });
 
 it('rider route rejects future GPS timestamps and invalid accuracy instead of labelling them fresh', async () => {

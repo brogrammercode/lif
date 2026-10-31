@@ -1478,5 +1478,93 @@
     "path": "internal/audit-retention",
     "guards": [],
     "idempotent": false
+  },
+  {
+    "feature": "places",
+    "handler": "list",
+    "method": "get",
+    "path": "places",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "places",
+    "handler": "detail",
+    "method": "get",
+    "path": "places/:id",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "places",
+    "handler": "reviews",
+    "method": "get",
+    "path": "places/:id/reviews",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "places",
+    "handler": "create",
+    "method": "post",
+    "path": "places",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "places",
+    "handler": "update",
+    "method": "patch",
+    "path": "places/:id",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "places",
+    "handler": "bookmark",
+    "method": "put",
+    "path": "places/:id/bookmark",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "places",
+    "handler": "visit",
+    "method": "put",
+    "path": "places/:id/visit",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "places",
+    "handler": "review",
+    "method": "put",
+    "path": "places/:id/review",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "places",
+    "handler": "remove_review",
+    "method": "delete",
+    "path": "places/:id/review",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "places",
+    "handler": "photo",
+    "method": "post",
+    "path": "places/:id/photos",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "places",
+    "handler": "remove_photo",
+    "method": "delete",
+    "path": "places/:id/photos/:photo_id",
+    "guards": ["AuthGuard"],
+    "idempotent": false
   }
 ]

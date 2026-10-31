@@ -2,6 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, type RideStatus } from '@prisma/client';
 import { PrismaService } from '../../infra/database/prisma.service.js';
 import { AppError } from '../../core/error.js';
+import {
+  rider_driver_select,
+  rider_vehicle_select,
+} from '../ride/ride.presentation.js';
+import type { RiderHistoryFilters } from './travel_context.type.js';
 
 export const RIDER_ACTIVE_STATUSES: RideStatus[] = [
   'REQUESTED',
@@ -128,18 +133,56 @@ export class TravelContextService {
     user_id: string,
     page: number,
     page_size: number,
-    section: 'all' | 'active' | 'past',
+    section:
+      'all' | 'active' | 'past' | 'completed' | 'cancelled' | 'unfulfilled',
+    filters: RiderHistoryFilters = { query: '' },
   ) {
-    const where: Prisma.RideWhereInput = {
+    const scope: Prisma.RideWhereInput = {
       rider_id: user_id,
+      status: { not: 'DRAFT' },
+    };
+    if (filters.query)
+      scope.OR = [
+        {
+          id: {
+            contains: filters.query.replace(/^#?(?:TRP-|TR-)/i, ''),
+            mode: 'insensitive',
+          },
+        },
+        { pickup_address: { contains: filters.query, mode: 'insensitive' } },
+        { dropoff_address: { contains: filters.query, mode: 'insensitive' } },
+      ];
+    if (filters.category_id)
+      scope.quotes = {
+        some: {
+          selected_at: { not: null },
+          vehicle_category_id: filters.category_id,
+        },
+      };
+    if (filters.month) {
+      const [year, month] = filters.month.split('-').map(Number);
+      const offset = 330 * 60000;
+      scope.created_at = {
+        gte: new Date(Date.UTC(year!, month! - 1, 1) - offset),
+        lt: new Date(Date.UTC(year!, month!, 1) - offset),
+      };
+    }
+    const where: Prisma.RideWhereInput = {
+      ...scope,
       status:
         section === 'active'
           ? { in: RIDER_ACTIVE_STATUSES }
           : section === 'past'
             ? { notIn: ['DRAFT', ...RIDER_ACTIVE_STATUSES] }
-            : { not: 'DRAFT' },
+            : section === 'completed'
+              ? 'COMPLETED'
+              : section === 'cancelled'
+                ? 'CANCELLED'
+                : section === 'unfulfilled'
+                  ? { in: ['NO_DRIVER_FOUND', 'EXPIRED'] }
+                  : { not: 'DRAFT' },
     };
-    const [rows, total] = await this.database.client.$transaction(
+    const [rows, total, groups] = await this.database.client.$transaction(
       [
         this.database.client.ride.findMany({
           where,
@@ -148,10 +191,52 @@ export class TravelContextService {
             final_fare: true,
             estimated_fare: true,
             currency: true,
-            payment: { select: { status: true } },
+            pickup_latitude: true,
+            pickup_longitude: true,
+            dropoff_latitude: true,
+            dropoff_longitude: true,
+            estimated_distance_m: true,
+            estimated_duration_s: true,
+            actual_distance_m: true,
+            actual_duration_s: true,
+            matched_at: true,
+            started_at: true,
+            completed_at: true,
+            cancelled_at: true,
+            cancel_reason: true,
+            collection_preference: true,
+            driver: { select: rider_driver_select },
+            vehicle: { select: rider_vehicle_select },
+            payment: {
+              select: {
+                status: true,
+                amount: true,
+                collection_method: true,
+                paid_at: true,
+                refunded_at: true,
+                provider: true,
+              },
+            },
+            settlement_review: {
+              select: {
+                kind: true,
+                status: true,
+                fee_amount: true,
+                resolution_note: true,
+              },
+            },
+            reviews: {
+              where: { reviewer_id: user_id },
+              select: { score: true },
+              take: 1,
+            },
             quotes: {
               where: { selected_at: { not: null } },
-              select: { category_snapshot: true },
+              select: {
+                category_snapshot: true,
+                vehicle_type: true,
+                vehicle_category_id: true,
+              },
               take: 1,
             },
           },
@@ -160,10 +245,37 @@ export class TravelContextService {
           take: page_size,
         }),
         this.database.client.ride.count({ where }),
+        this.database.client.ride.groupBy({
+          by: ['status'],
+          where: scope,
+          _count: { _all: true },
+        }),
       ],
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
-    return { rows, total, page, page_size };
+    const count = (statuses?: readonly string[]) =>
+      groups.reduce(
+        (sum, group) =>
+          sum +
+          (!statuses || statuses.includes(group.status)
+            ? group._count._all
+            : 0),
+        0,
+      );
+    return {
+      rows,
+      total,
+      page,
+      page_size,
+      counts: {
+        all: count(),
+        active: count(RIDER_ACTIVE_STATUSES),
+        completed: count(['COMPLETED']),
+        cancelled: count(['CANCELLED']),
+        unfulfilled: count(['NO_DRIVER_FOUND', 'EXPIRED']),
+        past: count() - count(RIDER_ACTIVE_STATUSES),
+      },
+    };
   }
   async list(user_id: string, page: number, page_size: number) {
     const where = { driver: { user_id } };

@@ -1,3 +1,7 @@
+import 'package:user/components/ui/liquid_glass.dart';
+import 'package:user/components/ui/button.dart';
+import 'package:user/features/rides/widgets/ride_glass.dart';
+import 'package:user/features/rides/ride_fare_summary.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -7,7 +11,7 @@ import 'package:user/features/rides/ride_display.dart';
 import 'package:user/features/support/widgets/support_contact_card.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
-class TripSafetySheet extends StatelessWidget {
+class TripSafetySheet extends StatefulWidget {
   final Map<String, dynamic> trip;
   final UserAppRepository repository;
   const TripSafetySheet({
@@ -16,83 +20,174 @@ class TripSafetySheet extends StatelessWidget {
     required this.repository,
   });
   @override
-  Widget build(BuildContext context) => SafeArea(
-    child: SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text(
-            'Trip safety & help',
-            style: TextStyle(fontSize: 23, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 12),
-          Text(staticTripSummary(trip)),
-          const SizedBox(height: 12),
-          SupportContactCard(repository: repository),
-          const Text(
-            'Phone and WhatsApp actions open your own apps. A support request does not dispatch emergency help.',
-          ),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.copy_outlined),
-            label: const Text('Copy trip summary'),
-            onPressed: () async {
-              await Clipboard.setData(
-                ClipboardData(text: staticTripSummary(trip)),
-              );
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Trip summary copied.')),
-                );
-              }
-            },
-          ),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.share_outlined),
-            label: const Text('Share summary on WhatsApp'),
-            onPressed: () async {
-              try {
-                if (await launchUrl(
-                  Uri.https('wa.me', '/', {'text': staticTripSummary(trip)}),
-                  mode: LaunchMode.externalApplication,
-                )) {
-                  return;
-                }
-              } catch (_) {}
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'WhatsApp could not open. Copy the summary instead.',
+  State<TripSafetySheet> createState() => _TripSafetySheetState();
+}
+
+class _TripSafetySheetState extends State<TripSafetySheet> {
+  late final _profile = widget.repository.profile();
+  Map<String, dynamic> get trip => widget.trip;
+  @override
+  Widget build(BuildContext context) => LiquidGlassScope(
+    child: SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Trip safety & help',
+                    style: TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w600,
+                      color: GlassTokens.ink,
                     ),
                   ),
+                ),
+                IconButton(
+                  tooltip: 'Close trip help',
+                  onPressed: () => Navigator.maybePop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            LiquidGlassSurface(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    rideReference(trip['id']),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: GlassTokens.accent,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: RideStatusBadge('${trip['status']}', concise: true),
+                  ),
+                  const SizedBox(height: 12),
+                  RideFact(
+                    'Pickup',
+                    '${trip['pickup_address'] ?? 'Not recorded'}',
+                  ),
+                  RideFact(
+                    'Drop-off',
+                    '${trip['dropoff_address'] ?? 'Not recorded'}',
+                  ),
+                  FutureBuilder<Map<String, dynamic>>(
+                    future: _profile,
+                    builder: (context, snapshot) {
+                      final person = snapshot.data ?? rideMap(trip['rider']);
+                      final name = [person['first_name'], person['last_name']]
+                          .where(
+                            (part) => part != null && '$part'.trim().isNotEmpty,
+                          )
+                          .join(' ');
+                      return RideFact(
+                        'Account',
+                        name.isEmpty
+                            ? 'Your signed-in account'
+                            : [
+                                name,
+                                if (person['phone_e164'] != null)
+                                  person['phone_e164'],
+                              ].join(' - '),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'This is a static trip summary, not live tracking. You choose when and with whom to share it.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.5,
+                      color: GlassTokens.muted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            SupportContactCard(repository: widget.repository),
+            const SizedBox(height: 12),
+            const Text(
+              'Phone and WhatsApp actions open your own apps. A support request does not dispatch emergency help.',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.5,
+                color: GlassTokens.muted,
+              ),
+            ),
+            const SizedBox(height: 18),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.copy_outlined, size: 19),
+              label: const Text('Copy trip summary'),
+              onPressed: () async {
+                await Clipboard.setData(
+                  ClipboardData(text: staticTripSummary(trip)),
                 );
-              }
-            },
-          ),
-          TextButton(
-            onPressed: () =>
-                Navigator.pushNamed(context, AppRoutes.emergencyContacts),
-            child: const Text('Manage emergency contacts'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              await showDialog<bool>(
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Trip summary copied.')),
+                  );
+                }
+              },
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.share_outlined, size: 19),
+              label: const Text('Share summary on WhatsApp'),
+              onPressed: () async {
+                try {
+                  if (await launchUrl(
+                    Uri.https('wa.me', '/', {'text': staticTripSummary(trip)}),
+                    mode: LaunchMode.externalApplication,
+                  )) {
+                    return;
+                  }
+                } catch (_) {}
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'WhatsApp could not open. Copy the summary instead.',
+                      ),
+                    ),
+                  );
+                }
+              },
+            ),
+            const SizedBox(height: 10),
+            TextButton(
+              onPressed: () =>
+                  Navigator.pushNamed(context, AppRoutes.emergencyContacts),
+              child: const Text('Manage emergency contacts'),
+            ),
+            const SizedBox(height: 10),
+            AppButton(
+              text: 'Report a trip issue or dispute',
+              onPressed: () => showDialog<bool>(
                 context: context,
                 builder: (_) => TripSupportDialog(
                   tripId: '${trip['id']}',
-                  repository: repository,
+                  repository: widget.repository,
                 ),
-              );
-            },
-            child: const Text('Report a trip issue'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pushNamed(context, AppRoutes.support),
-            child: const Text('View support requests'),
-          ),
-        ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextButton(
+              onPressed: () => Navigator.pushNamed(context, AppRoutes.support),
+              child: const Text('View support requests'),
+            ),
+          ],
+        ),
       ),
     ),
   );
@@ -154,7 +249,7 @@ class _TripSupportState extends State<TripSupportDialog> {
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: !_busy,
-    child: AlertDialog(
+    child: LiquidGlassDialog(
       title: const Text('Report a trip issue'),
       content: SingleChildScrollView(
         child: Form(

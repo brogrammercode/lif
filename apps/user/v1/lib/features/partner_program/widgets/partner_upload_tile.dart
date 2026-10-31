@@ -42,6 +42,7 @@ class PartnerUploadTile extends StatelessWidget {
   final String limitText;
   final bool compact;
   final String? label;
+  final bool showGuidance;
   const PartnerUploadTile({
     super.key,
     required this.files,
@@ -52,6 +53,7 @@ class PartnerUploadTile extends StatelessWidget {
     required this.limitText,
     this.compact = false,
     this.label,
+    this.showGuidance = true,
   });
 
   String get _choiceText => busy
@@ -195,15 +197,17 @@ class PartnerUploadTile extends StatelessWidget {
                         color: GlassTokens.ink,
                       ),
                     ),
-                    const SizedBox(height: 5),
-                    Text(
-                      limitText,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: GlassTokens.muted,
+                    if (showGuidance) ...[
+                      const SizedBox(height: 5),
+                      Text(
+                        limitText,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: GlassTokens.muted,
+                        ),
                       ),
-                    ),
+                    ],
                     if (onChoose != null) ...[
                       const SizedBox(height: 8),
                       Text(
@@ -341,11 +345,13 @@ class PartnerUploadTile extends StatelessWidget {
                   ),
                 ),
               ),
-            const SizedBox(height: 8),
-            Text(
-              limitText,
-              style: const TextStyle(fontSize: 11, color: GlassTokens.muted),
-            ),
+            if (showGuidance) ...[
+              const SizedBox(height: 8),
+              Text(
+                limitText,
+                style: const TextStyle(fontSize: 11, color: GlassTokens.muted),
+              ),
+            ],
           ],
         );
 }

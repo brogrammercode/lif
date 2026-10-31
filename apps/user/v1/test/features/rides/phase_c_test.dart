@@ -149,6 +149,9 @@ class HistoryRepo extends UserAppRepository {
   Future<Map<String, dynamic>> riderHistory({
     int page = 1,
     String section = 'all',
+    String query = '',
+    String? categoryId,
+    String? month,
   }) async {
     sections.add(section);
     pages.add(page);

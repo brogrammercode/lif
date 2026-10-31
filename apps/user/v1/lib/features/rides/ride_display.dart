@@ -90,5 +90,17 @@ String ridePaymentLabel(dynamic status) => switch (status) {
 String staticTripSummary(Map<String, dynamic> trip) {
   final vehicle = rideMap(trip['vehicle']),
       driver = rideMap(rideMap(trip['driver'])['user']);
-  return '1More trip ${trip['id']}\n${riderStatusLabel('${trip['status']}')}\nPickup: ${trip['pickup_address']}\nDrop-off: ${trip['dropoff_address']}\nDriver: ${driver['first_name'] ?? 'Not assigned'} ${driver['last_name'] ?? ''}\nVehicle: ${vehicle['make'] ?? ''} ${vehicle['model'] ?? ''} ${vehicle['plate_number'] ?? ''}\nShared summary only; this is not live tracking.';
+  final name = [
+    driver['first_name'],
+    driver['last_name'],
+  ].where((part) => part != null && '$part'.trim().isNotEmpty).join(' ');
+  final car = [
+    vehicle['make'],
+    vehicle['model'],
+    vehicle['plate_number'],
+  ].where((part) => part != null && '$part'.trim().isNotEmpty).join(' ');
+  final missing = trip['status'] == 'COMPLETED' || trip['matched_at'] != null
+      ? 'Not available'
+      : 'Not assigned';
+  return '1More trip ${trip['id']}\n${riderStatusLabel('${trip['status']}')}\nPickup: ${trip['pickup_address']}\nDrop-off: ${trip['dropoff_address']}\nDriver: ${name.isEmpty ? missing : name}\nVehicle: ${car.isEmpty ? missing : car}\nShared summary only; this is not live tracking.';
 }

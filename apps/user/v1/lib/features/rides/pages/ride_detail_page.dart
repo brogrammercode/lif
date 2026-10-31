@@ -1,13 +1,18 @@
+import 'package:user/components/ui/liquid_glass.dart';
+import 'package:user/components/ui/button.dart';
+import 'package:user/features/rides/widgets/ride_glass.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
-import 'package:user/core/color.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/core/route_observer.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/driver_operations/driver_operations.repo.dart';
 import 'package:user/features/driver_operations/widgets/trip_actions_panel.dart';
 import 'package:user/features/rides/ride_display.dart';
+import 'package:user/features/rides/ride_detail_intent.dart';
+import 'package:user/features/rides/ride_fare_summary.dart';
+import 'package:user/features/rides/widgets/ride_outcome.dart';
 import 'package:user/features/rides/widgets/rider_trip_map.dart';
 import 'package:user/features/rides/widgets/trip_cancellation_dialog.dart';
 import 'package:user/features/rides/widgets/trip_receipt_sheet.dart';
@@ -66,6 +71,8 @@ class _RiderTripState extends State<RideDetailPage>
   bool get _needsRoute =>
       ['DRIVER_ASSIGNED', 'DRIVER_ARRIVING', 'IN_PROGRESS'].contains(_status);
   bool _reading = false, _busy = false, _foreground = true, _routing = false;
+  bool _receiptOpen = false;
+  bool _initialReceipt = false;
   Completer<void>? _readDone;
   Timer? _poll, _tick;
   ModalRoute<dynamic>? _route;
@@ -115,14 +122,16 @@ class _RiderTripState extends State<RideDetailPage>
       if (route != null) appRouteObserver.subscribe(this, route);
     }
     if (_id == null) {
-      _id = route?.settings.arguments as String? ?? '';
+      final args = route?.settings.arguments;
+      _id = args is RideDetailIntent ? args.id : args as String? ?? '';
+      _initialReceipt = args is RideDetailIntent && args.receipt;
       unawaited(_load());
     }
   }
 
   Future<void> _load() async {
     if (_reading || !mounted || _id == null) return;
-    _reading = true;
+    setState(() => _reading = true);
     final done = _readDone = Completer<void>();
     try {
       final data = await _ops.context(_id!);
@@ -160,10 +169,20 @@ class _RiderTripState extends State<RideDetailPage>
       if (_needsRoute && _locationFresh) {
         unawaited(_refreshRoute());
       }
+      if (_initialReceipt && _status == 'COMPLETED') {
+        _initialReceipt = false;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(_receipt());
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _error = ApiResult.errorMessage(e));
     } finally {
-      _reading = false;
+      if (mounted) {
+        setState(() => _reading = false);
+      } else {
+        _reading = false;
+      }
       done.complete();
       _readDone = null;
     }
@@ -288,7 +307,7 @@ class _RiderTripState extends State<RideDetailPage>
   Future<void> _confirm() async {
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => LiquidGlassDialog(
         title: const Text('Confirm pickup and driver'),
         content: const Text(
           'Check the driver, vehicle and registration plate before confirming. Share the trip code only with the correct driver.',
@@ -331,24 +350,46 @@ class _RiderTripState extends State<RideDetailPage>
   void _safety() => showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
+    backgroundColor: Colors.transparent,
     useSafeArea: true,
     builder: (_) => FractionallySizedBox(
       heightFactor: .88,
-      child: TripSafetySheet(trip: _trip, repository: _repo),
+      child: LiquidGlassSheet(
+        child: TripSafetySheet(
+          trip: {
+            ..._trip,
+            'payment': _data?['payment'],
+            'settlement_review': _data?['review'],
+          },
+          repository: _repo,
+        ),
+      ),
     ),
   );
   Future<void> _receipt() async {
-    await _changed();
-    if (!mounted || _data == null) return;
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) => FractionallySizedBox(
-        heightFactor: .86,
-        child: TripReceiptSheet(data: _data!),
-      ),
-    );
+    if (_receiptOpen || _busy) return;
+    setState(() => _receiptOpen = true);
+    try {
+      await _changed();
+      if (!mounted ||
+          _data == null ||
+          _error != null ||
+          _status != 'COMPLETED') {
+        return;
+      }
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        useSafeArea: true,
+        builder: (_) => FractionallySizedBox(
+          heightFactor: .86,
+          child: TripReceiptSheet(data: _data!),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _receiptOpen = false);
+    }
   }
 
   void _home() =>
@@ -369,7 +410,8 @@ class _RiderTripState extends State<RideDetailPage>
 
   @override
   Widget build(BuildContext context) => AppPage(
-    title: 'Your ride',
+    glass: true,
+    title: 'Trip details',
     action: Wrap(
       children: [
         IconButton(
@@ -387,7 +429,7 @@ class _RiderTripState extends State<RideDetailPage>
     child: _data == null
         ? (_error != null
               ? AppLoadError(message: _error!, onRetry: _load)
-              : const Center(child: CircularProgressIndicator()))
+              : const RidesSkeleton(detail: true))
         : _content(),
   );
   Widget _content() {
@@ -401,17 +443,24 @@ class _RiderTripState extends State<RideDetailPage>
         );
     final location = rideMap(_data!['driver_location']),
         driverPoint = ridePoint(location['latitude'], location['longitude']);
-    final vehicle = rideMap(_trip['vehicle']),
-        driver = rideMap(rideMap(_trip['driver'])['user']),
-        quote = rideMap(_trip['quote']),
-        category = rideMap(quote['category_snapshot']);
+    final driver = rideMap(rideMap(_trip['driver'])['user']);
     final payment = rideMap(_data!['payment']);
-    final activeMap = _active && pickup != null && dropoff != null;
-    final map = activeMap
+    final needsActions =
+        _status != 'COMPLETED' ||
+        ![
+          'CAPTURED',
+          'CANCELLED',
+          'REFUNDED',
+          'PARTIALLY_REFUNDED',
+        ].contains(payment['status']) ||
+        _data!['review'] != null;
+    final hasMap = pickup != null && dropoff != null;
+    final activeMap = _active && hasMap;
+    final map = hasMap
         ? RiderTripMap(
             pickup: pickup,
             dropoff: dropoff,
-            driver: driverPoint,
+            driver: _active ? driverPoint : null,
             points: !_routeFresh || !_locationFresh || _remainingPoints.isEmpty
                 ? _basePoints
                 : _remainingPoints,
@@ -421,6 +470,76 @@ class _RiderTripState extends State<RideDetailPage>
     final body = ListView(
       padding: const EdgeInsets.only(bottom: 20),
       children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 6, bottom: 12),
+          child: SelectableText(
+            rideReference(_trip['id']),
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: GlassTokens.muted,
+            ),
+          ),
+        ),
+        if (!activeMap)
+          LiquidGlassSurface(
+            padding: const EdgeInsets.all(8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: SizedBox(
+                    height: 200,
+                    child: map == null
+                        ? const Center(
+                            child: Text(
+                              'Route preview unavailable',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: GlassTokens.muted,
+                              ),
+                            ),
+                          )
+                        : widget.mapBuilder?.call(map) ?? map,
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 14, 10, 10),
+                  child: Text(
+                    rideTime(_trip['created_at'] ?? _trip['requested_at']),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: GlassTokens.ink,
+                    ),
+                  ),
+                ),
+                if (hasMap)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                    child: Text(
+                      _basePoints.length >= 2
+                          ? 'Booked route preview'
+                          : 'Pickup and drop-off locations',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: GlassTokens.muted,
+                      ),
+                    ),
+                  ),
+                if (_status == 'COMPLETED')
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: RideStatusBadge(_status),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
         if (_error != null)
           AppCard(
             child: Column(
@@ -437,157 +556,103 @@ class _RiderTripState extends State<RideDetailPage>
               ],
             ),
           ),
+        if (_reading && _data != null)
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text(
+              'Updating trip...',
+              style: TextStyle(fontSize: 12, color: GlassTokens.muted),
+            ),
+          ),
         const SizedBox(height: 10),
-        AppCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                riderStatusLabel(_status),
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              if (_status == 'SEARCHING' || _status == 'REQUESTED') ...[
+        if (['CANCELLED', 'NO_DRIVER_FOUND', 'EXPIRED'].contains(_status)) ...[
+          RideOutcomePanel(trip: _trip, payment: payment),
+          const SizedBox(height: 14),
+        ],
+        if (_active || _status == 'DRAFT')
+          AppCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Text(
-                  'Searching for ${_elapsed(_trip['requested_at'])}${_data!['search_radius_km'] == null ? '' : ' · ${_data!['search_radius_km']} km search area'}. No fare is collected before assignment.',
-                ),
-                const Text(
-                  'We expand the search while drivers remain unavailable. A booking is confirmed when a driver accepts.',
-                ),
-              ],
-              if (_status == 'DRIVER_WAITING')
-                Text(
-                  'Waiting ${_elapsed(_trip['arrived_at'])} · ${_data!['free_wait_minutes'] ?? 5} minutes free pickup waiting.',
-                ),
-              if (_needsRoute && _routeFresh && _locationFresh)
-                Text(
-                  '${rideDuration(_routeData!['duration_s'])} ${_status == 'IN_PROGRESS' ? 'to drop-off' : 'to pickup'} · ${rideDistance(_routeData!['distance_m'])} remaining',
+                  riderStatusLabel(_status),
                   style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              if (_needsRoute && (!_routeFresh || !_locationFresh))
-                const Text(
-                  'A current route estimate is unavailable. Contact the driver or Support if needed.',
-                ),
-              if (_routeError != null && _needsRoute)
-                TextButton(
-                  onPressed: _routing ? null : () => _refreshRoute(force: true),
-                  child: Text('$_routeError · Retry route'),
-                ),
-              if (driverPoint != null)
-                Text(
-                  '${_locationFresh ? 'Driver location updated' : 'Last known driver location'} ${rideTime(location['captured_at'])}',
-                ),
-              if (_status == 'NO_DRIVER_FOUND')
-                const Text(
-                  'No driver accepted this request. You have not been charged. Try a fresh quote or change your route/category.',
-                ),
-              if (_status == 'EXPIRED')
-                const Text(
-                  'This request has expired. Get a fresh quote before requesting another ride.',
-                ),
-              if (_status == 'CANCELLED')
-                Text(
-                  '${_trip['cancel_reason'] ?? 'The ride was cancelled.'}\nAny proposed fee is reviewed separately and can be disputed below.',
-                ),
-              if (_status == 'DRAFT')
-                const Text(
-                  'This quote was not booked. Choose fresh ride options before requesting a driver.',
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        AppCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Pickup',
-                style: const TextStyle(color: AppColors.textSecondary),
-              ),
-              Text(
-                '${_trip['pickup_address']}',
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'Drop-off',
-                style: const TextStyle(color: AppColors.textSecondary),
-              ),
-              Text(
-                '${_trip['dropoff_address']}',
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              if ('${_trip['rider_note'] ?? ''}'.isNotEmpty)
-                Text('Pickup instructions: ${_trip['rider_note']}'),
-              const Divider(),
-              Text(
-                '${category['name'] ?? quote['vehicle_type'] ?? 'Ride'} · ${rideDistance(_trip['estimated_distance_m'])} quoted distance',
-              ),
-              Text(
-                '${_status == 'COMPLETED' ? 'Final fare' : 'Quoted fare'} ${rideMoney(_trip['final_fare'] ?? _trip['estimated_fare'])}',
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              if (driver.isNotEmpty) ...[
-                const Divider(),
-                Row(
-                  children: [
-                    ClipOval(
-                      child: driver['avatar_url'] is String
-                          ? Image.network(
-                              '${driver['avatar_url']}',
-                              width: 40,
-                              height: 40,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, error, stack) =>
-                                  const CircleAvatar(
-                                    child: Icon(Icons.person_outline),
-                                  ),
-                            )
-                          : const CircleAvatar(
-                              child: Icon(Icons.person_outline),
-                            ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        '${driver['first_name'] ?? ''} ${driver['last_name'] ?? ''}',
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                    ),
-                  ],
-                ),
-                Text(
-                  '${vehicle['make'] ?? ''} ${vehicle['model'] ?? ''} · ${vehicle['color'] ?? ''}',
-                ),
-                Text(
-                  '${vehicle['plate_number'] ?? 'Vehicle details unavailable'}',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
+                if (_status == 'SEARCHING' || _status == 'REQUESTED') ...[
+                  Text(
+                    'Searching for ${_elapsed(_trip['requested_at'])}${_data!['search_radius_km'] == null ? '' : ' · ${_data!['search_radius_km']} km search area'}. No fare is collected before assignment.',
                   ),
-                ),
+                  const Text(
+                    'We expand the search while drivers remain unavailable. A booking is confirmed when a driver accepts.',
+                  ),
+                ],
+                if (_status == 'DRIVER_WAITING')
+                  Text(
+                    'Waiting ${_elapsed(_trip['arrived_at'])} · ${_data!['free_wait_minutes'] ?? 5} minutes free pickup waiting.',
+                  ),
+                if (_needsRoute && _routeFresh && _locationFresh)
+                  Text(
+                    '${rideDuration(_routeData!['duration_s'])} ${_status == 'IN_PROGRESS' ? 'to drop-off' : 'to pickup'} · ${rideDistance(_routeData!['distance_m'])} remaining',
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                if (_needsRoute && (!_routeFresh || !_locationFresh))
+                  const Text(
+                    'A current route estimate is unavailable. Contact the driver or Support if needed.',
+                  ),
+                if (_routeError != null && _needsRoute)
+                  TextButton(
+                    onPressed: _routing
+                        ? null
+                        : () => _refreshRoute(force: true),
+                    child: Text('$_routeError · Retry route'),
+                  ),
+                if (driverPoint != null)
+                  Text(
+                    '${_locationFresh ? 'Driver location updated' : 'Last known driver location'} ${rideTime(location['captured_at'])}',
+                  ),
+                if (_status == 'NO_DRIVER_FOUND')
+                  const Text(
+                    'No driver accepted this request. You have not been charged. Try a fresh quote or change your route/category.',
+                  ),
+                if (_status == 'EXPIRED')
+                  const Text(
+                    'This request has expired. Get a fresh quote before requesting another ride.',
+                  ),
+                if (_status == 'CANCELLED')
+                  Text(
+                    '${_trip['cancel_reason'] ?? 'The ride was cancelled.'}\nAny proposed fee is reviewed separately and can be disputed below.',
+                  ),
+                if (_status == 'DRAFT')
+                  const Text(
+                    'This quote was not booked. Choose fresh ride options before requesting a driver.',
+                  ),
               ],
-            ],
+            ),
           ),
-        ),
         const SizedBox(height: 12),
-        if ([
-              'DRIVER_ASSIGNED',
-              'DRIVER_ARRIVING',
-              'DRIVER_WAITING',
-              'IN_PROGRESS',
-              'COMPLETED',
-            ].contains(_status) ||
-            _data!['review'] != null)
+        RideTripFacts(_trip),
+        const SizedBox(height: 14),
+        RideCostDetails(
+          trip: _trip,
+          payment: payment,
+          review: rideMap(_data!['review']),
+        ),
+        const SizedBox(height: 14),
+        if (needsActions &&
+            ([
+                  'DRIVER_ASSIGNED',
+                  'DRIVER_ARRIVING',
+                  'DRIVER_WAITING',
+                  'IN_PROGRESS',
+                  'COMPLETED',
+                ].contains(_status) ||
+                _data!['review'] != null))
           TripActionsPanel(
             rideId: _id!,
             externalContext: _data,
@@ -603,9 +668,10 @@ class _RiderTripState extends State<RideDetailPage>
           ),
         if (_status == 'COMPLETED') ...[
           const SizedBox(height: 8),
-          FilledButton(
-            onPressed: _busy ? null : _receipt,
-            child: const Text('View receipt'),
+          AppButton(
+            onPressed: _busy || _receiptOpen ? null : _receipt,
+            isLoading: _receiptOpen && _reading,
+            text: 'View receipt',
           ),
           if (_trip['review'] == null && driver.isNotEmpty)
             OutlinedButton(
@@ -613,33 +679,41 @@ class _RiderTripState extends State<RideDetailPage>
               child: const Text('Rate your ride'),
             ),
           if (_trip['review'] != null)
-            Text(
-              'Your rating: ${rideMap(_trip['review'])['score']}/5. Thank you for your feedback.',
+            const Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: Text(
+                'Your rating has been saved. Thank you for your feedback.',
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.5,
+                  color: GlassTokens.muted,
+                ),
+              ),
             ),
-          Text(
-            'Collection: ${ridePaymentLabel(payment['status'])}. Completion and payment receipt are recorded separately.',
+          Padding(
+            padding: const EdgeInsets.only(top: 8, bottom: 12),
+            child: Text(
+              'Collection: ${ridePaymentLabel(payment['status'])}. Completion and payment receipt are recorded separately.',
+              style: const TextStyle(
+                fontSize: 12,
+                height: 1.5,
+                color: GlassTokens.muted,
+              ),
+            ),
           ),
         ],
         TextButton(
           onPressed: _safety,
           child: const Text('Safety, sharing & trip support'),
         ),
-        ExpansionTile(
-          title: const Text('Trip activity'),
-          children: [
-            for (final event in rideMaps(_trip['events']))
-              ListTile(
-                dense: true,
-                title: Text('${event['event_type']}'.replaceAll('_', ' ')),
-                subtitle: Text(rideTime(event['created_at'])),
-              ),
-          ],
-        ),
+        RideActivityTimeline(_trip),
         if (!_active) ...[
+          const SizedBox(height: 16),
           OutlinedButton(
             onPressed: _busy ? null : _rebook,
             child: const Text('Rebook with a fresh quote'),
           ),
+          const SizedBox(height: 10),
           OutlinedButton(onPressed: _home, child: const Text('Return to home')),
         ],
         if (_busy) const LinearProgressIndicator(),
@@ -661,10 +735,10 @@ class _RiderTripState extends State<RideDetailPage>
               Positioned(
                 right: 10,
                 bottom: 10,
-                child: IconButton.filledTonal(
+                child: LiquidGlassIconButton(
                   tooltip: 'Show route and driver',
                   onPressed: () => setState(() => _recenter++),
-                  icon: const Icon(Icons.my_location),
+                  icon: Icons.my_location,
                 ),
               ),
             ],
@@ -693,7 +767,7 @@ class _RatingState extends State<_RatingDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => LiquidGlassDialog(
     title: const Text('Rate your ride'),
     content: SingleChildScrollView(
       child: Column(

@@ -78,7 +78,11 @@ void main() {
         ).canPop(),
         isFalse,
       );
-      await tester.scrollUntilVisible(find.text('Return to home'), 250);
+      await tester.scrollUntilVisible(
+        find.text('Return to home'),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Return to home'));
       await tester.pumpAndSettle();
@@ -94,9 +98,13 @@ void main() {
       await tester.pumpWidget(recoveredRide(repo));
       await tester.pumpAndSettle();
       expect(repo.requests, 1);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       await tester.pump(const Duration(seconds: 16));
       expect(repo.requests, 1);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pumpAndSettle();
       expect(repo.requests, 2);

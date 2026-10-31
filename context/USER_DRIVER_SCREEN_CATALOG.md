@@ -164,7 +164,7 @@ flowchart TD
 | `/profile` | `ProfilePage` | Personal account details | Shared |
 | `/rides` | `RidesPage` | Rider ride history | Rider; also reachable through shared Settings |
 | `/ride-detail` | `RideDetailPage` | Rider ride details; receives a ride ID argument | Rider |
-| `/saved-places` | `SavedPlacesPage` | Home/work/other saved addresses | Shared, rider-oriented |
+| `/saved-places` | `SavedPlacesPage` | Shared place map, bookmarks, visits, photos and reviews | Shared, both modes |
 | `/notifications` | `NotificationsPage` | In-app notification list | Shared |
 | `/payment-methods` | `PaymentMethodsPage` | Saved methods and cash setup | Shared, rider-oriented |
 | `/emergency-contacts` | `EmergencyContactsPage` | Emergency contact CRUD | Shared |
@@ -315,11 +315,11 @@ flowchart TD
 
 **Status:** CURRENT — CONNECTED. **Route:** `/notifications`.
 
-**What is shown:** cards with a type icon, title, body, creation date, unread styling and unread dot. Type styling includes ride, payment, safety and generic notices.
+**What is shown:** a glass unread summary, All/Unread filters and compact cards with type icon/label, title, body, local time and unread styling. Type styling covers ride, account, payment, safety, promotion and system notices.
 
-**Actions:** fetch `/me/notifications`, pull to refresh, tap an unread item to post its `/read` action and refresh. Empty state says the user is caught up; failures have retry.
+**Actions:** fetch `/me/notifications`, pull to refresh, tap an unread item to persist its `/read` action, then open a connected ride, driver-account or support-request target when that target exists. Empty/filter-empty states are distinct; refresh keeps the loaded inbox visible.
 
-**Gaps:** tapping a notification does not currently navigate to its ride/application/vehicle. No notification-detail page, settings, mark-all-read control, or connected mobile push-registration/background delivery flow is present in the inspected mobile sources. Firebase initialization alone does not implement push notifications. The Home bell now opens the Notifications page; notification-specific deep links remain pending.
+**Gaps:** not every notification data shape has a destination. There is no notification-detail page, preference center, mark-all-read control, or connected mobile push-registration/background delivery flow. Firebase initialization alone does not implement push notifications. The Home bell opens this inbox.
 
 **Next:** notification targets, delivery channels, event deduplication, foreground/background behavior and preferences. Keep the existing list rather than creating a second unrelated inbox.
 
@@ -329,11 +329,11 @@ flowchart TD
 
 **Status:** CURRENT — CONNECTED. **Route:** `/emergency-contacts`.
 
-**List UI:** person icon, name, international phone number, relationship, edit and delete actions, plus Add in the header. Supports loading, error/retry, empty state and pull-to-refresh.
+**List UI:** safety-purpose intro, contact count and glass identity cards with initials, international phone number and relationship. Each contact opens a call/edit/remove action sheet. Supports matched skeleton, error/retry, empty state, retained-data refresh and pull-to-refresh.
 
-**Create/edit dialog:** name, phone number, relationship, Cancel and Add/Save. The local save check requires a non-empty name and a phone beginning with `+`; server validation remains authoritative.
+**Create/edit dialog:** full name, E.164 phone and optional relationship, with Cancel and Add/Save. Client validation matches the server's `+` followed by 8–15 digits contract; server validation remains authoritative.
 
-**Processing:** CRUD under `/me/emergency-contacts`; refresh after changes. The displayed delete action directly invokes deletion; a separate confirmation flow is not shown in this page's source.
+**Processing:** current-user CRUD under `/me/emergency-contacts`; refresh after changes. Removal has an explicit glass confirmation and phone calling hands off to the installed telephone app.
 
 **Gaps:** having contacts saved does not currently implement SOS dispatch, live journey sharing, automated calls, emergency escalation or contact delivery confirmation.
 
@@ -345,9 +345,9 @@ flowchart TD
 
 **Status:** CURRENT — CONNECTED. **Route:** `/support`.
 
-**List UI:** ticket subject, status, creation date, conversation icon and chevron. Empty/error/loading states and pull-to-refresh are present. Selecting a ticket passes its ID to `/support-ticket`.
+**List UI:** support-purpose intro, configured direct-support channels, then request cards with subject, short supporting reference, message count, last message, status, priority and update time. Empty/error/matched-skeleton states and retained-data pull-to-refresh are present. Selecting a ticket passes its opaque ID to `/support-ticket`.
 
-**New-request dialog:** subject and multiline message; Cancel and Send. Both text values must be non-empty. The request currently sends priority NORMAL, then refreshes the list.
+**New-request dialog:** subject, explicit Low/Normal/High/Urgent priority and multiline message. Required values and API length limits are validated. The open form retains one request idempotency key across a failed retry, then refreshes the list after success.
 
 **Gaps:** no issue-category picker, attached image/document input, automatic ride association in this dialog, FAQ search, urgent-help workflow or SLA display. It should not be presented as an emergency-response service.
 
@@ -359,11 +359,11 @@ flowchart TD
 
 **Status:** CURRENT — CONNECTED. **Route:** `/support-ticket`, argument: ticket ID.
 
-**What is shown:** subject/status header card, message cards with body and timestamp, text composer and Send action. Fetches the ticket and message collection, then posts to `/support/tickets/:id/messages` and refreshes after sending.
+**What is shown:** subject, short supporting reference, opened time, status and priority header; aligned You/1More Support glass conversation bubbles; and a stable multiline composer. Fetches the ticket/current account, posts to `/support/tickets/:id/messages` and refreshes without hiding the conversation.
 
 **States:** loading, error/retry, message sending and send failure. Empty text does not submit.
 
-**Gaps:** no real-time message transport, delivered/read indicators, attachment preview, clear conversation-side treatment, or explicit reopen/close control in the current UI. Resume refresh, closed-ticket rules and concurrent-send behavior need review.
+**Gaps:** no real-time transport, delivered/read indicators, attachment preview or explicit close control. Replying to a resolved/closed request follows the API's current reopen-on-message behavior and the UI states that consequence.
 
 **Next:** maintain the same ticket system while adding role-aware sender labels, attachment support, contextual evidence and read state.
 
@@ -373,13 +373,13 @@ flowchart TD
 
 **Status:** CURRENT — PARTIAL; cash setup is connected. **Route:** `/payment-methods`.
 
-**What is shown:** saved payment method cards, type/label, a DEFAULT indicator when returned by the server, delete action and Add header action. The renderer can display card last-four/brand and UPI labels if present in returned data.
+**What is shown:** launch payment policy, Cash/Direct UPI/zero-commission context, the difference between per-ride direct collection and provider-managed online collection, then saved method cards with safe labels, DEFAULT status and confirmed removal.
 
-**What Add actually does:** shows a notice that card/UPI/wallet require a configured provider. The available confirmation is Cash, which submits `{type: CASH, is_default: true}` to `/me/payment-methods/setup`.
+**What Add actually does:** a confirmed Cash setup submits `{type: CASH, is_default: true}` to `/me/payment-methods/setup`; the control disappears when Cash already exists. Direct UPI is selected per supported ride and pays the assigned driver's registered UPI, so this page does not collect a rider UPI credential. Card/wallet collection stays visibly unavailable until a provider is connected.
 
 **States:** loading, empty list, API failure, refresh, creation/deletion. There is no working card-entry, UPI authorization, wallet top-up or provider checkout screen here.
 
-**Next:** decide supported rider payments and integrate a provider before exposing digital payment actions. Driver payout accounts and cash owed to the platform need a separate financial model and screens.
+**Next:** integrate a provider before exposing in-app card/wallet collection. Driver payout accounts and reviewed cancellation/no-show obligations remain separate financial models and screens.
 
 **Source:** [payment methods](../apps/user/v1/lib/features/payments/pages/payment_methods_page.dart).
 
@@ -527,19 +527,21 @@ These are logical UI surfaces, not separately registered pages. Each action need
 
 **Source:** [rides](../apps/user/v1/lib/features/rides/pages/rides_page.dart).
 
-### R09 — Saved places + create/edit
+### R09 — Shared saved-place map, detail and map picker
 
 **Status:** CURRENT — CONNECTED. **Route:** `/saved-places`.
 
-**List UI:** saved label, address, place icon, edit/delete controls and header Add. Empty, error, loading and pull-to-refresh states are implemented.
+**Map/list UI:** full MapLibre map, coordinate-anchored markers, floating liquid-glass search and Explore/Saved/Visited plus place-type filters. Equal-size bottom cards have side peeks, actual photo/name/address/type/rating/visit context and no scaling. Pin taps and card swipes select the same record; carousel selection retains map zoom and frames the pin above the cards. Pagination bounds the visible markers/cards. Refresh retains the current query's rows, while changed queries clear old results and discard outdated responses. Loading/error/empty/retry states use glass surfaces/skeletons. Short screens and large text have an accessible scrollable layout.
 
-**Create/edit fields:** label, Home/Work/Other place type, and address search. Search starts after three characters with a 450 ms debounce; a selected suggestion supplies latitude/longitude. Save requires a label and selected coordinates. It sends label, address, coordinates and place type to `/me/saved-places` or the item PATCH endpoint.
+**Add/edit page:** separate map picker with search, a center selection pin and a floating image/location preview. Address search starts after three characters and three seconds of pause; suggestions appear after the keyboard is dismissed. Map idle selection resolves after settling and ignores stale results. The following glass form contains name, address, Home/Work/Other, optional description/public phone/website and up to three selected photos. Local photos remain local until final Save, then upload sequentially as centrally converted WebP with stable retry keys. Each photo is JPEG/PNG/WebP up to 3 MB; a shared place has a ten-photo maximum. Back to map retains form values; an already saved place can finish without failed remaining photos. Only the original contributor edits place information, with a revision check.
 
-**Actions:** add, edit and direct delete; updates refresh the list. Home also reads saved places to place map features.
+**Detail page:** map → name/address/type/info → photo carousel → actual visitor avatars and statement → Plot on map and Mark visited/Visited → Directions, optional contributed Call/Website, Copy address, manual Share, contributor Edit → review cards and bounded review pagination. Photos/reviews/visits come from stored member contributions, rather than reference examples. A member saves/unsaves their bookmark, toggles their self-reported visit, creates/edits/removes their own review and manages their own contributed photos.
 
-**Gaps:** no full reusable map-confirmation picker, travel shortcut behavior from every saved row, duplicate-address handling or recent search history. Address text and chosen coordinate invalidation need consistent validation as this is upgraded.
+**Directions page:** an in-app MapLibre driving-route preview from a permitted device location, with actual origin/destination, route geometry and estimated distance/duration. Missing permissions/services expose retry/settings actions. This page preserves the account's rider/driver mode and does not start a trip or change availability.
 
-**Source:** [saved places](../apps/user/v1/lib/features/saved_places/pages/saved_places_page.dart).
+**Data and rollout:** new place content is shared with signed-in members; bookmarks, visits and review editing remain account-scoped. Previous personal saves remain accessible under Previous saves and can be explicitly saved through the shared picker or removed. Shared bookmarks remain compatible with Home's saved-place features. API V2 `/places` uses bounded queries and validated writes, deduplicated place identity, creator/version checks, atomic action audit and idempotent photo retries. Apply `202610310001_shared_places` before the new API/app screens. Native maps, picking and external intents retain device acceptance in [the implementation tracker](SAVED_PLACES_GLASS_REWORK.md).
+
+**Source:** [map/list](../apps/user/v1/lib/features/saved_places/pages/saved_places_page.dart), [detail](../apps/user/v1/lib/features/saved_places/pages/place_detail_page.dart), [picker/form](../apps/user/v1/lib/features/saved_places/pages/place_picker_page.dart), [directions](../apps/user/v1/lib/features/saved_places/pages/place_directions_page.dart).
 
 ---
 

@@ -13,6 +13,7 @@ import { AuthGuard } from '../../core/guards.js';
 import { send_success } from '../../core/response.js';
 import { ride_list_schema } from '../ride/ride.type.js';
 import { TravelContextService } from './travel_context.service.js';
+import { rider_history_schema } from './travel_context.type.js';
 
 @Controller()
 @UseGuards(AuthGuard)
@@ -46,14 +47,7 @@ export class TravelContextController {
     @Query() query: unknown,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const input = z
-      .object({
-        page: z.coerce.number().int().min(1).max(1000000).default(1),
-        page_size: z.coerce.number().int().min(1).max(100).default(20),
-        section: z.enum(['all', 'active', 'past']).default('all'),
-      })
-      .strict()
-      .parse(query);
+    const input = rider_history_schema.parse(query);
     return send_success(
       res,
       await this.service.rider_history(
@@ -61,6 +55,7 @@ export class TravelContextController {
         input.page,
         input.page_size,
         input.section,
+        input,
       ),
       'Rider history loaded',
     );
