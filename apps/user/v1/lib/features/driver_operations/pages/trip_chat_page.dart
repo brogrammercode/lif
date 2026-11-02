@@ -1,14 +1,17 @@
 import 'dart:async';
 import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
-import 'package:user/core/color.dart';
+import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/features/auth/auth.repo.dart';
 import 'package:user/features/driver_operations/driver_operations.repo.dart';
+import 'package:user/features/driver_operations/widgets/driver_glass.dart';
 
 class TripChatPage extends StatefulWidget {
   const TripChatPage({super.key});
+
   @override
   State<TripChatPage> createState() => _TripChatPageState();
 }
@@ -20,6 +23,7 @@ class _TripChatPageState extends State<TripChatPage> {
   List<Map<String, dynamic>> _messages = [];
   Timer? _poll;
   bool _loading = true, _sending = false, _refreshing = false;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -47,10 +51,10 @@ class _TripChatPageState extends State<TripChatPage> {
           _loading = false;
         });
       }
-    } catch (e) {
+    } catch (error) {
       if (mounted) {
         setState(() {
-          _error = ApiResult.errorMessage(e);
+          _error = ApiResult.errorMessage(error);
           _loading = false;
         });
       }
@@ -77,11 +81,11 @@ class _TripChatPageState extends State<TripChatPage> {
       _pendingText = null;
       _pendingKey = null;
       await _load();
-    } catch (e) {
+    } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(e))));
+        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
       }
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -97,17 +101,36 @@ class _TripChatPageState extends State<TripChatPage> {
 
   @override
   Widget build(BuildContext context) => AppPage(
+    glass: true,
     title: 'Trip chat',
     child: Column(
       children: [
-        const Text(
-          'Messages are shared only with the other person on this trip. The latest 100 messages are shown.',
+        const DriverNotice(
+          icon: Icons.lock_outline_rounded,
+          message:
+              'Messages stay between you and the other person on this trip. The latest 100 are shown.',
         ),
         if (_error != null)
-          TextButton(onPressed: _load, child: Text('$_error · Retry')),
+          Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: DriverNotice(
+              icon: Icons.sync_problem_rounded,
+              message: _error!,
+              error: true,
+              actionLabel: 'Retry',
+              onAction: _load,
+            ),
+          ),
+        const SizedBox(height: 10),
         Expanded(
           child: _loading
-              ? const Center(child: CircularProgressIndicator())
+              ? const DriverListSkeleton(rows: 5)
+              : _messages.isEmpty
+              ? const AppEmptyState(
+                  icon: Icons.forum_outlined,
+                  title: 'No messages yet',
+                  subtitle: 'Use chat for clear trip coordination.',
+                )
               : ListView.builder(
                   reverse: true,
                   itemCount: _messages.length,
@@ -118,48 +141,49 @@ class _TripChatPageState extends State<TripChatPage> {
                       alignment: own
                           ? Alignment.centerRight
                           : Alignment.centerLeft,
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(vertical: 4),
-                        padding: const EdgeInsets.all(12),
+                      child: ConstrainedBox(
                         constraints: BoxConstraints(
                           maxWidth: MediaQuery.sizeOf(context).width * .76,
                         ),
-                        decoration: BoxDecoration(
-                          color: own ? AppColors.primaryGreen : Colors.white,
-                          borderRadius: BorderRadius.circular(14),
+                        child: LiquidGlassSurface(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          padding: const EdgeInsets.all(12),
+                          dark: own,
+                          child: Text(
+                            '${message['body']}',
+                            style: TextStyle(
+                              color: own ? Colors.white : GlassTokens.ink,
+                            ),
+                          ),
                         ),
-                        child: Text('${message['body']}'),
                       ),
                     );
                   },
                 ),
         ),
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _text,
-                maxLength: 1000,
-                minLines: 1,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                  hintText: 'Message',
-                  counterText: '',
+        LiquidGlassSurface(
+          padding: const EdgeInsets.fromLTRB(8, 4, 6, 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _text,
+                  maxLength: 1000,
+                  minLines: 1,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    hintText: 'Message',
+                    counterText: '',
+                  ),
                 ),
               ),
-            ),
-            IconButton(
-              onPressed: _sending ? null : _send,
-              tooltip: 'Send',
-              icon: _sending
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.send),
-            ),
-          ],
+              LiquidGlassIconButton(
+                onPressed: _sending ? null : _send,
+                tooltip: _sending ? 'Sending message' : 'Send message',
+                icon: _sending ? Icons.more_horiz_rounded : Icons.send_rounded,
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 12),
       ],

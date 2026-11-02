@@ -1,18 +1,23 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:user/components/ui/app_page.dart';
+import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/core/route_observer.dart';
 import 'package:user/core/routes.dart';
-import 'package:user/features/driver_vehicles/widgets/driver_vehicle_gate.dart';
 import 'package:user/features/driver_operations/driver_operations.repo.dart';
 import 'package:user/features/driver_operations/driver_tracking.service.dart';
+import 'package:user/features/driver_operations/widgets/driver_glass.dart';
 import 'package:user/features/driver_operations/widgets/driver_map.dart';
+import 'package:user/features/driver_vehicles/widgets/driver_vehicle_gate.dart';
+import 'package:user/features/rides/ride_display.dart';
 
 class DriverHomePage extends StatelessWidget {
   const DriverHomePage({super.key});
+
   @override
   Widget build(BuildContext context) =>
       const DriverVehicleGate(child: DriverHomeContent());
@@ -20,6 +25,7 @@ class DriverHomePage extends StatelessWidget {
 
 class DriverHomeContent extends StatefulWidget {
   const DriverHomeContent({super.key});
+
   @override
   State<DriverHomeContent> createState() => _DriverHomeState();
 }
@@ -34,6 +40,7 @@ class _DriverHomeState extends State<DriverHomeContent>
   Completer<void>? _readDone;
   ModalRoute<dynamic>? _route;
   bool _loading = false, _busy = false, _opening = false, _foreground = true;
+
   @override
   void initState() {
     super.initState();
@@ -59,6 +66,7 @@ class _DriverHomeState extends State<DriverHomeContent>
 
   @override
   void didPopNext() => unawaited(_load());
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _foreground = state == AppLifecycleState.resumed;
@@ -76,8 +84,11 @@ class _DriverHomeState extends State<DriverHomeContent>
         _data = data;
         _error = null;
       });
-      final current = data['current_trip'] as Map?;
-      if (current != null && !_opening && _route?.isCurrent == true) {
+      final current = rideMap(data['current_trip']);
+      if (current.isNotEmpty &&
+          current['id'] != null &&
+          !_opening &&
+          _route?.isCurrent == true) {
         _opening = true;
         unawaited(
           Navigator.pushReplacementNamed(
@@ -91,14 +102,14 @@ class _DriverHomeState extends State<DriverHomeContent>
       if (data['availability'] == 'AVAILABLE' && data['eligible'] == true) {
         try {
           await _tracking.ensureStarted();
-        } catch (e) {
-          if (mounted) setState(() => _error = ApiResult.errorMessage(e));
+        } catch (error) {
+          if (mounted) setState(() => _error = ApiResult.errorMessage(error));
         }
       } else if (!['EN_ROUTE', 'ON_TRIP'].contains(data['availability'])) {
         await _tracking.stop();
       }
-    } catch (e) {
-      if (mounted) setState(() => _error = ApiResult.errorMessage(e));
+    } catch (error) {
+      if (mounted) setState(() => _error = ApiResult.errorMessage(error));
     } finally {
       _loading = false;
       readDone.complete();
@@ -114,40 +125,38 @@ class _DriverHomeState extends State<DriverHomeContent>
       if (!mounted) return;
       await action();
       await _load();
-    } catch (e) {
+    } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(e))));
+        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  Future<void> _toggle() async {
-    await _act(() async {
-      final online = _data?['availability'] == 'AVAILABLE';
-      if (online) {
-        await _repo.availability(false);
-        await _tracking.stop();
-      } else {
-        try {
-          await _tracking.ensureStarted();
-          if (!mounted) return;
-          if (!_tracking.running) {
-            throw StateError(
-              'Location tracking stopped. Refresh location before going online.',
-            );
-          }
-          await _repo.availability(true);
-        } catch (_) {
-          await _tracking.stop(goOffline: true);
-          rethrow;
-        }
+  Future<void> _toggle() => _act(() async {
+    final online = _data?['availability'] == 'AVAILABLE';
+    if (online) {
+      await _repo.availability(false);
+      await _tracking.stop();
+      return;
+    }
+    try {
+      await _tracking.ensureStarted();
+      if (!mounted) return;
+      if (!_tracking.running) {
+        throw StateError(
+          'Location tracking stopped. Refresh location before going online.',
+        );
       }
-    });
-  }
+      await _repo.availability(true);
+    } catch (_) {
+      await _tracking.stop(goOffline: true);
+      rethrow;
+    }
+  });
 
   @override
   void dispose() {
@@ -157,257 +166,332 @@ class _DriverHomeState extends State<DriverHomeContent>
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    body: Stack(
-      children: [
-        ValueListenableBuilder<Position?>(
-          valueListenable: _tracking.position,
-          builder: (context, fix, _) => DriverMap(
-            location: fix == null ? null : LatLng(fix.latitude, fix.longitude),
-            heading: fix?.heading ?? 0,
-            follow: false,
+  Widget _topBar() => SafeArea(
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          LiquidGlassIconButton(
+            tooltip: 'Settings',
+            onPressed: () => Navigator.pushNamed(context, AppRoutes.settings),
+            icon: Icons.person_outline_rounded,
           ),
-        ),
-        SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
+          const SizedBox(width: 12),
+          Expanded(
+            child: LiquidGlassSurface(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Driver mode',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Semantics(
+                    label: _data?['availability'] == 'AVAILABLE'
+                        ? 'Driver is online'
+                        : 'Driver is offline',
+                    child: Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _data?['availability'] == 'AVAILABLE'
+                            ? const Color(0xFF198754)
+                            : GlassTokens.muted,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          LiquidGlassIconButton(
+            tooltip: 'Help',
+            onPressed: () => Navigator.pushNamed(context, AppRoutes.support),
+            icon: Icons.support_agent_rounded,
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _offer(Map<String, dynamic> offer) {
+    final ride = rideMap(offer['ride']);
+    final expires = DateTime.tryParse('${offer['expires_at']}');
+    final valid = expires != null && expires.isAfter(DateTime.now());
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: LiquidGlassSurface(
+        padding: const EdgeInsets.all(15),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
               children: [
-                IconButton.filledTonal(
-                  tooltip: 'Settings',
-                  onPressed: () =>
-                      Navigator.pushNamed(context, AppRoutes.settings),
-                  icon: const Icon(Icons.person_outline),
-                ),
-                const SizedBox(width: 12),
-                const Expanded(
+                Expanded(
                   child: Text(
-                    'Driver',
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+                    '${rideMoney(ride['estimated_fare'])} · ${rideDistance(ride['estimated_distance_m'])}',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
-                IconButton.filledTonal(
-                  tooltip: 'Help',
-                  onPressed: () =>
-                      Navigator.pushNamed(context, AppRoutes.support),
-                  icon: const Icon(Icons.support_agent),
+                DriverStatusPill(
+                  label: valid ? 'Live' : 'Expired',
+                  status: valid ? 'AVAILABLE' : 'REJECTED',
                 ),
               ],
             ),
-          ),
-        ),
-        Align(
-          alignment: Alignment.bottomCenter,
-          child: SafeArea(
-            top: false,
-            child: Container(
-              margin: const EdgeInsets.all(16),
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.sizeOf(context).height * .56,
-              ),
-              child: SingleChildScrollView(
-                child: AppCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        _data?['availability'] == 'AVAILABLE'
-                            ? 'You are online'
-                            : 'You are offline',
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      if (_data?['vehicle'] is Map)
-                        Text(
-                          '${_data!['vehicle']['make']} ${_data!['vehicle']['model']} · ${_data!['vehicle']['plate_number']}',
-                        ),
-                      if (_error != null)
-                        TextButton(
-                          onPressed: _load,
-                          child: Text('$_error · Retry'),
-                        ),
-                      ValueListenableBuilder<String?>(
-                        valueListenable: _tracking.error,
-                        builder: (context, error, _) => error == null
-                            ? const SizedBox.shrink()
-                            : Text('Location update failed: $error'),
-                      ),
-                      if (_data == null && _error == null)
-                        const LinearProgressIndicator(),
-                      if (_data != null) ...[
-                        if (_data!['availability'] == 'AVAILABLE' &&
-                            _data!['location_fresh'] != true)
-                          const Text(
-                            'Waiting for an accurate GPS fix. Offers are paused until your location recovers.',
-                          ),
-                        Text(
-                          _data!['eligible'] == true
-                              ? 'Keep precise location enabled to receive nearby offers.'
-                              : 'Your driver account or active vehicle is not ready for new rides. Review your vehicles or contact Support.',
-                        ),
-                        const SizedBox(height: 12),
-                        FilledButton(
-                          onPressed:
-                              _busy ||
-                                  (_data!['eligible'] != true &&
-                                      _data!['availability'] != 'AVAILABLE')
-                              ? null
-                              : _toggle,
-                          child: Text(
-                            _busy
-                                ? 'Updating…'
-                                : _data!['availability'] == 'AVAILABLE'
-                                ? 'Go offline'
-                                : 'Go online',
-                          ),
-                        ),
-                        if (_error != null || _data!['location_fresh'] != true)
-                          Wrap(
-                            children: [
-                              TextButton(
-                                onPressed: Geolocator.openAppSettings,
-                                child: const Text('App permissions'),
-                              ),
-                              TextButton(
-                                onPressed: Geolocator.openLocationSettings,
-                                child: const Text('Location settings'),
-                              ),
-                            ],
-                          ),
-                        for (final raw
-                            in (_data!['offers'] as List? ?? [])) ...[
-                          const Divider(),
-                          Builder(
-                            builder: (context) {
-                              final offer = Map<String, dynamic>.from(
-                                raw as Map,
+            const SizedBox(height: 8),
+            DriverInfoRow(label: 'Pickup', value: '${ride['pickup_address']}'),
+            DriverInfoRow(
+              label: 'Drop-off',
+              value: '${ride['dropoff_address']}',
+            ),
+            const SizedBox(height: 8),
+            Text(
+              valid
+                  ? 'Expires in ${expires.difference(DateTime.now()).inSeconds} seconds'
+                  : 'This offer has expired',
+              style: const TextStyle(color: GlassTokens.muted, fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: LiquidGlassButton(
+                    text: 'Accept',
+                    icon: const Icon(Icons.check_rounded),
+                    onPressed: _busy || !valid || offer['can_accept'] != true
+                        ? null
+                        : () => _act(() async {
+                            final id = await _repo.accept('${offer['id']}');
+                            if (mounted) {
+                              _opening = true;
+                              unawaited(
+                                Navigator.pushReplacementNamed(
+                                  context,
+                                  AppRoutes.driverRideDetail,
+                                  arguments: id,
+                                ),
                               );
-                              final ride = offer['ride'] as Map;
-                              final expires = DateTime.tryParse(
-                                '${offer['expires_at']}',
-                              );
-                              final valid =
-                                  expires != null &&
-                                  expires.isAfter(DateTime.now());
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  Text(
-                                    'INR ${ride['estimated_fare']} · ${((ride['estimated_distance_m'] as num? ?? 0) / 1000).toStringAsFixed(1)} km',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 18,
-                                    ),
-                                  ),
-                                  Text(
-                                    '${ride['pickup_address']} → ${ride['dropoff_address']}',
-                                  ),
-                                  Text(
-                                    valid
-                                        ? 'Offer expires in ${expires.difference(DateTime.now()).inSeconds} seconds'
-                                        : 'Offer expired',
-                                  ),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: FilledButton(
-                                          onPressed:
-                                              _busy ||
-                                                  !valid ||
-                                                  offer['can_accept'] != true
-                                              ? null
-                                              : () => _act(() async {
-                                                  final id = await _repo.accept(
-                                                    '${offer['id']}',
-                                                  );
-                                                  if (context.mounted) {
-                                                    _opening = true;
-                                                    unawaited(
-                                                      Navigator.pushReplacementNamed(
-                                                        context,
-                                                        AppRoutes
-                                                            .driverRideDetail,
-                                                        arguments: id,
-                                                      ),
-                                                    );
-                                                  }
-                                                }),
-                                          child: const Text('Accept'),
-                                        ),
-                                      ),
-                                      TextButton(
-                                        onPressed: _busy || !valid
-                                            ? null
-                                            : () => _act(
-                                                () => _repo.reject(
-                                                  '${offer['id']}',
-                                                ),
-                                              ),
-                                        child: const Text('Decline'),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              );
-                            },
-                          ),
-                        ],
-                        if ((_data!['offers'] as List? ?? []).isEmpty &&
-                            _data!['availability'] == 'AVAILABLE')
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 12),
-                            child: Text(
-                              'Waiting for nearby ride requests. Offers update automatically.',
-                            ),
-                          ),
-                      ],
-                      const Divider(),
-                      Wrap(
-                        spacing: 8,
-                        children: [
-                          TextButton(
-                            onPressed: _data?['exited'] == true
-                                ? null
-                                : () => Navigator.pushNamed(
-                                    context,
-                                    AppRoutes.driverVehicles,
-                                  ),
-                            child: const Text('My vehicles'),
-                          ),
-                          TextButton(
-                            onPressed: () => Navigator.pushNamed(
-                              context,
-                              AppRoutes.driverRides,
-                            ),
-                            child: const Text('Trip history'),
-                          ),
-                          TextButton(
-                            onPressed: () => Navigator.pushNamed(
-                              context,
-                              AppRoutes.driverAccount,
-                            ),
-                            child: const Text('Account & earnings'),
-                          ),
-                          TextButton(
-                            onPressed: () => Navigator.pushNamed(
-                              context,
-                              AppRoutes.driverExit,
-                            ),
-                            child: const Text('Exit & dues'),
-                          ),
-                        ],
-                      ),
-                    ],
+                            }
+                          }),
                   ),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: _busy || !valid
+                      ? null
+                      : () => _act(() => _repo.reject('${offer['id']}')),
+                  child: const Text('Decline'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _workspaceLink(
+    IconData icon,
+    String title,
+    String subtitle,
+    String route, {
+    bool enabled = true,
+  }) => Padding(
+    padding: const EdgeInsets.only(top: 8),
+    child: DriverLinkTile(
+      icon: icon,
+      title: title,
+      subtitle: subtitle,
+      onTap: enabled ? () => Navigator.pushNamed(context, route) : null,
+    ),
+  );
+
+  Widget _panel() {
+    final data = _data;
+    final offers = rideMaps(
+      data?['offers'],
+    ).where((offer) => rideMap(offer['ride']).isNotEmpty);
+    return LiquidGlassSurface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          DriverPageIntro(
+            icon: data?['availability'] == 'AVAILABLE'
+                ? Icons.online_prediction_rounded
+                : Icons.power_settings_new_rounded,
+            title: data?['availability'] == 'AVAILABLE'
+                ? 'Ready for nearby rides'
+                : 'You are offline',
+            description: data?['eligible'] == true
+                ? 'Keep precise location enabled while you are available.'
+                : 'Complete account and vehicle requirements before taking rides.',
+          ),
+          if (data?['vehicle'] is Map) ...[
+            const SizedBox(height: 12),
+            DriverNotice(
+              icon: Icons.directions_car_filled_outlined,
+              message:
+                  '${data!['vehicle']['make']} ${data['vehicle']['model']} · ${data['vehicle']['plate_number']}',
+            ),
+          ],
+          if (_error != null) ...[
+            const SizedBox(height: 10),
+            DriverNotice(
+              icon: Icons.sync_problem_rounded,
+              message: _error!,
+              error: true,
+              actionLabel: 'Retry',
+              onAction: _load,
+            ),
+          ],
+          ValueListenableBuilder<String?>(
+            valueListenable: _tracking.error,
+            builder: (context, error, child) => error == null
+                ? const SizedBox.shrink()
+                : Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: DriverNotice(
+                      icon: Icons.location_off_rounded,
+                      message: 'Location update failed: $error',
+                      error: true,
+                    ),
+                  ),
+          ),
+          if (data == null && _error == null)
+            const Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: DriverListSkeleton(rows: 2),
+            ),
+          if (data != null) ...[
+            if (data['availability'] == 'AVAILABLE' &&
+                data['location_fresh'] != true) ...[
+              const SizedBox(height: 10),
+              const DriverNotice(
+                icon: Icons.gps_not_fixed_rounded,
+                message:
+                    'Waiting for an accurate GPS fix. Offers are paused until location recovers.',
+              ),
+            ],
+            const SizedBox(height: 12),
+            LiquidGlassButton(
+              text: _busy
+                  ? 'Updating…'
+                  : data['availability'] == 'AVAILABLE'
+                  ? 'Go offline'
+                  : 'Go online',
+              icon: Icon(
+                data['availability'] == 'AVAILABLE'
+                    ? Icons.power_settings_new_rounded
+                    : Icons.online_prediction_rounded,
+              ),
+              busy: _busy,
+              onPressed:
+                  _busy ||
+                      (data['eligible'] != true &&
+                          data['availability'] != 'AVAILABLE')
+                  ? null
+                  : _toggle,
+            ),
+            if (_error != null || data['location_fresh'] != true)
+              Wrap(
+                alignment: WrapAlignment.center,
+                children: [
+                  TextButton(
+                    onPressed: Geolocator.openAppSettings,
+                    child: const Text('App permissions'),
+                  ),
+                  TextButton(
+                    onPressed: Geolocator.openLocationSettings,
+                    child: const Text('Location settings'),
+                  ),
+                ],
+              ),
+            for (final offer in offers) _offer(offer),
+            if (offers.isEmpty && data['availability'] == 'AVAILABLE') ...[
+              const SizedBox(height: 12),
+              const DriverNotice(
+                icon: Icons.radar_rounded,
+                message:
+                    'Waiting for nearby requests. Offers refresh automatically.',
+              ),
+            ],
+          ],
+          const SizedBox(height: 16),
+          const AppSectionLabel('Driver workspace'),
+          _workspaceLink(
+            Icons.directions_car_filled_outlined,
+            'My vehicles',
+            'Registration, documents and verification',
+            AppRoutes.driverVehicles,
+            enabled: data?['exited'] != true,
+          ),
+          _workspaceLink(
+            Icons.route_outlined,
+            'Trip history',
+            'Completed and cancelled rides',
+            AppRoutes.driverRides,
+          ),
+          _workspaceLink(
+            Icons.account_balance_wallet_outlined,
+            'Account & earnings',
+            'Profile, payout and safety settings',
+            AppRoutes.driverAccount,
+          ),
+          _workspaceLink(
+            Icons.logout_rounded,
+            'Exit & dues',
+            'Partner exit and settlement records',
+            AppRoutes.driverExit,
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => LiquidGlassScope(
+    child: Scaffold(
+      body: LiquidGlassBackdrop(
+        child: Stack(
+          children: [
+            ValueListenableBuilder<Position?>(
+              valueListenable: _tracking.position,
+              builder: (context, fix, child) => DriverMap(
+                location: fix == null
+                    ? null
+                    : LatLng(fix.latitude, fix.longitude),
+                heading: fix?.heading ?? 0,
+                follow: false,
+              ),
+            ),
+            _topBar(),
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: SafeArea(
+                top: false,
+                child: Container(
+                  margin: const EdgeInsets.all(16),
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(context).height * .58,
+                  ),
+                  child: SingleChildScrollView(child: _panel()),
                 ),
               ),
             ),
-          ),
+          ],
         ),
-      ],
+      ),
     ),
   );
 }

@@ -1,17 +1,17 @@
-import 'package:user/components/ui/liquid_glass.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:user/components/ui/app_page.dart';
-import 'package:user/components/ui/button.dart';
-import 'package:user/core/color.dart';
-import 'package:user/core/routes.dart';
+import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/network/api_result.dart';
-import 'package:user/features/auth/auth.repo.dart';
+import 'package:user/core/routes.dart';
 import 'package:user/features/auth/app_mode.repo.dart';
+import 'package:user/features/auth/auth.repo.dart';
+import 'package:user/features/driver_operations/widgets/driver_glass.dart';
 import 'package:user/features/partner_program/partner_program.repo.dart';
 
 class PartnerActivationPage extends StatefulWidget {
   const PartnerActivationPage({super.key});
+
   @override
   State<PartnerActivationPage> createState() => _PartnerActivationPageState();
 }
@@ -20,6 +20,7 @@ class _PartnerActivationPageState extends State<PartnerActivationPage> {
   final _code = TextEditingController();
   bool _busy = false;
   String? _error;
+
   @override
   void dispose() {
     _code.dispose();
@@ -38,7 +39,7 @@ class _PartnerActivationPageState extends State<PartnerActivationPage> {
         final user = await AuthRepository().currentUser();
         await AppModeRepository().save(user.id, AppMode.driver);
       } catch (_) {
-        // Activation is committed; preference storage must not consume the code again.
+        // Activation is committed; preference storage must not consume it again.
       }
       if (mounted) {
         Navigator.pushNamedAndRemoveUntil(
@@ -59,26 +60,15 @@ class _PartnerActivationPageState extends State<PartnerActivationPage> {
     glass: true,
     title: 'Activate your driver account',
     child: ListView(
+      padding: const EdgeInsets.only(bottom: 24),
       children: [
-        const SizedBox(height: 24),
-        const Icon(
-          Icons.verified_user_outlined,
-          size: 64,
-          color: AppColors.primaryGreen,
+        const DriverPageIntro(
+          icon: Icons.verified_user_outlined,
+          title: 'Approved — one last step',
+          description:
+              'Enter the six-digit code sent manually by your administrator. It has no expiry and can be used once.',
         ),
         const SizedBox(height: 24),
-        const Text(
-          'You’re approved. One last step.',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 12),
-        const Text(
-          'Enter the six-digit activation code sent manually by your administrator. It has no expiry and can be used once.',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: AppColors.textSecondary, height: 1.5),
-        ),
-        const SizedBox(height: 28),
         LiquidGlassSurface(
           padding: EdgeInsets.zero,
           radius: 24,
@@ -106,25 +96,26 @@ class _PartnerActivationPageState extends State<PartnerActivationPage> {
             onSubmitted: (_) => _activate(),
           ),
         ),
-        if (_error != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: Text(
-              _error!,
-              style: const TextStyle(color: AppColors.googleRed),
-            ),
+        if (_error != null) ...[
+          const SizedBox(height: 16),
+          DriverNotice(
+            icon: Icons.info_outline_rounded,
+            message: _error!,
+            error: true,
           ),
+        ],
         const SizedBox(height: 20),
-        AppButton(
+        LiquidGlassButton(
           text: 'Activate and continue',
-          isLoading: _busy,
+          icon: const Icon(Icons.arrow_forward_rounded),
+          busy: _busy,
           onPressed: _busy || _code.text.length != 6 ? null : _activate,
         ),
         const SizedBox(height: 12),
-        const Text(
-          'Five incorrect attempts lock activation. Contact your administrator if the code is missing or locked.',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 12, color: GlassTokens.muted),
+        const DriverNotice(
+          icon: Icons.security_rounded,
+          message:
+              'Five incorrect attempts lock activation. Contact your administrator if the code is missing or locked.',
         ),
         TextButton(
           onPressed: _busy

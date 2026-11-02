@@ -22,6 +22,9 @@ class PartnerUploadFile {
 /// Shared document/selfie layout. Limit decoded pixels as well as file bytes;
 /// a small compressed image can otherwise exhaust memory during preview.
 class PartnerUploadTile extends StatelessWidget {
+  static const double compactSelectedImageHeight = 168;
+  static const double selectedImageHeight = 220;
+
   static ResizeImage previewImage(Uint8List bytes) => ResizeImage(
     MemoryImage(bytes),
     width: 320,
@@ -152,7 +155,7 @@ class PartnerUploadTile extends StatelessWidget {
                       alignment: Alignment.topRight,
                       children: [
                         SizedBox(
-                          height: hasPreview ? 72 : 48,
+                          height: hasPreview ? compactSelectedImageHeight : 48,
                           width: double.infinity,
                           child: hasPreview && !busy
                               ? ClipRRect(
@@ -268,7 +271,7 @@ class PartnerUploadTile extends StatelessWidget {
                       ClipRRect(
                         borderRadius: BorderRadius.circular(10),
                         child: SizedBox(
-                          height: 160,
+                          height: selectedImageHeight,
                           width: double.infinity,
                           child: busy
                               ? const Center(child: Icon(Icons.image_outlined))
@@ -276,7 +279,7 @@ class PartnerUploadTile extends StatelessWidget {
                                   image: file.path != null
                                       ? previewFile(file.path!)
                                       : previewImage(file.bytes!),
-                                  height: 160,
+                                  height: selectedImageHeight,
                                   width: double.infinity,
                                   fit: BoxFit.contain,
                                   errorBuilder: (_, error, stack) => const Padding(

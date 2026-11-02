@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:user/components/ui/app_page.dart';
+import 'package:user/components/ui/glass_chip.dart';
+import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/driver_account/driver_account.repo.dart';
 import 'package:user/features/driver_account/pages/driver_documents_page.dart';
 import 'package:user/features/driver_account/widgets/payout_change_form.dart';
+import 'package:user/features/driver_operations/widgets/driver_glass.dart';
 import 'package:user/features/driver_vehicles/widgets/catalog_suggestion_form.dart';
 import 'package:user/features/partner_program/partner_program.repo.dart';
 import 'package:user/features/rides/ride_display.dart';
@@ -90,6 +93,7 @@ class _DriverAccountState extends State<DriverAccountPage>
       context,
       MaterialPageRoute(
         builder: (_) => AppPage(
+          glass: true,
           title: 'Request account change',
           child: PayoutChangeForm(repository: repo),
         ),
@@ -111,9 +115,15 @@ class _DriverAccountState extends State<DriverAccountPage>
     if (mounted) await _load();
   }
 
-  Widget _link(String title, String route) => ListTile(
-    title: Text(title),
-    trailing: const Icon(Icons.chevron_right),
+  Widget _link(
+    String title,
+    String route, {
+    required IconData icon,
+    required String subtitle,
+  }) => DriverLinkTile(
+    icon: icon,
+    title: title,
+    subtitle: subtitle,
     onTap: () async {
       await Navigator.pushNamed(context, route);
       if (mounted) await _load();
@@ -121,6 +131,7 @@ class _DriverAccountState extends State<DriverAccountPage>
   );
   @override
   Widget build(BuildContext context) => AppPage(
+    glass: true,
     title: 'Driver account',
     action: IconButton(
       tooltip: 'Refresh account',
@@ -138,12 +149,12 @@ class _DriverAccountState extends State<DriverAccountPage>
               2: 'My requests',
               3: 'Safety & help',
             }.entries)
-              ChoiceChip(
-                label: Text(e.value),
+              LiquidGlassChip(
+                label: e.value,
                 selected: _tab == e.key,
-                onSelected: _loading
+                onPressed: _loading
                     ? null
-                    : (_) {
+                    : () {
                         setState(() {
                           _tab = e.key;
                           _page = 1;
@@ -154,13 +165,20 @@ class _DriverAccountState extends State<DriverAccountPage>
               ),
           ],
         ),
-        if (_loading && _data != null) const LinearProgressIndicator(),
+        const SizedBox(height: 14),
         if (_error != null && _data != null)
-          TextButton(onPressed: _load, child: Text('$_error - Retry')),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: DriverNotice(
+              icon: Icons.sync_problem_rounded,
+              message: '$_error. Pull to refresh or retry.',
+              error: true,
+            ),
+          ),
         Expanded(
           child: _data == null
               ? (_loading
-                    ? const Center(child: CircularProgressIndicator())
+                    ? const DriverListSkeleton(rows: 4)
                     : AppLoadError(
                         message: _error ?? 'Account unavailable',
                         onRetry: _load,
@@ -169,7 +187,7 @@ class _DriverAccountState extends State<DriverAccountPage>
                   onRefresh: _load,
                   child: ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    padding: const EdgeInsets.only(bottom: 24),
                     children: _body(),
                   ),
                 ),
@@ -182,33 +200,85 @@ class _DriverAccountState extends State<DriverAccountPage>
         driver = rideMap(_data!['driver']);
     if (_tab == 0) {
       return [
+        DriverPageIntro(
+          icon: Icons.badge_outlined,
+          title: 'Driver profile & verification',
+          description:
+              'Your reviewed identity, partner agreement, vehicles and account documents stay together here.',
+          trailing: DriverStatusPill(
+            label: '${driver['verification_status'] ?? 'Pending'}',
+            status: '${driver['verification_status']}',
+          ),
+        ),
+        const SizedBox(height: 16),
         AppCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Your driver account',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                'Account status',
+                style: TextStyle(
+                  color: GlassTokens.ink,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-              Text('Partner: ${app['status'] ?? 'Not applied'}'),
-              Text('Verification: ${driver['verification_status']}'),
-              Text('Availability: ${driver['availability']}'),
-              SelectableText('Driver ID ${driver['id']}'),
+              const SizedBox(height: 10),
+              DriverInfoRow(
+                label: 'Partner application',
+                value: '${app['status'] ?? 'Not applied'}'.replaceAll('_', ' '),
+              ),
+              DriverInfoRow(
+                label: 'Verification',
+                value: '${driver['verification_status'] ?? 'Pending'}'
+                    .replaceAll('_', ' '),
+              ),
+              DriverInfoRow(
+                label: 'Availability',
+                value: '${driver['availability'] ?? 'Offline'}'.replaceAll(
+                  '_',
+                  ' ',
+                ),
+              ),
+              DriverInfoRow(
+                label: 'Driver reference',
+                value: '${driver['id'] ?? 'Unavailable'}',
+              ),
               if (_exited)
-                const Text(
-                  'Exit complete. Driving is disabled. Your statements, settlement PDF and support remain available.',
+                const Padding(
+                  padding: EdgeInsets.only(top: 12),
+                  child: DriverNotice(
+                    icon: Icons.logout_rounded,
+                    message:
+                        'Exit complete. Driving is disabled, while statements, settlement documents and support remain available.',
+                    warning: true,
+                  ),
                 ),
               if (driver['availability'] == 'SUSPENDED')
-                const Text(
-                  'Driving is suspended. Contact Support to resolve the restriction; statements and documents remain accessible.',
+                const Padding(
+                  padding: EdgeInsets.only(top: 12),
+                  child: DriverNotice(
+                    icon: Icons.block_rounded,
+                    message:
+                        'Driving is suspended. Contact Support to resolve the restriction; statements and documents remain accessible.',
+                    error: true,
+                  ),
                 ),
             ],
           ),
         ),
-        _link('Earnings & transactions', AppRoutes.driverFinances),
-        ListTile(
-          title: const Text('Vehicles & reviewed documents'),
-          trailing: const Icon(Icons.chevron_right),
+        const SizedBox(height: 12),
+        _link(
+          'Earnings & transactions',
+          AppRoutes.driverFinances,
+          icon: Icons.account_balance_wallet_outlined,
+          subtitle: 'Trip fares, direct collection and reviewed charges',
+        ),
+        const SizedBox(height: 12),
+        DriverLinkTile(
+          icon: Icons.folder_copy_outlined,
+          title: 'Vehicles & reviewed documents',
+          subtitle: 'Private vehicle documents and replacement reviews',
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(
@@ -216,12 +286,28 @@ class _DriverAccountState extends State<DriverAccountPage>
             ),
           ),
         ),
-        _link('Personal profile', AppRoutes.profile),
+        const SizedBox(height: 12),
+        _link(
+          'Personal profile',
+          AppRoutes.profile,
+          icon: Icons.person_outline_rounded,
+          subtitle: 'Name, email, phone and profile photo',
+        ),
+        const SizedBox(height: 12),
         _link(
           'Partner application & final agreement',
           AppRoutes.partnerProgram,
+          icon: Icons.handshake_outlined,
+          subtitle: 'Application review, confirmation and final PDF',
         ),
-        _link('Exit request & settlement PDF', AppRoutes.driverExit),
+        const SizedBox(height: 12),
+        _link(
+          'Exit request & settlement PDF',
+          AppRoutes.driverExit,
+          icon: Icons.exit_to_app_rounded,
+          subtitle: 'Exit status, recorded dues and settlement document',
+        ),
+        const SizedBox(height: 16),
         if (app['final_pdf_id'] is String)
           OutlinedButton.icon(
             onPressed: _busy
@@ -234,15 +320,29 @@ class _DriverAccountState extends State<DriverAccountPage>
             icon: const Icon(Icons.download),
             label: const Text('Open final partner PDF'),
           ),
+        const SizedBox(height: 20),
         const AppSectionLabel('Application review'),
+        const SizedBox(height: 10),
         for (final field in rideMaps(app['fields']))
-          ListTile(
-            dense: true,
-            title: Text(
-              '${rideMap(field['definition'])['label'] ?? 'Document'}',
-            ),
-            subtitle: Text(
-              '${field['status']}${field['rejection_reason'] == null ? '' : ' - ${field['rejection_reason']}'}',
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: LiquidGlassSurface(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${rideMap(field['definition'])['label'] ?? 'Document'}',
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  DriverStatusPill(
+                    label: '${field['status']}',
+                    status: '${field['status']}',
+                  ),
+                ],
+              ),
             ),
           ),
         for (final field in rideMaps(app['fields']))
@@ -261,34 +361,52 @@ class _DriverAccountState extends State<DriverAccountPage>
                 'Open ${rideMap(field['definition'])['label'] ?? 'application document'}',
               ),
             ),
-        const Text(
-          'Ordinary profile changes are separate from reviewed KYC. Contact Support for legal identity/document corrections. Documents are reviewed manually; no automatic expiry rule is applied.',
+        const DriverNotice(
+          icon: Icons.privacy_tip_outlined,
+          message:
+              'Ordinary profile changes are separate from reviewed KYC. Contact Support for legal identity or document corrections. Reviews are manual and no automatic expiry rule is applied.',
         ),
       ];
     }
     if (_tab == 1) {
       return [
-        const Text(
-          'Reviewed payment destination',
-          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+        const DriverPageIntro(
+          icon: Icons.account_balance_outlined,
+          title: 'Reviewed payment destination',
+          description:
+              'Cash and direct UPI go to you. There is no platform wallet or automatic payout. Changes require admin approval.',
         ),
-        const Text(
-          'Cash and direct UPI go to you. There is no platform wallet or automatic payout. A change takes effect after admin approval; recorded receipts keep their original destination.',
-        ),
+        const SizedBox(height: 16),
         AppCard(
-          child: Text(
-            _data!['approved_payout'] == null
-                ? (rideMaps(_data!['initial_payout']).isEmpty
-                      ? 'No reviewed destination is configured. Submit an account change for review.'
-                      : rideMaps(_data!['initial_payout'])
-                            .map((v) => '${v['label']}: ${v['display']}')
-                            .join('\n'))
-                : _summary(
-                    rideMap(rideMap(_data!['approved_payout'])['summary']),
-                  ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Current destination',
+                style: TextStyle(
+                  color: GlassTokens.ink,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                _data!['approved_payout'] == null
+                    ? (rideMaps(_data!['initial_payout']).isEmpty
+                          ? 'No reviewed destination is configured.'
+                          : rideMaps(_data!['initial_payout'])
+                                .map((v) => '${v['label']}: ${v['display']}')
+                                .join('\n'))
+                    : _summary(
+                        rideMap(rideMap(_data!['approved_payout'])['summary']),
+                      ),
+                style: const TextStyle(color: GlassTokens.muted, height: 1.55),
+              ),
+            ],
           ),
         ),
-        FilledButton(
+        const SizedBox(height: 14),
+        LiquidGlassButton(
           onPressed:
               _loading ||
                   _busy ||
@@ -298,7 +416,7 @@ class _DriverAccountState extends State<DriverAccountPage>
                   ).any((v) => v['status'] == 'PENDING')
               ? null
               : _change,
-          child: const Text('Request account change'),
+          text: 'Request account change',
         ),
         for (final row in rideMaps(_data!['payout_changes']))
           Padding(
@@ -309,11 +427,22 @@ class _DriverAccountState extends State<DriverAccountPage>
                 children: [
                   Text(
                     '${row['status']} - ${rideTime(row['created_at'])}',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+                    style: const TextStyle(
+                      color: GlassTokens.ink,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
+                  const SizedBox(height: 8),
                   Text(_summary(rideMap(row['summary']))),
                   if (row['rejection_reason'] != null)
-                    Text('${row['rejection_reason']}'),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: DriverNotice(
+                        icon: Icons.info_outline_rounded,
+                        message: '${row['rejection_reason']}',
+                        error: true,
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -322,29 +451,34 @@ class _DriverAccountState extends State<DriverAccountPage>
     }
     if (_tab == 2) {
       return [
-        const Text(
-          'Your brand & model requests',
-          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+        const DriverPageIntro(
+          icon: Icons.fact_check_outlined,
+          title: 'Your catalog requests',
+          description:
+              'Track your suggested brands and models. Rejected entries can be corrected and returned for review.',
         ),
-        const Text(
-          'Only your own rejected suggestions can be corrected. Corrections return to Requested. Duplicate names need manual admin resolution.',
-        ),
-        if (_loading) const LinearProgressIndicator(),
+        const SizedBox(height: 18),
         for (final model in [false, true]) ...[
           AppSectionLabel(model ? 'Models' : 'Brands'),
           for (final row in rideMaps(_requests?[model ? 'models' : 'brands']))
-            AppCard(
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text('${row['name']}'),
-                subtitle: Text(
-                  '${row['status']}${row['rejection_reason'] == null ? '' : ' - ${row['rejection_reason']}'}',
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: DriverLinkTile(
+                icon: model
+                    ? Icons.directions_car_filled_outlined
+                    : Icons.branding_watermark_outlined,
+                title: '${row['name']}',
+                subtitle: row['rejection_reason'] == null
+                    ? (model
+                          ? 'Vehicle model request'
+                          : 'Vehicle brand request')
+                    : '${row['rejection_reason']}',
+                trailing: DriverStatusPill(
+                  label: '${row['status']}',
+                  status: '${row['status']}',
                 ),
-                trailing: !_exited && row['status'] == 'REJECTED'
-                    ? TextButton(
-                        onPressed: _loading ? null : () => _correct(row, model),
-                        child: const Text('Correct'),
-                      )
+                onTap: !_exited && row['status'] == 'REJECTED' && !_loading
+                    ? () => _correct(row, model)
                     : null,
               ),
             ),
@@ -352,7 +486,11 @@ class _DriverAccountState extends State<DriverAccountPage>
         if (_requests != null &&
             rideMaps(_requests!['brands']).isEmpty &&
             rideMaps(_requests!['models']).isEmpty)
-          const Text('No requests on this page.'),
+          const AppEmptyState(
+            icon: Icons.inventory_2_outlined,
+            title: 'No catalog requests',
+            subtitle: 'Your suggested brands and models will appear here.',
+          ),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -386,11 +524,43 @@ class _DriverAccountState extends State<DriverAccountPage>
       ];
     }
     return [
+      const DriverPageIntro(
+        icon: Icons.health_and_safety_outlined,
+        title: 'Safety & help',
+        description:
+            'Reach configured support, manage emergency contacts and review trip or exit records.',
+      ),
+      const SizedBox(height: 16),
       const SupportContactCard(),
-      _link('Emergency contacts', AppRoutes.emergencyContacts),
-      _link('Support requests', AppRoutes.support),
-      _link('Driver trip history', AppRoutes.driverRides),
-      _link('Exit request & dues', AppRoutes.driverExit),
+      const SizedBox(height: 12),
+      _link(
+        'Emergency contacts',
+        AppRoutes.emergencyContacts,
+        icon: Icons.contact_emergency_outlined,
+        subtitle: 'People you can call or message manually',
+      ),
+      const SizedBox(height: 12),
+      _link(
+        'Support requests',
+        AppRoutes.support,
+        icon: Icons.support_agent_rounded,
+        subtitle: 'Configured channels and your persisted requests',
+      ),
+      const SizedBox(height: 12),
+      _link(
+        'Driver trip history',
+        AppRoutes.driverRides,
+        icon: Icons.route_outlined,
+        subtitle: 'Assigned rides, collection and linked issues',
+      ),
+      const SizedBox(height: 12),
+      _link(
+        'Exit request & dues',
+        AppRoutes.driverExit,
+        icon: Icons.exit_to_app_rounded,
+        subtitle: 'Exit status, settlement balance and final PDF',
+      ),
+      const SizedBox(height: 16),
       OutlinedButton(
         onPressed: _busy
             ? null
@@ -411,8 +581,11 @@ class _DriverAccountState extends State<DriverAccountPage>
               }),
         child: const Text('Device location settings'),
       ),
-      const Text(
-        'Calls and messages use your installed apps. Support does not dispatch emergency responders. An exited account needs manual administrator review before rejoining.',
+      const SizedBox(height: 12),
+      const DriverNotice(
+        icon: Icons.info_outline_rounded,
+        message:
+            'Calls and messages use installed apps. Support does not dispatch emergency responders. An exited account needs manual administrator review before rejoining.',
       ),
     ];
   }

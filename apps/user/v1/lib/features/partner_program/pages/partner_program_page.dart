@@ -1,8 +1,10 @@
 import 'package:user/components/ui/glass_dropdown.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/components/ui/focus_field_hint.dart';
+import 'package:android_file_picker/android_file_picker.dart';
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:dio/dio.dart';
 import 'package:user/features/partner_program/partner_form_validation.dart';
 import 'package:user/features/partner_program/partner_application_step.dart';
@@ -31,6 +33,8 @@ class PartnerProgramPage extends StatefulWidget {
   final Future<PartnerDraftStore> Function(String)? createDraftStore;
   final Future<List<PartnerLocalFile>?> Function(Map<String, dynamic>)?
   selectFiles;
+  final Future<List<PartnerLocalFile>?> Function(Map<String, dynamic>)?
+  recoverFiles;
   final Future<XFile?> Function()? captureSelfie;
   const PartnerProgramPage({
     super.key,
@@ -38,6 +42,7 @@ class PartnerProgramPage extends StatefulWidget {
     this.currentUser,
     this.createDraftStore,
     this.selectFiles,
+    this.recoverFiles,
     this.captureSelfie,
   });
   @override
@@ -63,7 +68,13 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
   bool _saving = false;
   bool _capturingSelfie = false;
   bool _pickingFiles = false;
-  bool _checkedLostSelfie = false;
+  bool _checkedLostNativeResults = false;
+  bool _nativeHandoff = false;
+  String _nativeHandoffLabel = 'Opening secure picker...';
+  String? _pendingPickerFieldId;
+  String? _pendingPickerMode;
+  String? _pendingPickerStage;
+  String? _pendingPickerStartedAt;
   bool _acceptPolicy = false;
   bool _acceptConfirmation = false;
   bool _showForm = false;
@@ -277,9 +288,9 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         _acceptConfirmation = false;
         if (_application != null) _submissionCommitted = false;
       });
-      if (!_checkedLostSelfie) {
-        _checkedLostSelfie = true;
-        unawaited(_recoverSelfie());
+      if (!_checkedLostNativeResults) {
+        _checkedLostNativeResults = true;
+        unawaited(_recoverLostNativeResult());
       }
     } catch (error) {
       if (mounted && request == _loadRequest && !(background && _dirty)) {
@@ -414,6 +425,13 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         for (final e in _files.entries)
           e.key: e.value.map((f) => f.toJson()).toList(),
       },
+      if (_pendingPickerFieldId != null)
+        'pending_picker': {
+          'field_id': _pendingPickerFieldId,
+          'mode': _pendingPickerMode,
+          'stage': _pendingPickerStage,
+          'started_at': _pendingPickerStartedAt,
+        },
     };
     try {
       await store.save(snapshot);
@@ -483,6 +501,18 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     if (draft['phone'] is String) _phone.text = draft['phone'] as String;
     _acceptPolicy = draft['accepted'] == true;
     _showForm = draft['show_form'] == true && _acceptPolicy;
+    final pendingPicker = _map(draft['pending_picker']);
+    final pendingFieldId = pendingPicker?['field_id'];
+    _pendingPickerFieldId = pendingFieldId is String ? pendingFieldId : null;
+    _pendingPickerMode = pendingPicker?['mode'] is String
+        ? pendingPicker!['mode'] as String
+        : null;
+    _pendingPickerStage = pendingPicker?['stage'] is String
+        ? pendingPicker!['stage'] as String
+        : null;
+    _pendingPickerStartedAt = pendingPicker?['started_at'] is String
+        ? pendingPicker!['started_at'] as String
+        : null;
     final savedStep = draft['form_step'];
     _stepKey = _steps.any((step) => step.key == savedStep)
         ? savedStep as String
@@ -721,18 +751,229 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     });
   }
 
-  Future<void> _recoverSelfie() async {
-    if (!Platform.isAndroid) return;
+  void _tracePicker(String stage, {String? mode, int? bytes}) {
+    debugPrint(
+      'PartnerPicker stage=$stage mode=${mode ?? _pendingPickerMode ?? 'unknown'} '
+      'bytes=${bytes ?? 0} rss_bytes=${ProcessInfo.currentRss}',
+    );
+  }
+
+  Future<void> _evictPartnerPreviews() async {
+    for (final files in _files.values) {
+      for (final file in files) {
+        if (file.path != null) {
+          await PartnerUploadTile.previewFile(file.path!).evict();
+        }
+      }
+    }
+  }
+
+  Future<void> _waitForLightweightFrames() async {
+    await WidgetsBinding.instance.endOfFrame;
+    WidgetsBinding.instance.scheduleFrame();
+    await WidgetsBinding.instance.endOfFrame;
+  }
+
+  Future<void> _prepareNativeHandoff(
+    Map<String, dynamic> definition, {
+    required String mode,
+    required String label,
+  }) async {
+    _pendingPickerFieldId = '${definition['id']}';
+    _pendingPickerMode = mode;
+    _pendingPickerStage = 'PREPARE';
+    _pendingPickerStartedAt = DateTime.now().toUtc().toIso8601String();
+    _dirty = true;
+    setState(() {
+      _nativeHandoff = true;
+      _nativeHandoffLabel = label;
+      _error = null;
+    });
+    _tracePicker('PREPARE', mode: mode);
+    await _saveDraft(required: true);
+    await _waitForLightweightFrames();
+    await _evictPartnerPreviews();
+    // The handoff frame contains no application images. Releasing both cached
+    // and formerly-live image entries now avoids overlapping them with the
+    // system picker/camera and its native bitmap/surface allocations.
+    PaintingBinding.instance.imageCache
+      ..clear()
+      ..clearLiveImages();
+    _pendingPickerStage = 'NATIVE_OPEN';
+    await _saveDraft(required: true);
+    _tracePicker('LIGHTWEIGHT_FRAME_READY', mode: mode);
+  }
+
+  Future<void> _clearPendingPicker({bool save = true}) async {
+    _pendingPickerFieldId = null;
+    _pendingPickerMode = null;
+    _pendingPickerStage = null;
+    _pendingPickerStartedAt = null;
+    if (save) await _saveDraft(required: true);
+  }
+
+  Future<void> _clearPendingPickerAfterFailure() async {
+    try {
+      await _clearPendingPicker(save: mounted);
+    } catch (_) {
+      // The original picker/camera failure remains the actionable error. A
+      // storage failure is already surfaced by _saveDraft and must not escape
+      // an unawaited lost-result recovery task.
+    }
+  }
+
+  Future<void> _validatePreviewImage(PartnerLocalFile file) async {
+    final path = file.path;
+    if (path == null || !await File(path).exists()) return;
+    final buffer = await ui.ImmutableBuffer.fromFilePath(path);
+    ui.ImageDescriptor? descriptor;
+    try {
+      descriptor = await ui.ImageDescriptor.encoded(buffer);
+      final pixels = descriptor.width * descriptor.height;
+      if (descriptor.width <= 0 ||
+          descriptor.height <= 0 ||
+          pixels > 40000000) {
+        throw StateError('Choose a valid image no larger than 40 megapixels.');
+      }
+    } finally {
+      descriptor?.dispose();
+      buffer.dispose();
+    }
+  }
+
+  Future<List<PartnerLocalFile>> _stagePlatformFiles(
+    Map<String, dynamic> definition,
+    List<PlatformFile> result,
+  ) async {
+    final store = _draftStore;
+    if (store == null) {
+      throw StateError('Refresh your account before choosing files.');
+    }
+    final limit =
+        (((definition['max_file_size_mb'] as num?)?.toDouble() ?? 3) *
+                1024 *
+                1024)
+            .floor()
+            .clamp(1, 3000000);
+    final picked = <PartnerLocalFile>[];
+    try {
+      for (final file in result) {
+        final size = await file.length();
+        if (size == null || size > 3000000 || size > limit) {
+          throw StateError(
+            'Choose files within the configured size limit and no larger than 3 MB.',
+          );
+        }
+        final staged = await store.stage(
+          file.name,
+          file.readAsByteStream(),
+          maxBytes: limit,
+        );
+        picked.add(staged);
+        if (definition['field_type'] == 'IMAGE') {
+          await _validatePreviewImage(staged);
+        }
+        _tracePicker('STAGE_COMPLETE', bytes: size);
+      }
+      return picked;
+    } catch (_) {
+      for (final file in picked) {
+        await store.remove(file);
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _recoverLostNativeResult() async {
     if (!mounted) return;
+    final fieldId = _pendingPickerFieldId;
+    final mode = _pendingPickerMode;
+    final definition = fieldId == null
+        ? null
+        : _definitions
+              .where((field) => '${field['id']}' == fieldId)
+              .firstOrNull;
+    if (mode == 'files' && definition != null) {
+      setState(() => _pickingFiles = true);
+      final recovered = <PartnerLocalFile>[];
+      List<PartnerLocalFile>? previousSelection;
+      try {
+        _tracePicker('LOST_RESULT_CHECK', mode: mode);
+        if (widget.recoverFiles != null) {
+          recovered.addAll(await widget.recoverFiles!(definition) ?? []);
+        } else if (Platform.isAndroid) {
+          final lost = await FilePickerAndroid().retrieveLostData();
+          if (lost?.exception != null) throw lost!.exception!;
+          if (lost != null && lost.files.isNotEmpty) {
+            recovered.addAll(await _stagePlatformFiles(definition, lost.files));
+          }
+        }
+        if (!mounted) {
+          for (final file in recovered) {
+            await _draftStore?.remove(file);
+          }
+          return;
+        }
+        if (recovered.isNotEmpty) {
+          final existing = _files[fieldId] ?? <PartnerLocalFile>[];
+          previousSelection = List<PartnerLocalFile>.from(existing);
+          final selected = definition['allow_multiple'] == true
+              ? [...existing, ...recovered]
+              : recovered;
+          if (selected.length > 10) {
+            throw StateError('Choose at most 10 files for one field.');
+          }
+          setState(() {
+            _files[fieldId!] = selected;
+            _dirty = true;
+            _error = null;
+          });
+          _tracePicker('LOST_RESULT_RECOVERED', mode: mode);
+        }
+        await _clearPendingPicker();
+      } catch (error) {
+        if (mounted && previousSelection != null) {
+          setState(() => _files[fieldId!] = previousSelection!);
+        }
+        for (final file in recovered) {
+          await _draftStore?.remove(file);
+        }
+        if (mounted) setState(() => _error = ApiResult.errorMessage(error));
+        await _clearPendingPickerAfterFailure();
+      } finally {
+        if (widget.recoverFiles == null && Platform.isAndroid) {
+          try {
+            await FilePicker.clearTemporaryFiles();
+          } catch (_) {}
+        }
+        if (mounted) setState(() => _pickingFiles = false);
+      }
+      return;
+    }
+
+    if (mode != null && mode != 'camera') {
+      await _clearPendingPicker();
+      return;
+    }
+    if (!Platform.isAndroid) return;
     setState(() => _capturingSelfie = true);
     try {
+      _tracePicker('LOST_RESULT_CHECK', mode: 'camera');
       final recovered = await ImagePicker().retrieveLostData();
-      if (!mounted || recovered.isEmpty) return;
+      if (!mounted || recovered.isEmpty) {
+        if (mode == 'camera') await _clearPendingPicker();
+        return;
+      }
       if (recovered.exception != null) throw recovered.exception!;
       final file = recovered.files?.firstOrNull;
-      if (file != null) await _useSelfie(file);
+      if (file != null) {
+        await _useSelfie(file);
+        _tracePicker('LOST_RESULT_RECOVERED', mode: 'camera');
+      }
+      await _clearPendingPicker();
     } catch (error) {
       if (mounted) setState(() => _error = ApiResult.errorMessage(error));
+      if (mode == 'camera') await _clearPendingPickerAfterFailure();
     } finally {
       if (mounted) setState(() => _capturingSelfie = false);
     }
@@ -740,6 +981,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
 
   Future<void> _useSelfie(XFile file) async {
     const id = '__live_selfie__';
+    _tracePicker('SELFIE_VALIDATE_START', mode: 'camera');
     if (!_definitions.any((d) => d['id'] == id) ||
         (_application != null &&
             _status != 'CHANGES_REQUESTED' &&
@@ -751,7 +993,9 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     )) {
       return;
     }
-    if (await file.length() > 3000000) {
+    final selfieBytes = await file.length();
+    _tracePicker('SELFIE_LENGTH_READY', mode: 'camera', bytes: selfieBytes);
+    if (selfieBytes > 3000000) {
       throw StateError('Retake a smaller selfie (up to 3 MB).');
     }
     final store = _draftStore;
@@ -759,19 +1003,43 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       throw StateError('Refresh your account before choosing files.');
     }
     final selected = await store.stage('live_selfie.jpg', file.openRead());
-    if (!mounted) return;
-    for (final previous in _files[id] ?? <PartnerLocalFile>[]) {
+    _tracePicker('SELFIE_STAGE_READY', mode: 'camera', bytes: selfieBytes);
+    try {
+      await _validatePreviewImage(selected);
+    } catch (_) {
+      await store.remove(selected);
+      rethrow;
+    }
+    if (!mounted) {
+      await store.remove(selected);
+      return;
+    }
+    final previousFiles = List<PartnerLocalFile>.from(_files[id] ?? const []);
+    for (final previous in previousFiles) {
       if (previous.path != null) {
         await PartnerUploadTile.previewFile(previous.path!).evict();
       }
     }
-    if (!mounted) return;
+    if (!mounted) {
+      await store.remove(selected);
+      return;
+    }
     setState(() {
       _files[id] = [selected];
       _dirty = true;
       _error = null;
     });
-    await _saveDraft();
+    try {
+      await _saveDraft(required: true);
+    } catch (_) {
+      if (mounted) setState(() => _files[id] = previousFiles);
+      await store.remove(selected);
+      rethrow;
+    }
+    _tracePicker('SELFIE_DRAFT_READY', mode: 'camera', bytes: selfieBytes);
+    for (final previous in previousFiles) {
+      await store.remove(previous);
+    }
   }
 
   Future<void> _captureSelfie() async {
@@ -781,17 +1049,15 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     _markDirty();
     setState(() => _capturingSelfie = true);
     try {
-      await _saveDraft();
-      await WidgetsBinding.instance.endOfFrame;
-      // Android may reclaim this process while the external camera is open.
-      // Remove our offscreen preview cache before giving the camera memory.
-      for (final files in _files.values) {
-        for (final file in files) {
-          if (file.path != null) {
-            await PartnerUploadTile.previewFile(file.path!).evict();
-          }
-        }
-      }
+      final definition = _definitions
+          .where((field) => field['id'] == '__live_selfie__')
+          .first;
+      await _prepareNativeHandoff(
+        definition,
+        mode: 'camera',
+        label: 'Opening the front camera...',
+      );
+      _tracePicker('NATIVE_OPEN', mode: 'camera');
       final image =
           await (widget.captureSelfie?.call() ??
               ImagePicker().pickImage(
@@ -803,14 +1069,22 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
                 requestFullMetadata: false,
               ));
       if (image != null && mounted) {
+        _pendingPickerStage = 'NATIVE_RETURN';
+        _tracePicker('NATIVE_RETURN', mode: 'camera');
         await _useSelfie(image);
         captured = true;
+        _tracePicker('PREVIEW_READY', mode: 'camera');
       }
+      await _clearPendingPicker();
     } catch (error) {
+      _tracePicker('ERROR', mode: 'camera');
+      debugPrint('PartnerPicker camera_error=${error.runtimeType}');
       if (mounted) setState(() => _error = ApiResult.errorMessage(error));
+      await _clearPendingPickerAfterFailure();
     } finally {
       if (mounted) {
         setState(() {
+          _nativeHandoff = false;
           _capturingSelfie = false;
           if (!captured) _dirty = wasDirty;
         });
@@ -829,8 +1103,15 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     _markDirty();
     setState(() => _pickingFiles = true);
     final picked = <PartnerLocalFile>[];
+    var nativePickerReturned = false;
+    List<PartnerLocalFile>? previousSelection;
+    String? selectionFieldId;
     try {
-      await _saveDraft();
+      await _prepareNativeHandoff(
+        definition,
+        mode: 'files',
+        label: 'Opening your files...',
+      );
       final extensions = (definition['allowed_extensions'] as List? ?? [])
           .map((value) => '$value'.replaceFirst('.', '').toLowerCase())
           .toList();
@@ -855,57 +1136,47 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
               'xlsx',
               'zip',
             ];
-      final store = _draftStore;
-      if (store == null) {
-        throw StateError('Refresh your account before choosing files.');
-      }
-      final limit =
-          (((definition['max_file_size_mb'] as num?)?.toDouble() ?? 3) *
-                  1024 *
-                  1024)
-              .floor()
-              .clamp(1, 3000000);
       final List<PlatformFile> result;
       if (widget.selectFiles != null) {
         picked.addAll(await widget.selectFiles!(definition) ?? []);
         result = [];
       } else if (definition['allow_multiple'] == true) {
+        _tracePicker('NATIVE_OPEN', mode: 'files');
         result = await FilePicker.pickFiles(
           type: FileType.custom,
           allowedExtensions: allowed,
         );
+        nativePickerReturned = true;
       } else {
+        _tracePicker('NATIVE_OPEN', mode: 'files');
         final file = await FilePicker.pickFile(
           type: FileType.custom,
           allowedExtensions: allowed,
         );
+        nativePickerReturned = true;
         result = file == null ? [] : [file];
       }
-      if (!mounted || (result.isEmpty && picked.isEmpty)) return;
+      _pendingPickerStage = 'NATIVE_RETURN';
+      _tracePicker('NATIVE_RETURN', mode: 'files');
+      if (!mounted || (result.isEmpty && picked.isEmpty)) {
+        await _clearPendingPicker();
+        return;
+      }
       final existingCount = definition['allow_multiple'] == true
           ? (_files['${definition['id']}']?.length ?? 0)
           : 0;
       if (existingCount + result.length + picked.length > 10) {
         throw StateError('Choose at most 10 files for one field.');
       }
-      for (final file in result) {
-        final size = await file.length();
-        if (size == null || size > 3000000 || size > limit) {
-          throw StateError(
-            'Choose files within the configured size limit and no larger than 3 MB.',
-          );
-        }
-        picked.add(
-          await store.stage(
-            file.name,
-            file.readAsByteStream(),
-            maxBytes: limit,
-          ),
-        );
-      }
+      picked.addAll(await _stagePlatformFiles(definition, result));
       if (!mounted) return;
+      final previous = List<PartnerLocalFile>.from(
+        _files['${definition['id']}'] ?? const [],
+      );
+      previousSelection = previous;
+      selectionFieldId = '${definition['id']}';
       final selected = definition['allow_multiple'] == true
-          ? [...?_files['${definition['id']}'], ...picked]
+          ? [...previous, ...picked]
           : picked;
       if (selected.length > 10) {
         throw StateError('Choose at most 10 files for one field.');
@@ -915,10 +1186,24 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         _dirty = true;
         _error = null;
       });
+      await _clearPendingPicker();
       selectedFiles = true;
-      await _saveDraft();
+      if (definition['allow_multiple'] != true) {
+        for (final old in previous) {
+          if (!selected.contains(old)) {
+            if (old.path != null) {
+              await PartnerUploadTile.previewFile(old.path!).evict();
+            }
+            await _draftStore?.remove(old);
+          }
+        }
+      }
     } catch (error) {
+      if (mounted && previousSelection != null && selectionFieldId != null) {
+        setState(() => _files[selectionFieldId!] = previousSelection!);
+      }
       if (mounted) setState(() => _error = ApiResult.errorMessage(error));
+      await _clearPendingPickerAfterFailure();
     } finally {
       if (!selectedFiles) {
         for (final file in picked) {
@@ -927,10 +1212,43 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       }
       if (mounted) {
         setState(() {
+          _nativeHandoff = false;
           _pickingFiles = false;
           if (!selectedFiles) _dirty = wasDirty;
         });
       }
+      if (nativePickerReturned) {
+        try {
+          await FilePicker.clearTemporaryFiles();
+        } catch (_) {}
+      }
+    }
+  }
+
+  Future<void> _removeSelectedFile(
+    String fieldId,
+    PartnerLocalFile file,
+  ) async {
+    final files = _files[fieldId];
+    if (files == null || !files.contains(file) || _busy) return;
+    final index = files.indexOf(file);
+    setState(() {
+      files.removeAt(index);
+      _dirty = true;
+      _error = null;
+    });
+    try {
+      await _saveDraft(required: true);
+      if (file.path != null) {
+        await PartnerUploadTile.previewFile(file.path!).evict();
+      }
+      await _draftStore?.remove(file);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        files.insert(index.clamp(0, files.length), file);
+        _error = ApiResult.errorMessage(error);
+      });
     }
   }
 
@@ -1115,16 +1433,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
                       : () => _download(file.assetId!),
                   onRemove: !enabled
                       ? null
-                      : () => setState(() {
-                          if (file.path != null) {
-                            unawaited(
-                              PartnerUploadTile.previewFile(file.path!).evict(),
-                            );
-                          }
-                          files.remove(file);
-                          _dirty = true;
-                          _scheduleDraft();
-                        }),
+                      : () => unawaited(_removeSelectedFile(id, file)),
                 ),
               )
               .toList(),
@@ -2014,67 +2323,111 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     );
   }
 
-  @override
-  Widget build(BuildContext context) => PopScope(
-    canPop: !_dirty && !_busy && !(_editingApplication && _stepIndex > 0),
-    onPopInvokedWithResult: (didPop, result) async {
-      if (didPop || _saving || _pickingFiles || _capturingSelfie) return;
-      if (_editingApplication && _stepIndex > 0) {
-        _goToStep(_stepIndex - 1);
-        return;
-      }
-      if (await _discard() && context.mounted) Navigator.pop(context);
-    },
-    child: AppPage(
-      glass: true,
-      title: 'Partner Program',
-      action: IconButton(
-        tooltip: 'Refresh partner status',
-        onPressed: _saving || _pickingFiles || _capturingSelfie
-            ? null
-            : () async {
-                if (_dirty && !await _discard()) return;
-                _load();
-              },
-        icon: const Icon(Icons.refresh),
-      ),
-      child: _loading
-          ? _loadingContent()
-          : _workflow == null
-          ? AppLoadError(
-              message: _error ?? 'Could not load Partner Program.',
-              onRetry: () => _load(),
-            )
-          : RefreshIndicator(
-              onRefresh: () async {
-                if (!_dirty &&
-                    !_saving &&
-                    !_pickingFiles &&
-                    !_capturingSelfie) {
-                  await _load(background: true);
-                }
-              },
-              color: AppColors.primaryGreen,
-              child: Form(
-                key: _form,
-                child: ListView(
-                  controller: _scroll,
-                  padding: const EdgeInsets.only(bottom: 32),
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  children: [
-                    if (_error != null && !_editingApplication)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: Text(
-                          _error!,
-                          style: const TextStyle(color: AppColors.googleRed),
-                        ),
-                      ),
-                    ..._contents(),
-                  ],
+  Widget _nativeHandoffContent() => Scaffold(
+    key: const ValueKey('partner-native-handoff'),
+    backgroundColor: const Color(0xFFE8EEF8),
+    body: SafeArea(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.shield_outlined,
+                size: 36,
+                color: AppColors.primaryGreen,
+              ),
+              const SizedBox(height: 18),
+              Text(
+                _nativeHandoffLabel,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
                 ),
               ),
-            ),
+              const SizedBox(height: 8),
+              Text(
+                'Your application is saved securely before leaving 1More.',
+                textAlign: TextAlign.center,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+              ),
+            ],
+          ),
+        ),
+      ),
     ),
   );
+
+  @override
+  Widget build(BuildContext context) {
+    // Remove the complete glass form and its image previews from the render
+    // tree before Android allocates the document picker/camera surface.
+    if (_nativeHandoff) return _nativeHandoffContent();
+    return PopScope(
+      canPop: !_dirty && !_busy && !(_editingApplication && _stepIndex > 0),
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop || _saving || _pickingFiles || _capturingSelfie) return;
+        if (_editingApplication && _stepIndex > 0) {
+          _goToStep(_stepIndex - 1);
+          return;
+        }
+        if (await _discard() && context.mounted) Navigator.pop(context);
+      },
+      child: AppPage(
+        glass: true,
+        title: 'Partner Program',
+        action: IconButton(
+          tooltip: 'Refresh partner status',
+          onPressed: _saving || _pickingFiles || _capturingSelfie
+              ? null
+              : () async {
+                  if (_dirty && !await _discard()) return;
+                  _load();
+                },
+          icon: const Icon(Icons.refresh),
+        ),
+        child: _loading
+            ? _loadingContent()
+            : _workflow == null
+            ? AppLoadError(
+                message: _error ?? 'Could not load Partner Program.',
+                onRetry: () => _load(),
+              )
+            : RefreshIndicator(
+                onRefresh: () async {
+                  if (!_dirty &&
+                      !_saving &&
+                      !_pickingFiles &&
+                      !_capturingSelfie) {
+                    await _load(background: true);
+                  }
+                },
+                color: AppColors.primaryGreen,
+                child: Form(
+                  key: _form,
+                  child: ListView(
+                    controller: _scroll,
+                    padding: const EdgeInsets.only(bottom: 32),
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      if (_error != null && !_editingApplication)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: Text(
+                            _error!,
+                            style: const TextStyle(color: AppColors.googleRed),
+                          ),
+                        ),
+                      ..._contents(),
+                    ],
+                  ),
+                ),
+              ),
+      ),
+    );
+  }
 }

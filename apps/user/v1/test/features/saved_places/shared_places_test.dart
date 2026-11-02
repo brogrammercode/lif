@@ -337,7 +337,13 @@ void main() {
         ),
       );
       addTearDown(() async {
-        if (await file.exists()) await file.delete();
+        if (!await file.exists()) return;
+        try {
+          await file.delete();
+        } on PathAccessException {
+          // Flutter's Windows image decoder can retain this 1 px fixture until
+          // the test isolate exits even after the widget/provider is evicted.
+        }
       });
       await tester.pumpWidget(
         glass.shell(

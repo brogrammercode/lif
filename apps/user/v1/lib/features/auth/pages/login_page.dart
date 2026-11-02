@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:user/core/color.dart';
-import 'package:user/core/routes.dart';
-import 'package:user/features/auth/constants/user.constant.dart';
-import 'package:user/features/auth/auth.repo.dart';
-import 'package:user/core/network/api_result.dart';
 import 'package:user/components/ui/app_logo.dart';
+import 'package:user/components/ui/liquid_glass.dart';
+import 'package:user/core/color.dart';
+import 'package:user/core/network/api_result.dart';
+import 'package:user/core/routes.dart';
+import 'package:user/features/auth/auth.repo.dart';
+import 'package:user/features/auth/constants/user.constant.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -42,360 +42,287 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.light.copyWith(
-        statusBarColor: Colors.transparent,
-        systemNavigationBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.light,
-        statusBarBrightness: Brightness.dark,
-      ),
+  Widget build(BuildContext context) => AnnotatedRegion<SystemUiOverlayStyle>(
+    value: SystemUiOverlayStyle.dark.copyWith(
+      statusBarColor: Colors.transparent,
+      systemNavigationBarColor: GlassTokens.canvas,
+    ),
+    child: LiquidGlassScope(
       child: Scaffold(
-        backgroundColor: AppColors.deepOnyx,
-        body: Stack(
-          children: [
-            const Positioned.fill(child: _LoginBackground()),
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withValues(alpha: 0.04),
-                      Colors.black.withValues(alpha: 0.00),
-                      Colors.black.withValues(alpha: 0.16),
-                    ],
-                    stops: const [0.0, 0.48, 1.0],
+        backgroundColor: GlassTokens.canvas,
+        body: LiquidGlassBackdrop(
+          child: SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) => SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: constraints.maxHeight - 38,
+                  ),
+                  child: IntrinsicHeight(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Wrap(
+                          alignment: WrapAlignment.spaceBetween,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 12,
+                          runSpacing: 10,
+                          children: [
+                            const AppLogo(width: 116, height: 44),
+                            LiquidGlassSurface(
+                              radius: 99,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 13,
+                                vertical: 9,
+                              ),
+                              child: const Text(
+                                'RIDER + DRIVER',
+                                style: TextStyle(
+                                  color: GlassTokens.accent,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: .7,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 32),
+                        const _WelcomeVisual(),
+                        const SizedBox(height: 28),
+                        Text(
+                          UserConstants.LOGIN_TITLE.replaceAll('\n', ' '),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: GlassTokens.ink,
+                            fontSize: 34,
+                            fontWeight: FontWeight.w700,
+                            height: 1.08,
+                            letterSpacing: -.8,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          UserConstants.LOGIN_SUBTITLE.replaceAll('\n', ' '),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: GlassTokens.muted,
+                            fontSize: 14,
+                            height: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 22),
+                        const Wrap(
+                          alignment: WrapAlignment.center,
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _Feature(
+                              icon: Icons.route_rounded,
+                              label: 'Live trips',
+                            ),
+                            _Feature(
+                              icon: Icons.shield_outlined,
+                              label: 'Verified drivers',
+                            ),
+                            _Feature(
+                              icon: Icons.payments_outlined,
+                              label: 'Direct payment',
+                            ),
+                          ],
+                        ),
+                        const Spacer(),
+                        const SizedBox(height: 28),
+                        LiquidGlassSurface(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const Text(
+                                'Continue to your workspace',
+                                style: TextStyle(
+                                  color: GlassTokens.ink,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              const Text(
+                                'Your saved places, rides and approved driver access stay with this Google account.',
+                                style: TextStyle(
+                                  color: GlassTokens.muted,
+                                  fontSize: 12.5,
+                                  height: 1.45,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              LiquidGlassButton(
+                                text: UserConstants.GOOGLE_AUTH_BUTTON,
+                                icon: const _GoogleMark(),
+                                busy: _signingIn,
+                                onPressed: _signingIn ? null : _signIn,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        const Text(
+                          UserConstants.TERMS_TEXT,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: GlassTokens.muted,
+                            fontSize: 11.5,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final screenHeight = constraints.maxHeight;
-                final safePadding = MediaQuery.paddingOf(context);
-
-                return Stack(
-                  children: [
-                    Positioned(
-                      top: safePadding.top + 16.r,
-                      left: 22.r,
-                      child: AppLogo(width: 120.r, height: 48.r),
-                    ),
-                    Positioned(
-                      top: safePadding.top + 16.r,
-                      right: 14.r,
-                      child: _buildSkipButton(context),
-                    ),
-                    Positioned(
-                      top: screenHeight * 0.485,
-                      left: 0,
-                      right: 0,
-                      child: _buildSportMatesBadge(),
-                    ),
-                    Positioned(
-                      top: screenHeight * 0.54,
-                      left: 22.r,
-                      right: 22.r,
-                      child: _buildHeadline(),
-                    ),
-                    Positioned(
-                      top: screenHeight * 0.785,
-                      left: 22.r,
-                      right: 22.r,
-                      child: _buildSubtitle(),
-                    ),
-                    Positioned(
-                      top: screenHeight * 0.875,
-                      left: 0,
-                      right: 0,
-                      child: _buildPageIndicator(),
-                    ),
-                    Positioned(
-                      left: 16.r,
-                      right: 16.r,
-                      bottom: safePadding.bottom + 15.r,
-                      child: _buildContinueButton(context),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSkipButton(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: _signIn,
-      child: Padding(
-        padding: EdgeInsets.all(8.r),
-        child: Text(
-          UserConstants.SIGN_IN,
-          style: TextStyle(
-            color: AppColors.pureWhite.withValues(alpha: 0.86),
-            fontSize: 12.r,
-            fontWeight: FontWeight.w500,
-            height: 1,
-            shadows: const [
-              Shadow(
-                color: Color(0x66000000),
-                blurRadius: 4,
-                offset: Offset(0, 1),
-              ),
-            ],
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
-  Widget _buildSportMatesBadge() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+class _WelcomeVisual extends StatelessWidget {
+  const _WelcomeVisual();
+
+  @override
+  Widget build(BuildContext context) => LiquidGlassSurface(
+    padding: const EdgeInsets.all(12),
+    child: SizedBox(
+      height: 178,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: CustomPaint(painter: _RouteBackdropPainter()),
+            ),
+          ),
+          const Positioned(
+            left: 24,
+            top: 22,
+            child: _MapPoint(icon: Icons.person_pin_circle_outlined),
+          ),
+          const Positioned(
+            right: 24,
+            bottom: 22,
+            child: _MapPoint(icon: Icons.flag_outlined),
+          ),
+          Center(
+            child: LiquidGlassSurface(
+              dark: true,
+              radius: 99,
+              padding: const EdgeInsets.all(18),
+              child: const Icon(
+                Icons.directions_car_filled_rounded,
+                color: Colors.white,
+                size: 32,
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _MapPoint extends StatelessWidget {
+  final IconData icon;
+  const _MapPoint({required this.icon});
+
+  @override
+  Widget build(BuildContext context) => LiquidGlassSurface(
+    radius: 99,
+    padding: const EdgeInsets.all(10),
+    child: Icon(icon, color: GlassTokens.accent, size: 22),
+  );
+}
+
+class _Feature extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _Feature({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) => LiquidGlassSurface(
+    radius: 99,
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+    child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        SizedBox(
-          width: 34.r,
-          height: 18.r,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: const [
-              _MateAvatar(
-                offset: 0,
-                colors: [Color(0xFFD54B4B), Color(0xFF4BB4D5)],
-              ),
-              _MateAvatar(
-                offset: 10,
-                colors: [Color(0xFFF7D7B8), Color(0xFF2C6B4F)],
-              ),
-              _MateAvatar(
-                offset: 20,
-                colors: [Color(0xFFEBF0F2), Color(0xFFC77A4D)],
-              ),
-            ],
-          ),
-        ),
-        SizedBox(width: 6.r),
-        Text(
-          UserConstants.LOGIN_SECTION_LABEL,
-          style: TextStyle(
-            color: AppColors.pureWhite,
-            fontSize: 10.r,
-            fontWeight: FontWeight.w700,
-            height: 1,
-            shadows: const [
-              Shadow(
-                color: Color(0x99000000),
-                blurRadius: 4,
-                offset: Offset(0, 1),
-              ),
-            ],
+        Icon(icon, size: 16, color: GlassTokens.accent),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: GlassTokens.ink,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildHeadline() {
-    return Text(
-      UserConstants.LOGIN_TITLE,
-      textAlign: TextAlign.center,
-      style: TextStyle(
-        color: AppColors.pureWhite,
-        fontSize: 43.r,
-        fontWeight: FontWeight.w900,
-        height: 1.13,
-        letterSpacing: 0,
-        shadows: const [
-          Shadow(color: Color(0x73000000), blurRadius: 8, offset: Offset(0, 2)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSubtitle() {
-    return Text(
-      UserConstants.LOGIN_SUBTITLE,
-      textAlign: TextAlign.center,
-      style: TextStyle(
-        color: AppColors.pureWhite.withValues(alpha: 0.88),
-        fontSize: 13.r,
-        fontWeight: FontWeight.w500,
-        height: 1.35,
-        letterSpacing: 0,
-        shadows: const [
-          Shadow(color: Color(0x73000000), blurRadius: 5, offset: Offset(0, 1)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPageIndicator() {
-    return Center(
-      child: Container(
-        width: 18.r,
-        height: 5.r,
-        decoration: BoxDecoration(
-          color: AppColors.pureWhite,
-          borderRadius: BorderRadius.circular(999.r),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x33000000),
-              blurRadius: 4,
-              offset: Offset(0, 1),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildContinueButton(BuildContext context) {
-    return SizedBox(
-      height: 50.r,
-      child: ElevatedButton(
-        onPressed: _signIn,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.pureWhite,
-          foregroundColor: AppColors.textPrimary,
-          elevation: 0,
-          shadowColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(999.r),
-          ),
-        ),
-        child: _signingIn
-            ? SizedBox(
-                width: 20.r,
-                height: 20.r,
-                child: const CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: AppColors.primaryGreen,
-                ),
-              )
-            : Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildGoogleMark(),
-                  SizedBox(width: 10.r),
-                  Flexible(
-                    child: Text(
-                      UserConstants.GOOGLE_AUTH_BUTTON,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 15.r,
-                        fontWeight: FontWeight.w500,
-                        height: 1,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-      ),
-    );
-  }
-
-  Widget _buildGoogleMark() {
-    return SizedBox(
-      width: 20.r,
-      height: 20.r,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Text(
-            UserConstants.GOOGLE_MARK,
-            style: TextStyle(
-              color: AppColors.googleBlue,
-              fontSize: 18.r,
-              fontWeight: FontWeight.w800,
-              height: 1,
-            ),
-          ),
-          Positioned(
-            right: 0.r,
-            bottom: 3.r,
-            child: Container(
-              width: 7.r,
-              height: 3.r,
-              color: AppColors.googleGreen,
-            ),
-          ),
-          Positioned(
-            left: 1.r,
-            bottom: 3.r,
-            child: Container(
-              width: 5.r,
-              height: 5.r,
-              decoration: const BoxDecoration(
-                color: AppColors.googleYellow,
-                shape: BoxShape.circle,
-              ),
-            ),
-          ),
-          Positioned(
-            top: 2.r,
-            left: 1.r,
-            child: Container(
-              width: 5.r,
-              height: 5.r,
-              decoration: const BoxDecoration(
-                color: AppColors.googleRed,
-                shape: BoxShape.circle,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+    ),
+  );
 }
 
-class _LoginBackground extends StatelessWidget {
-  const _LoginBackground();
+class _GoogleMark extends StatelessWidget {
+  const _GoogleMark();
 
   @override
-  Widget build(BuildContext context) {
-    return Image.asset(
-      UserConstants.LOGIN_BACKGROUND_ASSET,
-      fit: BoxFit.cover,
-      alignment: Alignment.topCenter,
-      filterQuality: FilterQuality.high,
-    );
-  }
+  Widget build(BuildContext context) => const Text(
+    'G',
+    style: TextStyle(
+      color: AppColors.googleBlue,
+      fontSize: 19,
+      fontWeight: FontWeight.w800,
+    ),
+  );
 }
 
-class _MateAvatar extends StatelessWidget {
-  final double offset;
-  final List<Color> colors;
-
-  const _MateAvatar({required this.offset, required this.colors});
-
+class _RouteBackdropPainter extends CustomPainter {
   @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      left: offset.r,
-      top: 0,
-      child: Container(
-        width: 18.r,
-        height: 18.r,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: AppColors.pureWhite, width: 1.2.r),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: colors,
-          ),
-        ),
-      ),
+  void paint(Canvas canvas, Size size) {
+    final background = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0x70FFFFFF), Color(0x426F9FE5), Color(0x34E6A8CE)],
+      ).createShader(Offset.zero & size);
+    canvas.drawRect(Offset.zero & size, background);
+    final road = Paint()
+      ..color = Colors.white.withValues(alpha: .65)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 9
+      ..strokeCap = StrokeCap.round;
+    final route = Path()
+      ..moveTo(34, 36)
+      ..cubicTo(
+        size.width * .35,
+        38,
+        size.width * .55,
+        size.height - 26,
+        size.width - 34,
+        size.height - 34,
+      );
+    canvas.drawPath(route, road);
+    canvas.drawPath(
+      route,
+      Paint()
+        ..color = GlassTokens.accent.withValues(alpha: .62)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round,
     );
   }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

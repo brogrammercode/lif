@@ -7,6 +7,9 @@ import 'package:user/core/config.dart';
 import 'package:user/core/network/api.constant.dart';
 
 class DioClient {
+  static const Duration authenticationConnectTimeout = Duration(seconds: 45);
+  static const Duration authenticationReceiveTimeout = Duration(seconds: 60);
+  static const Duration authenticationSendTimeout = Duration(seconds: 30);
   static final DioClient _instance = DioClient._internal();
   late final Dio dio;
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
@@ -286,8 +289,9 @@ class DioClient {
           Dio(
             BaseOptions(
               baseUrl: AppConfig.apiBaseUrl,
-              connectTimeout: const Duration(seconds: 15),
-              receiveTimeout: const Duration(seconds: 20),
+              connectTimeout: authenticationConnectTimeout,
+              receiveTimeout: authenticationReceiveTimeout,
+              sendTimeout: authenticationSendTimeout,
               headers: {
                 'Accept': 'application/json',
                 'Content-Type': 'application/json',
@@ -412,6 +416,7 @@ class DioClient {
     String path, {
     Object? data,
     Map<String, dynamic>? headers,
+    Duration? connectTimeout,
     Duration? receiveTimeout,
     Duration? sendTimeout,
   }) async => (await dio.post(
@@ -419,6 +424,7 @@ class DioClient {
     data: data,
     options: Options(
       headers: headers,
+      connectTimeout: connectTimeout,
       receiveTimeout: receiveTimeout,
       sendTimeout: sendTimeout,
     ),

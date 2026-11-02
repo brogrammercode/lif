@@ -4,6 +4,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:user/core/route_observer.dart';
+import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/features/auth/models/user.model.dart';
 import 'package:user/features/driver_vehicles/vehicle_verification.repo.dart';
 import 'package:user/features/driver_vehicles/widgets/driver_vehicle_gate.dart';
@@ -71,7 +72,7 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
     expect(find.text('Verified driver home'), findsNothing);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byType(LiquidGlassFormSkeleton), findsOneWidget);
     pending.complete(repo.data);
     await tester.pumpAndSettle();
     expect(repo.requests, 2);

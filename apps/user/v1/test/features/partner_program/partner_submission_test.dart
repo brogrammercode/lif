@@ -99,6 +99,7 @@ class MemoryDraft extends PartnerDraftStore {
   bool failSave = false;
   Completer<void>? blockedRead;
   int reads = 0;
+  final removed = <PartnerLocalFile>[];
   @override
   Future<void> save(Map<String, dynamic> draft) async {
     if (failSave) throw const FileSystemException('Disk unavailable');
@@ -144,6 +145,11 @@ class MemoryDraft extends PartnerDraftStore {
             : null,
       ),
   ];
+
+  @override
+  Future<void> remove(PartnerLocalFile file) async {
+    removed.add(file);
+  }
 }
 
 class SubmissionRepo extends PartnerProgramRepository {
@@ -313,7 +319,11 @@ class LargePolicyAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
-Widget page(SubmissionRepo repo, MemoryDraft store) => ScreenUtilInit(
+Widget page(
+  SubmissionRepo repo,
+  MemoryDraft store, {
+  Future<List<PartnerLocalFile>?> Function(Map<String, dynamic>)? recoverFiles,
+}) => ScreenUtilInit(
   designSize: const Size(390, 844),
   builder: (_, child) => MaterialApp(
     home: PartnerProgramPage(
@@ -335,6 +345,7 @@ Widget page(SubmissionRepo repo, MemoryDraft store) => ScreenUtilInit(
       ),
       captureSelfie: () async =>
           XFile.fromData(Uint8List.fromList([1, 2, 3]), name: 'selfie.jpg'),
+      recoverFiles: recoverFiles,
     ),
   ),
 );
@@ -359,6 +370,23 @@ Future<void> press(WidgetTester tester, Finder finder) async {
   // Commit that layout before calculating the target's hit-test coordinates.
   await tester.pumpAndSettle();
   await tester.tap(finder);
+  // Picker/camera actions first commit a lightweight handoff frame, then wait
+  // for a second frame before invoking the native activity.
+  await tester.pump();
+  await tester.pump();
+  await tester.pump();
+  for (var attempt = 0; attempt < 100; attempt++) {
+    await tester.pump(const Duration(milliseconds: 20));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 1)),
+    );
+    if (find
+        .byKey(const ValueKey('partner-native-handoff'))
+        .evaluate()
+        .isEmpty) {
+      break;
+    }
+  }
   await tester.pumpAndSettle();
 }
 
@@ -449,6 +477,54 @@ void main() {
       expect(store.cleared, 1);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
+    },
+  );
+  testWidgets(
+    'a file-picker result survives activity recreation and removed staged files are deleted',
+    (tester) async {
+      final repo = SubmissionRepo();
+      final store = MemoryDraft()
+        ..value = {
+          'format': 1,
+          'application_version': 0,
+          'policy_version': 1,
+          'email': 'rider@example.test',
+          'phone': '+919999999999',
+          'accepted': true,
+          'show_form': true,
+          'form_step': 'uncategorized',
+          'values': <String, dynamic>{},
+          'text': <String, dynamic>{},
+          'files': <String, dynamic>{},
+          'pending_picker': {
+            'field_id': 'first',
+            'mode': 'files',
+            'stage': 'NATIVE_OPEN',
+            'started_at': DateTime.now().toUtc().toIso8601String(),
+          },
+        };
+      final recovered = PartnerLocalFile(
+        name: 'recovered.pdf',
+        path: '/fixture/recovered.pending',
+      );
+
+      await tester.pumpWidget(
+        page(repo, store, recoverFiles: (_) async => [recovered]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(store.value?['pending_picker'], isNull);
+      expect(
+        ((store.value?['files'] as Map)['first'] as List).single['name'],
+        'recovered.pdf',
+      );
+      await press(tester, find.text('Review files (1)'));
+      await tester.tap(find.byTooltip('Remove file'));
+      await tester.pumpAndSettle();
+      expect(store.removed, contains(recovered));
+      expect((store.value?['files'] as Map)['first'], isEmpty);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
     },
   );
   test(

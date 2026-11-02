@@ -1,4 +1,5 @@
 import 'package:user/components/ui/glass_dropdown.dart';
+import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +9,7 @@ import 'package:user/core/color.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/driver_operations/driver_operations.repo.dart';
+import 'package:user/features/driver_operations/widgets/driver_glass.dart';
 
 class TripActionsPanel extends StatefulWidget {
   final String rideId;
@@ -100,7 +102,7 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
     final input = TextEditingController();
     final value = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => LiquidGlassDialog(
         title: Text(title),
         content: TextField(
           controller: input,
@@ -221,7 +223,7 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
       return AppCard(
         child: _error != null
             ? TextButton(onPressed: _load, child: Text('$_error · Retry'))
-            : const LinearProgressIndicator(),
+            : const DriverListSkeleton(rows: 2),
       );
     }
     final status = '${data['status']}';
@@ -330,7 +332,10 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
                   labelText: 'Six-digit code from rider',
                 ),
               ),
-              FilledButton(
+              LiquidGlassButton(
+                text: 'Verify trip code',
+                icon: const Icon(Icons.password_rounded),
+                busy: _busy,
                 onPressed: _busy
                     ? null
                     : () => _run(() async {
@@ -340,13 +345,15 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
                         await _repo.start(widget.rideId, _code.text);
                         _code.clear();
                       }),
-                child: const Text('Verify trip code'),
               ),
             ],
             if (!driver &&
                 start['code'] != null &&
                 start['rider_confirmed'] != true)
-              FilledButton(
+              LiquidGlassButton(
+                text: 'Confirm pickup and driver',
+                icon: const Icon(Icons.verified_user_outlined),
+                busy: _busy,
                 onPressed: _busy
                     ? null
                     : () => _run(() async {
@@ -354,7 +361,6 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
                           await widget.confirmRider!();
                         }
                       }),
-                child: const Text('Confirm pickup and driver'),
               ),
             if (!driver && start['code'] == null)
               OutlinedButton(
@@ -423,13 +429,16 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
                       : (v) => setState(() => _method = v ?? 'CASH'),
                 ),
                 const SizedBox(height: 16),
-                FilledButton(
+                LiquidGlassButton(
+                  text: 'Confirm full fare received',
+                  icon: const Icon(Icons.payments_outlined),
+                  busy: _busy,
                   onPressed: _busy
                       ? null
                       : () => _run(() async {
                           final confirmed = await showDialog<bool>(
                             context: context,
-                            builder: (ctx) => AlertDialog(
+                            builder: (ctx) => LiquidGlassDialog(
                               title: const Text('Confirm full fare received?'),
                               content: const Text(
                                 'Confirm only after you have received the complete displayed fare. A rider screenshot alone is not proof of UPI receipt.',
@@ -455,7 +464,6 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
                             );
                           }
                         }),
-                  child: const Text('Confirm full fare received'),
                 ),
                 OutlinedButton(
                   onPressed: _busy
@@ -485,9 +493,11 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
                     child: const Text('Pay driver in cash'),
                   ),
                 if (options['upi'] == true)
-                  FilledButton(
+                  LiquidGlassButton(
+                    text: 'Pay driver via UPI',
+                    icon: const Icon(Icons.account_balance_wallet_outlined),
+                    busy: _busy,
                     onPressed: _busy ? null : _payUpi,
-                    child: const Text('Pay driver via UPI'),
                   ),
               ],
               if (allowed.isEmpty)
@@ -576,7 +586,11 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
                 child: const Text('Dispute charge'),
               ),
           ],
-          if (_busy) const LinearProgressIndicator(),
+          if (_busy)
+            const DriverNotice(
+              icon: Icons.hourglass_top_rounded,
+              message: 'Saving this trip update securely…',
+            ),
         ],
       ),
     );

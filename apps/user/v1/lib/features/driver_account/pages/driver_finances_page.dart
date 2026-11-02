@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
+import 'package:user/components/ui/glass_chip.dart';
+import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/driver_account/driver_account.repo.dart';
+import 'package:user/features/driver_operations/widgets/driver_glass.dart';
 import 'package:user/features/rides/ride_display.dart';
 
 class DriverFinancesPage extends StatefulWidget {
@@ -95,6 +98,7 @@ class _FinanceState extends State<DriverFinancesPage>
 
   @override
   Widget build(BuildContext context) => AppPage(
+    glass: true,
     title: 'Earnings & transactions',
     action: IconButton(
       tooltip: 'Refresh statement',
@@ -112,12 +116,12 @@ class _FinanceState extends State<DriverFinancesPage>
               label: const Text('Date range'),
             ),
             for (final s in ['trips', 'charges'])
-              ChoiceChip(
-                label: Text(s == 'trips' ? 'Trips' : 'Reviewed charges'),
+              LiquidGlassChip(
+                label: s == 'trips' ? 'Trips' : 'Reviewed charges',
                 selected: _section == s,
-                onSelected: _loading
+                onPressed: _loading
                     ? null
-                    : (_) {
+                    : () {
                         setState(() {
                           _section = s;
                           _page = 1;
@@ -128,13 +132,20 @@ class _FinanceState extends State<DriverFinancesPage>
               ),
           ],
         ),
-        if (_loading && _data != null) const LinearProgressIndicator(),
+        const SizedBox(height: 14),
         if (_error != null && _data != null)
-          TextButton(onPressed: _load, child: Text('$_error - Retry')),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: DriverNotice(
+              icon: Icons.sync_problem_rounded,
+              message: '$_error. Pull to refresh or retry.',
+              error: true,
+            ),
+          ),
         Expanded(
           child: _data == null
               ? (_loading
-                    ? const Center(child: CircularProgressIndicator())
+                    ? const DriverListSkeleton(rows: 5)
                     : AppLoadError(
                         message: _error ?? 'Statement unavailable',
                         onRetry: _load,
@@ -143,26 +154,48 @@ class _FinanceState extends State<DriverFinancesPage>
                   onRefresh: _load,
                   child: ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.only(bottom: 24),
                     children: [
-                      Text('${_data!['from']} to ${_data!['to']} (UTC)'),
-                      Text('Last checked ${rideTime(_data!['as_of'])}'),
-                      const Text(
-                        'You receive fares directly. Received cash/UPI is separate from quoted fares and pending charges. There is no withdrawable platform balance.',
+                      DriverPageIntro(
+                        icon: Icons.account_balance_wallet_outlined,
+                        title: _section == 'trips'
+                            ? 'Direct fare collection'
+                            : 'Reviewed obligations',
+                        description:
+                            '${_data!['from']} to ${_data!['to']} · Last checked ${rideTime(_data!['as_of'])}. You receive cash and direct UPI fares yourself; this is not a platform wallet.',
                       ),
-                      const Text(
-                        'Provider/refund-managed amounts are the original fares, not confirmed refund amounts.',
+                      const SizedBox(height: 12),
+                      const DriverNotice(
+                        icon: Icons.info_outline_rounded,
+                        message:
+                            'This statement records direct collections and reviewed charges. There is no withdrawable platform balance.',
                       ),
+                      const SizedBox(height: 16),
                       if ((rideNumber(
                                 rideMap(_data!['summary'])['unpriced_trips'],
                               ) ??
                               0) >
                           0)
-                        Text(
-                          '${rideMap(_data!['summary'])['unpriced_trips']} completed trips have no recorded final fare. Totals exclude these unknown fares; contact Support.',
+                        DriverNotice(
+                          icon: Icons.warning_amber_rounded,
+                          message:
+                              '${rideMap(_data!['summary'])['unpriced_trips']} completed trips have no recorded final fare. Totals exclude them; contact Support.',
+                          warning: true,
                         ),
+                      const SizedBox(height: 12),
                       AppCard(
                         child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            const Text(
+                              'Statement summary',
+                              style: TextStyle(
+                                color: GlassTokens.ink,
+                                fontSize: 17,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
                             for (final e in {
                               'gross_fares': 'Completed fares',
                               'cash_received': 'Cash received',
@@ -178,19 +211,10 @@ class _FinanceState extends State<DriverFinancesPage>
                               'commission': 'Commission',
                               'platform_payout': 'Platform payout',
                             }.entries)
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 5,
-                                ),
-                                child: Row(
-                                  children: [
-                                    Expanded(child: Text(e.value)),
-                                    Text(
-                                      rideMoney(
-                                        rideMap(_data!['summary'])[e.key],
-                                      ),
-                                    ),
-                                  ],
+                              DriverInfoRow(
+                                label: e.value,
+                                value: rideMoney(
+                                  rideMap(_data!['summary'])[e.key],
                                 ),
                               ),
                           ],
@@ -199,7 +223,11 @@ class _FinanceState extends State<DriverFinancesPage>
                       const SizedBox(height: 12),
                       const AppSectionLabel('Transaction records'),
                       if (rideMaps(_data!['rows']).isEmpty)
-                        const Text('No records for this range.'),
+                        const AppEmptyState(
+                          icon: Icons.receipt_long_outlined,
+                          title: 'No transaction records',
+                          subtitle: 'No records fall inside this date range.',
+                        ),
                       for (final row in rideMaps(_data!['rows']))
                         AppCard(
                           child: ListTile(

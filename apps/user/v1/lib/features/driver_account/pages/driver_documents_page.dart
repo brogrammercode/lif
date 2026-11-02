@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/core/routes.dart';
+import 'package:user/features/driver_operations/widgets/driver_glass.dart';
 import 'package:user/features/driver_vehicles/vehicle_verification.repo.dart';
 import 'package:user/features/rides/ride_display.dart';
 
@@ -72,7 +73,7 @@ class _DocumentsState extends State<DriverDocumentsPage> {
     if (_busy) return;
     final yes = await showDialog<bool>(
       context: context,
-      builder: (c) => AlertDialog(
+      builder: (c) => LiquidGlassDialog(
         title: const Text('Replace reviewed document?'),
         content: const Text(
           'Driving with this vehicle will pause until the replacement is approved. Finish any active trip first.',
@@ -103,46 +104,44 @@ class _DocumentsState extends State<DriverDocumentsPage> {
           bytes.length >= 5 && String.fromCharCodes(bytes.take(5)) == '%PDF-';
       final submit = await showDialog<bool>(
         context: context,
-        builder: (c) => AlertDialog(
+        builder: (c) => LiquidGlassDialog(
           title: const Text('Review replacement'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(selected.name),
-                Text(
-                  '${(bytes.length / 1024).ceil()} KB. The current document remains until you submit. This vehicle will then need approval.',
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(selected.name),
+              Text(
+                '${(bytes.length / 1024).ceil()} KB. The current document remains until you submit. This vehicle will then need approval.',
+              ),
+              if (!pdf)
+                Image.memory(
+                  bytes,
+                  height: 180,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, error, stack) => const Text(
+                    'Image preview unavailable. Choose a valid image.',
+                  ),
                 ),
-                if (!pdf)
-                  Image.memory(
-                    bytes,
-                    height: 180,
-                    fit: BoxFit.contain,
-                    errorBuilder: (_, error, stack) => const Text(
-                      'Image preview unavailable. Choose a valid image.',
-                    ),
-                  ),
-                if (pdf)
-                  OutlinedButton(
-                    onPressed: () async {
-                      try {
-                        await VehicleVerificationRepository.openDocument(
-                          selected.name,
-                          bytes,
+              if (pdf)
+                OutlinedButton(
+                  onPressed: () async {
+                    try {
+                      await VehicleVerificationRepository.openDocument(
+                        selected.name,
+                        bytes,
+                      );
+                    } catch (e) {
+                      if (c.mounted) {
+                        ScaffoldMessenger.of(c).showSnackBar(
+                          SnackBar(content: Text(ApiResult.errorMessage(e))),
                         );
-                      } catch (e) {
-                        if (c.mounted) {
-                          ScaffoldMessenger.of(c).showSnackBar(
-                            SnackBar(content: Text(ApiResult.errorMessage(e))),
-                          );
-                        }
                       }
-                    },
-                    child: const Text('Preview PDF'),
-                  ),
-              ],
-            ),
+                    }
+                  },
+                  child: const Text('Preview PDF'),
+                ),
+            ],
           ),
           actions: [
             TextButton(
@@ -232,21 +231,34 @@ class _DocumentsState extends State<DriverDocumentsPage> {
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               children: [
-                const Text(
-                  'Documents are private to you and authorized reviewers. Replacements are reviewed manually. Vehicle front/back use images; RC, insurance and PUC may use images or PDF.',
+                DriverPageIntro(
+                  icon: Icons.folder_copy_outlined,
+                  title:
+                      '${vehicles.length} vehicle ${vehicles.length == 1 ? 'file' : 'files'}',
+                  description:
+                      'Private vehicle photos and documents are visible only to you and authorized reviewers. Replacements pause that vehicle until approval.',
                 ),
+                const SizedBox(height: 14),
                 if (!widget.readOnly)
-                  OutlinedButton(
-                    onPressed: () =>
+                  DriverLinkTile(
+                    icon: Icons.directions_car_outlined,
+                    title: 'Manage vehicles',
+                    subtitle: 'Register another vehicle or review your fleet.',
+                    onTap: () =>
                         Navigator.pushNamed(
                           context,
                           AppRoutes.driverVehicles,
                         ).then((_) {
                           if (mounted) _reload();
                         }),
-                    child: const Text('Manage or register vehicles'),
                   ),
-                if (vehicles.isEmpty) const Text('No vehicle documents yet.'),
+                if (vehicles.isEmpty)
+                  const AppEmptyState(
+                    icon: Icons.folder_off_outlined,
+                    title: 'No vehicle documents',
+                    subtitle:
+                        'Register a vehicle to add its photos and required documents.',
+                  ),
                 for (final vehicle in vehicles)
                   Padding(
                     padding: const EdgeInsets.only(top: 12),
@@ -254,25 +266,82 @@ class _DocumentsState extends State<DriverDocumentsPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Text(
-                            '${vehicle['make']} ${vehicle['model']} - ${vehicle['plate_number']}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 18,
-                            ),
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              final stack =
+                                  constraints.maxWidth < 300 ||
+                                  MediaQuery.textScalerOf(context).scale(1) >=
+                                      1.6;
+                              final identity = Row(
+                                children: [
+                                  LiquidGlassSurface(
+                                    radius: 99,
+                                    padding: const EdgeInsets.all(11),
+                                    child: const Icon(
+                                      Icons.directions_car_filled_outlined,
+                                      color: GlassTokens.accent,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      '${vehicle['make']} ${vehicle['model']}\n${vehicle['plate_number']}',
+                                      style: const TextStyle(
+                                        color: GlassTokens.ink,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 16,
+                                        height: 1.4,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                              if (stack) {
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    identity,
+                                    const SizedBox(height: 10),
+                                    DriverStatusPill(
+                                      label: '${vehicle['status']}',
+                                      status: '${vehicle['status']}',
+                                    ),
+                                  ],
+                                );
+                              }
+                              return Row(
+                                children: [
+                                  Expanded(child: identity),
+                                  const SizedBox(width: 10),
+                                  DriverStatusPill(
+                                    label: '${vehicle['status']}',
+                                    status: '${vehicle['status']}',
+                                  ),
+                                ],
+                              );
+                            },
                           ),
-                          Text('${vehicle['status']}'),
+                          const SizedBox(height: 14),
                           for (final field in rideMaps(
                             vehicle['verification_fields'],
                           )) ...[
-                            ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              dense: true,
-                              title: Text('${field['label']}'),
-                              subtitle: Text(
-                                '${field['status']}${field['rejection_reason'] == null ? '' : ' - ${field['rejection_reason']}'}',
+                            DriverInfoRow(
+                              label: '${field['label']}',
+                              value: '${field['status']}',
+                              valueWidget: DriverStatusPill(
+                                label: '${field['status']}',
+                                status: '${field['status']}',
                               ),
                             ),
+                            if (field['rejection_reason'] != null)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: DriverNotice(
+                                  icon: Icons.info_outline_rounded,
+                                  message: '${field['rejection_reason']}',
+                                  error: true,
+                                ),
+                              ),
                             for (final asset in rideMaps(
                               vehicle['verification_assets'],
                             ).where((a) => a['id'] == field['value']))
@@ -303,7 +372,14 @@ class _DocumentsState extends State<DriverDocumentsPage> {
                       ),
                     ),
                   ),
-                if (_busy) const LinearProgressIndicator(),
+                if (_busy)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 12),
+                    child: DriverNotice(
+                      icon: Icons.hourglass_top_rounded,
+                      message: 'Preparing the private document securely…',
+                    ),
+                  ),
               ],
             ),
           );

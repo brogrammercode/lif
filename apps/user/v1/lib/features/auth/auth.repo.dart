@@ -27,6 +27,9 @@ class AuthRepository {
     final response = await _client.postData(
       ApiConstants.AUTH_GOOGLE,
       data: {'id_token': idToken},
+      connectTimeout: DioClient.authenticationConnectTimeout,
+      receiveTimeout: DioClient.authenticationReceiveTimeout,
+      sendTimeout: DioClient.authenticationSendTimeout,
     );
     final data = ApiResult.unwrap(response) as Map<String, dynamic>;
     await _client.saveTokens(

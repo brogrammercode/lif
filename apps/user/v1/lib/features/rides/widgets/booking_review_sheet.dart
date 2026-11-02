@@ -2,8 +2,10 @@ import 'package:user/components/ui/glass_dropdown.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
+import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/features/rides/ride_display.dart';
+import 'package:user/features/rides/widgets/ride_glass.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
 class BookingReviewResult {
@@ -147,131 +149,167 @@ class _BookingReviewState extends State<BookingReviewSheet> {
     }
     return PopScope(
       canPop: !_busy,
-      child: SafeArea(
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            20,
-            20,
-            20 + MediaQuery.viewInsetsOf(context).bottom,
-          ),
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Review your ride',
-                  style: TextStyle(fontSize: 23, fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 16),
-                Text('Pickup\n${widget.pickup}'),
-                const SizedBox(height: 12),
-                Text('Drop-off\n${widget.dropoff}'),
-                const SizedBox(height: 16),
-                AppCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+      child: LiquidGlassSheet(
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              6,
+              20,
+              20 + MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Row(
                     children: [
-                      Text(
-                        '${category['name'] ?? widget.quote['vehicle_type']}',
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      Text(
-                        '${category['capacity'] ?? '-'} passenger seats · ${rideDistance(widget.quote['distance_m'])} · ${rideDuration(widget.quote['duration_s'])} trip estimate',
-                      ),
-                      Text(
-                        rideMoney(widget.quote['total_fare']),
-                        style: const TextStyle(
-                          fontSize: 25,
-                          fontWeight: FontWeight.w800,
+                      LiquidGlassSurface(
+                        radius: 99,
+                        padding: EdgeInsets.all(11),
+                        child: Icon(
+                          Icons.route_rounded,
+                          color: GlassTokens.accent,
                         ),
                       ),
-                      Text(
-                        'Distance fare ${rideMoney(widget.quote['distance_fare'])}. No platform fee or commission. Pay the driver after completion.',
-                      ),
-                      const Text(
-                        'Pickup ETA is available after a driver is assigned. Availability is confirmed when a driver accepts.',
+                      SizedBox(width: 13),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Review your ride',
+                              style: TextStyle(
+                                color: GlassTokens.ink,
+                                fontSize: 21,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Text(
+                              'Confirm route, vehicle and payment before requesting a driver.',
+                              style: TextStyle(
+                                color: GlassTokens.muted,
+                                fontSize: 12.5,
+                                height: 1.35,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  _expired
-                      ? 'Quote expired'
-                      : 'Quote valid until ${rideTime(widget.quote['expires_at'])}',
-                ),
-                if (methods.isNotEmpty) ...[
                   const SizedBox(height: 16),
-                  LiquidGlassDropdownFormField<String>(
-                    initialValue: _method,
-                    decoration: const InputDecoration(
-                      labelText: 'Payment after the ride',
-                    ),
-                    items: methods
-                        .map(
-                          (m) => DropdownMenuItem(
-                            value: m,
-                            child: Text(
-                              m == 'UPI'
-                                  ? 'Direct driver UPI'
-                                  : 'Cash to driver',
-                            ),
+                  AppCard(
+                    child: RideEndpoints({
+                      'pickup_address': widget.pickup,
+                      'dropoff_address': widget.dropoff,
+                    }),
+                  ),
+                  const SizedBox(height: 16),
+                  AppCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${category['name'] ?? widget.quote['vehicle_type']}',
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        Text(
+                          '${category['capacity'] ?? '-'} passenger seats · ${rideDistance(widget.quote['distance_m'])} · ${rideDuration(widget.quote['duration_s'])} trip estimate',
+                        ),
+                        Text(
+                          rideMoney(widget.quote['total_fare']),
+                          style: const TextStyle(
+                            fontSize: 25,
+                            fontWeight: FontWeight.w800,
                           ),
-                        )
-                        .toList(),
-                    onChanged: _busy || _attempted
-                        ? null
-                        : (v) => setState(() => _method = v!),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-                TextField(
-                  controller: _note,
-                  enabled: !_busy && !_attempted,
-                  maxLength: 500,
-                  minLines: 1,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: 'Pickup landmark or instructions (optional)',
-                  ),
-                ),
-                if (_attempted)
-                  const Text(
-                    'Retries keep the same booking request. If the connection drops, we check this ride before creating another booking.',
-                  ),
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Text(
-                      _error!,
-                      style: const TextStyle(color: Colors.red),
+                        ),
+                        Text(
+                          'Distance fare ${rideMoney(widget.quote['distance_fare'])}. No platform fee or commission. Pay the driver after completion.',
+                        ),
+                        const Text(
+                          'Pickup ETA is available after a driver is assigned. Availability is confirmed when a driver accepts.',
+                        ),
+                      ],
                     ),
                   ),
-                FilledButton(
-                  onPressed:
-                      _busy || methods.isEmpty || (_expired && !_attempted)
-                      ? null
-                      : _submit,
-                  child: Text(
-                    _busy
-                        ? 'Checking your booking…'
-                        : _attempted
+                  const SizedBox(height: 12),
+                  Text(
+                    _expired
+                        ? 'Quote expired'
+                        : 'Quote valid until ${rideTime(widget.quote['expires_at'])}',
+                  ),
+                  if (methods.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    LiquidGlassDropdownFormField<String>(
+                      initialValue: _method,
+                      decoration: const InputDecoration(
+                        labelText: 'Payment after the ride',
+                      ),
+                      items: methods
+                          .map(
+                            (m) => DropdownMenuItem(
+                              value: m,
+                              child: Text(
+                                m == 'UPI'
+                                    ? 'Direct driver UPI'
+                                    : 'Cash to driver',
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: _busy || _attempted
+                          ? null
+                          : (v) => setState(() => _method = v!),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  TextField(
+                    controller: _note,
+                    enabled: !_busy && !_attempted,
+                    maxLength: 500,
+                    minLines: 1,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Pickup landmark or instructions (optional)',
+                    ),
+                  ),
+                  if (_attempted)
+                    const Text(
+                      'Retries keep the same booking request. If the connection drops, we check this ride before creating another booking.',
+                    ),
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                    ),
+                  LiquidGlassButton(
+                    onPressed:
+                        _busy || methods.isEmpty || (_expired && !_attempted)
+                        ? null
+                        : _submit,
+                    busy: _busy,
+                    text: _attempted
                         ? 'Check and retry booking'
                         : 'Confirm booking',
+                    icon: const Icon(Icons.check_rounded),
                   ),
-                ),
-                if (_expired)
+                  if (_expired)
+                    TextButton(
+                      onPressed: _busy ? null : _freshOptions,
+                      child: const Text('Get fresh ride options'),
+                    ),
                   TextButton(
-                    onPressed: _busy ? null : _freshOptions,
-                    child: const Text('Get fresh ride options'),
+                    onPressed: _busy ? null : () => Navigator.pop(context),
+                    child: const Text('Back to map'),
                   ),
-                TextButton(
-                  onPressed: _busy ? null : () => Navigator.pop(context),
-                  child: const Text('Back to map'),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

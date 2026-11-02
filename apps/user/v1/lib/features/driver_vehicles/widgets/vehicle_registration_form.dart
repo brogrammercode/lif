@@ -16,6 +16,7 @@ import 'package:user/core/network/api_result.dart';
 import 'package:user/features/driver_vehicles/vehicle_draft.dart';
 import 'package:user/features/driver_vehicles/vehicle_verification.repo.dart';
 import 'package:user/features/driver_vehicles/widgets/catalog_selector.dart';
+import 'package:user/features/driver_operations/widgets/driver_glass.dart';
 import 'package:user/features/partner_program/widgets/partner_upload_tile.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
@@ -104,6 +105,12 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
       final registration = results[0] as Map<String, dynamic>;
       final categories = results[1] as List<Map<String, dynamic>>;
       final vehicles = vehicleMaps(registration['vehicles']);
+      final user = registration['user'];
+      if (user is! Map || user['id'] == null) {
+        throw const FormatException(
+          'The server returned invalid vehicle registration data.',
+        );
+      }
       final requestedId = widget.vehicle?['id'];
       _vehicle = requestedId == null
           ? null
@@ -112,8 +119,7 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
         throw StateError('This vehicle is unavailable. Reload your vehicles.');
       }
       final vehicle = _vehicle;
-      _draftKey =
-          'vehicle_registration_${(registration['user'] as Map)['id']}_${requestedId ?? 'new'}';
+      _draftKey = 'vehicle_registration_${user['id']}_${requestedId ?? 'new'}';
       _documents.clear();
       _paths.clear();
       _names.clear();
@@ -343,27 +349,56 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
     if (_busy || _locked(key)) return;
     final source = await showModalBottomSheet<Object>(
       context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_camera_outlined),
-              title: const Text('Take photo'),
-              onTap: () => Navigator.pop(context, ImageSource.camera),
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => LiquidGlassSheet(
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(12, 4, 12, 8),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Add vehicle document',
+                      style: TextStyle(
+                        color: GlassTokens.ink,
+                        fontSize: 19,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+                DriverLinkTile(
+                  icon: Icons.photo_camera_outlined,
+                  title: 'Take photo',
+                  subtitle: 'Open the camera for a new document photo',
+                  onTap: () => Navigator.pop(context, ImageSource.camera),
+                ),
+                const SizedBox(height: 8),
+                DriverLinkTile(
+                  icon: Icons.image_outlined,
+                  title: 'Choose image',
+                  subtitle: 'Select an existing document image',
+                  onTap: () => Navigator.pop(context, ImageSource.gallery),
+                ),
+                if (!['front_image', 'back_image'].contains(key))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: DriverLinkTile(
+                      icon: Icons.picture_as_pdf_outlined,
+                      title: 'Choose PDF document',
+                      subtitle: 'Select an RC, insurance or PUC PDF',
+                      onTap: () => Navigator.pop(context, 'pdf'),
+                    ),
+                  ),
+              ],
             ),
-            ListTile(
-              leading: const Icon(Icons.image_outlined),
-              title: const Text('Choose image'),
-              onTap: () => Navigator.pop(context, ImageSource.gallery),
-            ),
-            if (!['front_image', 'back_image'].contains(key))
-              ListTile(
-                leading: const Icon(Icons.picture_as_pdf_outlined),
-                title: const Text('Choose PDF document'),
-                onTap: () => Navigator.pop(context, 'pdf'),
-              ),
-          ],
+          ),
         ),
       ),
     );
@@ -417,15 +452,13 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
       }
       await showDialog<void>(
         context: context,
-        builder: (context) => Dialog(
-          child: Column(
+        builder: (context) => LiquidGlassDialog(
+          title: Text(vehicleDocuments[key]!),
+          content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(vehicleDocuments[key]!),
-              ),
-              Flexible(
+              SizedBox(
+                height: MediaQuery.sizeOf(context).height * .5,
                 child: InteractiveViewer(
                   child: Image(
                     image: PartnerUploadTile.previewImage(bytes),
@@ -433,12 +466,14 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
                   ),
                 ),
               ),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Done'),
-              ),
             ],
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Done'),
+            ),
+          ],
         ),
       );
     } catch (error) {
@@ -587,14 +622,22 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
     if (field == null) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 6, bottom: 12),
-      child: Text(
-        '${field['status']}${field['rejection_reason'] == null ? '' : ': ${field['rejection_reason']}'}',
-        style: TextStyle(
-          fontSize: 12,
-          color: field['status'] == 'REJECTED'
-              ? AppColors.googleRed
-              : AppColors.textSecondary,
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          DriverStatusPill(
+            label: '${field['status']}',
+            status: '${field['status']}',
+          ),
+          if (field['rejection_reason'] != null) ...[
+            const SizedBox(height: 8),
+            DriverNotice(
+              icon: Icons.info_outline_rounded,
+              message: '${field['rejection_reason']}',
+              error: true,
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -687,14 +730,15 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
         child: ListView(
           padding: const EdgeInsets.only(bottom: 24),
           children: [
-            const Text(
-              'Register your vehicle',
-              style: TextStyle(fontSize: 23, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Choose one compatible category and add clear document images. You can register more vehicles later.',
-              style: TextStyle(color: AppColors.textSecondary, height: 1.5),
+            DriverPageIntro(
+              icon: _vehicle == null
+                  ? Icons.add_road_rounded
+                  : Icons.fact_check_outlined,
+              title: _vehicle == null
+                  ? 'Register your vehicle'
+                  : 'Correct vehicle submission',
+              description:
+                  'Choose a compatible catalog entry and category, then add clear vehicle photos and private documents for review.',
             ),
             const SizedBox(height: 20),
             _section('Vehicle details', [
@@ -816,9 +860,10 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
-                child: Text(
-                  _error!,
-                  style: const TextStyle(color: AppColors.googleRed),
+                child: DriverNotice(
+                  icon: Icons.error_outline_rounded,
+                  message: _error!,
+                  error: true,
                 ),
               ),
             if (_progress != null)

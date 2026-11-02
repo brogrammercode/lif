@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:user/core/color.dart';
+import 'package:user/components/ui/app_logo.dart';
+import 'package:user/components/ui/app_skeleton.dart';
+import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/network/dio_client.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/auth/auth.repo.dart';
@@ -60,27 +61,61 @@ class _SessionGateState extends State<SessionGate> {
     future: _destination,
     builder: (context, snapshot) {
       if (snapshot.hasError) {
-        return Scaffold(
-          body: SafeArea(
-            child: AppLoadError(
-              message: ApiResult.errorMessage(snapshot.error!),
-              onRetry: () => setState(() {
-                _destination = _resolveDestination();
-              }),
+        return LiquidGlassScope(
+          child: Scaffold(
+            backgroundColor: GlassTokens.canvas,
+            body: LiquidGlassBackdrop(
+              child: SafeArea(
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 420),
+                      child: AppLoadError(
+                        message: ApiResult.errorMessage(snapshot.error!),
+                        onRetry: () => setState(() {
+                          _destination = _resolveDestination();
+                        }),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
         );
       }
       if (!snapshot.hasData) {
-        return Scaffold(
-          backgroundColor: AppColors.pureWhite,
-          body: Center(
-            child: SizedBox(
-              width: 22.w,
-              height: 22.w,
-              child: const CircularProgressIndicator(
-                strokeWidth: 2,
-                color: AppColors.primaryGreen,
+        return LiquidGlassScope(
+          child: Scaffold(
+            backgroundColor: GlassTokens.canvas,
+            body: LiquidGlassBackdrop(
+              child: SafeArea(
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 420),
+                      child: LiquidGlassSurface(
+                        child: AppSkeleton(
+                          label: 'Restoring your 1More workspace',
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: const [
+                              AppLogo(width: 116, height: 44),
+                              SizedBox(height: 24),
+                              SkeletonBox(width: 230, height: 18),
+                              SizedBox(height: 11),
+                              SkeletonBox(width: 290, height: 12),
+                              SizedBox(height: 8),
+                              SkeletonBox(width: 210, height: 12),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),

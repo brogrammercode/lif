@@ -3,8 +3,25 @@ import 'package:user/core/network/api_result.dart';
 
 class DriverOperationsRepository {
   final DioClient _client = DioClient();
-  Map<String, dynamic> _map(dynamic v) =>
-      Map<String, dynamic>.from(ApiResult.unwrap(v) as Map);
+  Map<String, dynamic> _map(dynamic value) {
+    final unwrapped = ApiResult.unwrap(value);
+    if (unwrapped is! Map) {
+      throw const FormatException('The server returned invalid driver data.');
+    }
+    return Map<String, dynamic>.from(unwrapped);
+  }
+
+  List<Map<String, dynamic>> _maps(dynamic value) {
+    final unwrapped = ApiResult.unwrap(value);
+    if (unwrapped is! List) {
+      throw const FormatException('The server returned an invalid list.');
+    }
+    return unwrapped
+        .whereType<Map>()
+        .map((entry) => Map<String, dynamic>.from(entry))
+        .toList();
+  }
+
   String _trip(String id) => '/trips/${Uri.encodeComponent(id)}';
   String _driverTrip(String id) => '/driver/rides/${Uri.encodeComponent(id)}';
   Future<Map<String, dynamic>> dashboard() async =>
@@ -72,9 +89,7 @@ class DriverOperationsRepository {
     ),
   );
   Future<List<Map<String, dynamic>>> messages(String id) async =>
-      (ApiResult.unwrap(await _client.getData('${_trip(id)}/messages')) as List)
-          .map((v) => Map<String, dynamic>.from(v as Map))
-          .toList();
+      _maps(await _client.getData('${_trip(id)}/messages'));
   Future<void> sendMessage(String id, String text, String key) async {
     await _client.postData(
       '${_trip(id)}/messages',

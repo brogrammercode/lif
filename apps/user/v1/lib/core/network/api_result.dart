@@ -29,10 +29,12 @@ class ApiResult {
         return data['message'] as String;
       }
       if (error.type == DioExceptionType.connectionTimeout ||
-          error.type == DioExceptionType.connectionError ||
-          error.type == DioExceptionType.receiveTimeout ||
+          error.type == DioExceptionType.connectionError) {
+        return '1More could not connect to its server. Switch between Wi-Fi and mobile data, then try again.';
+      }
+      if (error.type == DioExceptionType.receiveTimeout ||
           error.type == DioExceptionType.sendTimeout) {
-        return 'Cannot reach the API. Check that the server is running and your phone is connected to the same network.';
+        return 'The 1More server is taking longer than expected. Please wait a moment and try again.';
       }
       return error.message ?? 'The request could not be completed.';
     }

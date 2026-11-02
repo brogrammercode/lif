@@ -3,20 +3,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/button.dart';
-import 'package:user/core/color.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/features/auth/models/user.model.dart';
 import 'package:user/features/user_app/user_app.constant.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
 class ProfilePage extends StatefulWidget {
-  const ProfilePage({super.key});
+  final UserAppRepository? repository;
+  const ProfilePage({super.key, this.repository});
   @override
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  final UserAppRepository _repository = UserAppRepository();
+  late final UserAppRepository _repository =
+      widget.repository ?? UserAppRepository();
+  final _form = GlobalKey<FormState>();
   final TextEditingController _firstName = TextEditingController();
   final TextEditingController _lastName = TextEditingController();
   final TextEditingController _phone = TextEditingController();
@@ -35,6 +37,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _save() async {
+    if (!_form.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
       await _repository.updateProfile({
@@ -87,38 +90,112 @@ class _ProfilePageState extends State<ProfilePage> {
           _fieldsLoaded = true;
         }
         return ListView(
-          padding: EdgeInsets.only(bottom: 24.h),
+          padding: EdgeInsets.only(top: 6.h, bottom: 24.h),
           children: [
-            SizedBox(height: 8.h),
-            Center(
-              child: CircleAvatar(
-                radius: 42.r,
-                backgroundColor: AppColors.softGrey,
-                backgroundImage: user.avatarUrl == null
-                    ? null
-                    : NetworkImage(user.avatarUrl!),
-                child: user.avatarUrl == null
-                    ? Icon(
-                        Icons.person_outline,
-                        size: 36.w,
-                        color: AppColors.primaryGreen,
-                      )
-                    : null,
+            LiquidGlassSurface(
+              child: Column(
+                children: [
+                  LiquidGlassSurface(
+                    radius: 99,
+                    padding: const EdgeInsets.all(4),
+                    child: CircleAvatar(
+                      radius: 46.r,
+                      backgroundColor: const Color(0x407E8EAB),
+                      backgroundImage: user.avatarUrl == null
+                          ? null
+                          : NetworkImage(user.avatarUrl!),
+                      child: user.avatarUrl == null
+                          ? Icon(
+                              Icons.person_outline_rounded,
+                              size: 38.w,
+                              color: GlassTokens.accent,
+                            )
+                          : null,
+                    ),
+                  ),
+                  SizedBox(height: 14.h),
+                  Text(
+                    [
+                      user.firstName,
+                      user.lastName,
+                    ].whereType<String>().where((v) => v.isNotEmpty).join(' '),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: GlassTokens.ink,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    user.email ?? 'Signed-in 1More account',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: GlassTokens.muted,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Change your profile photo from Settings. Your email is linked to Google and cannot be edited here.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: GlassTokens.muted,
+                      fontSize: 12,
+                      height: 1.45,
+                    ),
+                  ),
+                ],
               ),
             ),
-            SizedBox(height: 24.h),
-            AppSectionLabel(UserAppCopy.PROFILE),
-            SizedBox(height: 12.h),
-            _field(UserAppCopy.FIRST_NAME, _firstName),
-            _field(UserAppCopy.LAST_NAME, _lastName),
-            _field(UserAppCopy.EMAIL, _email, enabled: false),
-            _field(
-              UserAppCopy.PHONE,
-              _phone,
-              keyboardType: TextInputType.phone,
-              hint: '+919876543210',
+            SizedBox(height: 20.h),
+            AppCard(
+              child: Form(
+                key: _form,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      'Personal information',
+                      style: TextStyle(
+                        color: GlassTokens.ink,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    const Text(
+                      'Used for ride communication, receipts and account support.',
+                      style: TextStyle(
+                        color: GlassTokens.muted,
+                        fontSize: 12.5,
+                        height: 1.4,
+                      ),
+                    ),
+                    SizedBox(height: 20.h),
+                    _field(
+                      UserAppCopy.FIRST_NAME,
+                      _firstName,
+                      validator: _requiredName,
+                    ),
+                    _field(
+                      UserAppCopy.LAST_NAME,
+                      _lastName,
+                      validator: _requiredName,
+                    ),
+                    _field(UserAppCopy.EMAIL, _email, enabled: false),
+                    _field(
+                      UserAppCopy.PHONE,
+                      _phone,
+                      keyboardType: TextInputType.phone,
+                      hint: '+919876543210',
+                      validator: _phoneNumber,
+                    ),
+                  ],
+                ),
+              ),
             ),
-            SizedBox(height: 12.h),
+            SizedBox(height: 20.h),
             AppButton(
               text: UserAppCopy.SAVE_CHANGES,
               onPressed: _save,
@@ -136,43 +213,32 @@ class _ProfilePageState extends State<ProfilePage> {
     bool enabled = true,
     TextInputType? keyboardType,
     String? hint,
+    String? Function(String?)? validator,
   }) => Padding(
-    padding: EdgeInsets.only(bottom: 14.h),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 13.sp,
-            fontWeight: FontWeight.w700,
-            color: AppColors.textSecondary,
-          ),
-        ),
-        SizedBox(height: 7.h),
-        LiquidGlassSurface(
-          padding: EdgeInsets.zero,
-          radius: 20,
-          child: TextField(
-            controller: controller,
-            enabled: enabled,
-            keyboardType: keyboardType,
-            decoration: InputDecoration(
-              hintText: hint,
-              filled: true,
-              fillColor: enabled
-                  ? const Color(0x18FFFFFF)
-                  : const Color(0x307E8EAB),
-              border: GlassTokens.inputBorder,
-              enabledBorder: GlassTokens.inputBorder,
-              contentPadding: EdgeInsets.symmetric(
-                horizontal: 14.w,
-                vertical: 15.h,
-              ),
-            ),
-          ),
-        ),
-      ],
+    padding: EdgeInsets.only(bottom: 18.h),
+    child: TextFormField(
+      controller: controller,
+      enabled: enabled,
+      keyboardType: keyboardType,
+      validator: validator,
+      textInputAction: keyboardType == TextInputType.phone
+          ? TextInputAction.done
+          : TextInputAction.next,
+      decoration: InputDecoration(labelText: label, hintText: hint),
     ),
   );
+
+  String? _requiredName(String? value) => value == null || value.trim().isEmpty
+      ? 'Enter this name'
+      : value.trim().length > 80
+      ? 'Use 80 characters or fewer'
+      : null;
+
+  String? _phoneNumber(String? value) {
+    final phone = value?.trim() ?? '';
+    if (phone.isEmpty) return null;
+    return RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone)
+        ? null
+        : 'Use international format, for example +919876543210';
+  }
 }

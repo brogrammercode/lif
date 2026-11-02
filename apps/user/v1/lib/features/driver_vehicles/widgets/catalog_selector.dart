@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
+import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/network/api_result.dart';
+import 'package:user/features/driver_operations/widgets/driver_glass.dart';
 import 'package:user/features/driver_vehicles/vehicle_verification.repo.dart';
 import 'package:user/features/driver_vehicles/widgets/catalog_suggestion_form.dart';
 
@@ -19,6 +21,7 @@ class _CatalogSelectorState extends State<CatalogSelector> {
   bool _loading = true;
   int _page = 1;
   int _request = 0;
+
   @override
   void initState() {
     super.initState();
@@ -53,93 +56,156 @@ class _CatalogSelectorState extends State<CatalogSelector> {
     }
   }
 
+  Future<void> _suggest() async {
+    final result = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CatalogSuggestionForm(brand: widget.brand),
+      ),
+    );
+    if (result != null && mounted) Navigator.pop(context, result);
+  }
+
+  Widget _logo(Map<String, dynamic> row) {
+    final fallback = Icon(
+      ['BIKE', 'SCOOTER'].contains(row['vehicle_type'])
+          ? Icons.two_wheeler_rounded
+          : Icons.directions_car_filled_outlined,
+      color: GlassTokens.accent,
+      size: 22,
+    );
+    return LiquidGlassSurface(
+      radius: 99,
+      padding: const EdgeInsets.all(8),
+      child: SizedBox.square(
+        dimension: 30,
+        child: row['logo_url'] is String
+            ? ClipOval(
+                child: Image.network(
+                  row['logo_url'] as String,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, _, _) => fallback,
+                ),
+              )
+            : fallback,
+      ),
+    );
+  }
+
+  String _subtitle(Map<String, dynamic> row) {
+    if (row['status'] == 'REQUESTED') {
+      return 'Your request is awaiting admin review';
+    }
+    if (widget.brand == null) return 'Verified vehicle brand';
+    return [
+      if (row['vehicle_type'] != null)
+        '${row['vehicle_type']}'.replaceAll('_', ' '),
+      if (row['fuel_type'] != null) '${row['fuel_type']}'.replaceAll('_', ' '),
+      if (row['seating_capacity'] != null)
+        '${row['seating_capacity']} passenger seats',
+    ].join(' · ');
+  }
+
   @override
   Widget build(BuildContext context) => AppPage(
+    glass: true,
     title: widget.brand == null ? 'Select brand' : 'Select model',
     child: Column(
       children: [
-        TextField(
-          controller: _query,
-          textInputAction: TextInputAction.search,
-          decoration: InputDecoration(
-            labelText: 'Search ${widget.brand == null ? 'brands' : 'models'}',
-            suffixIcon: IconButton(
-              tooltip: 'Search',
-              onPressed: () {
-                _page = 1;
-                _load();
-              },
-              icon: const Icon(Icons.search),
-            ),
-          ),
-          onSubmitted: (_) {
-            _page = 1;
-            _load();
-          },
+        DriverPageIntro(
+          icon: widget.brand == null
+              ? Icons.branding_watermark_outlined
+              : Icons.directions_car_filled_outlined,
+          title: widget.brand == null
+              ? 'Choose your vehicle brand'
+              : '${widget.brand!['name']} models',
+          description: widget.brand == null
+              ? 'Verified brands and your own pending requests are available here.'
+              : 'Choose a compatible model or suggest the missing model for review.',
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
+        LiquidGlassSurface(
+          padding: EdgeInsets.zero,
+          radius: 20,
+          child: TextField(
+            controller: _query,
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              labelText: 'Search ${widget.brand == null ? 'brands' : 'models'}',
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon: IconButton(
+                tooltip: 'Search',
+                onPressed: _loading
+                    ? null
+                    : () {
+                        _page = 1;
+                        _load();
+                      },
+                icon: const Icon(Icons.arrow_forward_rounded),
+              ),
+            ),
+            onSubmitted: (_) {
+              _page = 1;
+              _load();
+            },
+          ),
+        ),
+        const SizedBox(height: 16),
         Expanded(
           child: _loading
-              ? const Center(child: CircularProgressIndicator())
+              ? const DriverListSkeleton(rows: 5, summary: false)
               : _error != null
               ? AppLoadError(message: _error!, onRetry: _load)
               : ListView(
+                  padding: const EdgeInsets.only(bottom: 12),
                   children: [
                     if (vehicleMaps(_data?['rows']).isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Text(
-                          'No matching entries. You can suggest one below.',
-                        ),
+                      const AppEmptyState(
+                        icon: Icons.search_off_rounded,
+                        title: 'No matching catalog entry',
+                        subtitle:
+                            'Try another search or suggest the missing entry below.',
                       ),
                     for (final row in vehicleMaps(_data?['rows']))
-                      ListTile(
-                        leading: row['logo_url'] is String
-                            ? ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: Image.network(
-                                  row['logo_url'] as String,
-                                  width: 40,
-                                  height: 40,
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (_, error, stack) =>
-                                      const Icon(Icons.directions_car_outlined),
-                                ),
-                              )
-                            : Icon(
-                                [
-                                      'BIKE',
-                                      'SCOOTER',
-                                    ].contains(row['vehicle_type'])
-                                    ? Icons.two_wheeler
-                                    : Icons.directions_car_outlined,
-                              ),
-                        title: Text('${row['name']}'),
-                        subtitle: Text(
-                          row['status'] == 'REQUESTED'
-                              ? 'Your request · awaiting review'
-                              : 'Verified',
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: DriverLinkTile(
+                          icon: Icons.directions_car_filled_outlined,
+                          leading: _logo(row),
+                          title: '${row['name']}',
+                          subtitle: _subtitle(row),
+                          trailing: DriverStatusPill(
+                            label: row['status'] == 'REQUESTED'
+                                ? 'Requested'
+                                : 'Verified',
+                            status: '${row['status']}',
+                          ),
+                          onTap: () => Navigator.pop(context, row),
                         ),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => Navigator.pop(context, row),
                       ),
                   ],
                 ),
         ),
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            TextButton(
+            TextButton.icon(
               onPressed: _loading || _page == 1
                   ? null
                   : () {
                       _page--;
                       _load();
                     },
-              child: const Text('Previous'),
+              icon: const Icon(Icons.chevron_left_rounded),
+              label: const Text('Previous'),
             ),
-            Text('Page $_page'),
-            TextButton(
+            Expanded(
+              child: Text(
+                'Page $_page',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: GlassTokens.muted),
+              ),
+            ),
+            TextButton.icon(
               onPressed:
                   _loading || _page * 50 >= ((_data?['total'] as num?) ?? 0)
                   ? null
@@ -147,30 +213,20 @@ class _CatalogSelectorState extends State<CatalogSelector> {
                       _page++;
                       _load();
                     },
-              child: const Text('Next'),
+              iconAlignment: IconAlignment.end,
+              icon: const Icon(Icons.chevron_right_rounded),
+              label: const Text('Next'),
             ),
           ],
         ),
         SafeArea(
           top: false,
-          child: FilledButton.icon(
-            onPressed: _loading
-                ? null
-                : () async {
-                    final result = await Navigator.push<Map<String, dynamic>>(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            CatalogSuggestionForm(brand: widget.brand),
-                      ),
-                    );
-                    if (result != null && context.mounted) {
-                      Navigator.pop(context, result);
-                    }
-                  },
-            icon: const Icon(Icons.add),
-            label: Text(
-              'Suggest a ${widget.brand == null ? 'brand' : 'model'}',
+          child: SizedBox(
+            width: double.infinity,
+            child: LiquidGlassButton(
+              onPressed: _loading ? null : _suggest,
+              icon: const Icon(Icons.add_rounded),
+              text: 'Suggest a ${widget.brand == null ? 'brand' : 'model'}',
             ),
           ),
         ),

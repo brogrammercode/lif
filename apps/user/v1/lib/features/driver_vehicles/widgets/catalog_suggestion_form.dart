@@ -5,9 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/button.dart';
-import 'package:user/core/color.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/features/driver_vehicles/vehicle_verification.repo.dart';
+import 'package:user/features/driver_operations/widgets/driver_glass.dart';
 import 'package:user/features/partner_program/widgets/partner_upload_tile.dart';
 
 class CatalogSuggestionForm extends StatefulWidget {
@@ -202,12 +202,20 @@ class _CatalogSuggestionFormState extends State<CatalogSuggestionForm> {
         key: _form,
         child: ListView(
           children: [
-            const Text(
-              'Your suggestion can be used in this registration while the admin reviews it. It remains Requested until approved.',
+            DriverPageIntro(
+              icon: _model
+                  ? Icons.directions_car_filled_outlined
+                  : Icons.factory_outlined,
+              title: 'Suggest a ${_model ? 'vehicle model' : 'brand'}',
+              description:
+                  'Use the requested catalog entry in registration while an administrator reviews it.',
             ),
             const SizedBox(height: 20),
             if (_model) ...[
-              Text('Brand: ${widget.brand!['name']}'),
+              DriverNotice(
+                icon: Icons.factory_outlined,
+                message: 'Brand: ${widget.brand!['name']}',
+              ),
               const SizedBox(height: 16),
             ],
             _input('name', 'Name', required: true),
@@ -305,9 +313,10 @@ class _CatalogSuggestionFormState extends State<CatalogSuggestionForm> {
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),
-                child: Text(
-                  _error!,
-                  style: const TextStyle(color: AppColors.googleRed),
+                child: DriverNotice(
+                  icon: Icons.info_outline_rounded,
+                  message: _error!,
+                  error: true,
                 ),
               ),
             const SizedBox(height: 20),

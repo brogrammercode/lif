@@ -6,6 +6,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:user/components/ui/app_page.dart';
+import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/features/driver_account/driver_account.repo.dart';
 import 'package:user/features/driver_account/pages/driver_account_page.dart';
 import 'package:user/features/driver_account/pages/driver_finances_page.dart';
@@ -168,7 +169,7 @@ void main() {
       expect(repo.uploads, 0);
       final preview = find.ancestor(
         of: find.text('Review replacement'),
-        matching: find.byType(AlertDialog),
+        matching: find.byType(LiquidGlassDialog),
       );
       await tester.tap(
         find.descendant(of: preview, matching: find.text('Cancel')),
@@ -272,8 +273,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         tester
-            .widget<FilledButton>(
-              find.widgetWithText(FilledButton, 'Request account change'),
+            .widget<LiquidGlassButton>(
+              find.widgetWithText(LiquidGlassButton, 'Request account change'),
             )
             .onPressed,
         isNull,

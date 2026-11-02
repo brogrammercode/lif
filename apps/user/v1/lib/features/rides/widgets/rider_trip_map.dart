@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
+import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/features/home/constants/home.constant.dart';
 
 class RiderTripMap extends StatefulWidget {
@@ -204,12 +205,19 @@ class _RiderMapState extends State<RiderTripMap> {
           top: 8,
           left: 8,
           right: 8,
-          child: Card(
-            child: Padding(
-              padding: EdgeInsets.all(8),
-              child: Text(
-                'Map unavailable. Trip details and actions remain available.',
-              ),
+          child: LiquidGlassSurface(
+            padding: EdgeInsets.all(10),
+            child: Row(
+              children: [
+                Icon(Icons.map_outlined, color: GlassTokens.accent, size: 18),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Map unavailable. Trip details and actions remain available.',
+                    style: TextStyle(color: GlassTokens.ink, fontSize: 12.5),
+                  ),
+                ),
+              ],
             ),
           ),
         ),

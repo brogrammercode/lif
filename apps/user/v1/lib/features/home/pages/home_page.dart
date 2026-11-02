@@ -1,4 +1,7 @@
 import 'package:user/components/ui/glass_dropdown.dart';
+import 'package:user/components/ui/app_skeleton.dart';
+import 'package:user/components/ui/liquid_glass.dart';
+import 'package:user/core/color.dart';
 import 'package:user/features/rides/widgets/booking_review_sheet.dart';
 import 'package:user/features/rides/ride_display.dart';
 import 'package:user/core/route_observer.dart';
@@ -46,11 +49,13 @@ class _HomePageState extends State<HomePage>
   bool _isLoading = true;
   bool _isRefreshing = false;
   bool _waitingForLocationSettingsReturn = false;
+  bool _mapMounted = true;
   MapLibreMapController? _mapController;
   bool _mapStyleReady = false;
   bool _isProgrammaticMapMove = false;
   double _mapMarkerIconScale = 1;
   LatLng? _pendingMapCenter;
+  CameraPosition? _lastMapCameraPosition;
 
   // Search State
   SearchField _activeField = SearchField.none;
@@ -177,7 +182,22 @@ class _HomePageState extends State<HomePage>
   }
 
   @override
+  void didPushNext() {
+    if (!mounted || !_mapMounted) return;
+    // Material routes retain their state when covered. Explicitly removing the
+    // platform map lets MapLibre release its renderer/GL resources while
+    // Settings, Partner Program, a picker or the camera is in front.
+    setState(() {
+      _mapMounted = false;
+      _mapController = null;
+      _mapStyleReady = false;
+      _isProgrammaticMapMove = false;
+    });
+  }
+
+  @override
   void didPopNext() {
+    if (mounted && !_mapMounted) setState(() => _mapMounted = true);
     unawaited(_checkTravel());
     unawaited(_loadSavedPlaces());
   }
@@ -372,7 +392,7 @@ class _HomePageState extends State<HomePage>
     if (!mounted) return;
     final shouldOpenSettings = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => LiquidGlassDialog(
         title: Text(title),
         content: Text(message),
         actions: [
@@ -767,6 +787,8 @@ class _HomePageState extends State<HomePage>
         isDismissible: false,
         enableDrag: false,
         useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        barrierColor: Colors.black.withValues(alpha: .18),
         builder: (_) => BookingReviewSheet(
           draftId: _quoteDraftId!,
           pickup: _fromController.text.trim(),
@@ -936,18 +958,16 @@ class _HomePageState extends State<HomePage>
   }
 
   void _onMapCreated(MapLibreMapController controller) {
+    if (!_mapMounted) return;
     _mapController = controller;
-    unawaited(
-      controller.moveCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: _fromLocation,
-            zoom: HomeConstants.DEFAULT_ZOOM,
-            tilt: HomeConstants.MAP_TILT,
-          ),
-        ),
-      ),
-    );
+    final restored =
+        _lastMapCameraPosition ??
+        CameraPosition(
+          target: _fromLocation,
+          zoom: HomeConstants.DEFAULT_ZOOM,
+          tilt: HomeConstants.MAP_TILT,
+        );
+    unawaited(controller.moveCamera(CameraUpdate.newCameraPosition(restored)));
   }
 
   Future<void> _onMapStyleLoaded() async {
@@ -993,6 +1013,9 @@ class _HomePageState extends State<HomePage>
       await controller.setSymbolIconIgnorePlacement(true);
       await controller.setSymbolTextAllowOverlap(true);
       await controller.setSymbolTextIgnorePlacement(true);
+      if (!mounted || !_mapMounted || !identical(_mapController, controller)) {
+        return;
+      }
       _mapStyleReady = true;
       await _syncMapData();
       await _syncUserLocationPuck();
@@ -1072,6 +1095,7 @@ class _HomePageState extends State<HomePage>
   }
 
   void _onMapCameraMove(CameraPosition position) {
+    _lastMapCameraPosition = position;
     final pickField =
         _mapPickField ??
         (_activeField == SearchField.none ? null : _activeField);
@@ -1229,133 +1253,149 @@ class _HomePageState extends State<HomePage>
         statusBarIconBrightness: Brightness.dark,
         statusBarBrightness: Brightness.light,
       ),
-      child: Scaffold(
-        key: _scaffoldKey,
-        backgroundColor: Colors.white,
-        body: Stack(
-          children: [
-            // Layer 0: tilted vector map with 3D buildings.
-            MapLibreMap(
-              initialCameraPosition: CameraPosition(
-                target: _fromLocation,
-                zoom: HomeConstants.DEFAULT_ZOOM,
-                tilt: HomeConstants.MAP_TILT,
-              ),
-              styleString: HomeConstants.MAP_STYLE_URL,
-              locationSource: const ManualLocationSource(),
-              myLocationEnabled: true,
-              myLocationRenderMode: MyLocationRenderMode.normal,
-              onMapCreated: _onMapCreated,
-              onStyleLoadedCallback: _onMapStyleLoaded,
-              onCameraMove: _onMapCameraMove,
-              trackCameraPosition: true,
-              tiltGesturesEnabled: true,
-              attributionButtonPosition: AttributionButtonPosition.topRight,
-              attributionButtonMargins: math.Point<double>(12.r, 132.r),
-            ),
+      child: LiquidGlassScope(
+        child: Scaffold(
+          key: _scaffoldKey,
+          backgroundColor: GlassTokens.canvas,
+          body: Stack(
+            children: [
+              // Layer 0: tilted vector map with 3D buildings.
+              if (_mapMounted)
+                MapLibreMap(
+                  initialCameraPosition: CameraPosition(
+                    target:
+                        _lastMapCameraPosition?.target ??
+                        _pendingMapCenter ??
+                        _fromLocation,
+                    zoom:
+                        _lastMapCameraPosition?.zoom ??
+                        HomeConstants.DEFAULT_ZOOM,
+                    bearing: _lastMapCameraPosition?.bearing ?? 0,
+                    tilt:
+                        _lastMapCameraPosition?.tilt ?? HomeConstants.MAP_TILT,
+                  ),
+                  styleString: HomeConstants.MAP_STYLE_URL,
+                  locationSource: const ManualLocationSource(),
+                  myLocationEnabled: true,
+                  myLocationRenderMode: MyLocationRenderMode.normal,
+                  onMapCreated: _onMapCreated,
+                  onStyleLoadedCallback: _onMapStyleLoaded,
+                  onCameraMove: _onMapCameraMove,
+                  trackCameraPosition: true,
+                  tiltGesturesEnabled: true,
+                  attributionButtonPosition: AttributionButtonPosition.topRight,
+                  attributionButtonMargins: math.Point<double>(12.r, 132.r),
+                )
+              else
+                const ColoredBox(color: Color(0xFFE5ECFB)),
 
-            if (_mapPickField != null &&
-                (_isMapDragging || _activeField != SearchField.none))
+              if (_mapPickField != null &&
+                  (_isMapDragging || _activeField != SearchField.none))
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Center(
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        transform: Matrix4.translationValues(
+                          0,
+                          _isMapDragging ? -15.r : 0,
+                          0,
+                        ),
+                        child: _buildMarkerWidget(
+                          isGreen: _mapPickField == SearchField.to,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+              // Layer 1: Top Action Buttons
+              _buildLayer1(context),
+              if (_activeRide != null)
+                Positioned(
+                  top: MediaQuery.paddingOf(context).top + 80.r,
+                  left: 20.r,
+                  right: 80.r,
+                  child: LiquidGlassButton(
+                    onPressed: _resumeActive,
+                    icon: const Icon(Icons.directions_car_outlined),
+                    text: 'Resume your active trip',
+                  ),
+                ),
+
+              // Refresh Location Button (Layer 0 actions)
+              if (!_isLoading)
+                Positioned(
+                  top: MediaQuery.paddingOf(context).top + 80.r,
+                  right: 20.r,
+                  child: GestureDetector(
+                    onTap: _refreshLocation,
+                    child: _buildGlassButton(
+                      child: _isRefreshing
+                          ? const AppSkeleton(
+                              label: 'Refreshing location',
+                              child: SkeletonBox(
+                                width: 20,
+                                height: 20,
+                                circle: true,
+                              ),
+                            )
+                          : Icon(
+                              Iconsax.gps,
+                              color: Colors.black87,
+                              size: 22.r,
+                            ),
+                    ),
+                  ),
+                ),
+
+              // Layer 2: Bottom Sheet
+              _buildLayer2(context),
+
+              // Layer L: Loading Layout (Animated Fade Out for background)
               Positioned.fill(
                 child: IgnorePointer(
-                  child: Center(
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      transform: Matrix4.translationValues(
-                        0,
-                        _isMapDragging ? -15.r : 0,
-                        0,
-                      ),
-                      child: _buildMarkerWidget(
-                        isGreen: _mapPickField == SearchField.to,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-            // Layer 1: Top Action Buttons
-            _buildLayer1(context),
-            if (_activeRide != null)
-              Positioned(
-                top: MediaQuery.paddingOf(context).top + 80.r,
-                left: 20.r,
-                right: 80.r,
-                child: FilledButton.icon(
-                  onPressed: _resumeActive,
-                  icon: const Icon(Icons.directions_car_outlined),
-                  label: const Text('Resume your active trip'),
-                ),
-              ),
-
-            // Refresh Location Button (Layer 0 actions)
-            if (!_isLoading)
-              Positioned(
-                top: MediaQuery.paddingOf(context).top + 80.r,
-                right: 20.r,
-                child: GestureDetector(
-                  onTap: _refreshLocation,
-                  child: _buildGlassButton(
-                    child: _isRefreshing
-                        ? SizedBox(
-                            width: 18.r,
-                            height: 18.r,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.r,
-                              color: Colors.black87,
-                            ),
-                          )
-                        : Icon(Iconsax.gps, color: Colors.black87, size: 22.r),
-                  ),
-                ),
-              ),
-
-            // Layer 2: Bottom Sheet
-            _buildLayer2(context),
-
-            // Layer L: Loading Layout (Animated Fade Out for background)
-            Positioned.fill(
-              child: IgnorePointer(
-                ignoring: !(_isLoading || _isSearchingDriver),
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 1000),
-                  curve: Curves.easeInOut,
-                  opacity: (_isLoading || _isSearchingDriver) ? 1.0 : 0.0,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: RadialGradient(
-                        center: Alignment.center,
-                        radius:
-                            0.75, // Smaller radius means white starts earlier
-                        colors: [
-                          Colors.white.withValues(alpha: 0.0),
-                          Colors.white.withValues(alpha: 0.6),
-                          Colors.white,
-                        ],
-                        stops: const [0.0, 0.4, 1.0],
+                  ignoring: !(_isLoading || _isSearchingDriver),
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 1000),
+                    curve: Curves.easeInOut,
+                    opacity: (_isLoading || _isSearchingDriver) ? 1.0 : 0.0,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: RadialGradient(
+                          center: Alignment.center,
+                          radius:
+                              0.75, // Smaller radius means white starts earlier
+                          colors: [
+                            Colors.white.withValues(alpha: 0.0),
+                            Colors.white.withValues(alpha: 0.6),
+                            Colors.white,
+                          ],
+                          stops: const [0.0, 0.4, 1.0],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
 
-            // Loading Text (Animated Fade Out - faster)
-            Positioned(
-              top: MediaQuery.paddingOf(context).top + 30.r,
-              left: 0,
-              right: 0,
-              child: IgnorePointer(
-                ignoring: !(_isLoading || _isSearchingDriver),
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 800),
-                  curve: Curves.easeInOut,
-                  opacity: (_isLoading || _isSearchingDriver) ? 1.0 : 0.0,
-                  child: _buildTopHeader(context),
+              // Loading Text (Animated Fade Out - faster)
+              Positioned(
+                top: MediaQuery.paddingOf(context).top + 30.r,
+                left: 0,
+                right: 0,
+                child: IgnorePointer(
+                  ignoring: !(_isLoading || _isSearchingDriver),
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 800),
+                    curve: Curves.easeInOut,
+                    opacity: (_isLoading || _isSearchingDriver) ? 1.0 : 0.0,
+                    child: _buildTopHeader(context),
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1415,35 +1455,13 @@ class _HomePageState extends State<HomePage>
   }
 
   Widget _buildGlassButton({required Widget child}) {
-    return Container(
+    return SizedBox(
       width: 50.r,
       height: 50.r,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10.r,
-            offset: Offset(0, 4.r),
-          ),
-        ],
-      ),
-      child: ClipOval(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 12.r, sigmaY: 12.r),
-          child: Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.white.withValues(alpha: 0.35),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.5),
-                width: 1.5.r,
-              ),
-            ),
-            alignment: Alignment.center,
-            child: child,
-          ),
-        ),
+      child: LiquidGlassSurface(
+        radius: 99,
+        padding: EdgeInsets.zero,
+        child: Center(child: child),
       ),
     );
   }
@@ -1558,32 +1576,30 @@ class _HomePageState extends State<HomePage>
     final showRouteClock = hasSelectedRoute && !_isSelectingVehicle;
 
     return Positioned(
-      bottom: MediaQuery.paddingOf(context).bottom + 10.r,
+      bottom:
+          math.max(
+            MediaQuery.paddingOf(context).bottom,
+            MediaQuery.viewInsetsOf(context).bottom,
+          ) +
+          10.r,
       left: 16.r,
       right: 16.r,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // Main Container
-          ClipRRect(
-            borderRadius: BorderRadius.circular(28.r),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 15.r, sigmaY: 15.r),
-              child: Container(
-                padding: EdgeInsets.fromLTRB(
-                  24.r,
-                  showRouteClock ? 44.r : 24.r,
-                  24.r,
-                  24.r,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.25),
-                  borderRadius: BorderRadius.circular(28.r),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.3),
-                    width: 1.5.r,
-                  ),
-                ),
+          LiquidGlassSurface(
+            radius: 28,
+            padding: EdgeInsets.fromLTRB(
+              24.r,
+              showRouteClock ? 44.r : 24.r,
+              24.r,
+              24.r,
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * .68,
+              ),
+              child: SingleChildScrollView(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
@@ -1605,12 +1621,14 @@ class _HomePageState extends State<HomePage>
                               padding: EdgeInsets.all(10.r),
                               decoration: BoxDecoration(
                                 color: isSelected
-                                    ? Colors.white
-                                    : Colors.white.withValues(alpha: 0.15),
+                                    ? GlassTokens.accent.withValues(alpha: .12)
+                                    : Colors.white.withValues(alpha: .20),
                                 borderRadius: BorderRadius.circular(15.r),
                                 border: isSelected
                                     ? Border.all(
-                                        color: Colors.white,
+                                        color: GlassTokens.accent.withValues(
+                                          alpha: .42,
+                                        ),
                                         width: 2.r,
                                       )
                                     : Border.all(
@@ -1643,8 +1661,8 @@ class _HomePageState extends State<HomePage>
                                                         : Icons.directions_car,
                                                     size: 36.r,
                                                     color: isSelected
-                                                        ? Colors.black54
-                                                        : Colors.white70,
+                                                        ? GlassTokens.accent
+                                                        : GlassTokens.muted,
                                                   ),
                                                 ),
                                               ),
@@ -1657,8 +1675,8 @@ class _HomePageState extends State<HomePage>
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                       color: isSelected
-                                          ? Colors.black
-                                          : Colors.white,
+                                          ? GlassTokens.ink
+                                          : GlassTokens.ink,
                                       fontWeight: FontWeight.bold,
                                       fontSize: 15.r,
                                     ),
@@ -1674,16 +1692,16 @@ class _HomePageState extends State<HomePage>
                                             Icons.person,
                                             size: 11.r,
                                             color: isSelected
-                                                ? Colors.black54
-                                                : Colors.white70,
+                                                ? GlassTokens.accent
+                                                : GlassTokens.muted,
                                           ),
                                           SizedBox(width: 4.r),
                                           Text(
                                             '${vehicle['capacity']}',
                                             style: TextStyle(
                                               color: isSelected
-                                                  ? Colors.black54
-                                                  : Colors.white70,
+                                                  ? GlassTokens.accent
+                                                  : GlassTokens.muted,
                                               fontSize: 11.r,
                                             ),
                                           ),
@@ -1693,8 +1711,8 @@ class _HomePageState extends State<HomePage>
                                         vehicle['time'] as String,
                                         style: TextStyle(
                                           color: isSelected
-                                              ? Colors.black54
-                                              : Colors.white70,
+                                              ? GlassTokens.accent
+                                              : GlassTokens.muted,
                                           fontSize: 11.r,
                                         ),
                                       ),
@@ -1705,8 +1723,8 @@ class _HomePageState extends State<HomePage>
                                     '₹${(vehicle['price'] as num).toStringAsFixed(0)}',
                                     style: TextStyle(
                                       color: isSelected
-                                          ? Colors.black
-                                          : Colors.white,
+                                          ? GlassTokens.ink
+                                          : GlassTokens.ink,
                                       fontWeight: FontWeight.bold,
                                       fontSize: 17.r,
                                     ),
@@ -1721,7 +1739,9 @@ class _HomePageState extends State<HomePage>
                               child: isSelected
                                   ? Container(
                                       decoration: BoxDecoration(
-                                        color: Colors.white,
+                                        color: Colors.white.withValues(
+                                          alpha: .28,
+                                        ),
                                         borderRadius: BorderRadius.circular(
                                           15.r,
                                         ),
@@ -1758,11 +1778,12 @@ class _HomePageState extends State<HomePage>
                                                 vertical: 12.r,
                                               ),
                                               width: 140.r,
-                                              color: Colors.yellow.shade600,
+                                              color: GlassTokens.ink,
                                               alignment: Alignment.center,
                                               child: Text(
                                                 "Book Now",
                                                 style: TextStyle(
+                                                  color: Colors.white,
                                                   fontWeight: FontWeight.bold,
                                                   fontSize: 14.r,
                                                 ),
@@ -1831,7 +1852,7 @@ class _HomePageState extends State<HomePage>
                                   Text(
                                     titleText,
                                     style: TextStyle(
-                                      color: Colors.white,
+                                      color: GlassTokens.ink,
                                       fontSize: 20.r,
                                       fontWeight: FontWeight.w700,
                                     ),
@@ -1841,18 +1862,14 @@ class _HomePageState extends State<HomePage>
                                     children: [
                                       Icon(
                                         Iconsax.clock,
-                                        color: Colors.white.withValues(
-                                          alpha: 0.8,
-                                        ),
+                                        color: GlassTokens.muted,
                                         size: 16.r,
                                       ),
                                       SizedBox(width: 5.r),
                                       Text(
                                         HomeConstants.TEXT_NOW,
                                         style: TextStyle(
-                                          color: Colors.white.withValues(
-                                            alpha: 0.8,
-                                          ),
+                                          color: GlassTokens.muted,
                                           fontSize: 14.r,
                                           fontWeight: FontWeight.w500,
                                         ),
@@ -1868,7 +1885,7 @@ class _HomePageState extends State<HomePage>
                         Text(
                           titleText,
                           style: TextStyle(
-                            color: Colors.white,
+                            color: GlassTokens.ink,
                             fontSize: 20.r,
                             fontWeight: FontWeight.w700,
                           ),
@@ -1877,7 +1894,7 @@ class _HomePageState extends State<HomePage>
                         Text(
                           HomeConstants.TEXT_NOW,
                           style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.8),
+                            color: GlassTokens.muted,
                             fontSize: 14.r,
                             fontWeight: FontWeight.w500,
                           ),
@@ -1910,7 +1927,7 @@ class _HomePageState extends State<HomePage>
                             margin: EdgeInsets.only(bottom: 12.r),
                             padding: EdgeInsets.all(8.r),
                             decoration: BoxDecoration(
-                              color: Colors.white,
+                              color: Colors.white.withValues(alpha: .48),
                               shape: BoxShape.circle,
                               boxShadow: [
                                 BoxShadow(
@@ -1923,7 +1940,7 @@ class _HomePageState extends State<HomePage>
                             child: Icon(
                               Icons.keyboard_arrow_down,
                               size: 24.r,
-                              color: Colors.black87,
+                              color: GlassTokens.ink,
                             ),
                           ),
                         ),
@@ -1935,7 +1952,7 @@ class _HomePageState extends State<HomePage>
                         constraints: BoxConstraints(maxHeight: 180.r),
                         margin: EdgeInsets.only(bottom: 12.r),
                         decoration: BoxDecoration(
-                          color: Colors.white,
+                          color: Colors.white.withValues(alpha: .50),
                           borderRadius: BorderRadius.circular(15.r),
                           boxShadow: [
                             BoxShadow(
@@ -1956,7 +1973,7 @@ class _HomePageState extends State<HomePage>
                             return ListTile(
                               leading: Icon(
                                 Iconsax.location,
-                                color: Colors.grey.shade400,
+                                color: GlassTokens.accent,
                               ),
                               title: Text(
                                 item['display_name'] ?? '',
@@ -1965,7 +1982,7 @@ class _HomePageState extends State<HomePage>
                                 style: TextStyle(
                                   fontSize: 14.r,
                                   fontWeight: FontWeight.w500,
-                                  color: Colors.black87,
+                                  color: GlassTokens.ink,
                                 ),
                               ),
                               onTap: () => _onSuggestionSelected(item),
@@ -1996,7 +2013,7 @@ class _HomePageState extends State<HomePage>
                               horizontal: 16.r,
                               vertical: 12.r,
                             ),
-                            color: Colors.white,
+                            color: Colors.white.withValues(alpha: .42),
                             child: Row(
                               children: [
                                 Expanded(
@@ -2021,7 +2038,8 @@ class _HomePageState extends State<HomePage>
                                           ),
                                           child: Divider(
                                             height: 1.r,
-                                            color: Colors.black12,
+                                            color: GlassTokens.accent
+                                                .withValues(alpha: .16),
                                           ),
                                         ),
                                         // To Field
@@ -2038,17 +2056,18 @@ class _HomePageState extends State<HomePage>
                                   ),
                                 ),
                                 if (_isFetchingSuggestions)
-                                  SizedBox(
-                                    width: 24.r,
-                                    height: 24.r,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2.5.r,
+                                  const AppSkeleton(
+                                    label: 'Searching locations',
+                                    child: SkeletonBox(
+                                      width: 24,
+                                      height: 24,
+                                      circle: true,
                                     ),
                                   )
                                 else if (!showBothFields)
                                   Icon(
                                     Iconsax.search_normal,
-                                    color: Colors.grey.shade400,
+                                    color: GlassTokens.muted,
                                     size: 20.r,
                                   ),
                               ],
@@ -2074,13 +2093,13 @@ class _HomePageState extends State<HomePage>
                                   : _loadRideQuotes,
                               child: Container(
                                 padding: EdgeInsets.symmetric(vertical: 8.r),
-                                color: Colors.yellow.shade600,
+                                color: GlassTokens.ink,
                                 child: Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Icon(
                                       Icons.motorcycle,
-                                      color: Colors.black,
+                                      color: Colors.white,
                                       size: 15.r,
                                     ),
                                     SizedBox(width: 20.r),
@@ -2089,7 +2108,7 @@ class _HomePageState extends State<HomePage>
                                           ? 'Finding ride options…'
                                           : UserAppCopy.SELECT_RIDE,
                                       style: TextStyle(
-                                        color: Colors.black,
+                                        color: Colors.white,
                                         fontSize: 14.r,
                                         fontWeight: FontWeight.w500,
                                       ),
@@ -2166,7 +2185,7 @@ class _HomePageState extends State<HomePage>
                   Text(
                     isCollapsed ? HomeConstants.TEXT_LETS_GO : label,
                     style: TextStyle(
-                      color: Colors.grey.shade600,
+                      color: GlassTokens.muted,
                       fontSize: 10.r,
                       fontWeight: FontWeight.w500,
                     ),
@@ -2182,7 +2201,7 @@ class _HomePageState extends State<HomePage>
                             contentPadding: EdgeInsets.zero,
                             hintText: "Search location...",
                             hintStyle: TextStyle(
-                              color: Colors.grey.shade400,
+                              color: GlassTokens.muted,
                               fontSize: 15.r,
                             ),
                           ),
@@ -2197,7 +2216,7 @@ class _HomePageState extends State<HomePage>
                             });
                           },
                           style: TextStyle(
-                            color: Colors.black,
+                            color: GlassTokens.ink,
                             fontSize: 15.r,
                             fontWeight: FontWeight.w700,
                           ),
@@ -2207,7 +2226,7 @@ class _HomePageState extends State<HomePage>
                               ? 'Select location'
                               : controller.text,
                           style: TextStyle(
-                            color: Colors.black,
+                            color: GlassTokens.ink,
                             fontSize: 15.r,
                             fontWeight: FontWeight.w800,
                           ),
@@ -2225,7 +2244,7 @@ class _HomePageState extends State<HomePage>
                 padding: EdgeInsets.only(left: 12.r),
                 child: Icon(
                   Iconsax.tick_circle,
-                  color: Colors.green,
+                  color: AppColors.primaryGreen,
                   size: 20.r,
                 ),
               ),
@@ -2241,49 +2260,43 @@ class _HomePageState extends State<HomePage>
       etaText = "${(_routeDuration! / 60).ceil().clamp(1, 999)}";
     }
 
-    return Container(
+    return SizedBox(
       width: 64.r,
       height: 64.r,
-      decoration: BoxDecoration(
-        color: Colors.black,
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 12.r,
-            offset: Offset(0, 6.r),
-          ),
-        ],
-      ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          CustomPaint(size: Size(64.r, 64.r), painter: _ClockTicksPainter()),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                etaText,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 20.r,
-                  fontWeight: FontWeight.w800,
-                  height: 1.0,
+      child: LiquidGlassSurface(
+        dark: true,
+        radius: 99,
+        padding: EdgeInsets.zero,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            CustomPaint(size: Size(64.r, 64.r), painter: _ClockTicksPainter()),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  etaText,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20.r,
+                    fontWeight: FontWeight.w800,
+                    height: 1.0,
+                  ),
                 ),
-              ),
-              SizedBox(height: 1.r),
-              Text(
-                "min",
-                style: TextStyle(
-                  color: Colors.grey.shade400,
-                  fontSize: 10.r,
-                  fontWeight: FontWeight.w600,
-                  height: 1.0,
+                SizedBox(height: 1.r),
+                Text(
+                  "min",
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: .68),
+                    fontSize: 10.r,
+                    fontWeight: FontWeight.w600,
+                    height: 1.0,
+                  ),
                 ),
-              ),
-            ],
-          ),
-        ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

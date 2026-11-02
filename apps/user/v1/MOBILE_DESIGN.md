@@ -12,6 +12,14 @@ Use `LiquidGlassSelectField` for a trigger that opens a dedicated catalog/search
 
 Retain opaque IDs, false/empty-string selections, dependent address resets, disabled/busy states and original validators. Keep 16–20 px between controls, with 20 px between Partner Program fields. Native date picking stays separate from option menus.
 
+## Driver mode
+
+Driver mode uses the same liquid-glass language as Settings and Partner Program. Keep driver home and active trips map-first: MapLibre stays unobscured while profile/help, availability, navigation and trip controls sit in bounded glass surfaces. Do not add bottom navigation or a second driver theme.
+
+Driver content hierarchy is current availability/eligibility, active vehicle, actionable offer or trip state, and then secondary workspace links. Use the shared components in `lib/features/driver_operations/widgets/driver_glass.dart` for statuses, intros, navigation rows, metadata, notices and skeletons. Primary trip transitions use the dark glossy glass action. Preserve real GPS freshness, ownership, active-trip recovery, offer expiry, start proofs, server fare and direct-collection semantics.
+
+See [the driver rework inventory and verification tracker](../../../context/DRIVER_LIQUID_GLASS_UI_REWORK.md).
+
 ## Application uploads
 
 List image/document selectors vertically at full width, with 20 px spacing and a matching skeleton. Keep image previews bounded, names/limits readable and review/rejection feedback next to the field. Do not place application upload cards in a row/grid. File selection remains local until final Submit; retain camera-only selfie capture and the existing sequential upload/draft recovery behavior.

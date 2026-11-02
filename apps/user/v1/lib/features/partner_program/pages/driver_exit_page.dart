@@ -6,6 +6,7 @@ import 'package:user/components/ui/button.dart';
 import 'package:user/core/color.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/features/partner_program/partner_program.repo.dart';
+import 'package:user/features/driver_operations/widgets/driver_glass.dart';
 
 class DriverExitPage extends StatefulWidget {
   final PartnerProgramRepository? repository;
@@ -169,12 +170,22 @@ class _DriverExitPageState extends State<DriverExitPage>
             child: ListView(
               padding: const EdgeInsets.only(bottom: 24),
               children: [
+                DriverPageIntro(
+                  icon: Icons.logout_rounded,
+                  title: _request?['status'] == 'COMPLETED'
+                      ? 'Exit completed'
+                      : 'Exit and settlement',
+                  description:
+                      'Review the complete status, dues and settlement document in one place.',
+                ),
+                const SizedBox(height: 16),
                 if (_error != null)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 16),
-                    child: Text(
-                      _error!,
-                      style: const TextStyle(color: Colors.red),
+                    child: DriverNotice(
+                      icon: Icons.sync_problem_rounded,
+                      message: _error!,
+                      error: true,
                     ),
                   ),
                 AppCard(
@@ -208,9 +219,9 @@ class _DriverExitPageState extends State<DriverExitPage>
                       ),
                       if (_request != null) ...[
                         const SizedBox(height: 16),
-                        Text(
-                          'Status: ${'${_request!['status']}'.toLowerCase().replaceAll('_', ' ')}',
-                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        DriverStatusPill(
+                          label: '${_request!['status']}'.replaceAll('_', ' '),
+                          status: '${_request!['status']}',
                         ),
                         const SizedBox(height: 8),
                         Text('${_request!['reason']}'),
@@ -254,18 +265,11 @@ class _DriverExitPageState extends State<DriverExitPage>
                   if (_request?['rejection_reason'] != null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 16),
-                      child: AppCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Please correct your request',
-                              style: TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                            const SizedBox(height: 8),
-                            Text('${_request!['rejection_reason']}'),
-                          ],
-                        ),
+                      child: DriverNotice(
+                        icon: Icons.info_outline_rounded,
+                        message:
+                            'Please correct your request: ${_request!['rejection_reason']}',
+                        error: true,
                       ),
                     ),
                   AppCard(

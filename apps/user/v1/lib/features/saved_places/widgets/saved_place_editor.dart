@@ -1,4 +1,6 @@
 import 'package:user/components/ui/glass_dropdown.dart';
+import 'package:user/components/ui/app_skeleton.dart';
+import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
@@ -80,7 +82,7 @@ class _PlaceEditorState extends State<SavedPlaceEditor> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => LiquidGlassDialog(
     title: Text(
       widget.initial == null ? 'Add saved place' : 'Edit saved place',
     ),
@@ -124,7 +126,11 @@ class _PlaceEditorState extends State<SavedPlaceEditor> {
                   ? 'Choose an address from the results'
                   : null,
             ),
-            if (_searching) const LinearProgressIndicator(),
+            if (_searching)
+              const AppSkeleton(
+                label: 'Searching addresses',
+                child: SkeletonBox(height: 10),
+              ),
             if (_error != null)
               TextButton(
                 onPressed: () => _search(_address.text.trim(), _generation),
@@ -139,26 +145,36 @@ class _PlaceEditorState extends State<SavedPlaceEditor> {
                   itemCount: _results.length,
                   itemBuilder: (context, index) {
                     final place = _results[index];
-                    return ListTile(
-                      title: Text(
-                        '${place['display_name']}',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: LiquidGlassSurface(
+                        padding: EdgeInsets.zero,
+                        child: ListTile(
+                          leading: const Icon(
+                            Icons.location_on_outlined,
+                            color: GlassTokens.accent,
+                          ),
+                          title: Text(
+                            '${place['display_name']}',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () {
+                            _debounce?.cancel();
+                            _generation++;
+                            final name = '${place['display_name']}'.trim();
+                            setState(() {
+                              _selected = ridePoint(place['lat'], place['lon']);
+                              _address.text = name.length > 300
+                                  ? name.substring(0, 300)
+                                  : name;
+                              _results = [];
+                              _searching = false;
+                            });
+                            FocusScope.of(context).unfocus();
+                          },
+                        ),
                       ),
-                      onTap: () {
-                        _debounce?.cancel();
-                        _generation++;
-                        final name = '${place['display_name']}'.trim();
-                        setState(() {
-                          _selected = ridePoint(place['lat'], place['lon']);
-                          _address.text = name.length > 300
-                              ? name.substring(0, 300)
-                              : name;
-                          _results = [];
-                          _searching = false;
-                        });
-                        FocusScope.of(context).unfocus();
-                      },
                     );
                   },
                 ),
@@ -176,18 +192,22 @@ class _PlaceEditorState extends State<SavedPlaceEditor> {
         onPressed: () => Navigator.pop(context),
         child: const Text('Cancel'),
       ),
-      FilledButton(
-        onPressed: () {
-          if (!_form.currentState!.validate()) return;
-          Navigator.pop(context, {
-            'label': _label.text.trim(),
-            'address': _address.text.trim(),
-            'latitude': _selected!.latitude,
-            'longitude': _selected!.longitude,
-            'place_type': _type,
-          });
-        },
-        child: const Text('Save place'),
+      SizedBox(
+        width: 160,
+        child: LiquidGlassButton(
+          text: 'Save place',
+          icon: const Icon(Icons.check_rounded),
+          onPressed: () {
+            if (!_form.currentState!.validate()) return;
+            Navigator.pop(context, {
+              'label': _label.text.trim(),
+              'address': _address.text.trim(),
+              'latitude': _selected!.latitude,
+              'longitude': _selected!.longitude,
+              'place_type': _type,
+            });
+          },
+        ),
       ),
     ],
   );

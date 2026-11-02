@@ -1,5 +1,7 @@
 import 'package:user/components/ui/liquid_glass.dart';
+import 'package:user/components/ui/app_skeleton.dart';
 import 'package:user/components/ui/button.dart';
+import 'package:user/components/ui/glass_chip.dart';
 import 'package:user/features/rides/widgets/ride_glass.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -716,7 +718,14 @@ class _RiderTripState extends State<RideDetailPage>
           const SizedBox(height: 10),
           OutlinedButton(onPressed: _home, child: const Text('Return to home')),
         ],
-        if (_busy) const LinearProgressIndicator(),
+        if (_busy)
+          const Padding(
+            padding: EdgeInsets.only(top: 10),
+            child: AppSkeleton(
+              label: 'Updating trip',
+              child: SkeletonBox(height: 10),
+            ),
+          ),
       ],
     );
     if (!activeMap) return body;
@@ -776,10 +785,10 @@ class _RatingState extends State<_RatingDialog> {
           Wrap(
             children: [
               for (var i = 1; i <= 5; i++)
-                ChoiceChip(
-                  label: Text('$i ★'),
+                LiquidGlassChip(
+                  label: '$i ★',
                   selected: _score == i,
-                  onSelected: (_) => setState(() => _score = i),
+                  onPressed: () => setState(() => _score = i),
                 ),
             ],
           ),

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
-import 'package:user/core/color.dart';
+import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/core/route_observer.dart';
 import 'package:user/features/auth/auth.repo.dart';
@@ -97,6 +97,7 @@ class _DriverVehicleGateState extends State<DriverVehicleGate>
     builder: (context, snapshot) {
       if (snapshot.hasError) {
         return AppPage(
+          glass: true,
           title: 'Vehicle registration',
           child: AppLoadError(
             message: ApiResult.errorMessage(snapshot.error!),
@@ -108,9 +109,16 @@ class _DriverVehicleGateState extends State<DriverVehicleGate>
       }
       if (snapshot.connectionState == ConnectionState.waiting ||
           !snapshot.hasData) {
-        return const Scaffold(
-          body: Center(
-            child: CircularProgressIndicator(color: AppColors.primaryGreen),
+        return const LiquidGlassScope(
+          child: Scaffold(
+            body: LiquidGlassBackdrop(
+              child: SafeArea(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(20, 76, 20, 20),
+                  child: LiquidGlassFormSkeleton(),
+                ),
+              ),
+            ),
           ),
         );
       }

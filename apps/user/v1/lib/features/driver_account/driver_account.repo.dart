@@ -3,8 +3,14 @@ import 'package:user/core/network/api_result.dart';
 
 class DriverAccountRepository {
   final _client = DioClient();
-  Map<String, dynamic> _map(dynamic v) =>
-      Map<String, dynamic>.from(ApiResult.unwrap(v) as Map);
+  Map<String, dynamic> _map(dynamic value) {
+    final unwrapped = ApiResult.unwrap(value);
+    if (unwrapped is! Map) {
+      throw const FormatException('The server returned invalid driver data.');
+    }
+    return Map<String, dynamic>.from(unwrapped);
+  }
+
   Future<Map<String, dynamic>> account() async =>
       _map(await _client.getData('/driver/account'));
   Future<Map<String, dynamic>> finances({

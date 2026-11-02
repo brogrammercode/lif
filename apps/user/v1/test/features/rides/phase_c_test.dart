@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/core/route_observer.dart';
 import 'package:user/features/driver_operations/driver_operations.repo.dart';
@@ -551,8 +552,8 @@ void main() {
   testWidgets('an expired quote cannot create a booking', (tester) async {
     final repo = BookingRepo();
     await openBooking(tester, repo, expired: true);
-    final button = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Confirm booking'),
+    final button = tester.widget<LiquidGlassButton>(
+      find.widgetWithText(LiquidGlassButton, 'Confirm booking'),
     );
     expect(button.onPressed, isNull);
     expect(repo.requests, 0);

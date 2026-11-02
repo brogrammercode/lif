@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/features/driver_account/driver_account.repo.dart';
+import 'package:user/features/driver_operations/widgets/driver_glass.dart';
 import 'package:user/features/driver_vehicles/vehicle_verification.repo.dart';
 
 class PayoutChangeForm extends StatefulWidget {
@@ -55,6 +57,15 @@ class _PayoutFormState extends State<PayoutChangeForm> {
     }
   }
 
+  Widget _well(Widget child) => Padding(
+    padding: const EdgeInsets.only(bottom: 18),
+    child: LiquidGlassSurface(
+      radius: 20,
+      padding: EdgeInsets.zero,
+      child: child,
+    ),
+  );
+
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: !_busy,
@@ -64,82 +75,108 @@ class _PayoutFormState extends State<PayoutChangeForm> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Your current approved destination stays active until this change is approved. Provide UPI, bank details, or both. Keep account numbers as digits including leading zeroes.',
+            const DriverPageIntro(
+              icon: Icons.account_balance_outlined,
+              title: 'New payment destination',
+              description:
+                  'Your approved destination stays active until this change is reviewed. Provide UPI, bank details, or both.',
             ),
-            TextFormField(
-              controller: _holder,
-              enabled: !_attempted,
-              maxLength: 120,
-              decoration: const InputDecoration(labelText: 'Account holder'),
-              validator: (v) => (v ?? '').trim().length < 2
-                  ? 'Enter the account holder'
-                  : null,
-            ),
-            TextFormField(
-              controller: _upi,
-              enabled: !_attempted,
-              maxLength: 320,
-              decoration: const InputDecoration(labelText: 'UPI ID (optional)'),
-              validator: (v) =>
-                  v == null ||
-                      v.trim().isEmpty ||
-                      RegExp(
-                        r'^[a-zA-Z0-9][a-zA-Z0-9._-]{0,255}@[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,62}[a-zA-Z0-9])$',
-                      ).hasMatch(v.trim())
-                  ? null
-                  : 'Enter a valid UPI ID',
-            ),
-            TextFormField(
-              controller: _bank,
-              enabled: !_attempted,
-              maxLength: 18,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Bank account number (optional)',
+            const SizedBox(height: 20),
+            _well(
+              TextFormField(
+                controller: _holder,
+                enabled: !_attempted,
+                maxLength: 120,
+                decoration: const InputDecoration(labelText: 'Account holder'),
+                validator: (v) => (v ?? '').trim().length < 2
+                    ? 'Enter the account holder'
+                    : null,
               ),
-              validator: (v) => (v ?? '').isEmpty && _ifsc.text.trim().isEmpty
-                  ? null
-                  : RegExp(r'^\d{9,18}$').hasMatch(v ?? '')
-                  ? null
-                  : 'Enter 9 to 18 digits',
             ),
-            TextFormField(
-              controller: _ifsc,
-              enabled: !_attempted,
-              maxLength: 11,
-              textCapitalization: TextCapitalization.characters,
-              onChanged: (v) {
-                final upper = v.toUpperCase();
-                if (upper != v) _ifsc.value = _ifsc.value.copyWith(text: upper);
-              },
-              decoration: const InputDecoration(
-                labelText: 'IFSC (required with bank)',
+            _well(
+              TextFormField(
+                controller: _upi,
+                enabled: !_attempted,
+                maxLength: 320,
+                decoration: const InputDecoration(
+                  labelText: 'UPI ID (optional)',
+                ),
+                validator: (v) =>
+                    v == null ||
+                        v.trim().isEmpty ||
+                        RegExp(
+                          r'^[a-zA-Z0-9][a-zA-Z0-9._-]{0,255}@[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,62}[a-zA-Z0-9])$',
+                        ).hasMatch(v.trim())
+                    ? null
+                    : 'Enter a valid UPI ID',
               ),
-              validator: (v) => (v ?? '').trim().isEmpty && _bank.text.isEmpty
-                  ? null
-                  : RegExp(r'^[A-Z]{4}0[A-Z0-9]{6}$').hasMatch((v ?? '').trim())
-                  ? null
-                  : 'Enter a valid IFSC code',
+            ),
+            _well(
+              TextFormField(
+                controller: _bank,
+                enabled: !_attempted,
+                maxLength: 18,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Bank account number (optional)',
+                ),
+                validator: (v) => (v ?? '').isEmpty && _ifsc.text.trim().isEmpty
+                    ? null
+                    : RegExp(r'^\d{9,18}$').hasMatch(v ?? '')
+                    ? null
+                    : 'Enter 9 to 18 digits',
+              ),
+            ),
+            _well(
+              TextFormField(
+                controller: _ifsc,
+                enabled: !_attempted,
+                maxLength: 11,
+                textCapitalization: TextCapitalization.characters,
+                onChanged: (v) {
+                  final upper = v.toUpperCase();
+                  if (upper != v) {
+                    _ifsc.value = _ifsc.value.copyWith(text: upper);
+                  }
+                },
+                decoration: const InputDecoration(
+                  labelText: 'IFSC (required with bank)',
+                ),
+                validator: (v) => (v ?? '').trim().isEmpty && _bank.text.isEmpty
+                    ? null
+                    : RegExp(
+                        r'^[A-Z]{4}0[A-Z0-9]{6}$',
+                      ).hasMatch((v ?? '').trim())
+                    ? null
+                    : 'Enter a valid IFSC code',
+              ),
             ),
             if (_attempted)
-              const Text(
-                'Retry preserves the same details and request key. Close and start a new request to change the entered values.',
+              const Padding(
+                padding: EdgeInsets.only(bottom: 12),
+                child: DriverNotice(
+                  icon: Icons.lock_clock_outlined,
+                  message:
+                      'Retry preserves these exact details and request key. Close this page to start a different request.',
+                ),
               ),
             if (_error != null)
-              Text(_error!, style: const TextStyle(color: Colors.red)),
-            FilledButton(
-              onPressed: _busy ? null : _submit,
-              child: Text(
-                _busy
-                    ? 'Submitting...'
-                    : _attempted
-                    ? 'Retry same request'
-                    : 'Submit for review',
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: DriverNotice(
+                  icon: Icons.error_outline_rounded,
+                  message: _error!,
+                  error: true,
+                ),
               ),
+            LiquidGlassButton(
+              onPressed: _busy ? null : _submit,
+              busy: _busy,
+              text: _attempted ? 'Retry same request' : 'Submit for review',
             ),
+            const SizedBox(height: 24),
           ],
         ),
       ),

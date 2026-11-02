@@ -102,45 +102,54 @@ class AppEmptyState extends StatelessWidget {
     required this.subtitle,
   });
   @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: EdgeInsets.all(28.w),
+  Widget build(BuildContext context) {
+    final glass = LiquidGlassTheme.of(context);
+    final content = Padding(
+      padding: EdgeInsets.all(glass ? 24 : 28.w),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 72.w,
-            height: 72.w,
-            decoration: const BoxDecoration(
-              color: AppColors.softGrey,
-              shape: BoxShape.circle,
+          if (glass)
+            LiquidGlassSurface(
+              radius: 99,
+              padding: const EdgeInsets.all(18),
+              child: Icon(icon, size: 30, color: GlassTokens.accent),
+            )
+          else
+            Container(
+              width: 72.w,
+              height: 72.w,
+              decoration: const BoxDecoration(
+                color: AppColors.softGrey,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 30.w, color: AppColors.primaryGreen),
             ),
-            child: Icon(icon, size: 30.w, color: AppColors.primaryGreen),
-          ),
-          SizedBox(height: 16.h),
+          SizedBox(height: glass ? 16 : 16.h),
           Text(
             title,
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 18.sp,
-              fontWeight: FontWeight.w900,
-              color: AppColors.textPrimary,
+              fontSize: glass ? 18 : 18.sp,
+              fontWeight: glass ? FontWeight.w600 : FontWeight.w900,
+              color: glass ? GlassTokens.ink : AppColors.textPrimary,
             ),
           ),
-          SizedBox(height: 6.h),
+          SizedBox(height: glass ? 6 : 6.h),
           Text(
             subtitle,
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 14.sp,
-              color: AppColors.textSecondary,
+              fontSize: glass ? 14 : 14.sp,
+              color: glass ? GlassTokens.muted : AppColors.textSecondary,
               height: 1.4,
             ),
           ),
         ],
       ),
-    ),
-  );
+    );
+    return Center(child: glass ? LiquidGlassSurface(child: content) : content);
+  }
 }
 
 class AppCard extends StatelessWidget {
@@ -180,27 +189,33 @@ class AppLoadError extends StatelessWidget {
   final VoidCallback onRetry;
   const AppLoadError({super.key, required this.message, required this.onRetry});
   @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: EdgeInsets.all(24.w),
+  Widget build(BuildContext context) {
+    final glass = LiquidGlassTheme.of(context);
+    final content = Padding(
+      padding: EdgeInsets.all(glass ? 22 : 24.w),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
             Icons.wifi_off_rounded,
-            size: 34.w,
-            color: AppColors.textTertiary,
+            size: glass ? 34 : 34.w,
+            color: glass ? GlassTokens.accent : AppColors.textTertiary,
           ),
-          SizedBox(height: 12.h),
+          SizedBox(height: glass ? 12 : 12.h),
           Text(
             message,
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 14.sp, color: AppColors.textSecondary),
+            style: TextStyle(
+              fontSize: glass ? 14 : 14.sp,
+              color: glass ? GlassTokens.muted : AppColors.textSecondary,
+              height: 1.4,
+            ),
           ),
-          SizedBox(height: 12.h),
+          SizedBox(height: glass ? 12 : 12.h),
           TextButton(onPressed: onRetry, child: const Text('Try again')),
         ],
       ),
-    ),
-  );
+    );
+    return Center(child: glass ? LiquidGlassSurface(child: content) : content);
+  }
 }

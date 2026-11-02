@@ -493,6 +493,9 @@ class _SaveFormState extends State<PlaceSaveForm> {
     for (final c in [_name, _address, _description, _phone, _website]) {
       c.dispose();
     }
+    for (final photo in widget.photos) {
+      unawaited(ResizeImage(FileImage(File(photo.path)), width: 600).evict());
+    }
     super.dispose();
   }
 

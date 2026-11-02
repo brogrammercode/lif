@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:user/core/color.dart';
 import 'package:user/components/ui/liquid_glass.dart';
+import 'package:user/components/ui/app_skeleton.dart';
 
 class AppButton extends StatelessWidget {
   final String text;
@@ -65,13 +66,9 @@ class AppButton extends StatelessWidget {
   }
 
   Widget _buildLoader() {
-    return SizedBox(
-      width: 18.w,
-      height: 18.w,
-      child: CircularProgressIndicator(
-        strokeWidth: 2.w,
-        valueColor: AlwaysStoppedAnimation<Color>(foregroundColor),
-      ),
+    return const AppSkeleton(
+      label: 'Please wait',
+      child: SkeletonBox(width: 34, height: 8),
     );
   }
 

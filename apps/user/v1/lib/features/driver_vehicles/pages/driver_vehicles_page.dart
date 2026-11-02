@@ -1,10 +1,10 @@
 import 'package:user/components/ui/liquid_glass.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
-import 'package:user/core/color.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/auth/auth.repo.dart';
+import 'package:user/features/driver_operations/widgets/driver_glass.dart';
 import 'package:user/features/driver_vehicles/vehicle_verification.repo.dart';
 import 'package:user/features/driver_vehicles/widgets/vehicle_registration_form.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
@@ -185,17 +185,23 @@ class _DriverVehiclesPageState extends State<DriverVehiclesPage>
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               children: [
-                if (widget.registrationRequired)
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 20),
-                    child: Text(
-                      'Your vehicle must be verified before you can start driving. Pull down to refresh your review status.',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                        height: 1.5,
-                      ),
-                    ),
+                DriverPageIntro(
+                  icon: Icons.garage_outlined,
+                  title: widget.registrationRequired
+                      ? 'Vehicle verification required'
+                      : '${vehicles.length} registered ${vehicles.length == 1 ? 'vehicle' : 'vehicles'}',
+                  description: widget.registrationRequired
+                      ? 'At least one vehicle must finish review before driver operations unlock.'
+                      : 'Choose one eligible vehicle for offers, or review its documents and catalog status.',
+                  trailing: DriverStatusPill(
+                    label:
+                        '${vehicles.where((v) => v['is_eligible'] == true).length} ready',
+                    status: vehicles.any((v) => v['is_eligible'] == true)
+                        ? 'ACTIVE'
+                        : 'PENDING',
                   ),
+                ),
+                const SizedBox(height: 18),
                 for (final vehicle in vehicles)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 16),
@@ -203,19 +209,52 @@ class _DriverVehiclesPageState extends State<DriverVehiclesPage>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Text(
-                            '${vehicle['make']} ${vehicle['model']}',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                            ),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              LiquidGlassSurface(
+                                radius: 99,
+                                padding: const EdgeInsets.all(12),
+                                child: Icon(
+                                  [
+                                        'BIKE',
+                                        'SCOOTER',
+                                      ].contains(vehicle['vehicle_type'])
+                                      ? Icons.two_wheeler_rounded
+                                      : Icons.directions_car_filled_outlined,
+                                  color: GlassTokens.accent,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '${vehicle['make']} ${vehicle['model']}',
+                                      style: const TextStyle(
+                                        color: GlassTokens.ink,
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      '${vehicle['plate_number']}',
+                                      style: const TextStyle(
+                                        color: GlassTokens.muted,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              DriverStatusPill(
+                                label: '${vehicle['status']}',
+                                status: '${vehicle['status']}',
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 6),
-                          Text(
-                            '${vehicle['plate_number']} · ${vehicle['status']}'
-                                .replaceAll('_', ' '),
-                          ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 16),
                           if (vehicle['status'] == 'ACTIVE' &&
                               vehicle['is_eligible'] != true &&
                               vehicleMaps(
@@ -223,11 +262,11 @@ class _DriverVehiclesPageState extends State<DriverVehiclesPage>
                               ).isNotEmpty)
                             const Padding(
                               padding: EdgeInsets.only(bottom: 12),
-                              child: Text(
-                                'This approved vehicle is currently unavailable. Ask your administrator to check its brand, model, and category configuration.',
-                                style: TextStyle(
-                                  color: AppColors.textSecondary,
-                                ),
+                              child: DriverNotice(
+                                icon: Icons.warning_amber_rounded,
+                                message:
+                                    'This approved vehicle is unavailable. Ask an administrator to check its brand, model and category configuration.',
+                                warning: true,
                               ),
                             ),
                           for (final field in vehicleMaps(
@@ -239,19 +278,23 @@ class _DriverVehiclesPageState extends State<DriverVehiclesPage>
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Expanded(child: Text('${field['label']}')),
-                                  Expanded(
-                                    child: Text(
-                                      '${field['status']}${field['rejection_reason'] == null ? '' : '\n${field['rejection_reason']}'}',
-                                      textAlign: TextAlign.end,
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: field['status'] == 'REJECTED'
-                                            ? AppColors.googleRed
-                                            : AppColors.textSecondary,
-                                      ),
-                                    ),
+                                  DriverStatusPill(
+                                    label: '${field['status']}',
+                                    status: '${field['status']}',
                                   ),
                                 ],
+                              ),
+                            ),
+                          for (final field in vehicleMaps(
+                            vehicle['verification_fields'],
+                          ).where((field) => field['rejection_reason'] != null))
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: DriverNotice(
+                                icon: Icons.info_outline_rounded,
+                                message:
+                                    '${field['label']}: ${field['rejection_reason']}',
+                                error: true,
                               ),
                             ),
                           if (vehicleMaps(
@@ -272,20 +315,21 @@ class _DriverVehiclesPageState extends State<DriverVehiclesPage>
                               ),
                             ),
                           if (vehicle['is_eligible'] == true)
-                            FilledButton(
+                            LiquidGlassButton(
                               onPressed: _busy
                                   ? null
                                   : () => _active('${vehicle['id']}'),
-                              child: const Text('Use this vehicle'),
+                              busy: _busy,
+                              text: 'Use this vehicle',
                             ),
                         ],
                       ),
                     ),
                   ),
-                FilledButton.icon(
+                LiquidGlassButton(
                   onPressed: _busy ? null : () => _edit(),
                   icon: const Icon(Icons.add),
-                  label: const Text('Register another vehicle'),
+                  text: 'Register another vehicle',
                 ),
                 const SizedBox(height: 24),
               ],

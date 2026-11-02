@@ -12,8 +12,14 @@ class VehicleVerificationRepository {
   final DioClient _client;
   VehicleVerificationRepository({DioClient? client})
     : _client = client ?? DioClient();
-  Map<String, dynamic> _map(dynamic response) =>
-      Map<String, dynamic>.from(ApiResult.unwrap(response) as Map);
+  Map<String, dynamic> _map(dynamic response) {
+    final unwrapped = ApiResult.unwrap(response);
+    if (unwrapped is! Map) {
+      throw const FormatException('The server returned invalid vehicle data.');
+    }
+    return Map<String, dynamic>.from(unwrapped);
+  }
+
   Future<Map<String, dynamic>> mine() async =>
       _map(await _client.getData(base));
   Future<Map<String, dynamic>> documents() async =>
@@ -183,6 +189,9 @@ const vehicleDocuments = <String, String>{
   'insurance': 'Insurance',
   'pollution': 'Pollution / PUC certificate',
 };
-List<Map<String, dynamic>> vehicleMaps(dynamic value) => (value as List? ?? [])
-    .map((v) => Map<String, dynamic>.from(v as Map))
-    .toList();
+List<Map<String, dynamic>> vehicleMaps(dynamic value) => value is List
+    ? value
+          .whereType<Map>()
+          .map((entry) => Map<String, dynamic>.from(entry))
+          .toList()
+    : [];

@@ -238,7 +238,7 @@ void main() {
       });
       await tester.pumpWidget(form(FakeRepository()));
       await tester.pumpAndSettle();
-      expect(find.text('Register your vehicle'), findsOneWidget);
+      expect(find.text('Correct vehicle submission'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
@@ -312,6 +312,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(repo.submissions, 1);
       expect(find.text('Reload latest vehicle'), findsOneWidget);
+      await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+      await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Reload latest vehicle'));
       await tester.tap(find.text('Reload latest vehicle'));
       await tester.pumpAndSettle();

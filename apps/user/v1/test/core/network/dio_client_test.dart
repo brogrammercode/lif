@@ -7,6 +7,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:user/core/network/api.constant.dart';
+import 'package:user/core/network/api_result.dart';
 import 'package:user/core/network/dio_client.dart';
 
 class _Adapter implements HttpClientAdapter {
@@ -72,6 +73,57 @@ void main() {
     );
     expect(calls, 2);
   });
+
+  test(
+    'a request can extend only its own connection and response budget',
+    () async {
+      RequestOptions? captured;
+      final client = DioClient.forTesting(
+        client: _dio((request) async {
+          captured = request;
+          return _json({'ok': true});
+        }),
+        createRefreshClient: () => _dio((_) async => _json(null)),
+      );
+
+      await client.postData(
+        ApiConstants.AUTH_GOOGLE,
+        data: {'id_token': 'fixture'},
+        connectTimeout: DioClient.authenticationConnectTimeout,
+        receiveTimeout: DioClient.authenticationReceiveTimeout,
+        sendTimeout: DioClient.authenticationSendTimeout,
+      );
+
+      expect(captured?.connectTimeout, DioClient.authenticationConnectTimeout);
+      expect(captured?.receiveTimeout, DioClient.authenticationReceiveTimeout);
+      expect(captured?.sendTimeout, DioClient.authenticationSendTimeout);
+    },
+  );
+
+  test(
+    'connection and server response timeouts provide distinct recovery guidance',
+    () {
+      final request = RequestOptions(path: ApiConstants.AUTH_GOOGLE);
+      expect(
+        ApiResult.errorMessage(
+          DioException(
+            requestOptions: request,
+            type: DioExceptionType.connectionTimeout,
+          ),
+        ),
+        contains('Switch between Wi-Fi and mobile data'),
+      );
+      expect(
+        ApiResult.errorMessage(
+          DioException(
+            requestOptions: request,
+            type: DioExceptionType.receiveTimeout,
+          ),
+        ),
+        contains('server is taking longer than expected'),
+      );
+    },
+  );
 
   test('concurrent unauthorized requests share one refresh', () async {
     final oldToken = _token('old');
