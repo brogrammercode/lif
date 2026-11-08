@@ -1,3 +1,4 @@
+import 'package:user/features/emergency/controllers/emergency_contacts_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -18,13 +19,19 @@ class EmergencyContactsPage extends StatefulWidget {
 }
 
 class _EmergencyContactsPageState extends State<EmergencyContactsPage> {
-  late final UserAppRepository _repository =
-      widget.repository ?? UserAppRepository();
-  List<Map<String, dynamic>> _contacts = const [];
-  Object? _error;
-  bool _loading = true;
-  bool _saving = false;
-  int _generation = 0;
+  late final _controller = EmergencyContactsController(
+    widget.repository ?? UserAppRepository(),
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  UserAppRepository get _repository => _controller.repository;
+  List<Map<String, dynamic>> get _contacts => _controller.contacts;
+  Object? get _error => _controller.error;
+  bool get _loading => _controller.loading;
+  bool get _saving => _controller.saving;
+  set _saving(bool value) => _controller.saving = value;
 
   @override
   void initState() {
@@ -33,26 +40,13 @@ class _EmergencyContactsPageState extends State<EmergencyContactsPage> {
   }
 
   Future<void> _load({bool preserve = false}) async {
-    final generation = ++_generation;
-    if (!preserve && mounted) setState(() => _loading = true);
-    try {
-      final value = await _repository.emergencyContacts();
-      if (!mounted || generation != _generation) return;
-      setState(() {
-        _contacts = value;
-        _error = null;
-        _loading = false;
-      });
-    } catch (error) {
-      if (!mounted || generation != _generation) return;
-      if (preserve && _contacts.isNotEmpty) {
-        _showError(error);
-        return;
-      }
-      setState(() {
-        _error = error;
-        _loading = false;
-      });
+    await _controller.load(preserve: preserve);
+    final notice = _controller.notice;
+    _controller.notice = null;
+    if (mounted && notice != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(notice)));
     }
   }
 
@@ -229,6 +223,13 @@ class _EmergencyContactsPageState extends State<EmergencyContactsPage> {
   void _showError(Object error) => ScaffoldMessenger.of(
     context,
   ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+
+  @override
+  void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => AppPage(

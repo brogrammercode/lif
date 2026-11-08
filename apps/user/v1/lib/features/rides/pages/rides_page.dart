@@ -1,3 +1,4 @@
+import 'package:user/features/rides/controllers/ride_history_controller.dart';
 import 'package:user/components/ui/glass_chip.dart';
 import 'package:user/features/rides/widgets/ride_history_filters.dart';
 import 'package:user/features/rides/ride_detail_intent.dart';
@@ -7,7 +8,6 @@ import 'package:user/features/rides/widgets/ride_glass.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
-import 'package:user/core/network/api_result.dart';
 import 'package:user/core/route_observer.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/rides/ride_display.dart';
@@ -22,17 +22,32 @@ class RidesPage extends StatefulWidget {
 
 class _RidesState extends State<RidesPage>
     with WidgetsBindingObserver, RouteAware {
-  late final _repo = widget.repository ?? UserAppRepository();
-  Map<String, dynamic>? _data;
-  String _section = 'all';
-  int _page = 1;
-  String? _error;
+  late final _controller = RideHistoryController(
+    widget.repository ?? UserAppRepository(),
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  UserAppRepository get _repo => _controller.repo;
+  Map<String, dynamic>? get _data => _controller.data;
+  set _data(Map<String, dynamic>? value) => _controller.data = value;
+  String get _section => _controller.section;
+  set _section(String value) => _controller.section = value;
+  int get _page => _controller.page;
+  set _page(int value) => _controller.page = value;
+  String? get _error => _controller.error;
+  set _error(String? value) => _controller.error = value;
   final _search = TextEditingController();
   Timer? _debounce;
-  int _request = 0;
-  String _query = '';
-  RideHistoryFilter _filters = const RideHistoryFilter();
-  bool _loading = false;
+  int get _request => _controller.request;
+  set _request(int value) => _controller.request = value;
+  String get _query => _controller.query;
+  set _query(String value) => _controller.query = value;
+  RideHistoryFilter get _filters => _controller.filters;
+  set _filters(RideHistoryFilter value) => _controller.filters = value;
+  bool get _loading => _controller.loading;
+  set _loading(bool value) => _controller.loading = value;
   ModalRoute<dynamic>? _route;
   @override
   void initState() {
@@ -61,32 +76,8 @@ class _RidesState extends State<RidesPage>
     }
   }
 
-  Future<void> _load({bool replace = false}) async {
-    if ((_loading && !replace) || !mounted) return;
-    final request = ++_request;
-    setState(() => _loading = true);
-    try {
-      final data = await _repo.riderHistory(
-        page: _page,
-        section: _section,
-        query: _query,
-        categoryId: _filters.categoryId,
-        month: _filters.month,
-      );
-      if (mounted && request == _request) {
-        setState(() {
-          _data = data;
-          _error = null;
-        });
-      }
-    } catch (e) {
-      if (mounted && request == _request) {
-        setState(() => _error = ApiResult.errorMessage(e));
-      }
-    } finally {
-      if (mounted && request == _request) setState(() => _loading = false);
-    }
-  }
+  Future<void> _load({bool replace = false}) =>
+      _controller.load(replace: replace);
 
   void _change(String section, int page) {
     _debounce?.cancel();
@@ -133,6 +124,8 @@ class _RidesState extends State<RidesPage>
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     _debounce?.cancel();
     _search.dispose();
     appRouteObserver.unsubscribe(this);

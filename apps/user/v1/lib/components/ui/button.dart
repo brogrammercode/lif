@@ -3,6 +3,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:user/core/color.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/components/ui/app_skeleton.dart';
+import 'package:user/components/ui/solid_ui.dart';
 
 class AppButton extends StatelessWidget {
   final String text;
@@ -28,6 +29,17 @@ class AppButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (SolidTheme.of(context)) {
+      return SizedBox(
+        width: isFullWidth ? double.infinity : null,
+        child: SolidButton(
+          text: text,
+          onPressed: onPressed,
+          icon: icon,
+          busy: isLoading,
+        ),
+      );
+    }
     if (LiquidGlassTheme.of(context)) {
       return SizedBox(
         width: isFullWidth ? double.infinity : null,

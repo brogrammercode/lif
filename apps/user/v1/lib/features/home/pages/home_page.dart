@@ -1,8 +1,13 @@
-import 'package:user/components/ui/glass_dropdown.dart';
+import 'package:user/core/state/data_source_scope.dart';
+import 'package:user/features/demos/widgets/demo_launcher.dart';
+import 'package:user/features/home/controllers/home_controller.dart';
+import 'package:user/components/ui/solid_ui.dart';
+import 'package:user/features/rides/pages/vehicle_selection_page.dart';
+import 'package:user/features/rides/widgets/rider_flow_components.dart';
+import 'package:user/features/saved_places/widgets/place_components.dart';
 import 'package:user/components/ui/app_skeleton.dart';
 import 'package:user/components/ui/liquid_glass.dart';
-import 'package:user/core/color.dart';
-import 'package:user/features/rides/widgets/booking_review_sheet.dart';
+
 import 'package:user/features/rides/ride_display.dart';
 import 'package:user/core/route_observer.dart';
 import 'dart:ui';
@@ -15,39 +20,56 @@ import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:user/features/home/constants/home.constant.dart';
-import '../../../core/network/dio_client.dart';
 import 'package:user/core/routes.dart';
-import 'package:user/features/user_app/user_app.repo.dart';
 import 'package:user/core/network/api_result.dart';
-import 'package:user/features/user_app/user_app.constant.dart';
+
 import 'package:user/components/ui/app_logo.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  final bool showDemoLauncher;
+  final Widget Function(Widget)? mapBuilder;
+  final bool locationSelection, editPickup;
+  final Map<String, dynamic>? endpoints;
+  const HomePage({
+    super.key,
+    this.showDemoLauncher = true,
+    this.mapBuilder,
+    this.locationSelection = false,
+    this.editPickup = false,
+    this.endpoints,
+  });
 
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
-enum SearchField { none, from, to }
-
 class _HomePageState extends State<HomePage>
     with WidgetsBindingObserver, RouteAware {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  LatLng _fromLocation = HomeConstants.DEFAULT_LOCATION;
-  bool _hasPickupLocation = false;
-  bool _pickupChosenManually = false;
+  LatLng get _fromLocation => _controller.fromLocation;
+  set _fromLocation(LatLng value) => _controller.fromLocation = value;
+  bool get _hasPickupLocation => _controller.hasPickupLocation;
+  set _hasPickupLocation(bool value) => _controller.hasPickupLocation = value;
+  bool get _pickupChosenManually => _controller.pickupChosenManually;
+  set _pickupChosenManually(bool value) =>
+      _controller.pickupChosenManually = value;
   bool _rebookRestored = false;
   ModalRoute<dynamic>? _homeRoute;
   Timer? _travelTimer;
-  Map<String, dynamic>? _activeRide;
-  bool _resumeDriver = false, _checkingTravel = false;
+  Map<String, dynamic>? get _activeRide => _controller.activeRide;
+  bool _checkingTravel = false;
+  bool get _resumeDriver => _controller.resumeDriver;
   Completer<void>? _travelDone;
-  LatLng? _currentDeviceLocation;
-  LatLng? _toLocation;
+  LatLng? get _currentDeviceLocation => _controller.currentDeviceLocation;
+  set _currentDeviceLocation(LatLng? value) =>
+      _controller.currentDeviceLocation = value;
+  LatLng? get _toLocation => _controller.toLocation;
+  set _toLocation(LatLng? value) => _controller.toLocation = value;
 
-  bool _isLoading = true;
-  bool _isRefreshing = false;
+  bool get _isLoading => _controller.isLoading;
+  set _isLoading(bool value) => _controller.isLoading = value;
+  bool get _isRefreshing => _controller.isRefreshing;
+  set _isRefreshing(bool value) => _controller.isRefreshing = value;
   bool _waitingForLocationSettingsReturn = false;
   bool _mapMounted = true;
   MapLibreMapController? _mapController;
@@ -58,47 +80,77 @@ class _HomePageState extends State<HomePage>
   CameraPosition? _lastMapCameraPosition;
 
   // Search State
-  SearchField _activeField = SearchField.none;
-  SearchField? _mapPickField;
+  SearchField get _activeField => _controller.activeField;
+  set _activeField(SearchField value) => _controller.activeField = value;
+  SearchField? get _mapPickField => _controller.mapPickField;
+  set _mapPickField(SearchField? value) => _controller.mapPickField = value;
   final TextEditingController _fromController = TextEditingController();
   final TextEditingController _toController = TextEditingController();
   final FocusNode _fromFocus = FocusNode();
   final FocusNode _toFocus = FocusNode();
+  List<LatLng> get _routePoints => _controller.routePoints;
+  set _routePoints(List<LatLng> value) => _controller.routePoints = value;
+  double? get _routeDistance => _controller.routeDistance;
+  set _routeDistance(double? value) => _controller.routeDistance = value;
+  double? get _routeDuration => _controller.routeDuration;
+  set _routeDuration(double? value) => _controller.routeDuration = value;
+  String? get _routeError => _controller.routeError;
+  set _routeError(String? value) => _controller.routeError = value;
 
-  bool _hasExpandedSearch = false;
-  List<LatLng> _routePoints = [];
-  double? _routeDistance;
-  double? _routeDuration;
-  String? _routeError;
-
-  String _bookingMethod = 'CASH';
-  bool _isSelectingVehicle = false;
-  int? _selectedVehicleIndex = 0;
-  bool _isSearchingDriver = false;
+  final bool _isSearchingDriver = false;
+  List<Map<String, dynamic>> get _communityPlaces =>
+      _controller.communityPlaces;
   bool _isProgrammaticTextChange = false;
-  final UserAppRepository _userRepository = UserAppRepository();
-  String? _profileAvatarUrl;
-  String? _quoteDraftId;
-  List<Map<String, dynamic>> _rideQuotes = [];
-  bool _isRequestingQuote = false;
-  List<Map<String, dynamic>> _savedPlaces = [];
+  late RouteObserver<ModalRoute<dynamic>> _routeObserver;
+  late HomeController _controller;
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  String? get _profileAvatarUrl => _controller.profileAvatarUrl;
+
+  bool get _isRequestingQuote => _controller.isRequestingQuote;
+  set _isRequestingQuote(bool value) => _controller.isRequestingQuote = value;
+  List<Map<String, dynamic>> get _savedPlaces => _controller.savedPlaces;
 
   Timer? _debounce;
   Timer? _mapDataSyncTimer;
   Timer? _routeSettleTimer;
-  List<dynamic> _suggestions = [];
-  List<dynamic>? _pendingSuggestions;
-  String? _pendingSuggestionQuery;
-  SearchField? _pendingSuggestionField;
-  int _searchGeneration = 0;
-  int _routeRequestGeneration = 0;
-  bool _isFetchingSuggestions = false;
-  bool _isMapDragging = false;
-  bool _isFetchingRoute = false;
+  List<dynamic> get _suggestions => _controller.suggestions;
+  set _suggestions(List<dynamic> value) => _controller.suggestions = value;
+  List<dynamic>? get _pendingSuggestions => _controller.pendingSuggestions;
+  set _pendingSuggestions(List<dynamic>? value) =>
+      _controller.pendingSuggestions = value;
+  String? get _pendingSuggestionQuery => _controller.pendingSuggestionQuery;
+  set _pendingSuggestionQuery(String? value) =>
+      _controller.pendingSuggestionQuery = value;
+  SearchField? get _pendingSuggestionField =>
+      _controller.pendingSuggestionField;
+  set _pendingSuggestionField(SearchField? value) =>
+      _controller.pendingSuggestionField = value;
+  int get _searchGeneration => _controller.searchGeneration;
+  set _searchGeneration(int value) => _controller.searchGeneration = value;
+  int get _routeRequestGeneration => _controller.routeRequestGeneration;
+  set _routeRequestGeneration(int value) =>
+      _controller.routeRequestGeneration = value;
+  bool get _isFetchingSuggestions => _controller.isFetchingSuggestions;
+  set _isFetchingSuggestions(bool value) =>
+      _controller.isFetchingSuggestions = value;
+  bool get _isMapDragging => _controller.isMapDragging;
+  set _isMapDragging(bool value) => _controller.isMapDragging = value;
+  bool get _isFetchingRoute => _controller.isFetchingRoute;
+  set _isFetchingRoute(bool value) => _controller.isFetchingRoute = value;
 
   @override
   void initState() {
     super.initState();
+    _routeObserver = RideRouteObserverScope.of(context);
+    final source = DataSourceScope.read(context);
+    _controller = HomeController(
+      client: source?.client,
+      simulated: source?.isDemo ?? false,
+      initialEndpoints: source?.initialEndpoints,
+    )..addListener(_controllerChanged);
     WidgetsBinding.instance.addObserver(this);
     _initializeLocation();
     unawaited(_loadSavedPlaces());
@@ -110,6 +162,25 @@ class _HomePageState extends State<HomePage>
         unawaited(_checkTravel());
       }
     });
+    if (widget.locationSelection) {
+      final from = rideMap(widget.endpoints?['pickup']),
+          to = rideMap(widget.endpoints?['dropoff']);
+      final p = ridePoint(from['latitude'], from['longitude']);
+      if (p != null) {
+        _fromLocation = p;
+        _hasPickupLocation = true;
+        _pickupChosenManually = true;
+      }
+      _toLocation = ridePoint(to['latitude'], to['longitude']);
+      _fromController.text = '${from['address'] ?? ''}';
+      _toController.text = '${to['address'] ?? ''}';
+      _activeField = widget.editPickup ? SearchField.from : SearchField.to;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) (widget.editPickup ? _fromFocus : _toFocus).requestFocus();
+      });
+    }
+    _controller.pickupAddress = _fromController.text;
+    _controller.dropoffAddress = _toController.text;
     _fromController.addListener(_onSearchChanged);
     _toController.addListener(_onSearchChanged);
   }
@@ -119,9 +190,9 @@ class _HomePageState extends State<HomePage>
     super.didChangeDependencies();
     final route = ModalRoute.of(context);
     if (route != _homeRoute) {
-      appRouteObserver.unsubscribe(this);
+      _routeObserver.unsubscribe(this);
       _homeRoute = route;
-      if (route != null) appRouteObserver.subscribe(this, route);
+      if (route != null) _routeObserver.subscribe(this, route);
     }
     if (_rebookRestored) return;
     _rebookRestored = true;
@@ -138,7 +209,6 @@ class _HomePageState extends State<HomePage>
     _toLocation = dropoff;
     _hasPickupLocation = true;
     _pickupChosenManually = true;
-    _hasExpandedSearch = true;
     _setSearchText(_fromController, '${trip['pickup_address']}');
     _setSearchText(_toController, '${trip['dropoff_address']}');
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -148,8 +218,10 @@ class _HomePageState extends State<HomePage>
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     _travelTimer?.cancel();
-    appRouteObserver.unsubscribe(this);
+    _routeObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     _fromController.dispose();
     _toController.dispose();
@@ -211,15 +283,7 @@ class _HomePageState extends State<HomePage>
     _checkingTravel = true;
     final done = _travelDone = Completer<void>();
     try {
-      final data = await _userRepository.travelContext();
-      if (mounted) {
-        setState(() {
-          _resumeDriver = data['active_driver_ride'] is Map;
-          final ride =
-              data[_resumeDriver ? 'active_driver_ride' : 'active_rider_ride'];
-          _activeRide = ride is Map ? Map<String, dynamic>.from(ride) : null;
-        });
-      }
+      await _controller.checkTravel();
     } catch (_) {
       /* Keep the last confirmed active trip available for recovery. */
     } finally {
@@ -251,30 +315,21 @@ class _HomePageState extends State<HomePage>
 
   Future<void> _loadSavedPlaces() async {
     try {
-      final places = await _userRepository.savedPlaces();
-      if (!mounted) return;
-      setState(() => _savedPlaces = places);
-      _scheduleMapDataSync();
-    } catch (_) {
-      // The home map remains usable if saved-place loading is unavailable.
-    }
+      await _controller.loadPlaces();
+      if (mounted) _scheduleMapDataSync();
+    } catch (_) {}
   }
 
   Future<void> _loadProfileAvatar() async {
     try {
-      final profile = await _userRepository.profile();
-      final avatarUrl = '${profile['avatar_url'] ?? ''}'.trim();
-      if (!mounted) return;
-      setState(() => _profileAvatarUrl = avatarUrl.isEmpty ? null : avatarUrl);
-    } catch (_) {
-      // Keep the account icon visible when the profile cannot be loaded.
-    }
+      await _controller.loadProfile();
+    } catch (_) {}
   }
 
   Future<void> _initializeLocation() async {
     Map<String, double>? cachedLocation;
     try {
-      cachedLocation = await DioClient().readCachedUserLocation();
+      cachedLocation = await _controller.cachedLocation();
     } catch (_) {}
 
     if (!mounted) return;
@@ -309,78 +364,58 @@ class _HomePageState extends State<HomePage>
     bool requestPermissionIfDenied = true,
     bool showSettingsDialog = true,
   }) async {
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied && requestPermissionIfDenied) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      if (mounted) setState(() => _isLoading = false);
-      if (permission == LocationPermission.deniedForever &&
-          showSettingsDialog) {
+    final result = await _controller.locate(
+      askPermission: requestPermissionIfDenied,
+    );
+    if (!mounted) return false;
+    if (result.status != 'ready' || result.point == null) {
+      setState(() => _isLoading = false);
+      if (showSettingsDialog && result.status == 'deniedForever') {
         await _showLocationSettingsDialog(
           title: 'Location permission is off',
           message:
-              'Allow location access in app settings, then return to the app to retry.',
+              'Allow location access in app settings, then return to retry.',
           openSettings: Geolocator.openAppSettings,
           buttonText: 'Open app settings',
         );
       }
-      return false;
-    }
-
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      if (mounted) setState(() => _isLoading = false);
-      if (showSettingsDialog) {
+      if (showSettingsDialog && result.status == 'serviceOff') {
         await _showLocationSettingsDialog(
           title: 'Turn on location services',
-          message:
-              'Location access is allowed for this app, but device location services are off.',
+          message: 'Device location services are off.',
           openSettings: Geolocator.openLocationSettings,
           buttonText: 'Open location settings',
         );
       }
       return false;
     }
-
-    try {
-      Position position = await Geolocator.getCurrentPosition();
-      if (mounted) {
-        final location = LatLng(position.latitude, position.longitude);
-        setState(() {
-          if (!_pickupChosenManually) {
-            _invalidateRouteChoice();
-            _fromLocation = location;
-            _hasPickupLocation = true;
-            _setSearchText(
-              _fromController,
-              '${location.latitude.toStringAsFixed(5)}, ${location.longitude.toStringAsFixed(5)}',
-            );
-          }
-          _currentDeviceLocation = location;
-          _isLoading = false;
-        });
-        _scheduleMapDataSync();
-        unawaited(_syncUserLocationPuck());
-        unawaited(_saveLastKnownLocation(location));
-        double heading = position.heading > 0 ? position.heading : 0;
-        if (!_pickupChosenManually) {
-          if (_activeField == SearchField.none &&
-              _mapPickField == null &&
-              !_isMapDragging) {
-            _animatedMapMove(location, HomeConstants.DEFAULT_ZOOM, heading);
-          }
-          _reverseGeocode(location, overrideField: SearchField.from);
-          if (_toLocation != null) unawaited(_fetchRoute());
-        }
-        return true;
+    final location = result.point!;
+    setState(() {
+      if (!_pickupChosenManually) {
+        _invalidateRouteChoice();
+        _fromLocation = location;
+        _hasPickupLocation = true;
+        _setSearchText(
+          _fromController,
+          '${location.latitude.toStringAsFixed(5)}, ${location.longitude.toStringAsFixed(5)}',
+        );
       }
-    } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
+      _currentDeviceLocation = location;
+      _isLoading = false;
+    });
+    _scheduleMapDataSync();
+    unawaited(_syncUserLocationPuck());
+    unawaited(_saveLastKnownLocation(location));
+    if (!_pickupChosenManually) {
+      if (_activeField == SearchField.none &&
+          _mapPickField == null &&
+          !_isMapDragging) {
+        _animatedMapMove(location, HomeConstants.DEFAULT_ZOOM, result.heading);
+      }
+      unawaited(_reverseGeocode(location, overrideField: SearchField.from));
+      if (_toLocation != null) unawaited(_fetchRoute());
     }
-    return false;
+    return true;
   }
 
   Future<void> _showLocationSettingsDialog({
@@ -414,53 +449,21 @@ class _HomePageState extends State<HomePage>
     }
   }
 
-  Future<void> _saveLastKnownLocation(LatLng location) async {
-    try {
-      await DioClient().saveCachedUserLocation(
-        latitude: location.latitude,
-        longitude: location.longitude,
-      );
-    } catch (_) {}
-
-    try {
-      await _userRepository.updateLastKnownLocation(
-        latitude: location.latitude,
-        longitude: location.longitude,
-      );
-    } catch (_) {}
-  }
-
+  Future<void> _saveLastKnownLocation(LatLng point) =>
+      _controller.saveLocation(point);
   Future<void> _refreshLocation() async {
     if (_isRefreshing) return;
-    setState(() => _isRefreshing = true);
+    setState(() {
+      _isRefreshing = true;
+      _pickupChosenManually = false;
+    });
     try {
-      Position position = await Geolocator.getCurrentPosition();
-      if (!mounted) return;
-      final newLocation = LatLng(position.latitude, position.longitude);
-      setState(() {
-        _invalidateRouteChoice();
-        _fromLocation = newLocation;
-        _hasPickupLocation = true;
-        _pickupChosenManually = false;
-        _setSearchText(
-          _fromController,
-          '${newLocation.latitude.toStringAsFixed(5)}, ${newLocation.longitude.toStringAsFixed(5)}',
-        );
-        _currentDeviceLocation = newLocation;
-      });
-      _scheduleMapDataSync();
-      unawaited(_syncUserLocationPuck());
-      unawaited(_saveLastKnownLocation(newLocation));
-      // Reset rotation to default (0.0) alongside default zoom
-      _animatedMapMove(newLocation, HomeConstants.DEFAULT_ZOOM, 0.0);
-      _reverseGeocode(newLocation, overrideField: SearchField.from);
-      if (_toLocation != null) unawaited(_fetchRoute());
-    } catch (e) {
-      // ignore
+      await _determinePosition(
+        requestPermissionIfDenied: false,
+        showSettingsDialog: false,
+      );
     } finally {
-      if (mounted) {
-        setState(() => _isRefreshing = false);
-      }
+      if (mounted) setState(() => _isRefreshing = false);
     }
   }
 
@@ -468,6 +471,11 @@ class _HomePageState extends State<HomePage>
     final previous = _isProgrammaticTextChange;
     _isProgrammaticTextChange = true;
     controller.text = text;
+    if (identical(controller, _fromController)) {
+      _controller.pickupAddress = text;
+    } else {
+      _controller.dropoffAddress = text;
+    }
     _isProgrammaticTextChange = previous;
   }
 
@@ -480,12 +488,11 @@ class _HomePageState extends State<HomePage>
     _routeDuration = null;
     _routeError = null;
     _isFetchingRoute = false;
-    _isSelectingVehicle = false;
-    _quoteDraftId = null;
-    _rideQuotes = [];
   }
 
   void _onSearchChanged() {
+    _controller.pickupAddress = _fromController.text;
+    _controller.dropoffAddress = _toController.text;
     if (_isProgrammaticTextChange) return;
     if (_activeField == SearchField.none) return;
     final field = _activeField;
@@ -529,18 +536,14 @@ class _HomePageState extends State<HomePage>
     if (generation != _searchGeneration || _activeField != field) return;
     if (mounted) setState(() => _isFetchingSuggestions = true);
     try {
-      final response = await DioClient().getData(
-        '/geocode/search',
-        queryParameters: {'q': query},
-      );
-      final data = ApiResult.unwrap(response);
+      final data = await _controller.search(query);
       if (!mounted ||
           generation != _searchGeneration ||
           _activeField != field ||
           _searchControllerFor(field).text.trim() != query) {
         return;
       }
-      if (data is List) _holdOrShowSuggestions(data, query, field);
+      _holdOrShowSuggestions(data, query, field);
     } catch (e) {
       if (mounted && generation == _searchGeneration) {
         setState(() => _isFetchingSuggestions = false);
@@ -555,7 +558,7 @@ class _HomePageState extends State<HomePage>
   ) {
     final keyboardIsVisible = WidgetsBinding.instance.platformDispatcher.views
         .any((view) => view.viewInsets.bottom > 0);
-    if (keyboardIsVisible) {
+    if (keyboardIsVisible && !widget.locationSelection) {
       _pendingSuggestions = suggestions;
       _pendingSuggestionQuery = query;
       _pendingSuggestionField = field;
@@ -602,15 +605,8 @@ class _HomePageState extends State<HomePage>
     if (targetField == SearchField.none) return;
 
     try {
-      final response = await DioClient().getData(
-        '/geocode/reverse',
-        queryParameters: {
-          'latitude': location.latitude,
-          'longitude': location.longitude,
-        },
-      );
-      final data = ApiResult.unwrap(response);
-      if (data is Map && mounted) {
+      final data = await _controller.reverse(location);
+      if (mounted) {
         final current = targetField == SearchField.from
             ? _fromLocation
             : _toLocation;
@@ -649,12 +645,7 @@ class _HomePageState extends State<HomePage>
       });
     }
     try {
-      final route = await _userRepository.drivingRoute(
-        fromLatitude: _fromLocation.latitude,
-        fromLongitude: _fromLocation.longitude,
-        toLatitude: _toLocation!.latitude,
-        toLongitude: _toLocation!.longitude,
-      );
+      final route = await _controller.route();
       final geometry = route['geometry'] as List? ?? const [];
       if (geometry.length < 2) throw StateError('Route geometry is empty.');
       final distance = (route['distance_m'] as num?)?.toDouble();
@@ -699,57 +690,74 @@ class _HomePageState extends State<HomePage>
     }
   }
 
+  Map<String, dynamic> get _endpoints => _controller.endpoints;
+  Future<void> _chooseLocations({bool pickup = false}) async {
+    final result = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => HomePage(
+          mapBuilder: widget.mapBuilder,
+          locationSelection: true,
+          endpoints: _endpoints,
+          editPickup: pickup,
+        ),
+      ),
+    );
+    if (!mounted || result == null) return;
+    final from = rideMap(result['pickup']), to = rideMap(result['dropoff']);
+    setState(() {
+      _fromLocation = ridePoint(from['latitude'], from['longitude'])!;
+      _toLocation = ridePoint(to['latitude'], to['longitude'])!;
+      _hasPickupLocation = true;
+      _pickupChosenManually = true;
+      _setSearchText(_fromController, '${from['address']}');
+      _setSearchText(_toController, '${to['address']}');
+      _activeField = SearchField.none;
+      _mapPickField = null;
+    });
+    await _fetchRoute();
+    if (mounted && _routeError == null) await _loadRideQuotes();
+  }
+
   Future<void> _loadRideQuotes() async {
-    if (_isRequestingQuote) return;
-    if (_isMapDragging ||
+    if (_isRequestingQuote ||
+        _isMapDragging ||
         !_hasPickupLocation ||
-        _toLocation == null ||
-        _fromController.text.trim().isEmpty ||
-        _toController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Choose a pickup and destination from search or on the map.',
+        _toLocation == null) {
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    if (widget.locationSelection) {
+      Navigator.pop(context, _endpoints);
+      return;
+    }
+    setState(() => _isRequestingQuote = true);
+    try {
+      await _checkTravel();
+      if (!mounted) return;
+      if (_activeRide != null) {
+        _resumeActive();
+        return;
+      }
+      final input = _endpoints;
+      final generation = _routeRequestGeneration;
+      final quote = await _controller.quote();
+      if (!mounted || generation != _routeRequestGeneration) return;
+      if ((quote['quotes'] as List? ?? []).isEmpty) {
+        throw StateError('No ride options are configured for this route.');
+      }
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => VehicleSelectionPage(
+            mapBuilder: widget.mapBuilder,
+            input: input,
+            initialQuote: quote,
+            points: List.of(_routePoints),
+            repository: _controller.repository,
           ),
         ),
       );
-      return;
-    }
-    final generation = _routeRequestGeneration;
-    setState(() => _isRequestingQuote = true);
-    try {
-      final quote = await _userRepository.requestQuote({
-        'pickup': {
-          'address': _fromController.text.trim(),
-          'latitude': _fromLocation.latitude,
-          'longitude': _fromLocation.longitude,
-        },
-        'dropoff': {
-          'address': _toController.text.trim(),
-          'latitude': _toLocation!.latitude,
-          'longitude': _toLocation!.longitude,
-        },
-      });
-      if (!mounted || generation != _routeRequestGeneration) return;
-      final quoteItems = List<Map<String, dynamic>>.from(
-        (quote['quotes'] as List? ?? []).map(
-          (item) => Map<String, dynamic>.from(item as Map),
-        ),
-      );
-      if (quoteItems.isEmpty) throw StateError(UserAppCopy.QUOTE_FAILED);
-      setState(() {
-        _quoteDraftId = '${quote['id']}';
-        _rideQuotes = quoteItems;
-        _selectedVehicleIndex = 0;
-        _routeError = null;
-        _routeDistance = (quoteItems.first['distance_m'] as num?)?.toDouble();
-        _routeDuration = (quoteItems.first['duration_s'] as num?)?.toDouble();
-        final policy =
-            (quoteItems.first['category_snapshot'] as Map?)?['payment_policy']
-                as Map?;
-        _bookingMethod = policy?['cash_enabled'] == false ? 'UPI' : 'CASH';
-        _isSelectingVehicle = true;
-      });
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -758,67 +766,6 @@ class _HomePageState extends State<HomePage>
       }
     } finally {
       if (mounted) setState(() => _isRequestingQuote = false);
-    }
-  }
-
-  Future<void> _bookSelectedRide() async {
-    if (_isRequestingQuote) return;
-    setState(() => _isRequestingQuote = true);
-    await _checkTravel();
-    if (!mounted) return;
-    if (_activeRide != null) {
-      setState(() => _isRequestingQuote = false);
-      _resumeActive();
-      return;
-    }
-    final selected = _selectedVehicleIndex;
-    if (_quoteDraftId == null ||
-        selected == null ||
-        selected >= _rideQuotes.length) {
-      setState(() => _isRequestingQuote = false);
-      return;
-    }
-    setState(() => _isRequestingQuote = true);
-    BookingReviewResult? result;
-    try {
-      result = await showModalBottomSheet<BookingReviewResult>(
-        context: context,
-        isScrollControlled: true,
-        isDismissible: false,
-        enableDrag: false,
-        useSafeArea: true,
-        backgroundColor: Colors.transparent,
-        barrierColor: Colors.black.withValues(alpha: .18),
-        builder: (_) => BookingReviewSheet(
-          draftId: _quoteDraftId!,
-          pickup: _fromController.text.trim(),
-          dropoff: _toController.text.trim(),
-          method: _bookingMethod,
-          quote: _rideQuotes[selected],
-          repository: _userRepository,
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _isRequestingQuote = false);
-    }
-    if (!mounted) return;
-    if (result == null) {
-      setState(
-        () => _isSelectingVehicle =
-            _quoteDraftId != null && _rideQuotes.isNotEmpty,
-      );
-      return;
-    }
-    if (result.refresh) {
-      await _loadRideQuotes();
-      return;
-    }
-    if (result.rideId != null) {
-      Navigator.pushNamed(
-        context,
-        AppRoutes.rideDetail,
-        arguments: result.rideId,
-      );
     }
   }
 
@@ -912,7 +859,6 @@ class _HomePageState extends State<HomePage>
         _pickupChosenManually = true;
         _fromFocus.unfocus();
       } else if (_activeField == SearchField.to) {
-        _hasExpandedSearch = true;
         _setSearchText(_toController, shortName);
         _toLocation = newLoc;
         _toFocus.unfocus();
@@ -981,7 +927,7 @@ class _HomePageState extends State<HomePage>
         'home-route',
         'home-route-line',
         LineLayerProperties(
-          lineColor: '#2563EB',
+          lineColor: '#4258ED',
           lineWidth: 5.r,
           lineCap: 'round',
           lineJoin: 'round',
@@ -1253,41 +1199,46 @@ class _HomePageState extends State<HomePage>
         statusBarIconBrightness: Brightness.dark,
         statusBarBrightness: Brightness.light,
       ),
-      child: LiquidGlassScope(
+      child: SolidScope(
         child: Scaffold(
+          resizeToAvoidBottomInset: false,
           key: _scaffoldKey,
-          backgroundColor: GlassTokens.canvas,
+          backgroundColor: RideTokens.canvas,
           body: Stack(
             children: [
               // Layer 0: tilted vector map with 3D buildings.
               if (_mapMounted)
-                MapLibreMap(
-                  initialCameraPosition: CameraPosition(
-                    target:
-                        _lastMapCameraPosition?.target ??
-                        _pendingMapCenter ??
-                        _fromLocation,
-                    zoom:
-                        _lastMapCameraPosition?.zoom ??
-                        HomeConstants.DEFAULT_ZOOM,
-                    bearing: _lastMapCameraPosition?.bearing ?? 0,
-                    tilt:
-                        _lastMapCameraPosition?.tilt ?? HomeConstants.MAP_TILT,
+                (widget.mapBuilder ?? (map) => map)(
+                  MapLibreMap(
+                    initialCameraPosition: CameraPosition(
+                      target:
+                          _lastMapCameraPosition?.target ??
+                          _pendingMapCenter ??
+                          _fromLocation,
+                      zoom:
+                          _lastMapCameraPosition?.zoom ??
+                          HomeConstants.DEFAULT_ZOOM,
+                      bearing: _lastMapCameraPosition?.bearing ?? 0,
+                      tilt:
+                          _lastMapCameraPosition?.tilt ??
+                          HomeConstants.MAP_TILT,
+                    ),
+                    styleString: HomeConstants.MAP_STYLE_URL,
+                    locationSource: const ManualLocationSource(),
+                    myLocationEnabled: true,
+                    myLocationRenderMode: MyLocationRenderMode.normal,
+                    onMapCreated: _onMapCreated,
+                    onStyleLoadedCallback: _onMapStyleLoaded,
+                    onCameraMove: _onMapCameraMove,
+                    trackCameraPosition: true,
+                    tiltGesturesEnabled: true,
+                    attributionButtonPosition:
+                        AttributionButtonPosition.topRight,
+                    attributionButtonMargins: math.Point<double>(12.r, 132.r),
                   ),
-                  styleString: HomeConstants.MAP_STYLE_URL,
-                  locationSource: const ManualLocationSource(),
-                  myLocationEnabled: true,
-                  myLocationRenderMode: MyLocationRenderMode.normal,
-                  onMapCreated: _onMapCreated,
-                  onStyleLoadedCallback: _onMapStyleLoaded,
-                  onCameraMove: _onMapCameraMove,
-                  trackCameraPosition: true,
-                  tiltGesturesEnabled: true,
-                  attributionButtonPosition: AttributionButtonPosition.topRight,
-                  attributionButtonMargins: math.Point<double>(12.r, 132.r),
                 )
               else
-                const ColoredBox(color: Color(0xFFE5ECFB)),
+                const ColoredBox(color: Colors.white),
 
               if (_mapPickField != null &&
                   (_isMapDragging || _activeField != SearchField.none))
@@ -1311,12 +1262,22 @@ class _HomePageState extends State<HomePage>
 
               // Layer 1: Top Action Buttons
               _buildLayer1(context),
+              if (widget.showDemoLauncher &&
+                  !widget.locationSelection &&
+                  !(DataSourceScope.read(context)?.isDemo ?? false))
+                Positioned(
+                  top:
+                      MediaQuery.paddingOf(context).top +
+                      (_activeRide == null ? 80 : 145),
+                  left: 20,
+                  child: DemoLauncher(mapBuilder: widget.mapBuilder),
+                ),
               if (_activeRide != null)
                 Positioned(
                   top: MediaQuery.paddingOf(context).top + 80.r,
                   left: 20.r,
                   right: 80.r,
-                  child: LiquidGlassButton(
+                  child: SolidButton(
                     onPressed: _resumeActive,
                     icon: const Icon(Icons.directions_car_outlined),
                     text: 'Resume your active trip',
@@ -1330,7 +1291,7 @@ class _HomePageState extends State<HomePage>
                   right: 20.r,
                   child: GestureDetector(
                     onTap: _refreshLocation,
-                    child: _buildGlassButton(
+                    child: _buildMapControl(
                       child: _isRefreshing
                           ? const AppSkeleton(
                               label: 'Refreshing location',
@@ -1361,19 +1322,7 @@ class _HomePageState extends State<HomePage>
                     curve: Curves.easeInOut,
                     opacity: (_isLoading || _isSearchingDriver) ? 1.0 : 0.0,
                     child: Container(
-                      decoration: BoxDecoration(
-                        gradient: RadialGradient(
-                          center: Alignment.center,
-                          radius:
-                              0.75, // Smaller radius means white starts earlier
-                          colors: [
-                            Colors.white.withValues(alpha: 0.0),
-                            Colors.white.withValues(alpha: 0.6),
-                            Colors.white,
-                          ],
-                          stops: const [0.0, 0.4, 1.0],
-                        ),
-                      ),
+                      decoration: const BoxDecoration(color: Colors.white),
                     ),
                   ),
                 ),
@@ -1415,7 +1364,7 @@ class _HomePageState extends State<HomePage>
               await Navigator.pushNamed(context, AppRoutes.settings);
               if (mounted) await _loadProfileAvatar();
             },
-            child: _buildGlassButton(
+            child: _buildMapControl(
               child: _profileAvatarUrl == null
                   ? Icon(
                       Icons.person_outline,
@@ -1441,7 +1390,7 @@ class _HomePageState extends State<HomePage>
           AppLogo(width: 112.r, height: 44.r),
           GestureDetector(
             onTap: () => Navigator.pushNamed(context, AppRoutes.notifications),
-            child: _buildGlassButton(
+            child: _buildMapControl(
               child: Icon(
                 Iconsax.notification,
                 color: Colors.black87,
@@ -1454,11 +1403,11 @@ class _HomePageState extends State<HomePage>
     );
   }
 
-  Widget _buildGlassButton({required Widget child}) {
+  Widget _buildMapControl({required Widget child}) {
     return SizedBox(
       width: 50.r,
       height: 50.r,
-      child: LiquidGlassSurface(
+      child: SolidSurface(
         radius: 99,
         padding: EdgeInsets.zero,
         child: Center(child: child),
@@ -1542,594 +1491,264 @@ class _HomePageState extends State<HomePage>
   }
 
   Widget _buildLayer2(BuildContext context) {
-    final isSearching = _activeField != SearchField.none;
-    final showBothFields = _hasExpandedSearch;
-
-    String titleText = HomeConstants.TEXT_GOOD_TIME;
-    if (_isFetchingRoute && !isSearching) {
-      titleText = 'Finding route…';
-    } else if (_routeDistance != null && !isSearching) {
-      titleText = "${(_routeDistance! / 1000).toStringAsFixed(1)} km";
-    }
-
-    final vehicles = _rideQuotes.map((quote) {
-      final kind = '${quote['vehicle_type'] ?? 'BIKE'}';
-      final vehicleName = kind[0] + kind.substring(1).toLowerCase();
-      final snapshot = quote['category_snapshot'];
-      final category = snapshot is Map ? snapshot : const <String, dynamic>{};
-      final configuredImage = '${category['image_url'] ?? ''}'.trim();
-      return <String, dynamic>{
-        'quote_id': quote['id'],
-        'name': '${category['name'] ?? vehicleName}',
-        'capacity': (category['capacity'] as num?)?.toInt() ?? 1,
-        'family': kind,
-        'time': '${((quote['duration_s'] as num? ?? 0) / 60).ceil()} min',
-        'price': num.tryParse('${quote['total_fare']}')?.toDouble() ?? 0,
-        'image': configuredImage.isNotEmpty
-            ? configuredImage
-            : HomeConstants.VEHICLE_IMAGE_URLS[kind] ??
-                  HomeConstants.VEHICLE_IMAGE_URLS['BIKE'],
-      };
-    }).toList();
-    final hasSelectedRoute =
-        _hasPickupLocation && _toLocation != null && !isSearching;
-    final showRouteClock = hasSelectedRoute && !_isSelectingVehicle;
-
+    final valid =
+        _hasPickupLocation &&
+        _toLocation != null &&
+        !_isMapDragging &&
+        !_isFetchingRoute &&
+        _fromController.text.trim().isNotEmpty &&
+        _toController.text.trim().isNotEmpty;
     return Positioned(
+      left: 16,
+      right: 16,
       bottom:
           math.max(
             MediaQuery.paddingOf(context).bottom,
             MediaQuery.viewInsetsOf(context).bottom,
           ) +
-          10.r,
-      left: 16.r,
-      right: 16.r,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          LiquidGlassSurface(
-            radius: 28,
-            padding: EdgeInsets.fromLTRB(
-              24.r,
-              showRouteClock ? 44.r : 24.r,
-              24.r,
-              24.r,
-            ),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.sizeOf(context).height * .68,
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_isSelectingVehicle) ...[
-                      SizedBox(
-                        height: 220.r,
-                        child: ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: vehicles.length,
-                          separatorBuilder: (context, index) =>
-                              SizedBox(width: 12.r),
-                          itemBuilder: (context, index) {
-                            final vehicle = vehicles[index];
-                            final isSelected = _selectedVehicleIndex == index;
-
-                            final cardContent = Container(
-                              width: 140.r,
-                              padding: EdgeInsets.all(10.r),
-                              decoration: BoxDecoration(
-                                color: isSelected
-                                    ? GlassTokens.accent.withValues(alpha: .12)
-                                    : Colors.white.withValues(alpha: .20),
-                                borderRadius: BorderRadius.circular(15.r),
-                                border: isSelected
-                                    ? Border.all(
-                                        color: GlassTokens.accent.withValues(
-                                          alpha: .42,
-                                        ),
-                                        width: 2.r,
-                                      )
-                                    : Border.all(
-                                        color: Colors.white.withValues(
-                                          alpha: 0.3,
-                                        ),
-                                      ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(10.r),
-                                    child: Image.network(
-                                      vehicle['image'] as String,
-                                      height: 64.r,
-                                      width: double.infinity,
-                                      fit: BoxFit.cover,
-                                      errorBuilder:
-                                          (context, error, stackTrace) =>
-                                              SizedBox(
-                                                height: 64.r,
-                                                child: Center(
-                                                  child: Icon(
-                                                    vehicle['family'] ==
-                                                                'BIKE' ||
-                                                            vehicle['family'] ==
-                                                                'SCOOTER'
-                                                        ? Icons.two_wheeler
-                                                        : Icons.directions_car,
-                                                    size: 36.r,
-                                                    color: isSelected
-                                                        ? GlassTokens.accent
-                                                        : GlassTokens.muted,
-                                                  ),
-                                                ),
-                                              ),
-                                    ),
-                                  ),
-                                  SizedBox(height: 8.r),
-                                  Text(
-                                    vehicle['name'] as String,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: isSelected
-                                          ? GlassTokens.ink
-                                          : GlassTokens.ink,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 15.r,
-                                    ),
-                                  ),
-                                  SizedBox(height: 4.r),
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Icon(
-                                            Icons.person,
-                                            size: 11.r,
-                                            color: isSelected
-                                                ? GlassTokens.accent
-                                                : GlassTokens.muted,
-                                          ),
-                                          SizedBox(width: 4.r),
-                                          Text(
-                                            '${vehicle['capacity']}',
-                                            style: TextStyle(
-                                              color: isSelected
-                                                  ? GlassTokens.accent
-                                                  : GlassTokens.muted,
-                                              fontSize: 11.r,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      Text(
-                                        vehicle['time'] as String,
-                                        style: TextStyle(
-                                          color: isSelected
-                                              ? GlassTokens.accent
-                                              : GlassTokens.muted,
-                                          fontSize: 11.r,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const Spacer(),
-                                  Text(
-                                    '₹${(vehicle['price'] as num).toStringAsFixed(0)}',
-                                    style: TextStyle(
-                                      color: isSelected
-                                          ? GlassTokens.ink
-                                          : GlassTokens.ink,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 17.r,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-
-                            return GestureDetector(
-                              onTap: () =>
-                                  setState(() => _selectedVehicleIndex = index),
-                              child: isSelected
-                                  ? Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withValues(
-                                          alpha: .28,
-                                        ),
-                                        borderRadius: BorderRadius.circular(
-                                          15.r,
-                                        ),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black.withValues(
-                                              alpha: 0.2,
-                                            ),
-                                            blurRadius: 10.r,
-                                            offset: Offset(0, 5.r),
-                                          ),
-                                        ],
-                                      ),
-                                      clipBehavior: Clip.antiAlias,
-                                      child: Column(
-                                        children: [
-                                          Expanded(child: cardContent),
-                                          GestureDetector(
-                                            onTap: () async {
-                                              setState(() {
-                                                _isSelectingVehicle = false;
-                                                _isSearchingDriver = true;
-                                              });
-                                              await _bookSelectedRide();
-                                              if (mounted) {
-                                                setState(
-                                                  () => _isSearchingDriver =
-                                                      false,
-                                                );
-                                              }
-                                            },
-                                            child: Container(
-                                              padding: EdgeInsets.symmetric(
-                                                vertical: 12.r,
-                                              ),
-                                              width: 140.r,
-                                              color: GlassTokens.ink,
-                                              alignment: Alignment.center,
-                                              child: Text(
-                                                "Book Now",
-                                                style: TextStyle(
-                                                  color: Colors.white,
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 14.r,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    )
-                                  : Align(
-                                      alignment: Alignment.topCenter,
-                                      child: SizedBox(
-                                        height: 180.r,
-                                        child: cardContent,
-                                      ),
-                                    ),
-                            );
-                          },
-                        ),
-                      ),
-                    ],
-                    if (_isSelectingVehicle)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: LiquidGlassDropdownFormField<String>(
-                          key: ValueKey('booking-payment-$_quoteDraftId'),
-                          initialValue: _bookingMethod,
-                          decoration: const InputDecoration(
-                            labelText: 'Pay driver after ride',
-                          ),
-                          items: [
-                            if (((_rideQuotes.firstOrNull?['category_snapshot']
-                                        as Map?)?['payment_policy']
-                                    as Map?)?['cash_enabled'] !=
-                                false)
-                              const DropdownMenuItem(
-                                value: 'CASH',
-                                child: Text('Cash'),
-                              ),
-                            if (((_rideQuotes.firstOrNull?['category_snapshot']
-                                        as Map?)?['payment_policy']
-                                    as Map?)?['direct_upi_enabled'] ==
-                                true)
-                              const DropdownMenuItem(
-                                value: 'UPI',
-                                child: Text('Direct UPI'),
-                              ),
-                          ],
-                          onChanged: _isRequestingQuote
-                              ? null
-                              : (value) => setState(
-                                  () => _bookingMethod = value ?? 'CASH',
-                                ),
-                        ),
-                      ),
-                    // Persistent Title Section
-                    if (!isSearching && !_isSelectingVehicle) ...[
-                      if (hasSelectedRoute)
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    titleText,
-                                    style: TextStyle(
-                                      color: GlassTokens.ink,
-                                      fontSize: 20.r,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  SizedBox(height: 6.r),
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        Iconsax.clock,
-                                        color: GlassTokens.muted,
-                                        size: 16.r,
-                                      ),
-                                      SizedBox(width: 5.r),
-                                      Text(
-                                        HomeConstants.TEXT_NOW,
-                                        style: TextStyle(
-                                          color: GlassTokens.muted,
-                                          fontSize: 14.r,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        )
-                      else ...[
-                        Text(
-                          titleText,
-                          style: TextStyle(
-                            color: GlassTokens.ink,
-                            fontSize: 20.r,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        SizedBox(height: 2.r),
-                        Text(
-                          HomeConstants.TEXT_NOW,
-                          style: TextStyle(
-                            color: GlassTokens.muted,
-                            fontSize: 14.r,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        SizedBox(height: 24.r),
-                      ],
-                    ],
-
-                    if (showBothFields && !_isSelectingVehicle)
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _debounce?.cancel();
-                              _searchGeneration++;
-                              _pendingSuggestions = null;
-                              _pendingSuggestionQuery = null;
-                              _pendingSuggestionField = null;
-                              _mapPickField = null;
-                              _activeField = SearchField.none;
-                              _hasExpandedSearch = false;
-                              _suggestions = [];
-                              _isFetchingSuggestions = false;
-                              FocusScope.of(context).unfocus();
-                            });
-                            _scheduleMapDataSync();
-                          },
-                          child: Container(
-                            margin: EdgeInsets.only(bottom: 12.r),
-                            padding: EdgeInsets.all(8.r),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: .48),
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black12,
-                                  blurRadius: 4.r,
-                                  offset: Offset(0, 2.r),
-                                ),
-                              ],
-                            ),
-                            child: Icon(
-                              Icons.keyboard_arrow_down,
-                              size: 24.r,
-                              color: GlassTokens.ink,
-                            ),
-                          ),
-                        ),
-                      ),
-
-                    // Suggestions List (shows above text fields)
-                    if (isSearching && _suggestions.isNotEmpty)
-                      Container(
-                        constraints: BoxConstraints(maxHeight: 180.r),
-                        margin: EdgeInsets.only(bottom: 12.r),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: .50),
-                          borderRadius: BorderRadius.circular(15.r),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.1),
-                              blurRadius: 10.r,
-                              offset: Offset(0, 4.r),
-                            ),
-                          ],
-                        ),
-                        child: ListView.separated(
-                          shrinkWrap: true,
-                          padding: EdgeInsets.all(8.r),
-                          itemCount: _suggestions.length,
-                          separatorBuilder: (context, index) =>
-                              Divider(height: 1.r),
-                          itemBuilder: (context, index) {
-                            final item = _suggestions[index];
-                            return ListTile(
-                              leading: Icon(
-                                Iconsax.location,
-                                color: GlassTokens.accent,
-                              ),
-                              title: Text(
-                                item['display_name'] ?? '',
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 14.r,
-                                  fontWeight: FontWeight.w500,
-                                  color: GlassTokens.ink,
-                                ),
-                              ),
-                              onTap: () => _onSuggestionSelected(item),
-                            );
-                          },
-                        ),
-                      ),
-
-                    // Search Box Area
-                    Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(15.r),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.05),
-                            blurRadius: 10.r,
-                            offset: Offset(0, 4.r),
-                          ),
-                        ],
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Container(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: 16.r,
-                              vertical: 12.r,
-                            ),
-                            color: Colors.white.withValues(alpha: .42),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      // From Field
-                                      _buildSearchField(
-                                        label: "From",
-                                        controller: _fromController,
-                                        focusNode: _fromFocus,
-                                        field: SearchField.from,
-                                        isSearching: isSearching,
-                                        isCollapsed: !showBothFields,
-                                      ),
-
-                                      if (showBothFields) ...[
-                                        Padding(
-                                          padding: EdgeInsets.symmetric(
-                                            vertical: 4.r,
-                                          ),
-                                          child: Divider(
-                                            height: 1.r,
-                                            color: GlassTokens.accent
-                                                .withValues(alpha: .16),
-                                          ),
-                                        ),
-                                        // To Field
-                                        _buildSearchField(
-                                          label: "To",
-                                          controller: _toController,
-                                          focusNode: _toFocus,
-                                          field: SearchField.to,
-                                          isSearching: isSearching,
-                                          isCollapsed: !showBothFields,
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                                if (_isFetchingSuggestions)
-                                  const AppSkeleton(
-                                    label: 'Searching locations',
-                                    child: SkeletonBox(
-                                      width: 24,
-                                      height: 24,
-                                      circle: true,
-                                    ),
-                                  )
-                                else if (!showBothFields)
-                                  Icon(
-                                    Iconsax.search_normal,
-                                    color: GlassTokens.muted,
-                                    size: 20.r,
-                                  ),
-                              ],
-                            ),
-                          ),
-                          if (_routeError != null &&
-                              !isSearching &&
-                              !_isSelectingVehicle)
-                            TextButton(
-                              onPressed: _isFetchingRoute ? null : _fetchRoute,
-                              child: Text(
-                                _routeError!,
-                                maxLines: 3,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          if (!isSearching &&
-                              !_isSelectingVehicle &&
-                              _toLocation != null)
-                            GestureDetector(
-                              onTap: _isRequestingQuote
-                                  ? null
-                                  : _loadRideQuotes,
-                              child: Container(
-                                padding: EdgeInsets.symmetric(vertical: 8.r),
-                                color: GlassTokens.ink,
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.motorcycle,
-                                      color: Colors.white,
-                                      size: 15.r,
-                                    ),
-                                    SizedBox(width: 20.r),
-                                    Text(
-                                      _isRequestingQuote
-                                          ? 'Finding ride options…'
-                                          : UserAppCopy.SELECT_RIDE,
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 14.r,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+          12,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: math.min(
+            MediaQuery.sizeOf(context).height * .60,
+            math.max(
+              140,
+              MediaQuery.sizeOf(context).height -
+                  MediaQuery.viewInsetsOf(context).bottom -
+                  MediaQuery.paddingOf(context).top -
+                  100,
             ),
           ),
-          if (showRouteClock)
-            Positioned(top: -32.r, right: 16.r, child: _buildEtaBadge()),
-        ],
+        ),
+        child: SolidSurface(
+          padding: const EdgeInsets.all(18),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 14),
+                    decoration: BoxDecoration(
+                      color: RideTokens.muted.withValues(alpha: .3),
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                  ),
+                ),
+                if (!widget.locationSelection &&
+                    _communityPlaces.isNotEmpty) ...[
+                  SizedBox(
+                    height: 160,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _communityPlaces.length.clamp(0, 8),
+                      separatorBuilder: (_, _) => const SizedBox(width: 10),
+                      itemBuilder: (_, i) => SizedBox(
+                        width: 140,
+                        child: PlaceCard(
+                          place: _communityPlaces[i],
+                          onTap: () async {
+                            final p = _communityPlaces[i];
+                            final point = ridePoint(
+                              p['latitude'],
+                              p['longitude'],
+                            );
+                            if (point == null) return;
+                            setState(() {
+                              _toLocation = point;
+                              _setSearchText(
+                                _toController,
+                                '${p['name'] ?? p['address']}',
+                              );
+                            });
+                            await _chooseLocations();
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                ],
+                if (widget.locationSelection) ...[
+                  Row(
+                    children: [
+                      SolidIconButton(
+                        icon: Icons.arrow_back,
+                        tooltip: 'Back to map',
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: RiderFlowHeading('Choose locations'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _buildSearchField(
+                    label: 'Pickup',
+                    controller: _fromController,
+                    focusNode: _fromFocus,
+                    field: SearchField.from,
+                    isSearching: true,
+                  ),
+                  const SizedBox(height: 14),
+                  _buildSearchField(
+                    label: 'Drop-off',
+                    controller: _toController,
+                    focusNode: _toFocus,
+                    field: SearchField.to,
+                    isSearching: true,
+                  ),
+                  const SizedBox(height: 10),
+                  TextButton.icon(
+                    icon: const Icon(Icons.pin_drop_outlined),
+                    label: const Text('Pick active location on map'),
+                    onPressed: () {
+                      FocusScope.of(context).unfocus();
+                      setState(() {
+                        _mapPickField = _activeField == SearchField.none
+                            ? SearchField.to
+                            : _activeField;
+                        _activeField = _mapPickField!;
+                      });
+                    },
+                  ),
+                  if (_isFetchingSuggestions) const RideFlowSkeleton(),
+                  for (final item in _suggestions)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.location_on_outlined),
+                      title: Text('${item['display_name'] ?? ''}', maxLines: 2),
+                      onTap: () => _onSuggestionSelected(item),
+                    ),
+                  if (_suggestions.isEmpty && !_isFetchingSuggestions)
+                    for (final place in _savedPlaces.take(3))
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.bookmark_outline),
+                        title: Text('${place['label'] ?? place['address']}'),
+                        subtitle: Text(
+                          '${place['address'] ?? ''}',
+                          maxLines: 1,
+                        ),
+                        onTap: () => _onSuggestionSelected({
+                          'display_name': place['address'],
+                          'lat': '${place['latitude']}',
+                          'lon': '${place['longitude']}',
+                        }),
+                      ),
+                ] else ...[
+                  _endpointRow(
+                    'Pickup',
+                    _fromController.text,
+                    Icons.trip_origin,
+                    () => _chooseLocations(pickup: true),
+                  ),
+                  const Divider(height: 20),
+                  _endpointRow(
+                    'Drop-off',
+                    _toController.text,
+                    Icons.location_on_outlined,
+                    () => _chooseLocations(),
+                  ),
+                ],
+                if (_routeError != null)
+                  TextButton(
+                    onPressed: _isFetchingRoute ? null : _fetchRoute,
+                    child: Text(_routeError!),
+                  ),
+                if (_isFetchingRoute)
+                  const Text(
+                    'Checking route…',
+                    style: TextStyle(color: RideTokens.muted),
+                  ),
+                if (_routeDistance != null && _routeDuration != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Text(
+                      '${rideDistance(_routeDistance)} · ${rideDuration(_routeDuration)}',
+                      style: const TextStyle(color: RideTokens.muted),
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                SolidButton(
+                  text: widget.locationSelection
+                      ? 'Confirm locations'
+                      : 'Continue',
+                  busy: _isRequestingQuote,
+                  onPressed: valid && !_isRequestingQuote
+                      ? _loadRideQuotes
+                      : (!widget.locationSelection
+                            ? () => _chooseLocations()
+                            : null),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
+  }
+
+  Widget _endpointRow(
+    String label,
+    String value,
+    IconData icon,
+    VoidCallback onTap,
+  ) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(16),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(icon, color: RideTokens.accent),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(fontSize: 12, color: RideTokens.muted),
+                ),
+                Text(
+                  value.isEmpty ? 'Choose location' : value,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right),
+        ],
+      ),
+    ),
+  );
+
+  void _activateEndpoint(SearchField field) {
+    if (_activeField != field) {
+      _debounce?.cancel();
+      _searchGeneration++;
+      _pendingSuggestions = null;
+      _pendingSuggestionQuery = null;
+      _pendingSuggestionField = null;
+      setState(() {
+        _suggestions = [];
+        _isFetchingSuggestions = false;
+      });
+    }
+    setState(() {
+      _activeField = field;
+      _mapPickField = null;
+    });
   }
 
   Widget _buildSearchField({
@@ -2138,206 +1757,24 @@ class _HomePageState extends State<HomePage>
     required FocusNode focusNode,
     required SearchField field,
     required bool isSearching,
-    bool isCollapsed = false,
-  }) {
-    return GestureDetector(
-      onTap: () {
-        _routeSettleTimer?.cancel();
-        _routeRequestGeneration++;
-        setState(() {
-          if (_activeField != field) {
-            _debounce?.cancel();
-            _searchGeneration++;
-            _pendingSuggestions = null;
-            _pendingSuggestionQuery = null;
-            _pendingSuggestionField = null;
-            _suggestions = [];
-            _isFetchingSuggestions = false;
-          }
-          _activeField = field;
-          _mapPickField = field;
-          _hasExpandedSearch = true;
-          _routePoints = [];
-          _routeDistance = null;
-          _routeDuration = null;
-          _isFetchingRoute = false;
-        });
-        _scheduleMapDataSync();
-        focusNode.requestFocus();
-        if (field == SearchField.from &&
-            controller.text == HomeConstants.TEXT_HOME) {
-          controller.clear();
-        }
-        // Pan map to the corresponding location when field is focused
-        final loc = field == SearchField.from ? _fromLocation : _toLocation;
-        if (loc != null) {
-          _animatedMapMove(loc, 16.0, 0.0);
-        }
-      },
-      child: Container(
-        color: Colors.transparent, // Ensures the whole area is tappable
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    isCollapsed ? HomeConstants.TEXT_LETS_GO : label,
-                    style: TextStyle(
-                      color: GlassTokens.muted,
-                      fontSize: 10.r,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  SizedBox(height: 2.r),
-                  isSearching && !isCollapsed
-                      ? TextField(
-                          controller: controller,
-                          focusNode: focusNode,
-                          decoration: InputDecoration(
-                            border: InputBorder.none,
-                            isDense: true,
-                            contentPadding: EdgeInsets.zero,
-                            hintText: "Search location...",
-                            hintStyle: TextStyle(
-                              color: GlassTokens.muted,
-                              fontSize: 15.r,
-                            ),
-                          ),
-                          onTap: () {
-                            setState(() => _activeField = field);
-                            _scheduleMapDataSync();
-                          },
-                          onSubmitted: (_) {
-                            focusNode.unfocus();
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              _showPendingSuggestions();
-                            });
-                          },
-                          style: TextStyle(
-                            color: GlassTokens.ink,
-                            fontSize: 15.r,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        )
-                      : Text(
-                          controller.text.isEmpty
-                              ? 'Select location'
-                              : controller.text,
-                          style: TextStyle(
-                            color: GlassTokens.ink,
-                            fontSize: 15.r,
-                            fontWeight: FontWeight.w800,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                ],
-              ),
-            ),
-            if (!isCollapsed &&
-                !isSearching &&
-                controller.text.isNotEmpty &&
-                controller.text != HomeConstants.TEXT_HOME)
-              Padding(
-                padding: EdgeInsets.only(left: 12.r),
-                child: Icon(
-                  Iconsax.tick_circle,
-                  color: AppColors.primaryGreen,
-                  size: 20.r,
-                ),
-              ),
-          ],
-        ),
+  }) => TextField(
+    controller: controller,
+    focusNode: focusNode,
+    decoration: InputDecoration(
+      labelText: label,
+      hintText: 'Search location…',
+      prefixIcon: Icon(
+        field == SearchField.from
+            ? Icons.trip_origin
+            : Icons.location_on_outlined,
       ),
-    );
-  }
-
-  Widget _buildEtaBadge() {
-    String etaText = _isFetchingRoute ? '…' : '--';
-    if (_routeDuration != null) {
-      etaText = "${(_routeDuration! / 60).ceil().clamp(1, 999)}";
-    }
-
-    return SizedBox(
-      width: 64.r,
-      height: 64.r,
-      child: LiquidGlassSurface(
-        dark: true,
-        radius: 99,
-        padding: EdgeInsets.zero,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            CustomPaint(size: Size(64.r, 64.r), painter: _ClockTicksPainter()),
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  etaText,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20.r,
-                    fontWeight: FontWeight.w800,
-                    height: 1.0,
-                  ),
-                ),
-                SizedBox(height: 1.r),
-                Text(
-                  "min",
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: .68),
-                    fontSize: 10.r,
-                    fontWeight: FontWeight.w600,
-                    height: 1.0,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ClockTicksPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - 4.r; // 4px padding from edge
-
-    final paint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.3)
-      ..strokeWidth = 1.5.r
-      ..strokeCap = StrokeCap.round;
-
-    final redPaint = Paint()
-      ..color = Colors.redAccent
-      ..strokeWidth = 2.0.r
-      ..strokeCap = StrokeCap.round;
-
-    for (int i = 0; i < 12; i++) {
-      final angle = (i * 30 - 90) * math.pi / 180; // start from top
-      final isRed = i == 5; // roughly bottom tick
-      final currentPaint = isRed ? redPaint : paint;
-      final tickLength = isRed ? 6.0.r : 3.0.r;
-
-      final p1 = Offset(
-        center.dx + math.cos(angle) * radius,
-        center.dy + math.sin(angle) * radius,
-      );
-      final p2 = Offset(
-        center.dx + math.cos(angle) * (radius - tickLength),
-        center.dy + math.sin(angle) * (radius - tickLength),
-      );
-      canvas.drawLine(p1, p2, currentPaint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+    ),
+    onTap: () => _activateEndpoint(field),
+    onSubmitted: (_) {
+      focusNode.unfocus();
+      _showPendingSuggestions();
+    },
+  );
 }
 
 class _TrianglePainter extends CustomPainter {

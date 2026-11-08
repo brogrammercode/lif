@@ -107,6 +107,151 @@ export class DriverOperationsService {
     };
   }
 
+  /** Public-safe bounded availability snapshot; never reserves or assigns a driver. */
+  async rider_availability(
+    user_id: string,
+    input: {
+      draft_ride_id: string;
+      quote_id: string;
+      payment_preference: 'CASH' | 'UPI';
+      passenger_count: number;
+    },
+  ) {
+    const settings = await this.settings();
+    const draft = await this.database.client.ride.findFirst({
+      where: {
+        id: input.draft_ride_id,
+        rider_id: user_id,
+        status: 'DRAFT',
+        rider: { status: 'ACTIVE', deleted_at: null },
+      },
+      include: {
+        quotes: {
+          where: { id: input.quote_id, expires_at: { gt: new Date() } },
+        },
+      },
+    });
+    const quote = draft?.quotes[0];
+    if (!draft || !quote || !quote.vehicle_category_id)
+      throw new AppError(
+        409,
+        'QUOTE_UNAVAILABLE',
+        'Get fresh ride options before checking availability.',
+      );
+    require_supported_ride_payment(
+      quote.category_snapshot,
+      input.payment_preference,
+    );
+    const latitude = draft.pickup_latitude.toNumber(),
+      longitude = draft.pickup_longitude.toNumber();
+    const radius = settings.matching_initial_radius_km;
+    const lat_delta = radius / 111;
+    const lon_delta =
+      radius / (111 * Math.max(0.01, Math.cos((latitude * Math.PI) / 180)));
+    const rows = await this.database.client.driverProfile.findMany({
+      where: {
+        user_id: { not: user_id },
+        verification_status: 'VERIFIED',
+        availability: 'AVAILABLE',
+        current_latitude: {
+          gte: Math.max(-90, latitude - lat_delta),
+          lte: Math.min(90, latitude + lat_delta),
+        },
+        current_longitude: {
+          gte: Math.max(-180, longitude - lon_delta),
+          lte: Math.min(180, longitude + lon_delta),
+        },
+        last_location_at: {
+          gte: new Date(Date.now() - settings.location_max_age_s * 1000),
+        },
+        last_location_accuracy_m: { lte: settings.arrival_radius_m },
+        active_vehicle: {
+          status: 'ACTIVE',
+          vehicle_category_id: quote.vehicle_category_id,
+          capacity: { gte: input.passenger_count },
+        },
+        rides: {
+          none: {
+            status: {
+              in: [
+                'DRIVER_ASSIGNED',
+                'DRIVER_ARRIVING',
+                'DRIVER_WAITING',
+                'IN_PROGRESS',
+              ],
+            },
+          },
+        },
+        user: {
+          status: 'ACTIVE',
+          deleted_at: null,
+          OR: [
+            { partner_application: null },
+            { partner_application: { status: { not: 'EXITED' } } },
+          ],
+        },
+      },
+      include: {
+        active_vehicle: { include: MATCHING_VEHICLE_INCLUDE },
+        user: { select: { first_name: true, avatar_url: true } },
+      },
+      orderBy: { last_location_at: 'desc' },
+      take: 100,
+    });
+    const eligible = rows.filter(
+      (d) =>
+        d.current_latitude &&
+        d.current_longitude &&
+        is_vehicle_eligible(d.active_vehicle, quote, d.id) &&
+        trip_distance_m(
+          latitude,
+          longitude,
+          d.current_latitude.toNumber(),
+          d.current_longitude.toNumber(),
+        ) <=
+          radius * 1000,
+    );
+    const upis =
+      input.payment_preference === 'UPI'
+        ? await approved_driver_upis(
+            this.database.client,
+            eligible.map((d) => d.user_id),
+          )
+        : null;
+    return {
+      captured_at: new Date().toISOString(),
+      radius_km: radius,
+      preview_only: true,
+      items: eligible
+        .filter((d) => !upis || upis.has(d.user_id))
+        .slice(0, 8)
+        .map((d) => ({
+          map_position: {
+            latitude: Number(d.current_latitude!.toNumber().toFixed(3)),
+            longitude: Number(d.current_longitude!.toNumber().toFixed(3)),
+          },
+          driver: {
+            user: {
+              first_name: d.user.first_name,
+              avatar_url: d.user.avatar_url,
+            },
+            rating_average: d.rating_average,
+            ratings_count: d.ratings_count,
+          },
+          vehicle: {
+            make: d.active_vehicle!.make,
+            model: d.active_vehicle!.model,
+            color: d.active_vehicle!.color,
+            capacity: d.active_vehicle!.capacity,
+            photo_url:
+              typeof object(quote.category_snapshot).image_url === 'string'
+                ? object(quote.category_snapshot).image_url
+                : null,
+          },
+        })),
+    };
+  }
+
   private async owned(
     user_id: string,
     id: string,
@@ -287,6 +432,10 @@ export class DriverOperationsService {
             d.current_latitude &&
             d.current_longitude &&
             is_vehicle_eligible(d.active_vehicle, ride.quotes[0], d.id),
+        )
+        .filter(
+          (d) =>
+            (d.active_vehicle?.capacity ?? 0) >= (ride.passenger_count ?? 1),
         )
         .map((d) => ({
           driver: d,
@@ -522,6 +671,7 @@ export class DriverOperationsService {
         currency: trip.currency,
         requested_at: trip.requested_at,
         created_at: trip.created_at,
+        passenger_count: trip.passenger_count,
         rider_note: trip.rider_note,
         cancel_reason: trip.cancel_reason,
         estimated_distance_m: trip.estimated_distance_m,
@@ -534,6 +684,7 @@ export class DriverOperationsService {
               id: trip.driver.id,
               user_id: trip.driver.user_id,
               rating_average: trip.driver.rating_average,
+              ratings_count: trip.driver.ratings_count,
               user: {
                 id: trip.driver.user.id,
                 first_name: trip.driver.user.first_name,
@@ -679,6 +830,8 @@ export class DriverOperationsService {
       trip.driver.verification_status !== 'VERIFIED' ||
       trip.driver.user.status !== 'ACTIVE' ||
       trip.driver.availability === 'SUSPENDED' ||
+      (trip.driver.active_vehicle?.capacity ?? 0) <
+        (trip.passenger_count ?? 1) ||
       !is_vehicle_eligible(
         trip.driver.active_vehicle,
         trip.quotes[0],

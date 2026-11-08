@@ -40,7 +40,7 @@ Read `context/WEB_DESIGN.md` before UI work. The admin design comes from the Gym
 
 ### Flutter application
 
-Read `context/MOBILE_DESIGN.md` before all new mobile UI or future mobile UI reworks. Use its liquid-glass style, Outfit typography, pastel backdrop, real bounded blur, reflective rims and shared glass controls. Reuse `lib/core/theme.dart`, `lib/core/color.dart` and `lib/components/ui/liquid_glass.dart`; retain semantic/brand green and the reference's dark glossy primary actions. The admin amber theme remains separate.
+Read `context/MOBILE_DESIGN.md` before all new mobile UI or future mobile UI reworks. The 8 November 2026 reference supersedes the former glass design: use solid white sheets/cards, black controls, compact neutral platform typography and blue route/category accents. Reuse `lib/components/ui/solid_ui.dart` and the shared rider flow components. Do not introduce blur, translucent fills, reflective rims or pastel backdrops in reworked flows. Legacy glass components remain for existing unconverted modules and render solid when hosted inside `SolidTheme`. The admin amber theme remains separate.
 
 - Preserve rider/driver routing, account-scoped preferences, session restoration and active-trip recovery.
 - Reuse upload/capture components, permission handling and progress/error feedback. Keep camera-only live selfie behavior where required.
@@ -49,6 +49,8 @@ Read `context/MOBILE_DESIGN.md` before all new mobile UI or future mobile UI rew
 - Do not introduce bottom navigation. Keep the existing back, session, role and active-trip recovery behavior.
 
 ## Architecture and contracts
+
+- Flutter feature records, query/filter state, selected-file collections and real/demo snapshots belong in feature controllers. Views retain navigation and presentation handles. Reuse production pages in demo flows via scoped sources; keep fixtures under demo controllers and never toggle the real global API client. See `context/MOBILE_CONTROLLERS_AND_DEMO_FLOWS_PLAN.md`.
 
 - Preserve module structure and naming conventions in the area being changed. Admin features belong in `src/modules`; API features use Nest modules/controllers/services/repositories; Flutter features use the existing pages/models/repositories pattern.
 - Keep transport concerns, business rules and persistence separated. Validate untrusted input on the server even when the client validates it.

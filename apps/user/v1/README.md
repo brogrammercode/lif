@@ -235,3 +235,9 @@ Profile photo selection uses the existing camera/gallery plugin, previews locall
 The editable application starts with contact/delivery and then shows one configured category at a time. Continue validates the current step; Previous/back preserves answers. Image/document fields use compact glass upload cards with a file-review sheet. The draft restores its category, and final Submit validates the entire application before uploading. See [the category-step implementation](../../../context/PARTNER_APPLICATION_CATEGORY_STEPS.md).
 
 Pending documents and the camera selfie now stay in app-private files, with account-scoped encrypted draft metadata. Submit processes one file at a time in a worker isolate, shows progress, and reuses completed uploads after a failure. Reopening restores editable drafts or the server's submitted state. Stop and restart the updated app before testing this change; hot reload cannot replace old in-memory form state. See [submission recovery and device acceptance](../../../context/PARTNER_APPLICATION_SUBMISSION_FIX.md).
+
+## UI demo flows
+
+From rider Home, select **Demo → Ride booking flow**. This runs the existing ride screens with local controller-owned sample data. Book normally, then use **Next** to simulate driver events, or choose a stage directly. **Restart** resets the sample session; **Close** returns to the original app. Real API writes, payments and driver contact actions are blocked. Map tiles still use the existing provider.
+
+To add a demo, extend the registry and supply a scoped controller/transport to production pages. Keep samples out of page widgets. See `context/MOBILE_CONTROLLERS_AND_DEMO_FLOWS_PLAN.md` for the inventory and checklist.

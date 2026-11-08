@@ -33,6 +33,7 @@ class BookingRepo extends UserAppRepository {
     String method = 'CASH',
     String? note,
     String? requestKey,
+    int passengerCount = 1,
   }) async {
     requests++;
     keys.add(requestKey);

@@ -1,3 +1,4 @@
+import 'package:user/features/driver_vehicles/controllers/driver_vehicles_controller.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
@@ -25,11 +26,17 @@ class DriverVehiclesPage extends StatefulWidget {
 
 class _DriverVehiclesPageState extends State<DriverVehiclesPage>
     with WidgetsBindingObserver {
-  late final _repo = widget.repository ?? VehicleVerificationRepository();
-  late Future<Map<String, dynamic>> _data = widget.initialData == null
-      ? _repo.mine()
-      : Future.value(widget.initialData!);
-  bool _busy = false;
+  late final _controller = DriverVehiclesController(
+    widget.repository ?? VehicleVerificationRepository(),
+    widget.initialData,
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<Map<String, dynamic>> get _data => _controller.data;
+  bool get _busy => _controller.busy;
+  set _busy(bool value) => _controller.busy = value;
   bool _editing = false;
   bool _inlineForm = false;
   @override
@@ -40,6 +47,8 @@ class _DriverVehiclesPageState extends State<DriverVehiclesPage>
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -55,15 +64,7 @@ class _DriverVehiclesPageState extends State<DriverVehiclesPage>
     }
   }
 
-  Future<void> _reload() async {
-    if (!mounted) return;
-    setState(() {
-      _data = _repo.mine();
-    });
-    try {
-      await _data;
-    } catch (_) {}
-  }
+  Future<void> _reload() => _controller.reload();
 
   Future<void> _edit([Map<String, dynamic>? vehicle]) async {
     if (_busy || _editing) return;

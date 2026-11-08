@@ -1,3 +1,4 @@
+import 'package:user/features/support/controllers/support_ticket_controller.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -19,18 +20,25 @@ class SupportTicketPage extends StatefulWidget {
 }
 
 class _SupportTicketPageState extends State<SupportTicketPage> {
-  late final UserAppRepository _repository =
-      widget.repository ?? UserAppRepository();
+  late final _controller = SupportTicketController(
+    widget.repository ?? UserAppRepository(),
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  UserAppRepository get _repository => _controller.repository;
   final TextEditingController _message = TextEditingController();
   final FocusNode _messageFocus = FocusNode();
-  Map<String, dynamic>? _ticket;
-  String? _myUserId;
-  Object? _error;
-  late String _ticketId;
+  Map<String, dynamic>? get _ticket => _controller.ticket;
+  String? get _myUserId => _controller.myUserId;
+  Object? get _error => _controller.error;
+  String get _ticketId => _controller.ticketId;
+  set _ticketId(String value) => _controller.ticketId = value;
   bool _initialized = false;
-  bool _loading = true;
-  bool _sending = false;
-  int _generation = 0;
+  bool get _loading => _controller.loading;
+  bool get _sending => _controller.sending;
+  set _sending(bool value) => _controller.sending = value;
 
   @override
   void didChangeDependencies() {
@@ -44,52 +52,23 @@ class _SupportTicketPageState extends State<SupportTicketPage> {
     _load();
   }
 
-  Future<void> _loadProfile() async {
-    try {
-      final profile = await _repository.profile();
-      if (mounted) setState(() => _myUserId = '${profile['id'] ?? ''}');
-    } catch (_) {
-      // Message ownership falls back to the first participant below.
-    }
-  }
+  Future<void> _loadProfile() => _controller.loadProfile();
 
   Future<void> _load({bool preserve = false}) async {
-    final generation = ++_generation;
-    if (_ticketId.isEmpty) {
-      if (mounted) {
-        setState(() {
-          _error = StateError('This support request is unavailable.');
-          _loading = false;
-        });
-      }
-      return;
-    }
-    if (!preserve && mounted) setState(() => _loading = true);
-    try {
-      final value = await _repository.supportTicket(_ticketId);
-      if (!mounted || generation != _generation) return;
-      setState(() {
-        _ticket = value;
-        _error = null;
-        _loading = false;
-      });
-    } catch (error) {
-      if (!mounted || generation != _generation) return;
-      if (preserve && _ticket != null) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
-        return;
-      }
-      setState(() {
-        _error = error;
-        _loading = false;
-      });
+    await _controller.load(preserve: preserve);
+    final notice = _controller.notice;
+    _controller.notice = null;
+    if (mounted && notice != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(notice)));
     }
   }
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     _message.dispose();
     _messageFocus.dispose();
     super.dispose();

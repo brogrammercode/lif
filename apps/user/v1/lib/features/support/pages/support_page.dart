@@ -1,3 +1,5 @@
+import 'package:user/features/support/controllers/support_request_controller.dart';
+import 'package:user/features/support/controllers/support_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/glass_dropdown.dart';
@@ -19,12 +21,17 @@ class SupportPage extends StatefulWidget {
 }
 
 class _SupportPageState extends State<SupportPage> {
-  late final UserAppRepository _repository =
-      widget.repository ?? UserAppRepository();
-  List<Map<String, dynamic>> _tickets = const [];
-  Object? _error;
-  bool _loading = true;
-  int _generation = 0;
+  late final _controller = SupportController(
+    widget.repository ?? UserAppRepository(),
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  UserAppRepository get _repository => _controller.repository;
+  List<Map<String, dynamic>> get _tickets => _controller.tickets;
+  Object? get _error => _controller.error;
+  bool get _loading => _controller.loading;
 
   @override
   void initState() {
@@ -33,26 +40,13 @@ class _SupportPageState extends State<SupportPage> {
   }
 
   Future<void> _load({bool preserve = false}) async {
-    final generation = ++_generation;
-    if (!preserve && mounted) setState(() => _loading = true);
-    try {
-      final value = await _repository.supportTickets();
-      if (!mounted || generation != _generation) return;
-      setState(() {
-        _tickets = value;
-        _error = null;
-        _loading = false;
-      });
-    } catch (error) {
-      if (!mounted || generation != _generation) return;
-      if (preserve && _tickets.isNotEmpty) {
-        _showError(error);
-        return;
-      }
-      setState(() {
-        _error = error;
-        _loading = false;
-      });
+    await _controller.load(preserve: preserve);
+    final notice = _controller.notice;
+    _controller.notice = null;
+    if (mounted && notice != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(notice)));
     }
   }
 
@@ -74,9 +68,12 @@ class _SupportPageState extends State<SupportPage> {
     }
   }
 
-  void _showError(Object error) => ScaffoldMessenger.of(
-    context,
-  ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+  @override
+  void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => AppPage(
@@ -312,17 +309,27 @@ class _SupportRequestDialog extends StatefulWidget {
 }
 
 class _SupportRequestDialogState extends State<_SupportRequestDialog> {
+  late final _controller = SupportRequestController()
+    ..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
   final _form = GlobalKey<FormState>();
   final _subject = TextEditingController();
   final _message = TextEditingController();
-  final String _requestKey =
-      'support-mobile-${DateTime.now().microsecondsSinceEpoch}';
-  String _priority = 'NORMAL';
-  bool _sending = false;
-  String? _error;
+  String get _requestKey => _controller.requestKey;
+  String get _priority => _controller.priority;
+  set _priority(String value) => _controller.priority = value;
+  bool get _sending => _controller.sending;
+  set _sending(bool value) => _controller.sending = value;
+  String? get _error => _controller.error;
+  set _error(String? value) => _controller.error = value;
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     _subject.dispose();
     _message.dispose();
     super.dispose();

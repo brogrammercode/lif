@@ -1,12 +1,9 @@
+import 'package:user/features/auth/controllers/session_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_logo.dart';
 import 'package:user/components/ui/app_skeleton.dart';
 import 'package:user/components/ui/liquid_glass.dart';
-import 'package:user/core/network/dio_client.dart';
 import 'package:user/core/routes.dart';
-import 'package:user/features/auth/auth.repo.dart';
-import 'package:user/features/auth/app_mode.repo.dart';
-import 'package:user/features/user_app/user_app.repo.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/core/network/api_result.dart';
 
@@ -18,47 +15,16 @@ class SessionGate extends StatefulWidget {
 }
 
 class _SessionGateState extends State<SessionGate> {
-  late Future<_Destination> _destination = _resolveDestination();
-
-  Future<_Destination> _resolveDestination() async {
-    if (!await DioClient().hasSession()) {
-      return const _Destination(AppRoutes.login);
-    }
-    try {
-      final user = await AuthRepository().currentUser();
-      final travel = await UserAppRepository().travelContext();
-      if (travel['active_driver_ride'] is Map) {
-        return _Destination(
-          AppRoutes.driverRideDetail,
-          (travel['active_driver_ride'] as Map)['id'],
-        );
-      }
-      if (travel['active_rider_ride'] is Map) {
-        return _Destination(
-          AppRoutes.rideDetail,
-          (travel['active_rider_ride'] as Map)['id'],
-        );
-      }
-      if (user.partnerActivationRequired) {
-        return const _Destination(AppRoutes.partnerActivation);
-      }
-      final mode = await AppModeRepository().preferred(user);
-      return _Destination(
-        mode == AppMode.driver && travel['can_enter_driver_mode'] == true
-            ? AppRoutes.driverHome
-            : AppRoutes.home,
-      );
-    } catch (_) {
-      if (!await DioClient().hasSession()) {
-        return const _Destination(AppRoutes.login);
-      }
-      rethrow;
-    }
+  final _controller = SessionController();
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<_Destination>(
-    future: _destination,
+  Widget build(BuildContext context) => FutureBuilder<SessionDestination>(
+    future: _controller.destination,
     builder: (context, snapshot) {
       if (snapshot.hasError) {
         return LiquidGlassScope(
@@ -74,7 +40,7 @@ class _SessionGateState extends State<SessionGate> {
                       child: AppLoadError(
                         message: ApiResult.errorMessage(snapshot.error!),
                         onRetry: () => setState(() {
-                          _destination = _resolveDestination();
+                          _controller.retry();
                         }),
                       ),
                     ),
@@ -171,10 +137,4 @@ class _RouteReplacementState extends State<_RouteReplacement> {
 
   @override
   Widget build(BuildContext context) => const SizedBox.shrink();
-}
-
-class _Destination {
-  final String route;
-  final Object? arguments;
-  const _Destination(this.route, [this.arguments]);
 }

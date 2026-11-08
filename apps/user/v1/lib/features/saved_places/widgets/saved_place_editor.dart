@@ -1,10 +1,10 @@
+import 'package:user/features/saved_places/controllers/saved_place_editor_controller.dart';
 import 'package:user/components/ui/glass_dropdown.dart';
 import 'package:user/components/ui/app_skeleton.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
-import 'package:user/core/network/api_result.dart';
 import 'package:user/features/rides/ride_display.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
@@ -17,6 +17,14 @@ class SavedPlaceEditor extends StatefulWidget {
 }
 
 class _PlaceEditorState extends State<SavedPlaceEditor> {
+  late final _controller = SavedPlaceEditorController(
+    widget.initial,
+    widget.repository,
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
   final _form = GlobalKey<FormState>();
   late final _label = TextEditingController(
     text: '${widget.initial?['label'] ?? ''}',
@@ -24,16 +32,19 @@ class _PlaceEditorState extends State<SavedPlaceEditor> {
   late final _address = TextEditingController(
     text: '${widget.initial?['address'] ?? ''}',
   );
-  late String _type = '${widget.initial?['place_type'] ?? 'OTHER'}';
-  late LatLng? _selected = ridePoint(
-    widget.initial?['latitude'],
-    widget.initial?['longitude'],
-  );
+  String get _type => _controller.type;
+  set _type(String value) => _controller.type = value;
+  LatLng? get _selected => _controller.selected;
+  set _selected(LatLng? value) => _controller.selected = value;
   Timer? _debounce;
-  int _generation = 0;
-  bool _searching = false;
-  String? _error;
-  List<Map<String, dynamic>> _results = [];
+  int get _generation => _controller.generation;
+  set _generation(int value) => _controller.generation = value;
+  bool get _searching => _controller.searching;
+  set _searching(bool value) => _controller.searching = value;
+  String? get _error => _controller.error;
+  set _error(String? value) => _controller.error = value;
+  List<Map<String, dynamic>> get _results => _controller.results;
+  set _results(List<Map<String, dynamic>> value) => _controller.results = value;
   void _change(String value) {
     _debounce?.cancel();
     final generation = ++_generation;
@@ -50,30 +61,13 @@ class _PlaceEditorState extends State<SavedPlaceEditor> {
     );
   }
 
-  Future<void> _search(String query, int generation) async {
-    if (!mounted || generation != _generation) return;
-    setState(() => _searching = true);
-    try {
-      final results = await widget.repository.searchPlaces(query);
-      if (!mounted || generation != _generation) return;
-      setState(
-        () => _results = results
-            .where((v) => ridePoint(v['lat'], v['lon']) != null)
-            .toList(),
-      );
-    } catch (e) {
-      if (mounted && generation == _generation) {
-        setState(() => _error = ApiResult.errorMessage(e));
-      }
-    } finally {
-      if (mounted && generation == _generation) {
-        setState(() => _searching = false);
-      }
-    }
-  }
+  Future<void> _search(String query, int generation) =>
+      _controller.search(query, generation);
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     _generation++;
     _debounce?.cancel();
     _label.dispose();

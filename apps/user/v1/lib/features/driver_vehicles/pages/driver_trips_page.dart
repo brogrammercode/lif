@@ -1,3 +1,4 @@
+import 'package:user/features/driver_vehicles/controllers/driver_trips_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/liquid_glass.dart';
@@ -15,19 +16,22 @@ class DriverTripsPage extends StatefulWidget {
 }
 
 class _DriverTripsPageState extends State<DriverTripsPage> {
-  final _repo = UserAppRepository();
-  late Future<Map<String, dynamic>> _data = _repo.driverRides();
-  int _page = 1;
+  late final _controller = DriverTripsController(UserAppRepository())
+    ..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
 
-  Future<void> _load([int? page]) async {
-    if (!mounted) return;
-    setState(() {
-      _page = page ?? _page;
-      _data = _repo.driverRides(page: _page);
-    });
-    try {
-      await _data;
-    } catch (_) {}
+  Future<Map<String, dynamic>> get _data => _controller.data;
+  int get _page => _controller.page;
+
+  Future<void> _load([int? page]) => _controller.load(page);
+
+  @override
+  void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
+    super.dispose();
   }
 
   @override

@@ -3,7 +3,8 @@ import 'package:user/core/network/api_result.dart';
 import 'package:user/core/network/dio_client.dart';
 
 class UserAppRepository {
-  final DioClient _client = DioClient();
+  final DioClient _client;
+  UserAppRepository({DioClient? client}) : _client = client ?? DioClient();
 
   dynamic _data(dynamic response) => ApiResult.unwrap(response);
 
@@ -118,12 +119,32 @@ class UserAppRepository {
       Map<String, dynamic>.from(
         _data(await _client.postData(ApiConstants.QUOTE, data: input)) as Map,
       );
+  Future<Map<String, dynamic>> rideAvailability(
+    String draftId,
+    String quoteId,
+    String method,
+    int passengers,
+  ) async => Map<String, dynamic>.from(
+    _data(
+          await _client.getData(
+            '/rides/availability',
+            queryParameters: {
+              'draft_ride_id': draftId,
+              'quote_id': quoteId,
+              'payment_preference': method,
+              'passenger_count': passengers,
+            },
+          ),
+        )
+        as Map,
+  );
   Future<Map<String, dynamic>> requestRide(
     String draftId,
     String quoteId, {
     String method = 'CASH',
     String? note,
     String? requestKey,
+    int passengerCount = 1,
   }) async => Map<String, dynamic>.from(
     _data(
           await _client.postData(
@@ -132,6 +153,7 @@ class UserAppRepository {
               'draft_ride_id': draftId,
               'quote_id': quoteId,
               'payment_preference': method,
+              'passenger_count': passengerCount,
               'rider_note': ?note,
             },
             headers: {
@@ -285,6 +307,19 @@ class UserAppRepository {
               'to_latitude': toLatitude,
               'to_longitude': toLongitude,
             },
+          ),
+        )
+        as Map,
+  );
+
+  Future<Map<String, dynamic>> reversePlace(
+    double latitude,
+    double longitude,
+  ) async => Map<String, dynamic>.from(
+    _data(
+          await _client.getData(
+            '/geocode/reverse',
+            queryParameters: {'latitude': latitude, 'longitude': longitude},
           ),
         )
         as Map,

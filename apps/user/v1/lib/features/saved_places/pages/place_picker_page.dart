@@ -1,3 +1,5 @@
+import 'package:user/features/saved_places/controllers/place_save_controller.dart';
+import 'package:user/features/saved_places/controllers/place_picker_controller.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
@@ -9,7 +11,6 @@ import 'package:user/components/ui/button.dart';
 import 'package:user/components/ui/glass_dropdown.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/network/api_result.dart';
-import 'package:user/features/rides/ride_display.dart';
 import 'package:user/features/saved_places/places.repo.dart';
 import 'package:user/features/saved_places/place_display.dart';
 import 'package:user/features/saved_places/widgets/place_components.dart';
@@ -32,130 +33,45 @@ class PlacePickerPage extends StatefulWidget {
 }
 
 class _PickerState extends State<PlacePickerPage> {
+  late final _controller = PlacePickerController(
+    widget.initial,
+    widget.repository,
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
   final _search = TextEditingController();
-  late LatLng? _point = ridePoint(
-    widget.initial?['latitude'],
-    widget.initial?['longitude'],
-  );
-  late Map<String, dynamic> _selected = {...?widget.initial};
-  final _photos = <XFile>[];
-  List<Map<String, dynamic>> _results = [];
-  Timer? _searchTimer, _reverseTimer;
-  int _searchGeneration = 0, _reverseGeneration = 0;
-  bool _searching = false, _resolving = false, _picking = false;
-  String? _error;
+  LatLng? get _point => _controller.point;
+  Map<String, dynamic> get _selected => _controller.selected;
+  set _selected(Map<String, dynamic> value) => _controller.selected = value;
+  List<XFile> get _photos => _controller.photos;
+  List<Map<String, dynamic>> get _results => _controller.results;
+  bool get _searching => _controller.searching;
+  bool get _resolving => _controller.resolving;
+  bool get _picking => _controller.picking;
+  set _picking(bool value) => _controller.picking = value;
+  String? get _error => _controller.error;
+  set _error(String? value) => _controller.error = value;
   @override
   void dispose() {
-    _searchTimer?.cancel();
-    _reverseTimer?.cancel();
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     _search.dispose();
     super.dispose();
   }
 
   void _find(String value) {
-    _searchTimer?.cancel();
-    final generation = ++_searchGeneration;
-    setState(() {
-      _results = [];
-      _searching = false;
-      _error = null;
-    });
-    if (value.trim().length < 3) return;
-    _searchTimer = Timer(const Duration(seconds: 3), () async {
-      if (!mounted) return;
-      setState(() => _searching = true);
-      try {
-        final rows = await widget.repository.search(value.trim());
-        if (mounted && generation == _searchGeneration) {
-          setState(
-            () => _results = rows
-                .where((p) => ridePoint(p['lat'], p['lon']) != null)
-                .toList(),
-          );
-        }
-      } catch (error) {
-        if (mounted && generation == _searchGeneration) {
-          setState(() => _error = ApiResult.errorMessage(error));
-        }
-      } finally {
-        if (mounted && generation == _searchGeneration) {
-          setState(() => _searching = false);
-        }
-      }
-    });
+    _controller.find(value);
   }
 
   void _choose(Map<String, dynamic> place) {
-    final point = ridePoint(place['lat'], place['lon']);
-    if (point == null) return;
-    _searchTimer?.cancel();
-    _reverseTimer?.cancel();
-    _searchGeneration++;
-    _reverseGeneration++;
-    final address = '${place['display_name'] ?? ''}';
-    setState(() {
-      _point = point;
-      _selected = {
-        ..._selected,
-        'name': '${place['name'] ?? address.split(',').first}',
-        'address': address,
-        'place_type': 'OTHER',
-      };
-      _results = [];
-      _searching = false;
-      _resolving = false;
-      _error = null;
-    });
+    _controller.choose(place);
     FocusScope.of(context).unfocus();
   }
 
   void _picked(LatLng point) {
-    if (_point != null &&
-        (point.latitude - _point!.latitude).abs() < .00001 &&
-        (point.longitude - _point!.longitude).abs() < .00001) {
-      return;
-    }
-    _reverseTimer?.cancel();
-    final generation = ++_reverseGeneration;
-    setState(() {
-      _point = point;
-      _selected = {
-        ..._selected,
-        'name': 'Selected location',
-        'address': '',
-        'place_type': _selected['place_type'] ?? 'OTHER',
-      };
-      _resolving = true;
-      _error = null;
-    });
-    _reverseTimer = Timer(const Duration(milliseconds: 1000), () async {
-      try {
-        final result = await widget.repository.reverse(
-          point.latitude,
-          point.longitude,
-        );
-        if (!mounted || generation != _reverseGeneration) return;
-        final address = '${result['display_name'] ?? ''}';
-        setState(
-          () => _selected = {
-            ..._selected,
-            'name': '${result['name'] ?? address.split(',').first}',
-            'address': address,
-          },
-        );
-      } catch (_) {
-        if (mounted && generation == _reverseGeneration) {
-          setState(
-            () => _error =
-                'Address unavailable. You can enter it in the next step.',
-          );
-        }
-      } finally {
-        if (mounted && generation == _reverseGeneration) {
-          setState(() => _resolving = false);
-        }
-      }
-    });
+    _controller.picked(point);
   }
 
   Future<void> _photo() async {
@@ -466,6 +382,12 @@ class PlaceSaveForm extends StatefulWidget {
 }
 
 class _SaveFormState extends State<PlaceSaveForm> {
+  late final _controller = PlaceSaveController(widget.initial, widget.photos)
+    ..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
   final _form = GlobalKey<FormState>();
   late final _name = TextEditingController(text: placeName(widget.initial));
   late final _address = TextEditingController(
@@ -480,16 +402,23 @@ class _SaveFormState extends State<PlaceSaveForm> {
   late final _website = TextEditingController(
     text: '${widget.initial['website'] ?? ''}',
   );
-  late String _type = '${widget.initial['place_type'] ?? 'OTHER'}';
-  late final _keys = List.generate(
-    widget.photos.length,
-    (i) => 'place-photo-${DateTime.now().microsecondsSinceEpoch}-$i',
-  );
-  String? _savedId, _error;
-  bool _busy = false, _attempted = false;
-  int _uploaded = 0;
+  String get _type => _controller.type;
+  set _type(String value) => _controller.type = value;
+  List<String> get _keys => _controller.keys;
+  String? get _savedId => _controller.savedId;
+  set _savedId(String? value) => _controller.savedId = value;
+  String? get _error => _controller.error;
+  set _error(String? value) => _controller.error = value;
+  bool get _busy => _controller.busy;
+  set _busy(bool value) => _controller.busy = value;
+  bool get _attempted => _controller.attempted;
+  set _attempted(bool value) => _controller.attempted = value;
+  int get _uploaded => _controller.uploaded;
+  set _uploaded(int value) => _controller.uploaded = value;
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     for (final c in [_name, _address, _description, _phone, _website]) {
       c.dispose();
     }

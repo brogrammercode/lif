@@ -609,6 +609,14 @@
   },
   {
     "feature": "ride",
+    "handler": "availability",
+    "method": "get",
+    "path": "rides/availability",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "ride",
     "handler": "quote",
     "method": "post",
     "path": "rides/quote",

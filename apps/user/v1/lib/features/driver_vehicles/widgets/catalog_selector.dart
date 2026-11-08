@@ -1,7 +1,7 @@
+import 'package:user/features/driver_vehicles/controllers/catalog_selector_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/liquid_glass.dart';
-import 'package:user/core/network/api_result.dart';
 import 'package:user/features/driver_operations/widgets/driver_glass.dart';
 import 'package:user/features/driver_vehicles/vehicle_verification.repo.dart';
 import 'package:user/features/driver_vehicles/widgets/catalog_suggestion_form.dart';
@@ -14,13 +14,18 @@ class CatalogSelector extends StatefulWidget {
 }
 
 class _CatalogSelectorState extends State<CatalogSelector> {
-  final _repo = VehicleVerificationRepository();
+  late final _controller = CatalogSelectorController()
+    ..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
   final _query = TextEditingController();
-  Map<String, dynamic>? _data;
-  String? _error;
-  bool _loading = true;
-  int _page = 1;
-  int _request = 0;
+  Map<String, dynamic>? get _data => _controller.data;
+  String? get _error => _controller.error;
+  bool get _loading => _controller.loading;
+  int get _page => _controller.page;
+  set _page(int value) => _controller.page = value;
 
   @override
   void initState() {
@@ -30,30 +35,16 @@ class _CatalogSelectorState extends State<CatalogSelector> {
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     _query.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
-    final request = ++_request;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final data = await _repo.choices(
-        brandId: widget.brand?['id'] as String?,
-        query: _query.text.trim(),
-        page: _page,
-      );
-      if (mounted && request == _request) setState(() => _data = data);
-    } catch (error) {
-      if (mounted && request == _request) {
-        setState(() => _error = ApiResult.errorMessage(error));
-      }
-    } finally {
-      if (mounted && request == _request) setState(() => _loading = false);
-    }
+  Future<void> _load() {
+    _controller.brandId = widget.brand?['id'] as String?;
+    _controller.query = _query.text.trim();
+    return _controller.load();
   }
 
   Future<void> _suggest() async {

@@ -1,3 +1,4 @@
+import 'package:user/features/profile/controllers/profile_controller.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -16,19 +17,30 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  late final UserAppRepository _repository =
-      widget.repository ?? UserAppRepository();
+  late final _controller = ProfileController(
+    widget.repository ?? UserAppRepository(),
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  UserAppRepository get _repository => _controller.repository;
   final _form = GlobalKey<FormState>();
   final TextEditingController _firstName = TextEditingController();
   final TextEditingController _lastName = TextEditingController();
   final TextEditingController _phone = TextEditingController();
   final TextEditingController _email = TextEditingController();
-  late Future<Map<String, dynamic>> _profile = _repository.profile();
-  bool _saving = false;
+  Future<Map<String, dynamic>> get _profile => _controller.profile;
+  set _profile(Future<Map<String, dynamic>> value) =>
+      _controller.profile = value;
+  bool get _saving => _controller.saving;
+  set _saving(bool value) => _controller.saving = value;
   bool _fieldsLoaded = false;
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     _firstName.dispose();
     _lastName.dispose();
     _phone.dispose();

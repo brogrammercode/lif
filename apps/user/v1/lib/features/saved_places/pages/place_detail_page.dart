@@ -1,3 +1,5 @@
+import 'package:user/features/saved_places/controllers/place_review_controller.dart';
+import 'package:user/features/saved_places/controllers/place_detail_controller.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -32,11 +34,25 @@ class PlaceDetailPage extends StatefulWidget {
 }
 
 class _PlaceDetailState extends State<PlaceDetailPage> {
+  late final _controller = PlaceDetailController(widget.repository, widget.id)
+    ..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
   final _scroll = ScrollController();
-  Map<String, dynamic>? _place, _reviews;
-  String? _error, _reviewError, _userId;
-  bool _loading = false, _busy = false, _reviewsLoading = false;
-  int _recenter = 0, _reviewPage = 1, _generation = 0, _reviewGeneration = 0;
+  Map<String, dynamic>? get _place => _controller.place;
+  Map<String, dynamic>? get _reviews => _controller.reviews;
+  String? get _error => _controller.error;
+  String? get _reviewError => _controller.reviewError;
+  String? get _userId => _controller.userId;
+  bool get _loading => _controller.loading;
+  bool get _busy => _controller.busy;
+  set _busy(bool value) => _controller.busy = value;
+  bool get _reviewsLoading => _controller.reviewsLoading;
+  int get _recenter => _controller.recenter;
+  set _recenter(int value) => _controller.recenter = value;
+  int get _reviewPage => _controller.reviewPage;
   @override
   void initState() {
     super.initState();
@@ -46,75 +62,19 @@ class _PlaceDetailState extends State<PlaceDetailPage> {
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     _scroll.dispose();
     super.dispose();
   }
 
-  Future<void> _profile() async {
-    try {
-      final user = await widget.repository.profile();
-      if (mounted) setState(() => _userId = '${user['id']}');
-    } catch (_) {}
-  }
+  Future<void> _profile() => _controller.profile();
 
-  Future<void> _load({bool replace = false}) async {
-    if (_loading && !replace) return;
-    final generation = ++_generation;
-    setState(() => _loading = true);
-    try {
-      final place = await widget.repository.detail(widget.id);
-      if (place['id'] != widget.id) {
-        throw StateError('This place could not be verified. Please refresh.');
-      }
-      if (mounted && generation == _generation) {
-        setState(() {
-          _place = place;
-          _error = null;
-        });
-        unawaited(_loadReviews(replace: true));
-      }
-    } catch (error) {
-      if (mounted && generation == _generation) {
-        setState(() => _error = ApiResult.errorMessage(error));
-      }
-    } finally {
-      if (mounted && generation == _generation) {
-        setState(() => _loading = false);
-      }
-    }
-  }
+  Future<void> _load({bool replace = false}) =>
+      _controller.load(replace: replace);
 
-  Future<void> _loadReviews({int? page, bool replace = false}) async {
-    if (_reviewsLoading && !replace) return;
-    final generation = ++_reviewGeneration;
-    setState(() {
-      _reviewsLoading = true;
-      if (page != null) {
-        _reviewPage = page;
-        _reviews = null;
-      }
-    });
-    try {
-      final data = await widget.repository.reviews(
-        widget.id,
-        page: _reviewPage,
-      );
-      if (mounted && generation == _reviewGeneration) {
-        setState(() {
-          _reviews = data;
-          _reviewError = null;
-        });
-      }
-    } catch (error) {
-      if (mounted && generation == _reviewGeneration) {
-        setState(() => _reviewError = ApiResult.errorMessage(error));
-      }
-    } finally {
-      if (mounted && generation == _reviewGeneration) {
-        setState(() => _reviewsLoading = false);
-      }
-    }
-  }
+  Future<void> _loadReviews({int? page, bool replace = false}) =>
+      _controller.loadReviews(page: page, replace: replace);
 
   Future<void> _change(Future<void> Function() action) async {
     if (_busy) return;
@@ -723,15 +683,26 @@ class PlaceReviewEditor extends StatefulWidget {
 }
 
 class _ReviewEditorState extends State<PlaceReviewEditor> {
-  late int _score = (rideNumber(widget.initial['score']) ?? 0).toInt();
+  late final _controller = PlaceReviewController(widget.initial)
+    ..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  int get _score => _controller.score;
+  set _score(int value) => _controller.score = value;
   late final _comment = TextEditingController(
     text: '${widget.initial['comment'] ?? ''}',
   );
   final _form = GlobalKey<FormState>();
-  bool _busy = false;
-  String? _error;
+  bool get _busy => _controller.busy;
+  set _busy(bool value) => _controller.busy = value;
+  String? get _error => _controller.error;
+  set _error(String? value) => _controller.error = value;
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     _comment.dispose();
     super.dispose();
   }

@@ -1,8 +1,14 @@
+import 'package:user/features/rides/controllers/ride_feedback_controller.dart';
+import 'package:user/core/state/data_source_scope.dart';
+import 'package:user/features/rides/controllers/rider_trip_controller.dart';
 import 'package:user/components/ui/liquid_glass.dart';
+import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/components/ui/app_skeleton.dart';
 import 'package:user/components/ui/button.dart';
 import 'package:user/components/ui/glass_chip.dart';
 import 'package:user/features/rides/widgets/ride_glass.dart';
+import 'package:user/features/rides/widgets/rider_flow_components.dart';
+import 'package:user/features/rides/widgets/rider_live_panel.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
@@ -20,7 +26,6 @@ import 'package:user/features/rides/widgets/trip_cancellation_dialog.dart';
 import 'package:user/features/rides/widgets/trip_receipt_sheet.dart';
 import 'package:user/features/rides/widgets/trip_safety_sheet.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
-import 'package:maplibre_gl/maplibre_gl.dart';
 
 class RideDetailPage extends StatefulWidget {
   final UserAppRepository? repository;
@@ -38,80 +43,27 @@ class RideDetailPage extends StatefulWidget {
 
 class _RiderTripState extends State<RideDetailPage>
     with WidgetsBindingObserver, RouteAware {
-  late final _repo = widget.repository ?? UserAppRepository();
-  late final _ops = widget.operationsRepository ?? DriverOperationsRepository();
-  String? _id, _error, _routeError;
-  Map<String, dynamic>? _data, _routeData;
-  Map<String, dynamic> get _trip => rideMap(_data?['trip']);
-  String get _status => '${_data?['status'] ?? ''}';
-  bool get _active => riderActiveStatuses.contains(_status);
-  bool get _locationFresh {
-    final captured = DateTime.tryParse(
-      '${rideMap(_data?['driver_location'])['captured_at']}',
-    );
-    final maxAge =
-        rideNumber(rideMap(_data?['settings'])['location_max_age_s']) ?? 60;
-    return _data?['driver_location_fresh'] == true &&
-        captured != null &&
-        _now.difference(captured).inSeconds >= -10 &&
-        _now.difference(captured).inSeconds <= maxAge;
-  }
-
-  bool get _routeFresh {
-    final captured = DateTime.tryParse('${_routeData?['captured_at']}');
-    final maxAge =
-        rideNumber(rideMap(_data?['settings'])['location_max_age_s']) ?? 60;
-    return _routeData?['target'] ==
-            (_status == 'IN_PROGRESS' ? 'DROPOFF' : 'PICKUP') &&
-        captured != null &&
-        _now.difference(captured).inSeconds >= -10 &&
-        _now.difference(captured).inSeconds <= maxAge &&
-        _lastRouteRequest != null &&
-        DateTime.now().difference(_lastRouteRequest!).inSeconds < 60;
-  }
-
-  bool get _needsRoute =>
-      ['DRIVER_ASSIGNED', 'DRIVER_ARRIVING', 'IN_PROGRESS'].contains(_status);
-  bool _reading = false, _busy = false, _foreground = true, _routing = false;
-  bool _receiptOpen = false;
-  bool _initialReceipt = false;
-  Completer<void>? _readDone;
-  Timer? _poll, _tick;
+  late RouteObserver<ModalRoute<dynamic>> _routeObserver;
+  late RiderTripController _controller;
+  bool _initialized = false, _receiptOpen = false, _initialReceipt = false;
   ModalRoute<dynamic>? _route;
-  DateTime? _checked, _serverTime, _lastRouteRequest;
-  final _clock = Stopwatch();
-  List<LatLng> _basePoints = [], _remainingPoints = [];
   int _recenter = 0;
-  DateTime get _now => (_serverTime ?? DateTime.now()).add(_clock.elapsed);
-  bool get _pollNeeded =>
-      _data == null ||
-      _active ||
-      [
-        'REQUESTED',
-        'DISPUTED',
-        'APPROVED',
-      ].contains(rideMap(_data?['review'])['status']) ||
-      (_status == 'COMPLETED' &&
-          ![
-            'CAPTURED',
-            'CANCELLED',
-            'REFUNDED',
-            'PARTIALLY_REFUNDED',
-          ].contains(rideMap(_data?['payment'])['status']));
+  void _updated() {
+    if (!mounted) return;
+    setState(() {});
+    if (_initialReceipt && _controller.status == 'COMPLETED') {
+      _initialReceipt = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_receipt());
+      });
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    _routeObserver = RideRouteObserverScope.of(context);
     WidgetsBinding.instance.addObserver(this);
-    _poll = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (_foreground && _route?.isCurrent == true && !_busy && _pollNeeded) {
-        unawaited(_load());
-      }
-    });
-    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted && _foreground && _route?.isCurrent == true && _active) {
-        setState(() {});
-      }
-    });
   }
 
   @override
@@ -119,173 +71,62 @@ class _RiderTripState extends State<RideDetailPage>
     super.didChangeDependencies();
     final route = ModalRoute.of(context);
     if (route != _route) {
-      appRouteObserver.unsubscribe(this);
+      _routeObserver.unsubscribe(this);
       _route = route;
-      if (route != null) appRouteObserver.subscribe(this, route);
+      if (route != null) {
+        _routeObserver.subscribe(this, route);
+      }
     }
-    if (_id == null) {
+    if (!_initialized) {
+      _initialized = true;
+      final source = DataSourceScope.of(context);
+      _controller = RiderTripController(
+        repository:
+            widget.repository ?? UserAppRepository(client: source?.client),
+        ops:
+            widget.operationsRepository ??
+            DriverOperationsRepository(client: source?.client),
+      )..addListener(_updated);
       final args = route?.settings.arguments;
-      _id = args is RideDetailIntent ? args.id : args as String? ?? '';
       _initialReceipt = args is RideDetailIntent && args.receipt;
-      unawaited(_load());
+      _controller.open(
+        args is RideDetailIntent ? args.id : args as String? ?? '',
+        source: source?.changes,
+        livePresentation: args is RideDetailIntent && args.liveJourney,
+      );
     }
   }
 
-  Future<void> _load() async {
-    if (_reading || !mounted || _id == null) return;
-    setState(() => _reading = true);
-    final done = _readDone = Completer<void>();
-    try {
-      final data = await _ops.context(_id!);
-      if (data['is_driver'] != false ||
-          data['trip'] is! Map ||
-          !riderTripStatuses.contains(data['status']) ||
-          rideMap(data['trip'])['id'] != _id ||
-          rideMap(data['trip'])['status'] != data['status'] ||
-          '${data['ride_id']}' != _id) {
-        throw StateError('This ride is not available to your rider account.');
-      }
-      if (!mounted) return;
-      setState(() {
-        _data = data;
-        _error = null;
-        _checked = DateTime.now();
-        _serverTime =
-            DateTime.tryParse('${data['server_time']}') ?? DateTime.now();
-        _clock
-          ..reset()
-          ..start();
-        if (_basePoints.isEmpty) {
-          _basePoints = rideGeometry(
-            rideMap(rideMap(_trip['route'])['route_data'])['geometry'],
-          );
-        }
-        if (!_needsRoute ||
-            !_locationFresh ||
-            _routeData?['target'] !=
-                (_status == 'IN_PROGRESS' ? 'DROPOFF' : 'PICKUP')) {
-          _routeData = null;
-          _remainingPoints = [];
-        }
-      });
-      if (_needsRoute && _locationFresh) {
-        unawaited(_refreshRoute());
-      }
-      if (_initialReceipt && _status == 'COMPLETED') {
-        _initialReceipt = false;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) unawaited(_receipt());
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _error = ApiResult.errorMessage(e));
-    } finally {
-      if (mounted) {
-        setState(() => _reading = false);
-      } else {
-        _reading = false;
-      }
-      done.complete();
-      _readDone = null;
-    }
-  }
-
-  Future<void> _changed() async {
-    await _readDone?.future;
-    if (mounted) await _load();
-  }
-
-  Future<void> _refreshRoute({bool force = false}) async {
-    if (!_needsRoute || _routing || !_locationFresh) {
-      return;
-    }
-    final target = _status == 'IN_PROGRESS' ? 'DROPOFF' : 'PICKUP';
-    if (!force &&
-        _routeData?['target'] == target &&
-        _lastRouteRequest != null &&
-        DateTime.now().difference(_lastRouteRequest!).inSeconds < 30) {
-      return;
-    }
-    if (_routeData?['target'] != target) {
-      _routeData = null;
-      _remainingPoints = [];
-    }
-    _routing = true;
-    _lastRouteRequest = DateTime.now();
-    try {
-      final route = await _ops.riderRoute(_id!);
-      if (!mounted ||
-          !_needsRoute ||
-          (_status == 'IN_PROGRESS' ? 'DROPOFF' : 'PICKUP') != target) {
-        return;
-      }
-      final points = rideGeometry(route['geometry']);
-      if (route['target'] != target ||
-          points.length < 2 ||
-          rideNumber(route['distance_m']) == null ||
-          rideNumber(route['distance_m'])! < 0 ||
-          rideNumber(route['duration_s']) == null ||
-          rideNumber(route['duration_s'])! <= 0) {
-        throw StateError('Route progress could not be verified. Please retry.');
-      }
-      setState(() {
-        _routeData = route;
-        _remainingPoints = points;
-        _routeError = null;
-      });
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _routeError = ApiResult.errorMessage(e);
-          _routeData = null;
-          _remainingPoints = [];
-        });
-      }
-    } finally {
-      _routing = false;
-      if (mounted &&
-          _needsRoute &&
-          (_status == 'IN_PROGRESS' ? 'DROPOFF' : 'PICKUP') != target) {
-        unawaited(_refreshRoute(force: true));
-      }
-    }
-  }
-
+  Future<void> _load() => _controller.load();
+  Future<void> _changed() => _controller.refresh();
+  Future<void> _refreshRoute({bool force = false}) =>
+      _controller.refreshRoute(force: force);
   @override
-  void didPopNext() => unawaited(_load());
+  void didPushNext() => _controller.setVisible(false);
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    _foreground = state == AppLifecycleState.resumed;
-    if (_foreground && _route?.isCurrent == true) unawaited(_load());
-  }
-
+  void didPopNext() => _controller.setVisible(true);
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) =>
+      _controller.setVisible(
+        state == AppLifecycleState.resumed && _route?.isCurrent == true,
+      );
   @override
   void dispose() {
-    _poll?.cancel();
-    _tick?.cancel();
-    _clock.stop();
-    appRouteObserver.unsubscribe(this);
+    _controller.removeListener(_updated);
+    _controller.dispose();
+    _routeObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   Future<void> _act(Future<void> Function() action) async {
-    if (_busy) return;
-    setState(() => _busy = true);
     try {
-      await _readDone?.future;
-      if (!mounted) return;
       await action();
-    } catch (e) {
+    } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(e))));
-      }
-    } finally {
-      if (mounted) {
-        await _load();
-        if (mounted) setState(() => _busy = false);
+        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
       }
     }
   }
@@ -293,16 +134,12 @@ class _RiderTripState extends State<RideDetailPage>
   Future<void> _cancel() async {
     final reason = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (_) => TripCancellationDialog(contextData: _data!),
+      builder: (_) => TripCancellationDialog(contextData: _controller.data!),
     );
     if (reason == null || !mounted) return;
     await _act(
-      () => _ops.issue(
-        _id!,
-        'CANCELLATION',
-        '${reason['reason']}',
-        reasonCode: '${reason['reason_code']}',
-      ),
+      () =>
+          _controller.cancel('${reason['reason']}', '${reason['reason_code']}'),
     );
   }
 
@@ -327,7 +164,7 @@ class _RiderTripState extends State<RideDetailPage>
       ),
     );
     if (confirm == true && mounted) {
-      await _act(() => _repo.confirmRideStart(_id!));
+      await _act(_controller.confirm);
     }
   }
 
@@ -337,15 +174,11 @@ class _RiderTripState extends State<RideDetailPage>
       builder: (_) => const _RatingDialog(),
     );
     if (input == null || !mounted) return;
-    final userId = rideMap(_trip['driver'])['user_id'];
+    final userId = rideMap(_controller.trip['driver'])['user_id'];
     if (userId == null) return;
     await _act(
-      () => _repo.review(
-        _id!,
-        '$userId',
-        input['score'] as int,
-        input['comment'] as String?,
-      ),
+      () =>
+          _controller.rate(input['score'] as int, input['comment'] as String?),
     );
   }
 
@@ -359,24 +192,24 @@ class _RiderTripState extends State<RideDetailPage>
       child: LiquidGlassSheet(
         child: TripSafetySheet(
           trip: {
-            ..._trip,
-            'payment': _data?['payment'],
-            'settlement_review': _data?['review'],
+            ..._controller.trip,
+            'payment': _controller.data?['payment'],
+            'settlement_review': _controller.data?['review'],
           },
-          repository: _repo,
+          repository: _controller.repository,
         ),
       ),
     ),
   );
   Future<void> _receipt() async {
-    if (_receiptOpen || _busy) return;
+    if (_receiptOpen || _controller.busy) return;
     setState(() => _receiptOpen = true);
     try {
       await _changed();
       if (!mounted ||
-          _data == null ||
-          _error != null ||
-          _status != 'COMPLETED') {
+          _controller.data == null ||
+          _controller.error != null ||
+          _controller.status != 'COMPLETED') {
         return;
       }
       await showModalBottomSheet<void>(
@@ -386,7 +219,7 @@ class _RiderTripState extends State<RideDetailPage>
         useSafeArea: true,
         builder: (_) => FractionallySizedBox(
           heightFactor: .86,
-          child: TripReceiptSheet(data: _data!),
+          child: TripReceiptSheet(data: _controller.data!),
         ),
       );
     } finally {
@@ -400,72 +233,200 @@ class _RiderTripState extends State<RideDetailPage>
     context,
     AppRoutes.home,
     (_) => false,
-    arguments: {'rebook': _trip},
+    arguments: {'rebook': _controller.trip},
   );
   String _elapsed(dynamic value) {
     final start = DateTime.tryParse('$value');
     final seconds = start == null
         ? 0
-        : _now.difference(start).inSeconds.clamp(0, 999999);
+        : _controller.now.difference(start).inSeconds.clamp(0, 999999);
     return '${seconds ~/ 60}m ${seconds % 60}s';
   }
 
   @override
-  Widget build(BuildContext context) => AppPage(
-    glass: true,
-    title: 'Trip details',
-    action: Wrap(
-      children: [
-        IconButton(
-          tooltip: 'Safety & help',
-          onPressed: _data == null ? null : _safety,
-          icon: const Icon(Icons.health_and_safety_outlined),
-        ),
-        IconButton(
+  Widget build(BuildContext context) {
+    if (_controller.data != null &&
+        (_controller.active ||
+            _controller.liveJourney && _controller.status == 'COMPLETED')) {
+      return _referenceJourney();
+    }
+    return SolidPage(
+      title: 'Trip details',
+      action: Wrap(
+        children: [
+          IconButton(
+            tooltip: 'Safety & help',
+            onPressed: _controller.data == null ? null : _safety,
+            icon: const Icon(Icons.health_and_safety_outlined),
+          ),
+          IconButton(
+            tooltip: 'Refresh ride',
+            onPressed: _controller.reading ? null : _load,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      child: _controller.data == null
+          ? (_controller.error != null
+                ? AppLoadError(message: _controller.error!, onRetry: _load)
+                : const RidesSkeleton(detail: true))
+          : _content(),
+    );
+  }
+
+  Widget _referenceJourney() {
+    final actions = TripActionsPanel(
+      rideId: _controller.id!,
+      externalContext: _controller.data,
+      onChanged: _changed,
+      confirmRider: _confirm,
+      cancelRide: _cancel,
+      repository: _controller.ops,
+      hideContacts: true,
+    );
+    if (_controller.status == 'COMPLETED') {
+      return SolidPage(
+        title: "You've arrived",
+        action: IconButton(
           tooltip: 'Refresh ride',
-          onPressed: _reading ? null : _load,
+          onPressed: _controller.reading ? null : _load,
           icon: const Icon(Icons.refresh),
         ),
-      ],
-    ),
-    child: _data == null
-        ? (_error != null
-              ? AppLoadError(message: _error!, onRetry: _load)
-              : const RidesSkeleton(detail: true))
-        : _content(),
-  );
+        child: RiderCompletionPanel(
+          data: _controller.data!,
+          actions: actions,
+          busy: _controller.busy || _receiptOpen,
+          onHome: _home,
+          onReceipt: _receipt,
+          onSafety: _safety,
+          onRate: (score, comment) async {
+            final user = rideMap(_controller.trip['driver'])['user_id'];
+            if (user != null) {
+              await _act(
+                () => _controller.rate(score, comment.isEmpty ? null : comment),
+              );
+            }
+          },
+        ),
+      );
+    }
+    final pickup = ridePoint(
+      _controller.trip['pickup_latitude'],
+      _controller.trip['pickup_longitude'],
+    );
+    final dropoff = ridePoint(
+      _controller.trip['dropoff_latitude'],
+      _controller.trip['dropoff_longitude'],
+    );
+    final location = rideMap(_controller.data!['driver_location']);
+    final map = pickup == null || dropoff == null
+        ? const Center(child: Text('Route preview unavailable'))
+        : RiderTripMap(
+            pickup: pickup,
+            dropoff: dropoff,
+            driver: ridePoint(location['latitude'], location['longitude']),
+            driverLabel:
+                '${rideMap(rideMap(_controller.trip['driver'])['user'])['first_name'] ?? 'Driver'}',
+            points:
+                _controller.routeFresh &&
+                    _controller.locationFresh &&
+                    _controller.remainingPoints.isNotEmpty
+                ? _controller.remainingPoints
+                : _controller.basePoints,
+            recenter: _recenter,
+          );
+    final estimate = _controller.routeFresh && _controller.locationFresh
+        ? '${rideDuration(_controller.routeData?['duration_s'])} ${_controller.status == 'IN_PROGRESS' ? 'to drop-off' : 'to pickup'} · ${rideDistance(_controller.routeData?['distance_m'])} remaining'
+        : 'A current route estimate is unavailable';
+    return RiderFlowScaffold(
+      title: ['SEARCHING', 'REQUESTED'].contains(_controller.status)
+          ? 'Your ride request'
+          : _controller.status == 'DRIVER_WAITING'
+          ? 'Your driver has arrived'
+          : _controller.status == 'IN_PROGRESS'
+          ? 'On your way to your destination'
+          : 'Get ready, the driver will come soon',
+      statusStrip: ['SEARCHING', 'REQUESTED'].contains(_controller.status)
+          ? null
+          : RideArrivalStrip(
+              label: _controller.status == 'IN_PROGRESS'
+                  ? (_controller.routeFresh && _controller.locationFresh
+                        ? 'Time to drop-off'
+                        : 'Route estimate')
+                  : _controller.status == 'DRIVER_WAITING'
+                  ? 'Your driver is waiting'
+                  : 'The driver will arrive in',
+              value: _controller.status == 'DRIVER_WAITING'
+                  ? _elapsed(_controller.trip['arrived_at'])
+                  : _controller.routeFresh && _controller.locationFresh
+                  ? rideDuration(_controller.routeData?['duration_s'])
+                  : 'Updating',
+            ),
+      onRefresh: _load,
+      map: widget.mapBuilder?.call(map) ?? map,
+      panelFraction: _controller.status == 'IN_PROGRESS' ? .34 : .43,
+      onRecenter: () => setState(() => _recenter++),
+      panel: RiderLivePanel(
+        data: _controller.data!,
+        elapsed: _elapsed(_controller.trip['requested_at']),
+        waiting: _elapsed(_controller.trip['arrived_at']),
+        estimate: estimate,
+        actions: actions,
+        contactActions: TripActionsPanel(
+          rideId: _controller.id!,
+          externalContext: _controller.data,
+          onChanged: _changed,
+          repository: _controller.ops,
+          contactsOnly: true,
+        ),
+        onCancel: _cancel,
+        onSafety: _safety,
+        onRefresh: _load,
+        error: _controller.error ?? _controller.routeError,
+        busy: _controller.busy,
+        locationFresh: _controller.locationFresh,
+        remainingDistance: _controller.routeFresh && _controller.locationFresh
+            ? rideNumber(_controller.routeData?['distance_m'])
+            : null,
+      ),
+    );
+  }
+
   Widget _content() {
     final pickup = ridePoint(
-          _trip['pickup_latitude'],
-          _trip['pickup_longitude'],
+          _controller.trip['pickup_latitude'],
+          _controller.trip['pickup_longitude'],
         ),
         dropoff = ridePoint(
-          _trip['dropoff_latitude'],
-          _trip['dropoff_longitude'],
+          _controller.trip['dropoff_latitude'],
+          _controller.trip['dropoff_longitude'],
         );
-    final location = rideMap(_data!['driver_location']),
+    final location = rideMap(_controller.data!['driver_location']),
         driverPoint = ridePoint(location['latitude'], location['longitude']);
-    final driver = rideMap(rideMap(_trip['driver'])['user']);
-    final payment = rideMap(_data!['payment']);
+    final driver = rideMap(rideMap(_controller.trip['driver'])['user']);
+    final payment = rideMap(_controller.data!['payment']);
     final needsActions =
-        _status != 'COMPLETED' ||
+        _controller.status != 'COMPLETED' ||
         ![
           'CAPTURED',
           'CANCELLED',
           'REFUNDED',
           'PARTIALLY_REFUNDED',
         ].contains(payment['status']) ||
-        _data!['review'] != null;
+        _controller.data!['review'] != null;
     final hasMap = pickup != null && dropoff != null;
-    final activeMap = _active && hasMap;
+    final activeMap = _controller.active && hasMap;
     final map = hasMap
         ? RiderTripMap(
             pickup: pickup,
             dropoff: dropoff,
-            driver: _active ? driverPoint : null,
-            points: !_routeFresh || !_locationFresh || _remainingPoints.isEmpty
-                ? _basePoints
-                : _remainingPoints,
+            driver: _controller.active ? driverPoint : null,
+            points:
+                !_controller.routeFresh ||
+                    !_controller.locationFresh ||
+                    _controller.remainingPoints.isEmpty
+                ? _controller.basePoints
+                : _controller.remainingPoints,
             recenter: _recenter,
           )
         : null;
@@ -475,7 +436,7 @@ class _RiderTripState extends State<RideDetailPage>
         Padding(
           padding: const EdgeInsets.only(top: 6, bottom: 12),
           child: SelectableText(
-            rideReference(_trip['id']),
+            rideReference(_controller.trip['id']),
             style: const TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w500,
@@ -509,7 +470,10 @@ class _RiderTripState extends State<RideDetailPage>
                 Padding(
                   padding: const EdgeInsets.fromLTRB(10, 14, 10, 10),
                   child: Text(
-                    rideTime(_trip['created_at'] ?? _trip['requested_at']),
+                    rideTime(
+                      _controller.trip['created_at'] ??
+                          _controller.trip['requested_at'],
+                    ),
                     style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
@@ -521,7 +485,7 @@ class _RiderTripState extends State<RideDetailPage>
                   Padding(
                     padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
                     child: Text(
-                      _basePoints.length >= 2
+                      _controller.basePoints.length >= 2
                           ? 'Booked route preview'
                           : 'Pickup and drop-off locations',
                       style: const TextStyle(
@@ -530,35 +494,35 @@ class _RiderTripState extends State<RideDetailPage>
                       ),
                     ),
                   ),
-                if (_status == 'COMPLETED')
+                if (_controller.status == 'COMPLETED')
                   Padding(
                     padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
                     child: Align(
                       alignment: Alignment.centerLeft,
-                      child: RideStatusBadge(_status),
+                      child: RideStatusBadge(_controller.status),
                     ),
                   ),
               ],
             ),
           ),
 
-        if (_error != null)
+        if (_controller.error != null)
           AppCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Connection update failed: $_error',
+                  'Connection update failed: ${_controller.error}',
                   style: const TextStyle(color: Colors.red),
                 ),
                 Text(
-                  'Showing the last confirmed update from ${rideTime(_checked?.toIso8601String())}. The current ride status could not be verified.',
+                  'Showing the last confirmed update from ${rideTime(_controller.checked?.toIso8601String())}. The current ride status could not be verified.',
                 ),
                 TextButton(onPressed: _load, child: const Text('Retry update')),
               ],
             ),
           ),
-        if (_reading && _data != null)
+        if (_controller.reading && _controller.data != null)
           const Padding(
             padding: EdgeInsets.only(top: 8),
             child: Text(
@@ -567,70 +531,78 @@ class _RiderTripState extends State<RideDetailPage>
             ),
           ),
         const SizedBox(height: 10),
-        if (['CANCELLED', 'NO_DRIVER_FOUND', 'EXPIRED'].contains(_status)) ...[
-          RideOutcomePanel(trip: _trip, payment: payment),
+        if ([
+          'CANCELLED',
+          'NO_DRIVER_FOUND',
+          'EXPIRED',
+        ].contains(_controller.status)) ...[
+          RideOutcomePanel(trip: _controller.trip, payment: payment),
           const SizedBox(height: 14),
         ],
-        if (_active || _status == 'DRAFT')
+        if (_controller.active || _controller.status == 'DRAFT')
           AppCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  riderStatusLabel(_status),
+                  riderStatusLabel(_controller.status),
                   style: const TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                if (_status == 'SEARCHING' || _status == 'REQUESTED') ...[
+                if (_controller.status == 'SEARCHING' ||
+                    _controller.status == 'REQUESTED') ...[
                   Text(
-                    'Searching for ${_elapsed(_trip['requested_at'])}${_data!['search_radius_km'] == null ? '' : ' · ${_data!['search_radius_km']} km search area'}. No fare is collected before assignment.',
+                    'Searching for ${_elapsed(_controller.trip['requested_at'])}${_controller.data!['search_radius_km'] == null ? '' : ' · ${_controller.data!['search_radius_km']} km search area'}. No fare is collected before assignment.',
                   ),
                   const Text(
                     'We expand the search while drivers remain unavailable. A booking is confirmed when a driver accepts.',
                   ),
                 ],
-                if (_status == 'DRIVER_WAITING')
+                if (_controller.status == 'DRIVER_WAITING')
                   Text(
-                    'Waiting ${_elapsed(_trip['arrived_at'])} · ${_data!['free_wait_minutes'] ?? 5} minutes free pickup waiting.',
+                    'Waiting ${_elapsed(_controller.trip['arrived_at'])} · ${_controller.data!['free_wait_minutes'] ?? 5} minutes free pickup waiting.',
                   ),
-                if (_needsRoute && _routeFresh && _locationFresh)
+                if (_controller.needsRoute &&
+                    _controller.routeFresh &&
+                    _controller.locationFresh)
                   Text(
-                    '${rideDuration(_routeData!['duration_s'])} ${_status == 'IN_PROGRESS' ? 'to drop-off' : 'to pickup'} · ${rideDistance(_routeData!['distance_m'])} remaining',
+                    '${rideDuration(_controller.routeData!['duration_s'])} ${_controller.status == 'IN_PROGRESS' ? 'to drop-off' : 'to pickup'} · ${rideDistance(_controller.routeData!['distance_m'])} remaining',
                     style: const TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                if (_needsRoute && (!_routeFresh || !_locationFresh))
+                if (_controller.needsRoute &&
+                    (!_controller.routeFresh || !_controller.locationFresh))
                   const Text(
                     'A current route estimate is unavailable. Contact the driver or Support if needed.',
                   ),
-                if (_routeError != null && _needsRoute)
+                if (_controller.routeError != null && _controller.needsRoute)
                   TextButton(
-                    onPressed: _routing
+                    onPressed: _controller.routing
                         ? null
                         : () => _refreshRoute(force: true),
-                    child: Text('$_routeError · Retry route'),
+                    child: Text('${_controller.routeError} · Retry route'),
                   ),
                 if (driverPoint != null)
                   Text(
-                    '${_locationFresh ? 'Driver location updated' : 'Last known driver location'} ${rideTime(location['captured_at'])}',
+                    '${_controller.locationFresh ? 'Driver location updated' : 'Last known driver location'} ${rideTime(location['captured_at'])}',
                   ),
-                if (_status == 'NO_DRIVER_FOUND')
+                if (_controller.status == 'NO_DRIVER_FOUND')
                   const Text(
                     'No driver accepted this request. You have not been charged. Try a fresh quote or change your route/category.',
                   ),
-                if (_status == 'EXPIRED')
+                if (_controller.status == 'EXPIRED')
                   const Text(
                     'This request has expired. Get a fresh quote before requesting another ride.',
                   ),
-                if (_status == 'CANCELLED')
+                if (_controller.status == 'CANCELLED')
                   Text(
-                    '${_trip['cancel_reason'] ?? 'The ride was cancelled.'}\nAny proposed fee is reviewed separately and can be disputed below.',
+                    '${_controller.trip['cancel_reason'] ?? 'The ride was cancelled.'}\nAny proposed fee is reviewed separately and can be disputed below.',
                   ),
-                if (_status == 'DRAFT')
+                if (_controller.status == 'DRAFT')
                   const Text(
                     'This quote was not booked. Choose fresh ride options before requesting a driver.',
                   ),
@@ -638,12 +610,12 @@ class _RiderTripState extends State<RideDetailPage>
             ),
           ),
         const SizedBox(height: 12),
-        RideTripFacts(_trip),
+        RideTripFacts(_controller.trip),
         const SizedBox(height: 14),
         RideCostDetails(
-          trip: _trip,
+          trip: _controller.trip,
           payment: payment,
-          review: rideMap(_data!['review']),
+          review: rideMap(_controller.data!['review']),
         ),
         const SizedBox(height: 14),
         if (needsActions &&
@@ -653,34 +625,34 @@ class _RiderTripState extends State<RideDetailPage>
                   'DRIVER_WAITING',
                   'IN_PROGRESS',
                   'COMPLETED',
-                ].contains(_status) ||
-                _data!['review'] != null))
+                ].contains(_controller.status) ||
+                _controller.data!['review'] != null))
           TripActionsPanel(
-            rideId: _id!,
-            externalContext: _data,
+            rideId: _controller.id!,
+            externalContext: _controller.data,
             onChanged: _changed,
             confirmRider: _confirm,
             cancelRide: _cancel,
-            repository: _ops,
+            repository: _controller.ops,
           ),
-        if (['DRAFT', 'REQUESTED', 'SEARCHING'].contains(_status))
+        if (['DRAFT', 'REQUESTED', 'SEARCHING'].contains(_controller.status))
           OutlinedButton(
-            onPressed: _busy ? null : _cancel,
+            onPressed: _controller.busy ? null : _cancel,
             child: const Text('Cancel ride'),
           ),
-        if (_status == 'COMPLETED') ...[
+        if (_controller.status == 'COMPLETED') ...[
           const SizedBox(height: 8),
           AppButton(
-            onPressed: _busy || _receiptOpen ? null : _receipt,
-            isLoading: _receiptOpen && _reading,
+            onPressed: _controller.busy || _receiptOpen ? null : _receipt,
+            isLoading: _receiptOpen && _controller.reading,
             text: 'View receipt',
           ),
-          if (_trip['review'] == null && driver.isNotEmpty)
+          if (_controller.trip['review'] == null && driver.isNotEmpty)
             OutlinedButton(
-              onPressed: _busy ? null : _rate,
+              onPressed: _controller.busy ? null : _rate,
               child: const Text('Rate your ride'),
             ),
-          if (_trip['review'] != null)
+          if (_controller.trip['review'] != null)
             const Padding(
               padding: EdgeInsets.only(top: 12),
               child: Text(
@@ -708,17 +680,17 @@ class _RiderTripState extends State<RideDetailPage>
           onPressed: _safety,
           child: const Text('Safety, sharing & trip support'),
         ),
-        RideActivityTimeline(_trip),
-        if (!_active) ...[
+        RideActivityTimeline(_controller.trip),
+        if (!_controller.active) ...[
           const SizedBox(height: 16),
           OutlinedButton(
-            onPressed: _busy ? null : _rebook,
+            onPressed: _controller.busy ? null : _rebook,
             child: const Text('Rebook with a fresh quote'),
           ),
           const SizedBox(height: 10),
           OutlinedButton(onPressed: _home, child: const Text('Return to home')),
         ],
-        if (_busy)
+        if (_controller.busy)
           const Padding(
             padding: EdgeInsets.only(top: 10),
             child: AppSkeleton(
@@ -767,10 +739,17 @@ class _RatingDialog extends StatefulWidget {
 }
 
 class _RatingState extends State<_RatingDialog> {
-  int? _score;
+  late final _controller = RideRatingController()..addListener(_changed);
+  int? get _score => _controller.score;
+  void _changed() {
+    if (mounted) setState(() {});
+  }
+
   final _comment = TextEditingController();
   @override
   void dispose() {
+    _controller.removeListener(_changed);
+    _controller.dispose();
     _comment.dispose();
     super.dispose();
   }
@@ -788,7 +767,7 @@ class _RatingState extends State<_RatingDialog> {
                 LiquidGlassChip(
                   label: '$i ★',
                   selected: _score == i,
-                  onPressed: () => setState(() => _score = i),
+                  onPressed: () => _controller.select(i),
                 ),
             ],
           ),

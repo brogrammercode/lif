@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:user/core/color.dart';
 import 'package:user/components/ui/liquid_glass.dart';
+import 'package:user/components/ui/solid_ui.dart';
 
 class AppPage extends StatelessWidget {
   final String title;
@@ -157,7 +158,9 @@ class AppCard extends StatelessWidget {
   final EdgeInsetsGeometry? padding;
   const AppCard({super.key, required this.child, this.padding});
   @override
-  Widget build(BuildContext context) => LiquidGlassTheme.of(context)
+  Widget build(BuildContext context) => SolidTheme.of(context)
+      ? SolidSurface(padding: padding ?? const EdgeInsets.all(16), child: child)
+      : LiquidGlassTheme.of(context)
       ? SizedBox(
           width: double.infinity,
           child: LiquidGlassSurface(

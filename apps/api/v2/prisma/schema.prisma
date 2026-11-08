@@ -550,6 +550,7 @@ model PlaceReview {
 }
 
 model Ride {
+  passenger_count       Int               @default(1)
   collection_preference PaymentMethodType @default(CASH)
   search_radius_km      Int?
   next_dispatch_at      DateTime?         @db.Timestamptz(3)

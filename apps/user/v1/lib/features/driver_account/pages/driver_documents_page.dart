@@ -1,3 +1,4 @@
+import 'package:user/features/driver_account/controllers/driver_documents_controller.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:io';
 import 'dart:typed_data';
@@ -32,18 +33,18 @@ class DriverDocumentsPage extends StatefulWidget {
 }
 
 class _DocumentsState extends State<DriverDocumentsPage> {
-  late final repo = widget.repository ?? VehicleVerificationRepository();
-  late Future<Map<String, dynamic>> _data = repo.documents();
-  bool _busy = false;
-  Future<void> _reload() async {
-    if (!mounted) return;
-    setState(() {
-      _data = repo.documents();
-    });
-    try {
-      await _data;
-    } catch (_) {}
+  late final _controller = DriverDocumentsController(
+    widget.repository ?? VehicleVerificationRepository(),
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
   }
+
+  VehicleVerificationRepository get repo => _controller.repo;
+  Future<Map<String, dynamic>> get _data => _controller.data;
+  bool get _busy => _controller.busy;
+  set _busy(bool value) => _controller.busy = value;
+  Future<void> _reload() => _controller.reload();
 
   Future<void> _open(Map<String, dynamic> asset) async {
     if (_busy) return;
@@ -200,6 +201,13 @@ class _DocumentsState extends State<DriverDocumentsPage> {
     }
     final bytes = await source.readAsBytes();
     return VehicleDocumentSelection(file.name, bytes);
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
+    super.dispose();
   }
 
   @override

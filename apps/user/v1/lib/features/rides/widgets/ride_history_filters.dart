@@ -1,3 +1,6 @@
+import 'package:user/features/rides/ride_history_filter.dart';
+export 'package:user/features/rides/ride_history_filter.dart';
+import 'package:user/features/rides/controllers/ride_history_filter_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_skeleton.dart';
 import 'package:user/components/ui/button.dart';
@@ -27,11 +30,6 @@ String rideMonthLabel(String month) {
       : month;
 }
 
-class RideHistoryFilter {
-  final String? categoryId, categoryName, month;
-  const RideHistoryFilter({this.categoryId, this.categoryName, this.month});
-}
-
 class RideHistoryFilters extends StatefulWidget {
   final UserAppRepository repository;
   final RideHistoryFilter initial;
@@ -45,13 +43,27 @@ class RideHistoryFilters extends StatefulWidget {
 }
 
 class _RideHistoryFiltersState extends State<RideHistoryFilters> {
-  late Future<List<Map<String, dynamic>>> _categories = widget.repository
-      .vehicleCategories();
-  late String? _category = widget.initial.categoryId;
-  late String? _categoryName = widget.initial.categoryName;
-  late String _month = widget.initial.month?.split('-').last ?? '';
-  late String _year =
-      widget.initial.month?.split('-').first ?? '${DateTime.now().year}';
+  late final _controller = RideHistoryFilterController(
+    widget.repository,
+    widget.initial.categoryId,
+    widget.initial.categoryName,
+    widget.initial.month,
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<List<Map<String, dynamic>>> get _categories => _controller.categories;
+  set _categories(Future<List<Map<String, dynamic>>> value) =>
+      _controller.categories = value;
+  String? get _category => _controller.category;
+  set _category(String? value) => _controller.category = value;
+  String? get _categoryName => _controller.categoryName;
+  set _categoryName(String? value) => _controller.categoryName = value;
+  String get _month => _controller.month;
+  set _month(String value) => _controller.month = value;
+  String get _year => _controller.year;
+  set _year(String value) => _controller.year = value;
   List<int> get _years => {
     int.parse(_year),
     ...List.generate(
@@ -59,6 +71,13 @@ class _RideHistoryFiltersState extends State<RideHistoryFilters> {
       (index) => DateTime.now().year - index,
     ),
   }.toList()..sort((a, b) => b.compareTo(a));
+  @override
+  void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => LiquidGlassSheet(
     child: SingleChildScrollView(

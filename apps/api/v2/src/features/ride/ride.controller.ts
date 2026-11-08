@@ -6,6 +6,7 @@ import {
   Res,
   Post,
   Get,
+  Query,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
@@ -33,6 +34,7 @@ import {
   quote_schema,
   review_schema,
   ride_list_schema,
+  availability_schema,
 } from './ride.type.js';
 @Controller()
 export class RideController {
@@ -45,6 +47,23 @@ export class RideController {
       throw new AppError(401, 'UNAUTHORIZED', 'Authentication is required');
     return request.auth.user_id;
   };
+
+  @Get('rides/availability')
+  @UseGuards(AuthGuard)
+  async availability(
+    @Req() request: Request,
+    @Query() query: unknown,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    return send_success(
+      response,
+      await this.operations.rider_availability(
+        this.current_user_id(request),
+        availability_schema.parse(query),
+      ),
+      'Nearby availability loaded',
+    );
+  }
 
   @Post(RIDE_ROUTES.QUOTE)
   @HttpCode(200)

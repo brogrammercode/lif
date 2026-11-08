@@ -1,3 +1,4 @@
+import 'package:user/features/auth/controllers/login_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:user/components/ui/app_logo.dart';
@@ -5,7 +6,6 @@ import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/color.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/core/routes.dart';
-import 'package:user/features/auth/auth.repo.dart';
 import 'package:user/features/auth/constants/user.constant.dart';
 
 class LoginPage extends StatefulWidget {
@@ -16,14 +16,23 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  bool _signingIn = false;
+  late final _controller = LoginController()..addListener(_changed);
+  bool get _signingIn => _controller.signingIn;
+  void _changed() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_changed);
+    _controller.dispose();
+    super.dispose();
+  }
 
   Future<void> _signIn() async {
     if (_signingIn) return;
-    setState(() => _signingIn = true);
     try {
-      await AuthRepository().signInWithGoogle();
-      if (mounted) {
+      if (await _controller.signIn() && mounted) {
         Navigator.pushNamedAndRemoveUntil(
           context,
           AppRoutes.gate,
@@ -36,8 +45,6 @@ class _LoginPageState extends State<LoginPage> {
           context,
         ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
       }
-    } finally {
-      if (mounted) setState(() => _signingIn = false);
     }
   }
 

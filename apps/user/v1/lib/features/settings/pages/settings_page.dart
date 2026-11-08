@@ -1,3 +1,4 @@
+import 'package:user/features/settings/controllers/settings_controller.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -22,11 +23,17 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  late final _repository = widget.repository ?? SettingsRepository();
+  late final _controller = SettingsController(
+    widget.repository ?? SettingsRepository(),
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  SettingsRepository get _repository => _controller.repository;
   final _scroll = ScrollController();
-  SettingsAccount? _account;
-  String? _error;
-  int _loadId = 0;
+  SettingsAccount? get _account => _controller.account;
+  String? get _error => _controller.error;
   bool _choosingPhoto = false, _savingPhoto = false, _signingOut = false;
 
   @override
@@ -37,24 +44,17 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     _scroll.dispose();
     super.dispose();
   }
 
   Future<void> _load() async {
-    final id = ++_loadId;
-    if (_error != null) setState(() => _error = null);
-    try {
-      final account = await _repository.load();
-      if (mounted && id == _loadId) setState(() => _account = account);
-    } catch (error) {
-      if (!mounted || id != _loadId) return;
-      if (_account == null) {
-        setState(() => _error = ApiResult.errorMessage(error));
-      } else {
-        _notice('Your profile could not be refreshed. Please try again.');
-      }
-    }
+    await _controller.load();
+    final notice = _controller.notice;
+    _controller.notice = null;
+    if (notice != null) _notice(notice);
   }
 
   void _notice(String text) {

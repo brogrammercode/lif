@@ -1,144 +1,136 @@
 # 1More mobile design system
 
-**Current mobile design authority — 30 October 2026.** Use this liquid-glass style for all new mobile UI and future mobile UI reworks unless a later user request explicitly changes it. Settings and the Partner Program journey establish the implementation. The admin workspace continues to follow `WEB_DESIGN.md`.
+Current authority: 8 November 2026. This specification replaces the previous liquid-glass specification in full.
 
-## Reference and direction
+## Reference and scope
 
-Reviewed references in `C:/Users/harsh/Downloads/settin`:
+The visual authority is `C:/Users/harsh/Downloads/image 163.png`, the supplied assigned-driver screen. Match its solid surfaces, neutral typography, compact scale, white/black palette, blue category badge and blue map route. The screenshot shows a phone frame; the app renders the inner screen only. Do not reproduce the hardware frame, notch, status-bar pixels, sample identity or example map labels.
 
-- `ChatGPT Image Oct 29, 2026, 05_52_44 PM-3 1.png`: profile, icon wells, upload previews and document cards.
-- `Dreamy Driver Details UI Mockup 1.png`: calm form spacing, frosted inputs, dark rounded Continue action.
-- `Pastel Driver Details App Mockup 1.png`: contact fields and document/photo capture surfaces.
+The user explicitly rejected glassmorphism. New screens and future mobile reworks follow this document. The current implementation scope is the complete rider ride flow, including Home, endpoint entry, vehicle selection, search, assigned/arrived, ongoing ride and completion. Other existing modules retain their implementation until explicitly migrated; they are not design references for new work. Admin continues to use its separate web design.
 
-Use their pastel blue/lavender atmosphere, translucent layers, rounded glass rims and restrained typography. Render the material in Flutter code. Reference artwork, illustrative phone frames, example names, document totals and dummy vehicles are design examples and do not become app content.
+The seven-stage ride sequence remains unchanged. This update replaces its visual treatment, not server transitions or booking rules.
 
-**Do not add bottom navigation.** Settings has no bottom bar. Retain clear back navigation and the existing authenticated route/active-trip recovery behavior.
+## Material rules
 
-## Material construction
+- Use fully opaque white sheets and cards. Black status strips and black circular contact controls are solid black.
+- No backdrop blur, frosted inputs, translucent fills, pastel lighting, reflective rims, glossy gradients or oversized soft shadows.
+- Cards use a fine neutral border and, only where needed, an almost imperceptible neutral shadow.
+- The map remains clear and fills the space above the sheet. Sheets are edge to edge with rounded top corners.
+- Reuse `components/ui/solid_ui.dart`: `SolidScope`, `SolidSurface`, `SolidButton`, `SolidIconButton`, `SolidSheet`, `SolidPage` and `RideTokens`.
+- `SolidTheme` is captured by dialogs/sheets. Legacy shared trip controls must render solid when hosted within this scope. They must not reintroduce their old glass renderer inside a ride.
+- Do not add a glass package or duplicate a visual primitive per feature.
 
-The glass effect combines actual background blur, translucent layered color, bright directional rim reflections, a finer inner edge and a soft ambient shadow. Let the backdrop remain visible through the surfaces. Settings tiles, form sections, input wells, upload cards, chips, circular icon controls, dialogs, sheets and primary actions use the same material family.
+## Palette
 
-Use `lib/components/ui/liquid_glass.dart` as the reusable implementation:
-
-| Component | Use |
+| Role | Color |
 | --- | --- |
-| `LiquidGlassScope` | Scoped form/control theme, retaining the app's existing font. |
-| `LiquidGlassBackdrop` | Static code-drawn pastel lighting and grouped backdrop source. |
-| `LiquidGlassSurface` | Clipped blur, tint, highlights, inner rim, corners and shadow. |
-| `LiquidGlassPage` / `AppPage(glass: true)` | Shared header/back action, safe areas and page canvas. |
-| `LiquidGlassIconButton` | Circular glass back, refresh, gear and similar controls. |
-| `LiquidGlassButton` / `AppButton` in the scope | Dark glossy primary action with a stable busy state. |
-| `LiquidGlassDialog` | Bounded, scrollable glass confirmation/preview dialog. |
-| `LiquidGlassSheet` | Glass action sheet with a handle and scrolling content. |
-| `LiquidGlassFormSkeleton` | Matching form/document loading surfaces. |
-| `LiquidGlassDropdownFormField` | Shared form dropdown: glass field, anchored glass menu, search and selection feedback. |
-| `LiquidGlassSelectField` | Matching trigger for dedicated catalog/search selection routes. |
-| `LiquidGlassChip` | Glass tabs, filters, selected values and compact actions; no native Chip fill. |
+| Screen, sheet, card | #FFFFFF |
+| Main text and controls | #101010 / #000000 |
+| Secondary labels | #858585 |
+| Dividers and fine card borders | #EEEEEE |
+| Muted input background | #F5F5F5 |
+| ETA pill on black strip | #333333 |
+| Category badge and route accent | #4258ED |
+| Handle | #CCCCCC |
 
-`AppCard` becomes a glass surface inside the scope, keeping existing feature code reusable. Other existing screens adopt this style when they are reworked; do not silently change unrelated operational UI in a focused task.
+Green/red/amber remain available for real success/error/review meaning. Do not turn primary ride actions green, navy or amber. Do not copy example reward/trophy claims. Blue belongs to the route, category badge and selected emphasis.
 
-### Palette
+## Scale and typography
 
-| Role | Value / treatment |
+Use the platform's neutral sans-serif through `SolidScope`; the ride flow no longer inherits Outfit. The screenshot's font cannot be uniquely identified from its raster, so do not claim a licensed typeface match. Use regular/medium bodies and semibold titles, avoiding heavy headings.
+
+| Element | Logical size / treatment |
 | --- | --- |
-| Canvas | `#E5ECFB`, with diffuse blue, lavender, peach and pink lighting. |
-| Primary text | `#182133`. |
-| Secondary text | `#586780`; keep helpers legible over translucent surfaces. |
-| Control accent | `#354E79`. |
-| Glass fill | Directional white at approximately 16–48% opacity with a subtle cool tint. |
-| Rim | Bright white at the upper light edge, fading into blue/lavender and lower white reflections. |
-| Primary action | Dark translucent slate/navy, light upper reflection and white label/icon. |
-| Semantic colors | Existing green for approved/success, red for rejection/error and amber for review/warning. Always include text/icon meaning. |
+| Top message pill | 14 px, semibold, centered |
+| Black strip text | 14 px, regular/medium |
+| ETA pill | 12 px, semibold |
+| Vehicle plate | 20 px, bold/semibold |
+| Make/model/color | 12 px, regular |
+| Driver name | 16 px, semibold |
+| Driver secondary label | 12 px, gray |
+| Rating below avatar | 11 px, black with star |
+| Route labels | 12 px, gray |
+| Route addresses | 16 px, medium |
+| General section heading | 18–20 px |
+| Primary action | 14–15 px, semibold |
 
-Keep brand green in meaningful brand/semantic roles. Reworked glass flows use the reference's dark primary action rather than introducing unrelated button colors per screen.
+Use logical pixels rather than multiplying every element by screen width. Standard body text is 14 px with approximately 1.35 line height. Respect system text scaling; grow/scroll content instead of clipping names or addresses. The reference hierarchy must remain recognizable on 320 px phones.
 
-### Shape, depth and spacing
+## Geometry and spacing
 
-- Standard panels: 24 logical-pixel radius; input wells: 20; dialogs/sheets: 24–30; primary actions: 28; circular controls: fully round.
-- Main surface blur starts at sigma 18. Clip every filter to its actual surface bounds.
-- Bright outer rim about 1.35 px and a finer inset rim about 0.65 px. Reflections belong to the reusable painter, rather than individually drawn borders on every page.
-- Shadows are soft and cool, with roughly 22 px blur and an 8 px downward offset. Keep nested controls lighter than their containing panel.
-- Page insets: 20 px; panel insets: 18–24; gaps between related cards: 10–14; gaps between sections: 20–24.
-- Primary buttons and tappable icon controls have minimum heights of 56 and 48 respectively. Controls grow for text scaling; do not crop large labels to keep a fixed mockup height.
-- Profile tiles retain a 76 px minimum height, leading circular icon, title/helper and trailing chevron. Text wraps naturally on narrow devices.
+- At a normal portrait phone size, the assigned screen's map occupies about the upper 52–56%; the black strip and white sheet occupy the remainder.
+- Initial assigned white sheet is approximately 43% of available height, with a 54 px black ETA strip directly above it. The ongoing sheet is smaller.
+- Sheet top radius: 18 px. Vehicle card radius: 12 px. Message/category/ETA pills: fully rounded.
+- Sheet side padding: 20 px; vehicle card padding: 12–14 px.
+- Vehicle card precedes the driver row by 16 px. Driver row precedes the divider/route block by 16–20 px.
+- Handle: approximately 36 × 3 px with 9 px vertical margins.
+- Vehicle visual: approximately 108 × 66 px, contained, never cropped into a square avatar. Category badge overlays its lower-right area.
+- Driver avatar: about 48 × 48 px with softly rounded corners; rating sits immediately below it.
+- Contact circles: visually about 36–40 px, with at least a 44 px interactive target. White line icons on black.
+- Primary buttons: minimum 48 px high, radius 14 px, solid black with white text. Busy state retains geometry.
+- Keep additional trip controls collapsed below the main reference content, except required start verification or actionable failure feedback.
 
-### Typography
+## Assigned driver screen — exact content hierarchy
 
-Retain Outfit through the existing mobile theme. Use medium/semibold weights and calm line spacing: page headings around 22–24, profile name 22, field/tile labels 14–15, supporting copy 12–14. Preserve authored document headings, lists, images and tables. Avoid applying very heavy headings, tiny helpers or all-capital section labels throughout the forms.
+1. Map from the top safe area to the ETA strip. Use the configured MapLibre map, actual coordinates and blue route.
+2. Centered opaque white message pill: Get ready, the driver will come soon. Change the wording for arrived/in-progress states.
+3. Coordinate-anchored vehicle marker and actual driver label. The vehicle must not float at screen center. Keep route endpoints, attribution and recenter available.
+4. Black ETA strip, above the sheet: hourglass icon, arrival label on the left and dark-gray time pill on the right.
+5. White sheet with small gray handle.
+6. Fine-bordered vehicle card: plate on left, make/model/color under it; contained vehicle photo on right with blue category badge.
+7. Driver row: avatar/rating left, actual name and real rating context center, round call/chat actions right.
+8. Light divider.
+9. Pickup/destination timeline: black pickup circle and destination pin, light connector; gray labels above black addresses.
+10. Start code and rider confirmation appear when the server reports arrival. Secondary safety/cancel/support controls remain accessible below the main composition.
 
-## Forms, uploads and documents
+Never show Top Rated Driver, trophies, unread-message badges, exact ETAs or photos unless backed by actual data. An unrated driver reads Unrated. Missing photos have a restrained type-appropriate icon, not an unrelated stock car.
 
-- Use the scope's rounded input theme and shared glass wells. Filled-field floating labels stay inside the clipped well; focus/error underlines remain visible alongside its reflective rim. Preserve read-only/disabled states, keyboard types, canonical dropdowns, validation, DOB limits and automatic IFSC formatting.
-- Dynamic field labels and categories come from the API. Keep the server's approval/rejection status and reason adjacent to each answer. Approval must not be represented by color alone.
-- Partner application descriptions/supporting subtitles appear only while their editable field has focus. Reuse `FocusFieldHint`; hide them again on blur and for approved/read-only fields. Required markers, values, validation failures and rejection reasons remain visible. Upload guidance remains available during editing and in the file-review sheet; licensing attribution and actionable errors remain visible.
-- The editable Partner Program application uses contact/delivery followed by one step per configured category. Show the current category, progress, Previous/Continue and final-only Submit. Preserve answers and the saved step on navigation/reopening; reveal the relevant category when final validation finds an offscreen error. Submitted review and confirmation remain their existing document/review screens.
-- Application image/document selectors use a single full-width vertical column, with at least 20 px between fields. Do not put upload cards side by side, including on wider screens. Once selected, image fields use a clearly visible full-width preview canvas (approximately 168 px in compact application cards and 220 px in standard upload cards); empty document/non-image selectors remain compact. Retain the field label, real size/format guidance and add/retake action. Use the shared file-review sheet for filenames, full previews and remove/open controls. Cards grow with text size and review feedback; their skeleton follows the same vertical layout.
-- File and camera capture share the same glass upload surfaces. Retain bounded previews, real filenames, open/remove controls and explicit replace/retake actions. Never substitute private documents for public avatars or catalog logos.
-- Preserve existing file limits and JPEG/PNG/WebP/PDF acceptance rules. A design reference mentioning 10 MB or DOCX does not change the backend's supported file limits or formats.
-- Keep local preview separate from submission/cloud upload. Preserve sequential uploads, account-scoped draft recovery, retry reuse, protected-route recovery and camera-only live selfie provenance.
-- Policies and confirmations remain rich document surfaces. Retain accepted revisions, field validation and explicit policy/confirmation consent. Keep PDF download and final activation actions clearly visible.
-- Date pickers retain their supported native/Flutter behavior and receive the scoped palette. Option selectors use the shared glass implementation below, preserving form semantics and original values.
+## Remaining ride screens
 
-## Dropdowns and selection menus
+| Stage | Required composition |
+| --- | --- |
+| Home | Clear map, small profile/control buttons, actual place-photo strip, compact white pickup/drop-off panel and black Continue |
+| Location selection | Map above a solid white search sheet; compact gray input wells; readable suggestion rows; explicit map selection and confirmation |
+| Vehicle selection | Route map, dynamic category tiles, white vehicle/driver previews, passenger control, payment/note, persistent black booking action |
+| Finding driver | Route map, white lower sheet, bounded blue radar illustration, central search title, concise real search status, cancellation below |
+| Pickup/arrived | Exact assigned-driver hierarchy above, with honest waiting/start verification states |
+| In progress | Clear route map, black remaining-time strip, compact driver/vehicle/contact row, restrained blue progress track |
+| Completion | White page, belongings reminder, real driver/vehicle hero, trip reference/date, inline stars, compact route/fare/payment summary, Home and receipt actions |
 
-Use `lib/components/ui/glass_dropdown.dart` throughout the rider and driver application. Do not add native `DropdownButtonFormField` controls or a flat white popup for new dropdowns. Declare choices with `DropdownMenuItem<T>` and render them with `LiquidGlassDropdownFormField<T>`; these items supply data/labels, while the shared component owns the field and menu rendering.
+Vehicle Continue submits directly into matching. Do not restore a compulsory review detour. Preserve the distinction between a nearby preview and an accepted driver. Pre-booking identity/locations remain limited to the approved public projection.
 
-- Closed fields use a 20 px glass well, an in-well label/hint, a consistent down chevron, legible selected text and a visible focus/error treatment. Keep 16–20 px between surrounding controls; Partner Program fields use 20 px. Do not wrap the component in another glass well.
-- Open menus use the same real clipped blur, translucent tint, reflective rim and restrained shadow, with a 24 px corner radius. A lightly dimmed barrier supports outside-tap dismissal. Menus choose a position above/below the field and remain within the viewport, safe areas and keyboard insets.
-- Display readable option names. A selected option has a tinted row plus a check, without relying on color alone. Long lists (eight or more choices) expose a search field and a clear no-matches state. Search matches display labels case-insensitively; rich/custom option content must supply `searchLabel`.
-- Menu content scrolls within bounded height, including in landscape with a keyboard. Labels and rows may grow with text scale. Preserve keyboard opening, Tab/Enter selection and Escape dismissal. High contrast uses the shared readable solid surfaces; reduced motion disables skeleton animation through the existing component.
-- Keep opaque IDs, booleans (including `false`) and optional empty-string values unchanged. Preserve validation, reset/save, required fields and approval locks. Changed dependent options clear stale selections, and a result from an outdated menu cannot select an option that was removed or disabled.
-- Loading options use an in-field skeleton and a stable disabled state. Keep canonical state/city/PIN dependencies and retry feedback. Busy, empty and locked controls do not open menus or mutate answers.
-- Brand/model search retains its dedicated catalog page, pagination and suggestion workflow; its field trigger uses `LiquidGlassSelectField` to match ordinary dropdowns.
+## Maps
 
-The app-local [mobile design entry point](../apps/user/v1/MOBILE_DESIGN.md) links to this authority. See [dropdown implementation and checks](MOBILE_DROPDOWN_REWORK.md).
+Retain MapLibre and the existing configured free map source. Do not change provider to imitate foreign map labels. Use blue route strokes, black/white endpoint markers and a small top-down vehicle marker. Attributions stay visible above overlays. Never fabricate traffic, driver motion, nearby vehicles or route progress.
 
-## Loading, failure and feedback
+Fit actual endpoints and driver location into the visible map area with panel-aware padding. Recenter is an opaque white circular button near the lower-right map edge. Preserve medium coordinate-anchored markers, real GPS freshness, three-second search settling and 3–5-second drag settling. No automatic first-drag location confirmation.
 
-- Loading uses the same background, avatar, glass panels and field geometry as the destination. Use document blocks for document loading and field wells for form loading.
-- `AppSkeleton` shares one animation controller, painting shimmer only into its placeholder shapes. This keeps real backdrop filters outside a whole-layout shader mask/save layer.
-- Respect reduced motion, accessibility navigation settings and hidden routes. Glass lighting itself is static and needs no continuously running animation.
-- High-contrast mode uses readable solid surfaces and disables backdrop blur. Preserve clear text and focus/validation feedback.
-- Keep loaded data during a recoverable refresh failure. Show clear retry/error states, preserve drafts and make busy actions non-interactive without shifting their layout.
+## Forms, menus and modal surfaces
 
-## Performance and rendering
+Use gray/white solid input wells with 12 px corners, small labels and clear focus/error treatment. Menus and dialogs use opaque white with thin gray boundaries; selected options use a subtle neutral fill/check. Preserve option IDs, dependent resets, disabled states, validation and menu search.
 
-Group **non-overlapping sibling** backdrop filters with `BackdropGroup`. Nested glass wells inherit the containing surface's blur while retaining their own tint/rim; do not stack repeated blur operations on the same content. Overlapping modal layers have their own backdrop group.
+Shared legacy dropdown logic may remain, but its rendering within `SolidTheme` must contain no blur or reflective rim. Preserve keyboard bounds and large-text scrolling. Modal layers capture the solid scope. Buttons and validation remain visible when the keyboard opens.
 
-Keep filters bounded to visible controls. Large live MapLibre views require a clear map with bounded glass controls; avoid a blur operation across the entire moving map. Keep image decoding constrained and document scroll areas bounded. Use static custom-painted ambient lighting instead of adding large decorative bitmap assets or a new glass package.
+## Loading, failure and accessibility
 
-The implementation follows Flutter's [BackdropFilter guidance](https://api.flutter.dev/flutter/widgets/BackdropFilter-class.html) and [BackdropGroup API](https://api.flutter.dev/flutter/widgets/BackdropGroup-class.html) for clipping and grouping filters. Profile raster/render performance on real devices before claiming frame-rate guarantees.
+Skeletons match the new flat destination geometry; neutral placeholders never shimmer over an entire map. No circular page loaders. Reduced motion disables shimmer. Keep verified data visible on recoverable refresh failure and surface a concise retry message.
 
-## Interaction and scope
+Back, refresh, call, chat and safety actions have labels/tooltips and at least 44 px targets. Names, plates, prices and addresses may wrap. Do not scale down text to force a reference-size card. Keep active-trip recovery and account/session changes correct. No bottom navigation.
 
-### Saved places
+## Business behavior to preserve
 
-Use the shared place map as the canvas. Place discovery/search/type and account filters float in bounded glass controls; map attribution remains exposed. Equal-size bottom cards show photo, name, address and actual type/saved/visited/rating context with side peeks. Do not scale or zoom the active card. Swiping cards and tapping coordinate-anchored map markers select the same place, retaining camera zoom; frame the pin above the bottom card. Pagination makes the bounded set of map pins explicit.
+Preserve server fare calculation by actual category; quote expiry; immutable/idempotent booking retries; passenger capacity; actual assignment; verified arrival; rider confirmation plus trip code; cancellation/no-show reviews; Cash/Direct UPI and recorded receipt; private assets; session/role ownership; historical receipts and reviews.
 
-Add Place is a separate map-picker page, with search, a center selection pin and a floating image/location preview card. Resolve the selected camera coordinate after settling and reject stale address results. Follow with the glass name/address/type/description/contact form. Keep local photos local until final Save, validate JPEG/PNG/WebP and 3 MB per photo, upload sequentially through API WebP conversion, and retain the same upload keys on retry. Back to map retains the edited form values. An incomplete upload can finish without the remaining photos after the place is saved.
+A completed trip is not proof of payment. Opening UPI is not proof of receipt. Use View receipt unless a real ride PDF exists. Example passenger names, Toyota car, plate, foreign addresses and trophy labels in the reference are not seed data.
 
-Place details follow the supplied content order: map, name/address/type, photo carousel, actual visitor avatars/statement, Plot on map and visit actions, secondary actions, then vertically arranged review cards. Contact actions appear only when contributed public phone/website data exists. Directions open an in-app MapLibre route preview from a permitted device location. Use actual photos/reviews/visits, readable empty states and configured place information; reference restaurant photos, visitor counts, categories, prices and reviews are not seed content.
+## Implementation and acceptance
 
-New places, their photos, self-reported visits and reviews are shared with signed-in members. Each account controls its own bookmark, visit and review; only contributors edit a place or remove their own photos. Previous personal saves remain available under Previous saves and can be explicitly saved through the shared map picker. For narrow/short screens and large text, use an accessible scrollable map-and-card layout so floating controls do not obscure the content. No bottom navigation. See [the saved-place tracker](SAVED_PLACES_GLASS_REWORK.md).
+Use shared primitives and data-bound compositions in `features/rides/widgets/rider_flow_components.dart` and `rider_live_panel.dart`. Keep transport and booking logic in repositories/controllers. Historical documents with glass instructions are superseded for new design work by this document.
 
-### Driver mode
+Verify Flutter analysis, relevant ride regressions, small portrait/landscape layouts, large text, sheet dragging, dialogs/menus, and a real-device map/arrival/start/completion journey. Compare actual screenshots with the reference before claiming pixel-level equivalence. Native platform map styling, real vehicle photos and safe-area dimensions vary; match the screen composition and visual system without copying the phone frame.
 
-Driver mode uses this same liquid-glass language rather than a separate theme. Driver home and active-trip pages are map-first: preserve a clear MapLibre canvas and attribution while profile/help, availability, navigation and trip actions use bounded glass overlays and a draggable glass sheet. Do not add bottom navigation.
+## Controllers and demo flows
 
-Order content as current availability or trip state, active vehicle and route/fare context, primary action, then secondary workspace links. Reuse `features/driver_operations/widgets/driver_glass.dart` for driver intros, statuses, entity links, metadata, notices and loading skeletons. Preserve GPS freshness, offer expiry, both trip-start proofs, server fare, direct collection, ownership and active-trip recovery. See [the complete driver UI inventory](DRIVER_LIQUID_GLASS_UI_REWORK.md).
+Feature records, server snapshots, query/filter selections, form file collections and fixture data belong in feature controllers under `lib/features/<feature>/controllers`. Keep views reusable for real or dummy sources. Pages own navigation, focus, text-editing/scroll/animation/map handles and native presentation coordination. Do not put sample profiles, quotes or response fixtures into a page.
 
-### My Rides and account flows
-
-My Rides follows the same Settings surfaces and typography. History uses glass filters/cards and matching skeletons; retain loaded rows during a same-query refresh and clear them on a filter/page change. Details use the reference's content order: map/date, pickup/drop-off timeline, real driver/vehicle and recorded/quoted metrics/rating, then costs and collection. Historical maps show stored coordinates/booking routes, with an explicit unavailable state when missing; active maps retain current GPS/freshness and start/payment/support controls. Do not copy example traffic, tax, discount or currency values from a mockup. See [My Rides implementation](MY_RIDES_GLASS_REWORK.md).
-
-The `Downloads/my_rides` references inform history, unfulfilled detail and safety content. Bind status counts/search/category/month filters to the complete rider-scoped API results, with IST month boundaries and stale-response protection. Cards show opaque trip references, actual route metrics, driver/vehicle/category and collection state; receipt, help and fresh-quote rebooking actions match the outcome. Unfulfilled trips show unassigned identity, recorded search duration/events and a separate quote/collection breakdown. Keep fare, payment/refund and reviewed cancellation obligations distinct. Safety uses configured contact channels and explicit static manual sharing; mockup guarantees, payment holds, encrypted/live sharing, dispatch totals and invoice downloads must not become invented app features.
-
-My Rides status tabs, Date/category action and removable applied filters use `LiquidGlassChip` rather than `ChoiceChip`, `ActionChip` or `InputChip`. The shared surface supplies the bounded blur, reflective rim, translucent tint, semantic selection and removable-value focus targets. Do not rely on a native Chip's default white fill.
-
-Settings keeps its five primary cards, profile photo controls and gear/action sheet. Partner Program, mode switching, relevant history/account links, saved places, notifications, emergency contacts, support and confirmed sign-out remain accessible. Back navigation retains existing session/active-trip gates; no bottom navigation is introduced.
-
-Settings secondary pages use the same page header, intro surface, compact section heading, semantic status pills, destination-shaped skeletons and 12–14 px list rhythm. Notifications show actual unread/all counts and type context. Emergency contacts use a validated E.164 add/edit form, a call/edit/remove action sheet and destructive confirmation; never imply automatic emergency dispatch. Support separates configured contact channels from persisted requests, shows status/priority/message context, and presents the request detail as a clear participant conversation. Payment methods explain Cash and per-ride Direct UPI truthfully, distinguish them from unavailable provider-managed collection, and never collect or reveal provider credentials. Preserve loaded rows during same-query refreshes and never replace them with circular progress indicators. See [the Settings secondary-page tracker](SETTINGS_SECONDARY_PAGES_GLASS_REWORK.md).
-
-Apply the same material across policy, application details, documents/live selfie, submitted/rejected review, confirmation, final PDF, activation, exit/dues, and the linked vehicle-registration/catalog-suggestion/document forms. Maintain every existing business transition, ownership check and approval gate.
-
-For future work: read this document first, reuse/extend these components, add matched skeletons, and verify phone/landscape/tablet layouts, text scaling, keyboard use, modal scrolling and focus. Run Flutter analysis and relevant regressions. No routine APK build is required for these Dart UI changes.
+Home's Demo sheet is backed by DemoRegistryController. RideDemoController supplies an isolated data source to production ride pages. UI adjustments belong in shared production widgets; another demo must not duplicate them. See `context/MOBILE_CONTROLLERS_AND_DEMO_FLOWS_PLAN.md` for the inventory, usage and acceptance checklist.

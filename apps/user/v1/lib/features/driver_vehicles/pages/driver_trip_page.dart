@@ -1,3 +1,4 @@
+import 'package:user/features/driver_vehicles/controllers/driver_trip_controller.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -30,34 +31,43 @@ class DriverTripPage extends StatefulWidget {
 
 class _DriverTripPageState extends State<DriverTripPage>
     with WidgetsBindingObserver {
-  late final _ops = widget.repository ?? DriverOperationsRepository();
-  late final _tracking = widget.tracking ?? DriverTrackingService.instance;
-  String? _id, _error, _navError, _navTarget, _offersError;
-  Map<String, dynamic>? _trip, _context;
-  List<Map<String, dynamic>> _offers = [];
-  List<LatLng> _points = [];
-  List<Map<String, dynamic>> _steps = [];
-  NavigationProgress? _progress;
+  late final _controller = DriverTripController(
+    widget.repository ?? DriverOperationsRepository(),
+    widget.tracking ?? DriverTrackingService.instance,
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  DriverOperationsRepository get _ops => _controller.ops;
+  DriverTrackingService get _tracking => _controller.tracking;
+  String? get _id => _controller.id;
+  set _id(String? value) => _controller.id = value;
+  String? get _error => _controller.error;
+  String? get _navError => _controller.navError;
+  String? get _offersError => _controller.offersError;
+  Map<String, dynamic>? get _trip => _controller.trip;
+  Map<String, dynamic>? get _context => _controller.context;
+  List<Map<String, dynamic>> get _offers => _controller.offers;
+  List<LatLng> get _points => _controller.points;
+  List<Map<String, dynamic>> get _steps => _controller.steps;
+  NavigationProgress? get _progress => _controller.progress;
+  set _progress(NavigationProgress? value) => _controller.progress = value;
   Timer? _poll, _clock;
-  Completer<void>? _readDone;
-  DateTime? _lastNavigation;
-  bool _loading = false,
-      _busy = false,
-      _readingOffers = false,
-      _navigating = false,
-      _foreground = true,
-      _follow = true;
+  Completer<void>? get _readDone => _controller.readDone;
+  bool get _busy => _controller.busy;
+  set _busy(bool value) => _controller.busy = value;
+  bool get _readingOffers => _controller.readingOffers;
+  bool get _foreground => _controller.foreground;
+  set _foreground(bool value) => _controller.foreground = value;
+  bool get _follow => _controller.follow;
+  set _follow(bool value) => _controller.follow = value;
   bool get _active => [
     'DRIVER_ASSIGNED',
     'DRIVER_ARRIVING',
     'DRIVER_WAITING',
     'IN_PROGRESS',
   ].contains(_trip?['status']);
-  String? get _target => !_active
-      ? null
-      : _trip!['status'] == 'IN_PROGRESS'
-      ? 'DROPOFF'
-      : 'PICKUP';
   @override
   void initState() {
     super.initState();
@@ -84,82 +94,9 @@ class _DriverTripPageState extends State<DriverTripPage>
     unawaited(_load());
   }
 
-  Future<void> _load() async {
-    if (_loading || !mounted || _id == null) return;
-    _loading = true;
-    final readDone = _readDone = Completer<void>();
-    try {
-      final data = await _ops.context(_id!);
-      if (data['is_driver'] != true ||
-          data['trip'] is! Map ||
-          !riderTripStatuses.contains(data['status']) ||
-          rideMap(data['trip'])['id'] != _id ||
-          rideMap(data['trip'])['status'] != data['status'] ||
-          data['ride_id'] != _id) {
-        throw StateError('This trip is not available to your driver account.');
-      }
-      final trip = rideMap(data['trip']);
-      if (trip.isEmpty) {
-        throw const FormatException('The server returned invalid trip data.');
-      }
-      if (!mounted) return;
-      setState(() {
-        _trip = trip;
-        _context = data;
-        _error = null;
-        // Invalidate pickup directions before awaiting GPS or a pending route.
-        if (_target != _navTarget || !_active) {
-          _points = [];
-          _steps = [];
-          _progress = null;
-          _navError = null;
-          _lastNavigation = null;
-        }
-      });
-      try {
-        await _tracking.syncTrip(
-          activeTrip: _active || _context?['driver_has_active_trip'] == true,
-          availability: _context?['driver_availability'] as String?,
-        );
-      } catch (e) {
-        if (mounted) setState(() => _navError = ApiResult.errorMessage(e));
-      }
-      if (_active) unawaited(_navigation());
-      if (_trip?['status'] == 'IN_PROGRESS') {
-        unawaited(_refreshOffers());
-      }
-    } catch (e) {
-      if (mounted) setState(() => _error = ApiResult.errorMessage(e));
-    } finally {
-      _loading = false;
-      readDone.complete();
-      _readDone = null;
-    }
-  }
+  Future<void> _load() => _controller.load();
 
-  Future<void> _refreshOffers() async {
-    if (_readingOffers || !mounted || _trip?['status'] != 'IN_PROGRESS') return;
-    _readingOffers = true;
-    try {
-      final dash = await _ops.dashboard();
-      if (!mounted || _trip?['status'] != 'IN_PROGRESS') return;
-      setState(() {
-        _offers = rideMaps(
-          dash['offers'],
-        ).where((offer) => rideMap(offer['ride']).isNotEmpty).toList();
-        _offersError = null;
-      });
-    } catch (e) {
-      if (mounted && _trip?['status'] == 'IN_PROGRESS') {
-        setState(() {
-          _offers = [];
-          _offersError = ApiResult.errorMessage(e);
-        });
-      }
-    } finally {
-      _readingOffers = false;
-    }
-  }
+  Future<void> _refreshOffers() => _controller.refreshOffers();
 
   void _positionChanged() {
     if (!mounted || !_foreground || ModalRoute.of(context)?.isCurrent != true) {
@@ -185,67 +122,8 @@ class _DriverTripPageState extends State<DriverTripPage>
     }
   }
 
-  Future<void> _navigation({bool force = false}) async {
-    final fix = _tracking.position.value;
-    if (!mounted || !_active || fix == null || _navigating) return;
-    final target = _target!;
-    if (!force &&
-        target == _navTarget &&
-        _lastNavigation != null &&
-        DateTime.now().difference(_lastNavigation!).inSeconds < 15) {
-      return;
-    }
-    if (!force &&
-        target == _navTarget &&
-        _points.isNotEmpty &&
-        (_progress?.offRouteMetres ?? 0) < 60) {
-      return;
-    }
-    if (_navTarget != target) {
-      _points = [];
-      _steps = [];
-      _progress = null;
-    }
-    _navTarget = target;
-    _navigating = true;
-    _lastNavigation = DateTime.now();
-    try {
-      final route = await _ops.navigation(_id!, fix.latitude, fix.longitude);
-      if (!mounted || _target != target) {
-        return;
-      }
-      if (route['target'] != null && route['target'] != target) {
-        throw StateError('Trip destination changed. Refreshing trip status.');
-      }
-      final points = rideGeometry(route['geometry']);
-      if (points.length < 2) {
-        throw StateError('Route geometry is unavailable. Retry navigation.');
-      }
-      final steps = rideMaps(route['steps']);
-      setState(() {
-        _points = points;
-        _steps = steps;
-        _navTarget = target;
-        _navError = steps.isEmpty
-            ? 'Turn instructions are unavailable for this route. Retry navigation.'
-            : null;
-        _progress = NavigationProgress.calculate(
-          LatLng(fix.latitude, fix.longitude),
-          points,
-          steps,
-        );
-      });
-    } catch (e) {
-      if (mounted && _target == target) {
-        setState(() => _navError = ApiResult.errorMessage(e));
-      }
-    } finally {
-      _navigating = false;
-      if (mounted && _active && _target != target) {
-        unawaited(_navigation(force: true));
-      }
-    }
-  }
+  Future<void> _navigation({bool force = false}) =>
+      _controller.navigation(force: force);
 
   Future<void> _act(Future<void> Function() action) async {
     if (_busy) return;
@@ -278,6 +156,8 @@ class _DriverTripPageState extends State<DriverTripPage>
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     _poll?.cancel();
     _clock?.cancel();
     _tracking.position.removeListener(_positionChanged);

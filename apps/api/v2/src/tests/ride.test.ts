@@ -11,6 +11,144 @@ import { AppConfigurationService } from '../features/app_configuration/app_confi
 import { RideService } from '../features/ride/ride.service.js';
 import { GeocodeService } from '../features/geocode/geocode.service.js';
 import { VehicleCategoryRepository } from '../features/vehicle_category/vehicle_category.repo.js';
+import {
+  availability_schema,
+  create_ride_schema,
+} from '../features/ride/ride.type.js';
+
+it('validates passenger counts and bounds public availability inputs', () => {
+  assert.equal(
+    create_ride_schema.parse({ draft_ride_id: 'draft', quote_id: 'quote' })
+      .passenger_count,
+    1,
+  );
+  for (const value of [0, -1, 1.5, 101]) {
+    assert.equal(
+      create_ride_schema.safeParse({
+        draft_ride_id: 'draft',
+        quote_id: 'quote',
+        passenger_count: value,
+      }).success,
+      false,
+    );
+  }
+  assert.equal(
+    availability_schema.parse({
+      draft_ride_id: 'draft',
+      quote_id: 'quote',
+      passenger_count: '2',
+    }).passenger_count,
+    2,
+  );
+  assert.equal(
+    availability_schema.safeParse({
+      draft_ride_id: 'draft',
+      quote_id: 'quote',
+      rider_id: 'foreign',
+    }).success,
+    false,
+  );
+});
+
+it('availability rejects foreign/expired drafts and returns only bounded public preview data', async () => {
+  const db = new PrismaService();
+  let owned = false;
+  const vehicle = {
+    id: 'vehicle',
+    driver_id: 'driver',
+    type: 'BIKE',
+    capacity: 1,
+    status: 'ACTIVE',
+    verification_version: 0,
+    vehicle_category_id: 'bike',
+    vehicle_category: {
+      id: 'bike',
+      vehicle_type: 'BIKE',
+      capacity: 1,
+      is_active: true,
+      parent: null,
+      _count: { children: 0 },
+    },
+    make: 'Brand',
+    model: 'Model',
+    color: 'Black',
+    plate_number: 'PRIVATE-PLATE',
+  };
+  let queried = false;
+  Object.defineProperty(db, 'client', {
+    value: {
+      rideFarePolicy: { findUnique: async () => null },
+      ride: {
+        findFirst: async (args: {
+          where: { rider_id: string; status: string };
+        }) => {
+          assert.equal(args.where.rider_id, 'rider');
+          assert.equal(args.where.status, 'DRAFT');
+          return owned
+            ? {
+                pickup_latitude: new Prisma.Decimal(25),
+                pickup_longitude: new Prisma.Decimal(86),
+                quotes: [
+                  {
+                    id: 'quote',
+                    vehicle_category_id: 'bike',
+                    vehicle_type: 'BIKE',
+                    category_snapshot: { capacity: 1 },
+                  },
+                ],
+              }
+            : null;
+        },
+      },
+      driverProfile: {
+        findMany: async (args: {
+          take: number;
+          where: { availability: string };
+        }) => {
+          queried = true;
+          assert.equal(args.take, 100);
+          assert.equal(args.where.availability, 'AVAILABLE');
+          return Array.from({ length: 12 }, () => ({
+            id: 'driver',
+            user_id: 'driver-user',
+            current_latitude: new Prisma.Decimal(25),
+            current_longitude: new Prisma.Decimal(86),
+            user: {
+              first_name: 'Driver',
+              avatar_url: null,
+              phone_e164: 'PRIVATE-PHONE',
+            },
+            rating_average: 4.5,
+            ratings_count: 2,
+            active_vehicle: vehicle,
+          }));
+        },
+      },
+    },
+  });
+  const service = new DriverOperationsService(db, new GeocodeService());
+  const input = {
+    draft_ride_id: 'draft',
+    quote_id: 'quote',
+    payment_preference: 'CASH' as const,
+    passenger_count: 1,
+  };
+  await assert.rejects(service.rider_availability('rider', input), {
+    error_code: 'QUOTE_UNAVAILABLE',
+  });
+  assert.equal(queried, false);
+  owned = true;
+  const result = await service.rider_availability('rider', input);
+  assert.equal(result.items.length, 8);
+  const json = JSON.stringify(result);
+  for (const value of [
+    'PRIVATE-PHONE',
+    'PRIVATE-PLATE',
+    'current_latitude',
+    'driver-user',
+  ])
+    assert.equal(json.includes(value), false);
+});
 
 it('live location reads retain the newest bounded tail in chronological order and reject unrelated riders', async () => {
   let take = 0;

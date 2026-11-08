@@ -1855,3 +1855,8 @@ For the first UI discussion, decide the driver home layout, first-level navigati
 - [Mobile README / Shorebird instructions](../apps/user/v1/README.md)
 
 **Document maintenance:** after agreeing a phase, update each affected current/proposed status, API contract and acceptance scenario here. Keep actual implemented behavior separate from future design decisions as the product evolves.
+# Rider flow implementation update — 8 November 2026
+
+Visual supersession: the later `image 163.png` request replaces the initial glass treatment with solid white sheets/cards, black ETA/contact controls, compact neutral typography and blue route/category accents. Both mobile design files and the repository mobile instructions now reflect this decision. Shared solid primitives live in `components/ui/solid_ui.dart`; legacy trip controls adapt to the captured solid scope. Trip chat follows the same solid style. See section 19 of the rider reference plan for verification and device acceptance.
+
+The rider booking/live flow now follows `RIDER_RIDE_FLOW_REFERENCE_PLAN.md`: Home and dedicated location entry, a separate vehicle-category/availability page with passenger/payment controls, direct submission into driver search, assigned/arrived verification, compact ongoing trip and completion/rating. Historical trip/receipt views remain available through My Rides. Shared map/sheet, vehicle-driver, progress and skeleton components live in `rider_flow_components.dart`; booking retry/reconciliation lives in `RiderBookingController`. Rollout requires the additive passenger-count migration and physical-device reference acceptance. This update supersedes older descriptions of inline Home vehicle selection and compulsory booking-review handoff.

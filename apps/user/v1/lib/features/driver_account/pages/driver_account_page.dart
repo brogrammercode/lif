@@ -1,3 +1,4 @@
+import 'package:user/features/driver_account/controllers/driver_account_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:user/components/ui/app_page.dart';
@@ -23,11 +24,25 @@ class DriverAccountPage extends StatefulWidget {
 
 class _DriverAccountState extends State<DriverAccountPage>
     with WidgetsBindingObserver {
-  late final repo = widget.repository ?? DriverAccountRepository();
-  Map<String, dynamic>? _data, _requests;
-  String? _error;
-  int _tab = 0, _page = 1;
-  bool _loading = false, _busy = false;
+  late final _controller = DriverAccountController(
+    widget.repository ?? DriverAccountRepository(),
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  DriverAccountRepository get repo => _controller.repo;
+  Map<String, dynamic>? get _data => _controller.data;
+  Map<String, dynamic>? get _requests => _controller.requests;
+  set _requests(Map<String, dynamic>? value) => _controller.requests = value;
+  String? get _error => _controller.error;
+  int get _tab => _controller.tab;
+  set _tab(int value) => _controller.tab = value;
+  int get _page => _controller.page;
+  set _page(int value) => _controller.page = value;
+  bool get _loading => _controller.loading;
+  bool get _busy => _controller.busy;
+  set _busy(bool value) => _controller.busy = value;
   bool get _exited => _data?['exited'] == true;
   @override
   void initState() {
@@ -38,6 +53,8 @@ class _DriverAccountState extends State<DriverAccountPage>
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -51,26 +68,7 @@ class _DriverAccountState extends State<DriverAccountPage>
     }
   }
 
-  Future<void> _load() async {
-    if (_loading || !mounted) return;
-    setState(() => _loading = true);
-    try {
-      final data = await repo.account();
-      if (!mounted) return;
-      setState(() => _data = data);
-      final requests = _tab == 2 ? await repo.requests(page: _page) : null;
-      if (!mounted) return;
-      setState(() {
-        _data = data;
-        _requests = requests;
-        _error = null;
-      });
-    } catch (e) {
-      if (mounted) setState(() => _error = ApiResult.errorMessage(e));
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
+  Future<void> _load() => _controller.load();
 
   Future<void> _run(Future<void> Function() action) async {
     if (_busy) return;

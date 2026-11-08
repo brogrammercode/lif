@@ -1,10 +1,10 @@
+import 'package:user/features/driver_account/controllers/payout_change_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/features/driver_account/driver_account.repo.dart';
 import 'package:user/features/driver_operations/widgets/driver_glass.dart';
-import 'package:user/features/driver_vehicles/vehicle_verification.repo.dart';
 
 class PayoutChangeForm extends StatefulWidget {
   final DriverAccountRepository repository;
@@ -14,16 +14,28 @@ class PayoutChangeForm extends StatefulWidget {
 }
 
 class _PayoutFormState extends State<PayoutChangeForm> {
+  late final _controller = PayoutChangeController()
+    ..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
   final _form = GlobalKey<FormState>();
   final _holder = TextEditingController(),
       _upi = TextEditingController(),
       _bank = TextEditingController(),
       _ifsc = TextEditingController();
-  final _key = VehicleVerificationRepository.registrationKey();
-  bool _busy = false, _attempted = false;
-  String? _error;
+  String get _key => _controller.key;
+  bool get _busy => _controller.busy;
+  set _busy(bool value) => _controller.busy = value;
+  bool get _attempted => _controller.attempted;
+  set _attempted(bool value) => _controller.attempted = value;
+  String? get _error => _controller.error;
+  set _error(String? value) => _controller.error = value;
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     for (final c in [_holder, _upi, _bank, _ifsc]) {
       c.dispose();
     }

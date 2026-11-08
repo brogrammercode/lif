@@ -3,5 +3,10 @@
 class RideDetailIntent {
   final String id;
   final bool receipt;
-  const RideDetailIntent(this.id, {this.receipt = false});
+  final bool liveJourney;
+  const RideDetailIntent(
+    this.id, {
+    this.receipt = false,
+    this.liveJourney = false,
+  });
 }

@@ -1,3 +1,4 @@
+import 'package:user/features/partner_program/controllers/driver_exit_controller.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -17,17 +18,27 @@ class DriverExitPage extends StatefulWidget {
 
 class _DriverExitPageState extends State<DriverExitPage>
     with WidgetsBindingObserver {
-  late final _repo = widget.repository ?? PartnerProgramRepository();
+  late final _controller = DriverExitController(
+    widget.repository ?? PartnerProgramRepository(),
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  PartnerProgramRepository get _repo => _controller.repo;
   final _form = GlobalKey<FormState>();
   final _reason = TextEditingController();
-  Map<String, dynamic>? _request;
-  bool _loading = true;
-  bool _saving = false;
+  Map<String, dynamic>? get _request => _controller.request;
+  bool get _loading => _controller.loading;
+  bool get _saving => _controller.saving;
+  set _saving(bool value) => _controller.saving = value;
   bool _confirming = false;
-  bool _refreshing = false;
-  String? _error;
+  set _refreshing(bool value) => _controller.refreshing = value;
+  String? get _error => _controller.error;
+  set _error(String? value) => _controller.error = value;
   Timer? _poll;
-  int _loadRevision = 0;
+  int get _loadRevision => _controller.loadRevision;
+  set _loadRevision(int value) => _controller.loadRevision = value;
   @override
   void initState() {
     super.initState();
@@ -51,36 +62,16 @@ class _DriverExitPageState extends State<DriverExitPage>
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _poll?.cancel();
     _reason.dispose();
     super.dispose();
   }
 
-  Future<void> _load({bool background = false, bool force = false}) async {
-    if (!mounted || (_refreshing && !force)) return;
-    final revision = ++_loadRevision;
-    _refreshing = true;
-    if (!background) setState(() => _loading = true);
-    try {
-      final data = await _repo.exitRequest();
-      if (!mounted || revision != _loadRevision) return;
-      setState(() {
-        _request = data;
-        _loading = false;
-        _error = null;
-      });
-    } catch (error) {
-      if (mounted && revision == _loadRevision) {
-        setState(() {
-          _loading = false;
-          _error = ApiResult.errorMessage(error);
-        });
-      }
-    } finally {
-      if (revision == _loadRevision) _refreshing = false;
-    }
-  }
+  Future<void> _load({bool background = false, bool force = false}) =>
+      _controller.load(background: background, force: force);
 
   Future<void> _submit() async {
     if (_saving || _confirming || !(_form.currentState?.validate() ?? false)) {

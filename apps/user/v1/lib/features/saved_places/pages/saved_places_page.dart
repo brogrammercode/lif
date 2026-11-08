@@ -1,10 +1,10 @@
+import 'package:user/features/saved_places/controllers/saved_places_controller.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/glass_chip.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/network/api_result.dart';
-import 'package:user/features/rides/ride_display.dart';
 import 'package:user/features/saved_places/places.repo.dart';
 import 'package:user/features/saved_places/place_display.dart';
 import 'package:user/features/saved_places/pages/place_picker_page.dart';
@@ -22,14 +22,39 @@ class SavedPlacesPage extends StatefulWidget {
 
 class _SavedPlacesState extends State<SavedPlacesPage>
     with WidgetsBindingObserver {
-  late final _repo = widget.repository ?? PlacesRepository();
+  late final _controller = SavedPlacesController(
+    widget.repository ?? PlacesRepository(),
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  PlacesRepository get _repo => _controller.repo;
   final _search = TextEditingController();
   final _cards = PageController(viewportFraction: .87);
-  List<Map<String, dynamic>> _places = [];
-  String _scope = 'all', _query = '';
-  String? _selected, _error, _type;
-  int _page = 1, _total = 0, _generation = 0, _recenter = 0;
-  bool _loading = false, _loaded = false;
+  List<Map<String, dynamic>> get _places => _controller.places;
+  set _places(List<Map<String, dynamic>> value) => _controller.places = value;
+  String get _scope => _controller.scope;
+  set _scope(String value) => _controller.scope = value;
+  String get _query => _controller.query;
+  set _query(String value) => _controller.query = value;
+  String? get _selected => _controller.selected;
+  set _selected(String? value) => _controller.selected = value;
+  String? get _error => _controller.error;
+  set _error(String? value) => _controller.error = value;
+  String? get _type => _controller.type;
+  set _type(String? value) => _controller.type = value;
+  int get _page => _controller.page;
+  set _page(int value) => _controller.page = value;
+  int get _total => _controller.total;
+  int get _generation => _controller.generation;
+  set _generation(int value) => _controller.generation = value;
+  int get _recenter => _controller.recenter;
+  set _recenter(int value) => _controller.recenter = value;
+  bool get _loading => _controller.loading;
+  set _loading(bool value) => _controller.loading = value;
+  bool get _loaded => _controller.loaded;
+  set _loaded(bool value) => _controller.loaded = value;
   bool _removingLegacy = false;
   Timer? _debounce;
   @override
@@ -41,6 +66,8 @@ class _SavedPlacesState extends State<SavedPlacesPage>
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _debounce?.cancel();
     _search.dispose();
@@ -57,56 +84,21 @@ class _SavedPlacesState extends State<SavedPlacesPage>
   }
 
   Future<void> _load({bool changed = false}) async {
-    if (_loading && !changed) return;
-    final generation = ++_generation;
-    setState(() {
-      _loading = true;
-      if (changed) {
-        _places = [];
-        _loaded = false;
-        _error = null;
+    await _controller.load(changed: changed);
+    final generation = _generation;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          generation != _generation ||
+          !_cards.hasClients ||
+          _places.isEmpty) {
+        return;
       }
-    });
-    try {
-      final result = await _repo.list(
-        page: _page,
-        query: _query,
-        scope: _scope,
-        type: _type,
+      _cards.jumpToPage(
+        _places
+            .indexWhere((p) => 'undefined' == _selected)
+            .clamp(0, _places.length - 1),
       );
-      if (!mounted || generation != _generation) return;
-      final rows = rideMaps(result['rows']);
-      setState(() {
-        _places = rows;
-        _total = (rideNumber(result['total']) ?? 0).toInt();
-        _selected = rows.any((p) => '${p['id']}' == _selected)
-            ? _selected
-            : rows.firstOrNull?['id'] as String?;
-        if (changed || !_loaded) _recenter++;
-        _loaded = true;
-        _error = null;
-      });
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted &&
-            generation == _generation &&
-            _cards.hasClients &&
-            rows.isNotEmpty) {
-          _cards.jumpToPage(
-            rows
-                .indexWhere((p) => '${p['id']}' == _selected)
-                .clamp(0, rows.length - 1),
-          );
-        }
-      });
-    } catch (error) {
-      if (mounted && generation == _generation) {
-        setState(() => _error = ApiResult.errorMessage(error));
-      }
-    } finally {
-      if (mounted && generation == _generation) {
-        setState(() => _loading = false);
-      }
-    }
+    });
   }
 
   void _change(String scope, int page) {

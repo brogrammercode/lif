@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:user/components/ui/liquid_glass.dart';
@@ -7,14 +8,18 @@ import 'package:user/features/home/constants/home.constant.dart';
 class RiderTripMap extends StatefulWidget {
   final LatLng pickup, dropoff;
   final LatLng? driver;
+  final String driverLabel;
   final List<LatLng> points;
+  final List<LatLng> nearbyVehicles;
   final int recenter;
   const RiderTripMap({
     super.key,
     required this.pickup,
     required this.dropoff,
     this.driver,
+    this.driverLabel = 'Driver',
     required this.points,
+    this.nearbyVehicles = const [],
     this.recenter = 0,
   });
   @override
@@ -47,10 +52,77 @@ class _RiderMapState extends State<RiderTripMap> {
         'rider-route',
         'rider-route-line',
         const LineLayerProperties(
-          lineColor: '#16A34A',
-          lineWidth: 5,
+          lineColor: '#4258ED',
+          lineWidth: 4,
           lineCap: 'round',
           lineJoin: 'round',
+        ),
+      );
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      final body = Paint()..color = Colors.white;
+      final outline = Paint()
+        ..color = const Color(0xFF333333)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
+      final shape = RRect.fromRectAndRadius(
+        const Rect.fromLTWH(17, 5, 30, 54),
+        const Radius.circular(9),
+      );
+      canvas.drawRRect(shape, body);
+      canvas.drawRRect(shape, outline);
+      final window = Paint()..color = const Color(0xFF2D3338);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          const Rect.fromLTWH(21, 14, 22, 13),
+          const Radius.circular(3),
+        ),
+        window,
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          const Rect.fromLTWH(21, 39, 22, 10),
+          const Radius.circular(3),
+        ),
+        window,
+      );
+      for (final x in [14.0, 47.0]) {
+        for (final y in [15.0, 42.0]) {
+          canvas.drawRRect(
+            RRect.fromRectAndRadius(
+              Rect.fromLTWH(x, y, 3, 10),
+              const Radius.circular(1),
+            ),
+            window,
+          );
+        }
+      }
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(64, 64);
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (bytes != null) {
+        await c.addImage('ride-vehicle', bytes.buffer.asUint8List());
+      }
+      image.dispose();
+      picture.dispose();
+      await c.addGeoJsonSource('rider-vehicles', {
+        'type': 'FeatureCollection',
+        'features': [],
+      });
+      await c.addSymbolLayer(
+        'rider-vehicles',
+        'rider-vehicle-icons',
+        const SymbolLayerProperties(
+          iconImage: 'ride-vehicle',
+          iconSize: .65,
+          iconAllowOverlap: true,
+          textField: ['get', 'label'],
+          textSize: 12,
+          textColor: '#101010',
+          textHaloColor: '#FFFFFF',
+          textHaloWidth: 3,
+          textOffset: [0, 2.1],
+          textAnchor: 'top',
         ),
       );
       await c.addGeoJsonSource('rider-pins', {
@@ -133,9 +205,16 @@ class _RiderMapState extends State<RiderTripMap> {
       await c.setGeoJsonSource('rider-pins', {
         'type': 'FeatureCollection',
         'features': [
-          marker(pickup, 'Pickup', '#16A34A'),
-          marker(dropoff, 'Drop-off', '#DC2626'),
-          if (driver != null) marker(driver, 'Driver', '#2563EB'),
+          marker(pickup, 'Pickup', '#101010'),
+          marker(dropoff, 'Drop-off', '#101010'),
+        ],
+      });
+      await c.setGeoJsonSource('rider-vehicles', {
+        'type': 'FeatureCollection',
+        'features': [
+          if (driver != null) marker(driver, widget.driverLabel, '#101010'),
+          for (final vehicle in widget.nearbyVehicles)
+            marker(vehicle, 'Nearby', '#101010'),
         ],
       });
     } catch (_) {

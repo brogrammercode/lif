@@ -1,3 +1,4 @@
+import 'package:user/features/rides/controllers/ride_feedback_controller.dart';
 import 'package:user/components/ui/glass_dropdown.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/liquid_glass.dart';
@@ -12,17 +13,16 @@ class TripCancellationDialog extends StatefulWidget {
 
 class _CancellationState extends State<TripCancellationDialog> {
   final _note = TextEditingController();
-  String _code = 'CHANGED_PLANS';
-  static const reasons = {
-    'CHANGED_PLANS': 'My plans changed',
-    'WRONG_PICKUP': 'Pickup is incorrect',
-    'SAFETY': 'Driver or vehicle safety concern',
-    'DRIVER_LATE': 'Driver is significantly late',
-    'DRIVER_REFUSED': 'Driver refused the ride',
-    'OTHER': 'Other reason',
-  };
+  late final _controller = TripCancellationController()..addListener(_changed);
+  String get _code => _controller.code;
+  void _changed() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    _controller.removeListener(_changed);
+    _controller.dispose();
     _note.dispose();
     super.dispose();
   }
@@ -51,7 +51,7 @@ class _CancellationState extends State<TripCancellationDialog> {
             LiquidGlassDropdownFormField<String>(
               initialValue: _code,
               decoration: const InputDecoration(labelText: 'Reason'),
-              items: reasons.entries
+              items: TripCancellationController.reasons.entries
                   .map(
                     (e) => DropdownMenuItem(
                       value: e.key,
@@ -59,7 +59,9 @@ class _CancellationState extends State<TripCancellationDialog> {
                     ),
                   )
                   .toList(),
-              onChanged: (v) => setState(() => _code = v!),
+              onChanged: (v) {
+                if (v != null) _controller.select(v);
+              },
             ),
             const SizedBox(height: 16),
             TextField(
@@ -83,7 +85,7 @@ class _CancellationState extends State<TripCancellationDialog> {
           onPressed: () => Navigator.pop(context, {
             'reason_code': _code,
             'reason':
-                '${reasons[_code]}${_note.text.trim().isEmpty ? '' : ': ${_note.text.trim()}'}',
+                '${TripCancellationController.reasons[_code]}${_note.text.trim().isEmpty ? '' : ': ${_note.text.trim()}'}',
           }),
           child: const Text('Confirm cancellation'),
         ),

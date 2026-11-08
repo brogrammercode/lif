@@ -1,4 +1,4 @@
-import 'package:user/features/driver_operations/driver_tracking.service.dart';
+import 'package:user/features/settings/controllers/app_mode_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/app_skeleton.dart';
@@ -7,7 +7,6 @@ import 'package:user/core/network/api_result.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/auth/app_mode.repo.dart';
 import 'package:user/features/auth/models/user.model.dart';
-import 'package:user/features/user_app/user_app.repo.dart';
 
 class AppModeTile extends StatefulWidget {
   final UserModel user;
@@ -18,36 +17,18 @@ class AppModeTile extends StatefulWidget {
 }
 
 class _AppModeTileState extends State<AppModeTile> {
-  final _modes = AppModeRepository();
-  late final Future<AppMode> _mode = widget.initialMode == null
-      ? _modes.preferred(widget.user)
-      : Future.value(widget.initialMode!);
-  bool _busy = false;
+  late final _controller = AppModeController(widget.user, widget.initialMode)
+    ..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  AppModeRepository get _modes => _controller.modes;
+  Future<AppMode> get _mode => _controller.mode;
+  bool get _busy => _controller.busy;
   Future<void> _switch(AppMode current) async {
-    if (_busy) return;
-    setState(() => _busy = true);
     try {
-      final contextData = await UserAppRepository().travelContext();
-      if (contextData['mode_switch_allowed'] != true) {
-        throw StateError(
-          'Finish or cancel your active ride before switching modes.',
-        );
-      }
-      final target = current == AppMode.rider ? AppMode.driver : AppMode.rider;
-      if (target == AppMode.driver &&
-          contextData['can_enter_driver_mode'] != true) {
-        throw StateError(
-          'Complete Partner Program activation before entering driver mode.',
-        );
-      }
-      if (target == AppMode.rider &&
-          contextData['driver_availability'] != null &&
-          contextData['driver_operations_allowed'] == true) {
-        await UserAppRepository().goOffline();
-      }
-      if (target == AppMode.rider) await DriverTrackingService.instance.stop();
-      await _modes.save(widget.user.id, target);
-      if (mounted) {
+      if (await _controller.switchMode(current) && mounted) {
         Navigator.pushNamedAndRemoveUntil(
           context,
           AppRoutes.gate,
@@ -60,9 +41,14 @@ class _AppModeTileState extends State<AppModeTile> {
           context,
         ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
       }
-    } finally {
-      if (mounted) setState(() => _busy = false);
     }
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
+    super.dispose();
   }
 
   @override

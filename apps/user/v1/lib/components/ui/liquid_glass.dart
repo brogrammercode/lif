@@ -2,6 +2,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_skeleton.dart';
 import 'package:user/core/color.dart';
+import 'package:user/components/ui/solid_ui.dart';
 
 abstract final class GlassTokens {
   static const canvas = Color(0xFFE5ECFB);
@@ -36,6 +37,7 @@ class LiquidGlassScope extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final base = Theme.of(context);
+    if (SolidTheme.of(context)) return child;
     return LiquidGlassTheme(
       child: Theme(
         data: base.copyWith(
@@ -209,6 +211,15 @@ class LiquidGlassSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final highContrast = MediaQuery.highContrastOf(context);
+    if (SolidTheme.of(context)) {
+      return SolidSurface(
+        padding: padding,
+        margin: margin,
+        radius: radius.clamp(0, 18).toDouble(),
+        dark: dark,
+        child: child,
+      );
+    }
     final nested =
         context.dependOnInheritedWidgetOfExactType<_GlassLayer>() != null;
     final content = _GlassLayer(

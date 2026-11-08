@@ -1,3 +1,4 @@
+import 'package:user/features/partner_program/controllers/driver_home_controller.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -32,14 +33,25 @@ class DriverHomeContent extends StatefulWidget {
 
 class _DriverHomeState extends State<DriverHomeContent>
     with WidgetsBindingObserver, RouteAware {
-  final _repo = DriverOperationsRepository();
-  final _tracking = DriverTrackingService.instance;
-  Map<String, dynamic>? _data;
-  String? _error;
+  late final _controller = DriverHomeController()
+    ..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  DriverOperationsRepository get _repo => _controller.repo;
+  DriverTrackingService get _tracking => _controller.tracking;
+  Map<String, dynamic>? get _data => _controller.data;
+  String? get _error => _controller.error;
   Timer? _poll;
-  Completer<void>? _readDone;
+  Completer<void>? get _readDone => _controller.readDone;
   ModalRoute<dynamic>? _route;
-  bool _loading = false, _busy = false, _opening = false, _foreground = true;
+  bool get _busy => _controller.busy;
+  set _busy(bool value) => _controller.busy = value;
+  bool get _opening => _controller.opening;
+  set _opening(bool value) => _controller.opening = value;
+  bool get _foreground => _controller.foreground;
+  set _foreground(bool value) => _controller.foreground = value;
 
   @override
   void initState() {
@@ -74,46 +86,21 @@ class _DriverHomeState extends State<DriverHomeContent>
   }
 
   Future<void> _load() async {
-    if (_loading || !mounted) return;
-    _loading = true;
-    final readDone = _readDone = Completer<void>();
-    try {
-      final data = await _repo.dashboard();
-      if (!mounted) return;
-      setState(() {
-        _data = data;
-        _error = null;
-      });
-      final current = rideMap(data['current_trip']);
-      if (current.isNotEmpty &&
-          current['id'] != null &&
-          !_opening &&
-          _route?.isCurrent == true) {
-        _opening = true;
-        unawaited(
-          Navigator.pushReplacementNamed(
-            context,
-            AppRoutes.driverRideDetail,
-            arguments: current['id'],
-          ),
-        );
-        return;
-      }
-      if (data['availability'] == 'AVAILABLE' && data['eligible'] == true) {
-        try {
-          await _tracking.ensureStarted();
-        } catch (error) {
-          if (mounted) setState(() => _error = ApiResult.errorMessage(error));
-        }
-      } else if (!['EN_ROUTE', 'ON_TRIP'].contains(data['availability'])) {
-        await _tracking.stop();
-      }
-    } catch (error) {
-      if (mounted) setState(() => _error = ApiResult.errorMessage(error));
-    } finally {
-      _loading = false;
-      readDone.complete();
-      _readDone = null;
+    await _controller.load();
+    if (!mounted) return;
+    final current = rideMap(_data?['current_trip']);
+    if (current.isNotEmpty &&
+        current['id'] != null &&
+        !_opening &&
+        _route?.isCurrent == true) {
+      _opening = true;
+      unawaited(
+        Navigator.pushReplacementNamed(
+          context,
+          AppRoutes.driverRideDetail,
+          arguments: current['id'],
+        ),
+      );
     }
   }
 
@@ -160,6 +147,8 @@ class _DriverHomeState extends State<DriverHomeContent>
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     _poll?.cancel();
     appRouteObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
@@ -251,6 +240,10 @@ class _DriverHomeState extends State<DriverHomeContent>
             ),
             const SizedBox(height: 8),
             DriverInfoRow(label: 'Pickup', value: '${ride['pickup_address']}'),
+            DriverInfoRow(
+              label: 'Passengers',
+              value: '${ride['passenger_count'] ?? 1}',
+            ),
             DriverInfoRow(
               label: 'Drop-off',
               value: '${ride['dropoff_address']}',

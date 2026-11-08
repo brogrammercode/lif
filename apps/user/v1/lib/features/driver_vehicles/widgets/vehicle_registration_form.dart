@@ -1,3 +1,4 @@
+import 'package:user/features/driver_vehicles/controllers/vehicle_registration_controller.dart';
 import 'package:user/components/ui/glass_dropdown.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:async';
@@ -38,35 +39,59 @@ class VehicleRegistrationForm extends StatefulWidget {
 }
 
 class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
-  late final _repo = widget.repository ?? VehicleVerificationRepository();
-  Map<String, dynamic>? _vehicle;
+  late final _controller = VehicleRegistrationController(
+    widget.repository ?? VehicleVerificationRepository(),
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  VehicleVerificationRepository get _repo => _controller.repo;
+  Map<String, dynamic>? get _vehicle => _controller.vehicle;
+  set _vehicle(Map<String, dynamic>? value) => _controller.vehicle = value;
   final _form = GlobalKey<FormState>();
   final _plate = TextEditingController();
   final _color = TextEditingController();
   final _storage = const FlutterSecureStorage();
-  final _documents = <String, String>{};
-  final _local = <String, Uint8List>{};
-  final _paths = <String, String>{};
-  final _names = <String, String>{};
-  final _obsoleteUploads = <String>{};
-  Map<String, dynamic>? _brand;
-  Map<String, dynamic>? _model;
-  List<Map<String, dynamic>> _categories = [];
-  String? _categoryId;
-  String? _draftKey;
-  String _registrationKey = VehicleVerificationRepository.registrationKey();
-  String? _pendingCapture;
-  String? _error;
-  String? _progress;
-  bool _loading = true;
-  bool _busy = false;
-  bool _submitted = false;
-  bool _needsReload = false;
-  bool _loadFailed = false;
+  Map<String, String> get _documents => _controller.documents;
+  Map<String, Uint8List> get _local => _controller.local;
+  Map<String, String> get _paths => _controller.paths;
+  Map<String, String> get _names => _controller.names;
+  Set<String> get _obsoleteUploads => _controller.obsoleteUploads;
+  Map<String, dynamic>? get _brand => _controller.brand;
+  set _brand(Map<String, dynamic>? value) => _controller.brand = value;
+  Map<String, dynamic>? get _model => _controller.model;
+  set _model(Map<String, dynamic>? value) => _controller.model = value;
+  List<Map<String, dynamic>> get _categories => _controller.categories;
+  set _categories(List<Map<String, dynamic>> value) =>
+      _controller.categories = value;
+  String? get _categoryId => _controller.categoryId;
+  set _categoryId(String? value) => _controller.categoryId = value;
+  String? get _draftKey => _controller.draftKey;
+  set _draftKey(String? value) => _controller.draftKey = value;
+  String get _registrationKey => _controller.registrationKey;
+  set _registrationKey(String value) => _controller.registrationKey = value;
+  String? get _pendingCapture => _controller.pendingCapture;
+  set _pendingCapture(String? value) => _controller.pendingCapture = value;
+  String? get _error => _controller.error;
+  set _error(String? value) => _controller.error = value;
+  String? get _progress => _controller.progress;
+  set _progress(String? value) => _controller.progress = value;
+  bool get _loading => _controller.loading;
+  set _loading(bool value) => _controller.loading = value;
+  bool get _busy => _controller.busy;
+  set _busy(bool value) => _controller.busy = value;
+  bool get _submitted => _controller.submitted;
+  set _submitted(bool value) => _controller.submitted = value;
+  bool get _needsReload => _controller.needsReload;
+  set _needsReload(bool value) => _controller.needsReload = value;
+  bool get _loadFailed => _controller.loadFailed;
+  set _loadFailed(bool value) => _controller.loadFailed = value;
   bool _disposed = false;
   Timer? _draftTimer;
   Future<void> _draftWrites = Future<void>.value();
-  int _version = 0;
+  int get _version => _controller.version;
+  set _version(int value) => _controller.version = value;
   Map<String, dynamic>? _field(String key) => vehicleMaps(
     _vehicle?['verification_fields'],
   ).where((f) => f['key'] == key).firstOrNull;
@@ -80,6 +105,8 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     _draftTimer?.cancel();
     if (!_loading && !_loadFailed && !_submitted && _draftKey != null) {
       unawaited(_saveDraft().catchError((Object _) {}));

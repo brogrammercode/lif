@@ -6,7 +6,8 @@ import 'package:user/core/network/dio_client.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
 class PlacesRepository {
-  final _client = DioClient();
+  final DioClient _client;
+  PlacesRepository({DioClient? client}) : _client = client ?? DioClient();
   Map<String, dynamic> _map(dynamic response) =>
       Map<String, dynamic>.from(ApiResult.unwrap(response) as Map);
   Future<Map<String, dynamic>> list({

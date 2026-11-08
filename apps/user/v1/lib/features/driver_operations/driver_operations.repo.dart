@@ -2,7 +2,9 @@ import 'package:user/core/network/dio_client.dart';
 import 'package:user/core/network/api_result.dart';
 
 class DriverOperationsRepository {
-  final DioClient _client = DioClient();
+  final DioClient _client;
+  DriverOperationsRepository({DioClient? client})
+    : _client = client ?? DioClient();
   Map<String, dynamic> _map(dynamic value) {
     final unwrapped = ApiResult.unwrap(value);
     if (unwrapped is! Map) {

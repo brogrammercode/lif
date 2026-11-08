@@ -1,9 +1,8 @@
+import 'package:user/features/partner_program/controllers/partner_address_controller.dart';
 import 'package:user/components/ui/glass_dropdown.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'package:flutter/material.dart';
 import 'package:user/core/color.dart';
-import 'package:user/core/network/api_result.dart';
-import 'package:user/features/partner_program/partner_program.repo.dart';
 
 /// Canonical postal selections; the combined requirement remains one answer.
 class PartnerAddressInput extends StatefulWidget {
@@ -29,10 +28,25 @@ class PartnerAddressInput extends StatefulWidget {
 }
 
 class _PartnerAddressInputState extends State<PartnerAddressInput> {
-  List<String> _states = [], _cities = [], _pins = [];
-  String? _state, _city, _pin, _error;
-  bool _loading = true;
-  int _request = 0;
+  late final _controller = PartnerAddressController()
+    ..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  List<String> get _states => _controller.states;
+  List<String> get _cities => _controller.cities;
+  set _cities(List<String> value) => _controller.cities = value;
+  List<String> get _pins => _controller.pins;
+  set _pins(List<String> value) => _controller.pins = value;
+  String? get _state => _controller.state;
+  set _state(String? value) => _controller.state = value;
+  String? get _city => _controller.city;
+  set _city(String? value) => _controller.city = value;
+  String? get _pin => _controller.pin;
+  set _pin(String? value) => _controller.pin = value;
+  String? get _error => _controller.error;
+  bool get _loading => _controller.loading;
   @override
   void initState() {
     super.initState();
@@ -59,35 +73,10 @@ class _PartnerAddressInputState extends State<PartnerAddressInput> {
     _load();
   }
 
-  Future<void> _load() async {
-    final request = ++_request;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final data = await PartnerProgramRepository().geography(
-        state: _state,
-        city: widget.linkedState == '' ? null : _city,
-        pincode: widget.linkedState == '' || widget.linkedCity == ''
-            ? null
-            : _pin,
-      );
-      if (!mounted || request != _request) return;
-      setState(() {
-        _states = List<String>.from(data['states'] as List);
-        _cities = List<String>.from(data['cities'] as List);
-        _pins = List<String>.from(data['pincodes'] as List);
-        _state ??= data['selected_state'] as String?;
-        _city ??= data['selected_city'] as String?;
-      });
-    } catch (error) {
-      if (mounted && request == _request) {
-        setState(() => _error = ApiResult.errorMessage(error));
-      }
-    } finally {
-      if (mounted && request == _request) setState(() => _loading = false);
-    }
+  Future<void> _load() {
+    _controller.linkedState = widget.linkedState;
+    _controller.linkedCity = widget.linkedCity;
+    return _controller.load();
   }
 
   void _write() {
@@ -146,6 +135,13 @@ class _PartnerAddressInputState extends State<PartnerAddressInput> {
       },
     ),
   );
+  @override
+  void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!widget.enabled) {

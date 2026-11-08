@@ -1,3 +1,4 @@
+import 'package:user/features/notifications/controllers/notifications_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/glass_chip.dart';
@@ -24,16 +25,22 @@ class NotificationsPage extends StatefulWidget {
 }
 
 class _NotificationsPageState extends State<NotificationsPage> {
-  late final UserAppRepository _repository =
-      widget.repository ?? UserAppRepository();
+  late final _controller = NotificationsController(
+    widget.repository ?? UserAppRepository(),
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  UserAppRepository get _repository => _controller.repository;
   late final DriverOperationsRepository _operations =
       widget.operationsRepository ?? DriverOperationsRepository();
-  List<Map<String, dynamic>> _items = const [];
-  Object? _error;
-  bool _loading = true;
+  List<Map<String, dynamic>> get _items => _controller.items;
+  Object? get _error => _controller.error;
+  bool get _loading => _controller.loading;
   bool _opening = false;
-  String _filter = 'ALL';
-  int _generation = 0;
+  String get _filter => _controller.filter;
+  set _filter(String value) => _controller.filter = value;
 
   @override
   void initState() {
@@ -42,28 +49,13 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 
   Future<void> _load({bool preserve = false}) async {
-    final generation = ++_generation;
-    if (!preserve && mounted) setState(() => _loading = true);
-    try {
-      final value = await _repository.notifications();
-      if (!mounted || generation != _generation) return;
-      setState(() {
-        _items = value;
-        _error = null;
-        _loading = false;
-      });
-    } catch (error) {
-      if (!mounted || generation != _generation) return;
-      if (preserve && _items.isNotEmpty) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
-        return;
-      }
-      setState(() {
-        _error = error;
-        _loading = false;
-      });
+    await _controller.load(preserve: preserve);
+    final notice = _controller.notice;
+    _controller.notice = null;
+    if (mounted && notice != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(notice)));
     }
   }
 
@@ -109,6 +101,13 @@ class _NotificationsPageState extends State<NotificationsPage> {
     } finally {
       _opening = false;
     }
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
+    super.dispose();
   }
 
   @override

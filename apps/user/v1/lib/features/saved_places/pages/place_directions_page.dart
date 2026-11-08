@@ -1,14 +1,13 @@
+import 'package:user/features/saved_places/controllers/place_directions_controller.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/liquid_glass.dart';
-import 'package:user/core/network/api_result.dart';
 import 'package:user/features/rides/ride_display.dart';
 import 'package:user/features/saved_places/widgets/place_components.dart';
 import 'package:user/features/saved_places/widgets/place_map.dart';
-import 'package:user/features/user_app/user_app.repo.dart';
 import 'package:user/features/saved_places/place_display.dart';
 
 class PlaceDirectionsPage extends StatefulWidget {
@@ -21,10 +20,18 @@ class PlaceDirectionsPage extends StatefulWidget {
 
 class _DirectionsState extends State<PlaceDirectionsPage>
     with WidgetsBindingObserver {
-  Map<String, dynamic>? _route;
-  LatLng? _origin;
-  String? _error;
-  bool _busy = false, _settings = false;
+  late final _controller = PlaceDirectionsController(widget.place)
+    ..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Map<String, dynamic>? get _route => _controller.route;
+  LatLng? get _origin => _controller.origin;
+  String? get _error => _controller.error;
+  bool get _busy => _controller.busy;
+  bool get _settings => _controller.settings;
+  set _settings(bool value) => _controller.settings = value;
   @override
   void initState() {
     super.initState();
@@ -34,6 +41,8 @@ class _DirectionsState extends State<PlaceDirectionsPage>
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -46,61 +55,7 @@ class _DirectionsState extends State<PlaceDirectionsPage>
     }
   }
 
-  Future<void> _load() async {
-    if (_busy) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      if (!await Geolocator.isLocationServiceEnabled()) {
-        throw StateError('Enable device location to get directions.');
-      }
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (![
-        LocationPermission.always,
-        LocationPermission.whileInUse,
-      ].contains(permission)) {
-        throw StateError('Allow location access to get directions.');
-      }
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 20),
-        ),
-      );
-      final origin = ridePoint(position.latitude, position.longitude);
-      final target = ridePoint(
-        widget.place['latitude'],
-        widget.place['longitude'],
-      );
-      if (origin == null || target == null) {
-        throw StateError('This location cannot be routed.');
-      }
-      final data = await UserAppRepository().drivingRoute(
-        fromLatitude: origin.latitude,
-        fromLongitude: origin.longitude,
-        toLatitude: target.latitude,
-        toLongitude: target.longitude,
-      );
-      if (rideGeometry(data['geometry']).length < 2) {
-        throw StateError('A driving route was not returned. Try again.');
-      }
-      if (mounted) {
-        setState(() {
-          _origin = origin;
-          _route = data;
-        });
-      }
-    } catch (error) {
-      if (mounted) setState(() => _error = ApiResult.errorMessage(error));
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
+  Future<void> _load() => _controller.load();
 
   @override
   Widget build(BuildContext context) => AppPage(

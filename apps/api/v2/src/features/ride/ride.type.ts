@@ -22,6 +22,7 @@ export const quote_schema = z.object({
   rider_note: z.string().trim().max(500).optional(),
 });
 export const create_ride_schema = z.object({
+  passenger_count: z.number().int().min(1).max(100).default(1),
   rider_note: z.string().trim().max(500).optional(),
   payment_preference: z.enum(['CASH', 'UPI']).optional(),
   draft_ride_id: z.string().min(1),
@@ -37,6 +38,14 @@ export const review_schema = z.object({
   comment: z.string().trim().max(500).optional(),
 });
 export type QuoteInput = z.infer<typeof quote_schema>;
-export type CreateRideInput = z.infer<typeof create_ride_schema>;
+export type CreateRideInput = z.input<typeof create_ride_schema>;
 export type CancelRideInput = z.infer<typeof cancel_ride_schema>;
 export type ReviewInput = z.infer<typeof review_schema>;
+export const availability_schema = z
+  .object({
+    draft_ride_id: z.string().min(1).max(100),
+    quote_id: z.string().min(1).max(100),
+    payment_preference: z.enum(['CASH', 'UPI']).default('CASH'),
+    passenger_count: z.coerce.number().int().min(1).max(100).default(1),
+  })
+  .strict();

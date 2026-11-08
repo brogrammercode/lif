@@ -1,5 +1,7 @@
+import 'package:user/features/driver_operations/controllers/trip_actions_controller.dart';
 import 'package:user/components/ui/glass_dropdown.dart';
 import 'package:user/components/ui/liquid_glass.dart';
+import 'package:user/components/ui/solid_ui.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -18,6 +20,7 @@ class TripActionsPanel extends StatefulWidget {
   final Future<void> Function()? confirmRider;
   final Future<void> Function()? cancelRide;
   final DriverOperationsRepository? repository;
+  final bool contactsOnly, hideContacts;
   const TripActionsPanel({
     super.key,
     required this.rideId,
@@ -26,20 +29,32 @@ class TripActionsPanel extends StatefulWidget {
     this.confirmRider,
     this.cancelRide,
     this.repository,
+    this.contactsOnly = false,
+    this.hideContacts = false,
   });
   @override
   State<TripActionsPanel> createState() => _TripActionsPanelState();
 }
 
 class _TripActionsPanelState extends State<TripActionsPanel> {
-  late final _repo = widget.repository ?? DriverOperationsRepository();
+  late final _controller = TripActionsController(
+    widget.repository ?? DriverOperationsRepository(),
+    widget.rideId,
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  DriverOperationsRepository get _repo => _controller.repo;
   final _code = TextEditingController();
-  Map<String, dynamic>? _data;
+  Map<String, dynamic>? get _data => _controller.data;
   Timer? _poll;
-  Completer<void>? _readDone;
-  String? _error;
-  bool _busy = false, _reading = false;
-  String? _method;
+  Completer<void>? get _readDone => _controller.readDone;
+  String? get _error => _controller.error;
+  bool get _busy => _controller.busy;
+  set _busy(bool value) => _controller.busy = value;
+  String? get _method => _controller.method;
+  set _method(String? value) => _controller.method = value;
   @override
   void initState() {
     super.initState();
@@ -56,26 +71,7 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
     }
   }
 
-  Future<void> _load() async {
-    if (_reading || !mounted) return;
-    _reading = true;
-    final done = _readDone = Completer<void>();
-    try {
-      final data = await _repo.context(widget.rideId);
-      if (mounted) {
-        setState(() {
-          _data = data;
-          _error = null;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _error = ApiResult.errorMessage(e));
-    } finally {
-      _reading = false;
-      done.complete();
-      _readDone = null;
-    }
-  }
+  Future<void> _load() => _controller.load();
 
   Future<void> _run(Future<void> Function() action) async {
     if (_busy) return;
@@ -211,6 +207,8 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     _poll?.cancel();
     _code.dispose();
     super.dispose();
@@ -234,6 +232,45 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
       'DRIVER_WAITING',
       'IN_PROGRESS',
     ].contains(status);
+    if (widget.contactsOnly) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SolidIconButton(
+                dark: true,
+                icon: Icons.phone_outlined,
+                tooltip: 'Call driver',
+                onPressed: _busy || !active ? null : _call,
+              ),
+              const SizedBox(width: 6),
+              SolidIconButton(
+                dark: true,
+                icon: Icons.chat_bubble_outline,
+                tooltip: 'Chat with driver',
+                onPressed: !active
+                    ? null
+                    : () => Navigator.pushNamed(
+                        context,
+                        AppRoutes.tripChat,
+                        arguments: widget.rideId,
+                      ),
+              ),
+            ],
+          ),
+          if (_error != null)
+            SizedBox(
+              width: 94,
+              child: Text(
+                _error!,
+                style: const TextStyle(fontSize: 10, color: Colors.red),
+              ),
+            ),
+        ],
+      );
+    }
     final start = data['start'] as Map? ?? {};
     final payment = data['payment'] as Map? ?? {};
     final paymentStatus = payment['status'];
@@ -272,7 +309,7 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
                   ? 'Your precise GPS has not reached the server recently. Refresh location and check permissions before continuing.'
                   : 'Driver location has not updated recently. Contact the driver or Support.',
             ),
-          if (active)
+          if (active && !widget.hideContacts)
             Wrap(
               spacing: 8,
               children: [

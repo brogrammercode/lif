@@ -1,13 +1,11 @@
+import 'package:user/features/partner_program/controllers/activation_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/liquid_glass.dart';
-import 'package:user/core/network/api_result.dart';
 import 'package:user/core/routes.dart';
-import 'package:user/features/auth/app_mode.repo.dart';
 import 'package:user/features/auth/auth.repo.dart';
 import 'package:user/features/driver_operations/widgets/driver_glass.dart';
-import 'package:user/features/partner_program/partner_program.repo.dart';
 
 class PartnerActivationPage extends StatefulWidget {
   const PartnerActivationPage({super.key});
@@ -18,40 +16,28 @@ class PartnerActivationPage extends StatefulWidget {
 
 class _PartnerActivationPageState extends State<PartnerActivationPage> {
   final _code = TextEditingController();
-  bool _busy = false;
-  String? _error;
+  late final _controller = ActivationController()..addListener(_changed);
+  bool get _busy => _controller.busy;
+  String? get _error => _controller.error;
+  void _changed() {
+    if (mounted) setState(() {});
+  }
 
   @override
   void dispose() {
+    _controller.removeListener(_changed);
+    _controller.dispose();
     _code.dispose();
     super.dispose();
   }
 
   Future<void> _activate() async {
-    if (_busy || _code.text.length != 6) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      await PartnerProgramRepository().activate(_code.text);
-      try {
-        final user = await AuthRepository().currentUser();
-        await AppModeRepository().save(user.id, AppMode.driver);
-      } catch (_) {
-        // Activation is committed; preference storage must not consume it again.
-      }
-      if (mounted) {
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          AppRoutes.driverHome,
-          (_) => false,
-        );
-      }
-    } catch (error) {
-      if (mounted) setState(() => _error = ApiResult.errorMessage(error));
-    } finally {
-      if (mounted) setState(() => _busy = false);
+    if (await _controller.activate(_code.text) && mounted) {
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        AppRoutes.driverHome,
+        (_) => false,
+      );
     }
   }
 

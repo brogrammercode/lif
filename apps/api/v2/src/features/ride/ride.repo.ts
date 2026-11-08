@@ -205,6 +205,15 @@ export class RideRepository {
           );
         const quote = ride.quotes.find((item) => item.id === input.quote_id);
         if (!quote) return { kind: 'quote_not_found' as const };
+        const capacity =
+          (quote.category_snapshot as { capacity?: number } | null)?.capacity ??
+          1;
+        if ((input.passenger_count ?? 1) > capacity)
+          throw new AppError(
+            422,
+            'PASSENGER_CAPACITY_EXCEEDED',
+            'Passenger count exceeds this category capacity.',
+          );
         if (quote.expires_at.getTime() <= Date.now())
           return { kind: 'quote_expired' as const };
         const payment_method = input.payment_method_id
@@ -233,11 +242,18 @@ export class RideRepository {
             category._count.children > 0
           )
             return { kind: 'quote_unavailable' as const };
+          if ((input.passenger_count ?? 1) > category.capacity)
+            throw new AppError(
+              422,
+              'PASSENGER_CAPACITY_EXCEEDED',
+              'This category capacity changed. Get fresh ride options.',
+            );
         }
         const claimed = await tx.ride.updateMany({
           where: { id: ride.id, rider_id: user_id, status: 'DRAFT' },
           data: {
             status: 'SEARCHING',
+            passenger_count: input.passenger_count ?? 1,
             rider_note: input.rider_note ?? ride.rider_note,
             payment_method_id: input.payment_method_id,
             collection_preference:

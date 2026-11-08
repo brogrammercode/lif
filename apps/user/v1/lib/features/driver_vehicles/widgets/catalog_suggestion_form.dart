@@ -1,3 +1,4 @@
+import 'package:user/features/driver_vehicles/controllers/catalog_suggestion_controller.dart';
 import 'package:user/components/ui/glass_dropdown.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:typed_data';
@@ -19,6 +20,12 @@ class CatalogSuggestionForm extends StatefulWidget {
 }
 
 class _CatalogSuggestionFormState extends State<CatalogSuggestionForm> {
+  late final _controller = CatalogSuggestionController()
+    ..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
   final _form = GlobalKey<FormState>();
   final _controllers = {
     for (final key in [
@@ -32,12 +39,18 @@ class _CatalogSuggestionFormState extends State<CatalogSuggestionForm> {
     ])
       key: TextEditingController(),
   };
-  String _type = 'BIKE';
-  String _fuel = 'PETROL';
-  Uint8List? _logo;
-  String _logoName = 'logo.jpg';
-  String? _error;
-  bool _busy = false;
+  String get _type => _controller.type;
+  set _type(String value) => _controller.type = value;
+  String get _fuel => _controller.fuel;
+  set _fuel(String value) => _controller.fuel = value;
+  Uint8List? get _logo => _controller.logo;
+  set _logo(Uint8List? value) => _controller.logo = value;
+  String get _logoName => _controller.logoName;
+  set _logoName(String value) => _controller.logoName = value;
+  String? get _error => _controller.error;
+  set _error(String? value) => _controller.error = value;
+  bool get _busy => _controller.busy;
+  set _busy(bool value) => _controller.busy = value;
   bool get _model => widget.brand != null;
   @override
   void initState() {
@@ -54,6 +67,8 @@ class _CatalogSuggestionFormState extends State<CatalogSuggestionForm> {
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     for (final c in _controllers.values) {
       c.dispose();
     }

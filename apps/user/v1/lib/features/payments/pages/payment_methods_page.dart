@@ -1,3 +1,4 @@
+import 'package:user/features/payments/controllers/payment_methods_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/liquid_glass.dart';
@@ -16,13 +17,19 @@ class PaymentMethodsPage extends StatefulWidget {
 }
 
 class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
-  late final UserAppRepository _repository =
-      widget.repository ?? UserAppRepository();
-  List<Map<String, dynamic>> _methods = const [];
-  Object? _error;
-  bool _loading = true;
-  bool _saving = false;
-  int _generation = 0;
+  late final _controller = PaymentMethodsController(
+    widget.repository ?? UserAppRepository(),
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  UserAppRepository get _repository => _controller.repository;
+  List<Map<String, dynamic>> get _methods => _controller.methods;
+  Object? get _error => _controller.error;
+  bool get _loading => _controller.loading;
+  bool get _saving => _controller.saving;
+  set _saving(bool value) => _controller.saving = value;
 
   bool get _hasCash => _methods.any((method) => method['type'] == 'CASH');
 
@@ -33,26 +40,13 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
   }
 
   Future<void> _load({bool preserve = false}) async {
-    final generation = ++_generation;
-    if (!preserve && mounted) setState(() => _loading = true);
-    try {
-      final value = await _repository.paymentMethods();
-      if (!mounted || generation != _generation) return;
-      setState(() {
-        _methods = value;
-        _error = null;
-        _loading = false;
-      });
-    } catch (error) {
-      if (!mounted || generation != _generation) return;
-      if (preserve && _methods.isNotEmpty) {
-        _showError(error);
-        return;
-      }
-      setState(() {
-        _error = error;
-        _loading = false;
-      });
+    await _controller.load(preserve: preserve);
+    final notice = _controller.notice;
+    _controller.notice = null;
+    if (mounted && notice != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(notice)));
     }
   }
 
@@ -137,6 +131,13 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
   void _showError(Object error) => ScaffoldMessenger.of(
     context,
   ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+
+  @override
+  void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => AppPage(

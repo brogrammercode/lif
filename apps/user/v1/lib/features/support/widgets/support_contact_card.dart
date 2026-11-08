@@ -1,3 +1,4 @@
+import 'package:user/features/support/controllers/support_contact_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:user/components/ui/app_page.dart';
@@ -14,8 +15,15 @@ class SupportContactCard extends StatefulWidget {
 }
 
 class _SupportContactCardState extends State<SupportContactCard> {
-  late Future<Map<String, dynamic>> _data =
-      (widget.repository ?? UserAppRepository()).supportContacts();
+  late final _controller = SupportContactController(
+    widget.repository ?? UserAppRepository(),
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<Map<String, dynamic>> get _data => _controller.data;
+  set _data(Future<Map<String, dynamic>> value) => _controller.data = value;
   Future<void> _open(Uri uri) async {
     try {
       if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
@@ -89,6 +97,13 @@ class _SupportContactCardState extends State<SupportContactCard> {
       ),
     ),
   );
+
+  @override
+  void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => FutureBuilder<Map<String, dynamic>>(

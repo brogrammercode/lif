@@ -1,3 +1,4 @@
+import 'package:user/features/driver_vehicles/controllers/driver_vehicle_gate_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/liquid_glass.dart';
@@ -24,11 +25,20 @@ class DriverVehicleGate extends StatefulWidget {
 
 class _DriverVehicleGateState extends State<DriverVehicleGate>
     with WidgetsBindingObserver, RouteAware {
-  Map<String, dynamic>? _registration;
+  late final _controller = DriverVehicleGateController(
+    widget.repository ?? VehicleVerificationRepository(),
+    widget.loadUser ?? AuthRepository().currentUser,
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Map<String, dynamic>? get _registration => _controller.registration;
   ModalRoute<dynamic>? _route;
-  bool _homeAllowed = false;
-  bool _checking = false;
-  late Future<bool> _ready = _check();
+  bool get _homeAllowed => _controller.homeAllowed;
+  bool get _checking => _controller.checking;
+  Future<bool> get _ready => _controller.ready;
+  set _ready(Future<bool> value) => _controller.ready = value;
 
   @override
   void initState() {
@@ -49,6 +59,8 @@ class _DriverVehicleGateState extends State<DriverVehicleGate>
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     appRouteObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -72,24 +84,7 @@ class _DriverVehicleGateState extends State<DriverVehicleGate>
     }
   }
 
-  Future<bool> _check() async {
-    _checking = true;
-    _homeAllowed = false;
-    try {
-      final user = await (widget.loadUser ?? AuthRepository().currentUser)();
-      if (!mounted) return false;
-      if (user.partnerStatus == 'EXITED') return _homeAllowed = true;
-      final data = await (widget.repository ?? VehicleVerificationRepository())
-          .mine();
-      if (!mounted) return false;
-      _registration = data;
-      return _homeAllowed = vehicleMaps(
-        data['vehicles'],
-      ).any((v) => v['is_eligible'] == true);
-    } finally {
-      _checking = false;
-    }
-  }
+  Future<bool> _check() => _controller.check();
 
   @override
   Widget build(BuildContext context) => FutureBuilder<bool>(

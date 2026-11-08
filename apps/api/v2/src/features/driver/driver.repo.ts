@@ -597,6 +597,8 @@ export class DriverRepository {
           profile.user.status !== 'ACTIVE' ||
           profile.verification_status !== 'VERIFIED' ||
           profile.availability !== 'AVAILABLE' ||
+          (profile.active_vehicle?.capacity ?? 0) <
+            (offer.ride.passenger_count ?? 1) ||
           !is_vehicle_eligible(
             profile.active_vehicle,
             selected_quote,

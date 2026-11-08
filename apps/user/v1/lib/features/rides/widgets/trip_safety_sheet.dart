@@ -1,10 +1,11 @@
+import 'package:user/features/rides/controllers/trip_safety_controller.dart';
+import 'package:user/core/state/data_source_scope.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/components/ui/button.dart';
 import 'package:user/features/rides/widgets/ride_glass.dart';
 import 'package:user/features/rides/ride_fare_summary.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/rides/ride_display.dart';
@@ -24,8 +25,23 @@ class TripSafetySheet extends StatefulWidget {
 }
 
 class _TripSafetySheetState extends State<TripSafetySheet> {
-  late final _profile = widget.repository.profile();
+  late final _controller = TripSafetyController(
+    widget.repository,
+    allowExternalActions: !(DataSourceScope.read(context)?.isDemo ?? false),
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<Map<String, dynamic>> get _profile => _controller.profile;
   Map<String, dynamic> get trip => widget.trip;
+  @override
+  void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => LiquidGlassScope(
     child: SafeArea(
@@ -146,20 +162,15 @@ class _TripSafetySheetState extends State<TripSafetySheet> {
               label: const Text('Share summary on WhatsApp'),
               onPressed: () async {
                 try {
-                  if (await launchUrl(
+                  if (await _controller.openExternal(
                     Uri.https('wa.me', '/', {'text': staticTripSummary(trip)}),
-                    mode: LaunchMode.externalApplication,
                   )) {
                     return;
                   }
                 } catch (_) {}
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'WhatsApp could not open. Copy the summary instead.',
-                      ),
-                    ),
+                    SnackBar(content: Text(_controller.shareFailureMessage)),
                   );
                 }
               },

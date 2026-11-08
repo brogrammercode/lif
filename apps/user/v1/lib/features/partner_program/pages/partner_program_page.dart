@@ -1,3 +1,4 @@
+import 'package:user/features/partner_program/controllers/partner_program_controller.dart';
 import 'package:user/components/ui/glass_dropdown.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/components/ui/focus_field_hint.dart';
@@ -51,40 +52,69 @@ class PartnerProgramPage extends StatefulWidget {
 
 class _PartnerProgramPageState extends State<PartnerProgramPage>
     with WidgetsBindingObserver {
-  late final _repository = widget.repository ?? PartnerProgramRepository();
+  late final _controller = PartnerProgramController(
+    widget.repository ?? PartnerProgramRepository(),
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  PartnerProgramRepository get _repository => _controller.repository;
   final _form = GlobalKey<FormState>();
   final _scroll = ScrollController(keepScrollOffset: false);
   final _email = TextEditingController();
   final _phone = TextEditingController();
   final _signature = TextEditingController();
   final Map<String, TextEditingController> _controllers = {};
-  final Map<String, dynamic> _values = {};
-  final Map<String, List<PartnerLocalFile>> _files = {};
-  PartnerDraftStore? _draftStore;
+  Map<String, dynamic> get _values => _controller.values;
+  Map<String, List<PartnerLocalFile>> get _files => _controller.files;
+  PartnerDraftStore? get _draftStore => _controller.draftStore;
+  set _draftStore(PartnerDraftStore? value) => _controller.draftStore = value;
   Timer? _draftTimer;
-  String? _uploadProgress;
-  Map<String, dynamic>? _workflow;
-  bool _loading = true;
-  bool _saving = false;
+  String? get _uploadProgress => _controller.uploadProgress;
+  set _uploadProgress(String? value) => _controller.uploadProgress = value;
+  Map<String, dynamic>? get _workflow => _controller.workflow;
+  set _workflow(Map<String, dynamic>? value) => _controller.workflow = value;
+  bool get _loading => _controller.loading;
+  set _loading(bool value) => _controller.loading = value;
+  bool get _saving => _controller.saving;
+  set _saving(bool value) => _controller.saving = value;
   bool _capturingSelfie = false;
   bool _pickingFiles = false;
   bool _checkedLostNativeResults = false;
   bool _nativeHandoff = false;
   String _nativeHandoffLabel = 'Opening secure picker...';
-  String? _pendingPickerFieldId;
-  String? _pendingPickerMode;
-  String? _pendingPickerStage;
-  String? _pendingPickerStartedAt;
-  bool _acceptPolicy = false;
-  bool _acceptConfirmation = false;
+  String? get _pendingPickerFieldId => _controller.pendingPickerFieldId;
+  set _pendingPickerFieldId(String? value) =>
+      _controller.pendingPickerFieldId = value;
+  String? get _pendingPickerMode => _controller.pendingPickerMode;
+  set _pendingPickerMode(String? value) =>
+      _controller.pendingPickerMode = value;
+  String? get _pendingPickerStage => _controller.pendingPickerStage;
+  set _pendingPickerStage(String? value) =>
+      _controller.pendingPickerStage = value;
+  String? get _pendingPickerStartedAt => _controller.pendingPickerStartedAt;
+  set _pendingPickerStartedAt(String? value) =>
+      _controller.pendingPickerStartedAt = value;
+  bool get _acceptPolicy => _controller.acceptPolicy;
+  set _acceptPolicy(bool value) => _controller.acceptPolicy = value;
+  bool get _acceptConfirmation => _controller.acceptConfirmation;
+  set _acceptConfirmation(bool value) => _controller.acceptConfirmation = value;
   bool _showForm = false;
-  bool _dirty = false;
-  bool _submissionCommitted = false;
-  bool _needsSignIn = false;
-  String? _error;
+  bool get _dirty => _controller.dirty;
+  set _dirty(bool value) => _controller.dirty = value;
+  bool get _submissionCommitted => _controller.submissionCommitted;
+  set _submissionCommitted(bool value) =>
+      _controller.submissionCommitted = value;
+  bool get _needsSignIn => _controller.needsSignIn;
+  set _needsSignIn(bool value) => _controller.needsSignIn = value;
+  String? get _error => _controller.error;
+  set _error(String? value) => _controller.error = value;
   Timer? _poll;
-  int _loadRequest = 0;
-  String _stepKey = 'contact';
+  int get _loadRequest => _controller.loadRequest;
+  set _loadRequest(int value) => _controller.loadRequest = value;
+  String get _stepKey => _controller.stepKey;
+  set _stepKey(String value) => _controller.stepKey = value;
   bool get _busy => _saving || _pickingFiles || _capturingSelfie;
   List<PartnerApplicationStep> get _steps =>
       PartnerApplicationStep.fromRequirements(_definitions);
@@ -145,6 +175,8 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _poll?.cancel();
     _draftTimer?.cancel();
@@ -171,8 +203,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     final request = ++_loadRequest;
     if (!background) setState(() => _loading = true);
     try {
-      final data = await _repository.workflow();
-      _validateWorkflow(data);
+      final data = await _controller.fetchWorkflow();
       String? email;
       String? phone;
       String? legalName;
@@ -571,65 +602,6 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       return;
     }
     _goToStep(_stepIndex + 1);
-  }
-
-  void _validateWorkflow(Map<String, dynamic> data) {
-    const message =
-        'Partner requirements could not be read. Refresh to try again.';
-    bool object(dynamic item) =>
-        item is Map && item.keys.every((key) => key is String);
-    for (final key in ['requirements', 'assets']) {
-      if (data[key] is! List ||
-          (data[key] as List).any((item) => !object(item))) {
-        throw const FormatException(message);
-      }
-    }
-    final app = data['application'];
-    if (app != null &&
-        (app is! Map<String, dynamic> ||
-            app['fields'] is! List ||
-            (app['fields'] as List).any((item) => !object(item)))) {
-      throw const FormatException(message);
-    }
-    final seen = <String>{};
-    for (final field in _maps(data['requirements'])) {
-      final id = field['id'];
-      if (id is! String ||
-          id.isEmpty ||
-          !seen.add(id) ||
-          field['label'] is! String ||
-          ![
-            'STRING',
-            'TEXT',
-            'NUMBER',
-            'DATE',
-            'BOOLEAN',
-            'FILE',
-            'IMAGE',
-            'PDF',
-          ].contains(field['field_type'])) {
-        throw const FormatException(message);
-      }
-      final options = field['options'];
-      if (options != null &&
-          (options is! List ||
-              options.any((v) => v is! String) ||
-              options.toSet().length != options.length)) {
-        throw const FormatException(message);
-      }
-    }
-    for (final answer in _maps(_map(app)?['fields'])) {
-      final field = _maps(
-        data['requirements'],
-      ).where((d) => d['id'] == answer['requirement_id']).firstOrNull;
-      if (field != null &&
-          ['FILE', 'IMAGE', 'PDF'].contains(field['field_type']) &&
-          answer['value'] != null &&
-          (answer['value'] is! List ||
-              (answer['value'] as List).any((id) => id is! String))) {
-        throw const FormatException(message);
-      }
-    }
   }
 
   Future<void> _download(String id) async {

@@ -1,8 +1,8 @@
+import 'package:user/features/driver_account/controllers/driver_finances_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/glass_chip.dart';
 import 'package:user/components/ui/liquid_glass.dart';
-import 'package:user/core/network/api_result.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/driver_account/driver_account.repo.dart';
 import 'package:user/features/driver_operations/widgets/driver_glass.dart';
@@ -17,12 +17,24 @@ class DriverFinancesPage extends StatefulWidget {
 
 class _FinanceState extends State<DriverFinancesPage>
     with WidgetsBindingObserver {
-  late final repo = widget.repository ?? DriverAccountRepository();
-  Map<String, dynamic>? _data;
-  String? _error, _from, _to;
-  String _section = 'trips';
-  int _page = 1;
-  bool _loading = false;
+  late final _controller = DriverFinancesController(
+    widget.repository ?? DriverAccountRepository(),
+  )..addListener(_controllerChanged);
+  void _controllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  DriverAccountRepository get repo => _controller.repo;
+  Map<String, dynamic>? get _data => _controller.data;
+  set _data(Map<String, dynamic>? value) => _controller.data = value;
+  String? get _error => _controller.error;
+  set _from(String? value) => _controller.from = value;
+  set _to(String? value) => _controller.to = value;
+  String get _section => _controller.section;
+  set _section(String value) => _controller.section = value;
+  int get _page => _controller.page;
+  set _page(int value) => _controller.page = value;
+  bool get _loading => _controller.loading;
   @override
   void initState() {
     super.initState();
@@ -32,6 +44,8 @@ class _FinanceState extends State<DriverFinancesPage>
 
   @override
   void dispose() {
+    _controller.removeListener(_controllerChanged);
+    _controller.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -44,28 +58,7 @@ class _FinanceState extends State<DriverFinancesPage>
     }
   }
 
-  Future<void> _load() async {
-    if (_loading || !mounted) return;
-    setState(() => _loading = true);
-    try {
-      final v = await repo.finances(
-        from: _from,
-        to: _to,
-        page: _page,
-        section: _section,
-      );
-      if (mounted) {
-        setState(() {
-          _data = v;
-          _error = null;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _error = ApiResult.errorMessage(e));
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
+  Future<void> _load() => _controller.load();
 
   Future<void> _range() async {
     final now = DateTime.now();
