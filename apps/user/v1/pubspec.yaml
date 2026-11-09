@@ -46,5 +46,7 @@ flutter:
   assets:
     - assets/images/logo.png
     - assets/images/login-tennis-bg.png
+    - assets/images/ride_car_marker.png
+    - assets/images/ride_map_pin.png
     - .env
     - shorebird.yaml

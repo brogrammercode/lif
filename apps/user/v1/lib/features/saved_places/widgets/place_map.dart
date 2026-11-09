@@ -6,6 +6,7 @@ import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/components/ui/app_skeleton.dart';
 import 'package:user/features/home/constants/home.constant.dart';
+import 'package:user/features/rides/widgets/ride_map_pin_assets.dart';
 import 'package:user/features/rides/ride_display.dart';
 
 class PlaceMap extends StatefulWidget {
@@ -348,12 +349,17 @@ class _PlaceMapState extends State<PlaceMap> {
         attributionButtonMargins: math.Point(8, widget.topInset + 8),
       ),
       if (widget.onPicked != null)
-        const IgnorePointer(
+        IgnorePointer(
           child: Center(
-            child: Icon(
-              Icons.location_pin,
-              size: 42,
-              color: GlassTokens.accent,
+            child: Transform.translate(
+              offset: const Offset(0, -28),
+              child: Image.asset(
+                RideMapPinAssets.assetPath,
+                width: 56,
+                height: 56,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
+              ),
             ),
           ),
         ),

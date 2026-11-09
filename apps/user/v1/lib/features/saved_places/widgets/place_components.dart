@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_skeleton.dart';
 import 'package:user/components/ui/glass_chip.dart';
@@ -8,7 +10,13 @@ import 'package:user/features/saved_places/place_display.dart';
 class PlacePhoto extends StatelessWidget {
   final String? url;
   final double height;
-  const PlacePhoto({super.key, this.url, this.height = 130});
+  final bool showLabel;
+  const PlacePhoto({
+    super.key,
+    this.url,
+    this.height = 130,
+    this.showLabel = true,
+  });
   @override
   Widget build(BuildContext context) => ClipRRect(
     borderRadius: BorderRadius.circular(18),
@@ -31,16 +39,41 @@ class PlacePhoto extends StatelessWidget {
   );
   Widget _empty({bool failed = false}) => LiquidGlassSurface(
     radius: 18,
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        const Icon(Icons.photo_outlined, color: GlassTokens.accent, size: 28),
-        const SizedBox(height: 6),
-        Text(
-          failed ? 'Photo unavailable' : 'No photos yet',
-          style: const TextStyle(fontSize: 12, color: GlassTokens.muted),
-        ),
-      ],
+    padding: const EdgeInsets.all(8),
+    child: LayoutBuilder(
+      builder: (context, bounds) {
+        final label = failed ? 'Photo unavailable' : 'No photos yet';
+        final labelFits =
+            bounds.maxHeight >=
+            34 + MediaQuery.textScalerOf(context).scale(12) * 1.35 * 2;
+        return Semantics(
+          label: label,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.photo_outlined,
+                color: GlassTokens.accent,
+                size: bounds.biggest.shortestSide.clamp(0, 28).toDouble(),
+              ),
+              if (showLabel && labelFits) ...[
+                const SizedBox(height: 6),
+                Text(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.35,
+                    color: GlassTokens.muted,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
     ),
   );
 }
@@ -96,10 +129,102 @@ class _GalleryState extends State<PlaceGallery> {
 class PlaceCard extends StatelessWidget {
   final Map<String, dynamic> place;
   final VoidCallback? onTap;
-  const PlaceCard({super.key, required this.place, this.onTap});
+  final bool compact;
+  const PlaceCard({
+    super.key,
+    required this.place,
+    this.onTap,
+    this.compact = false,
+  });
+  static double compactHeight(BuildContext context) {
+    final scaler = MediaQuery.textScalerOf(context);
+    final titleHeight = scaler.scale(13) * 1.25 * 2;
+    final categoryHeight = math.max(15.0, scaler.scale(10) * 1.2 + 2);
+    return 131 + titleHeight + categoryHeight;
+  }
+
   @override
   Widget build(BuildContext context) {
     final photos = placePhotos(place);
+    if (compact) {
+      return LiquidGlassSurface(
+        padding: EdgeInsets.zero,
+        radius: 16,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                PlacePhoto(
+                  url: photos.firstOrNull,
+                  height: 100,
+                  showLabel: false,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  placeName(place),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    height: 1.25,
+                    fontWeight: FontWeight.w500,
+                    color: GlassTokens.ink,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 15,
+                      height: 15,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF176B3A),
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                      child: Icon(
+                        placeIcon(place),
+                        size: 10,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Flexible(
+                      child: Container(
+                        constraints: const BoxConstraints(minHeight: 15),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: GlassTokens.muted,
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        child: Text(
+                          placeType(place),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return LiquidGlassSurface(
       padding: EdgeInsets.zero,
       child: InkWell(

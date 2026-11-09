@@ -40,10 +40,7 @@ void main() {
         expect(find.byType(SolidScope), findsWidgets);
         expect(find.byType(BackdropFilter), findsNothing);
         expect(find.byType(RideArrivalStrip), findsOneWidget);
-        expect(
-          find.text('Get ready, the driver will come soon'),
-          findsOneWidget,
-        );
+        expect(find.text('The driver will arrive in'), findsOneWidget);
         await tester.scrollUntilVisible(
           find.byTooltip('Chat with driver'),
           80,

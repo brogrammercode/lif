@@ -51,12 +51,6 @@ class RiderLivePanel extends StatelessWidget {
           const Center(child: DriverSearchRadar()),
           const SizedBox(height: 16),
           Text(
-            'Finding your driver',
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
-          const SizedBox(height: 8),
-          Text(
             'Searching for $elapsed${data['search_radius_km'] == null ? '' : ' · ${data['search_radius_km']} km search area'}',
             textAlign: TextAlign.center,
           ),

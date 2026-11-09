@@ -91,13 +91,13 @@ Never show Top Rated Driver, trophies, unread-message badges, exact ETAs or phot
 
 | Stage | Required composition |
 | --- | --- |
-| Home | Clear map, small profile/control buttons, actual place-photo strip, compact white pickup/drop-off panel and black Continue |
-| Location selection | Map above a solid white search sheet; compact gray input wells; readable suggestion rows; explicit map selection and confirmation |
-| Vehicle selection | Route map, dynamic category tiles, white vehicle/driver previews, passenger control, payment/note, persistent black booking action |
-| Finding driver | Route map, white lower sheet, bounded blue radar illustration, central search title, concise real search status, cancellation below |
-| Pickup/arrived | Exact assigned-driver hierarchy above, with honest waiting/start verification states |
-| In progress | Clear route map, black remaining-time strip, compact driver/vehicle/contact row, restrained blue progress track |
-| Completion | White page, belongings reminder, real driver/vehicle hero, trip reference/date, inline stars, compact route/fare/payment summary, Home and receipt actions |
+| Home | Clear map, small profile/control buttons, actual place-photo strip, shared black-header/white-content panel with pickup/drop-off and Continue |
+| Location selection | Map above the same joined black-header/white-content panel; compact gray input wells; readable suggestions; explicit map selection and confirmation |
+| Vehicle selection | Route map, shared stage panel, dynamic category tiles, white vehicle/driver previews, passenger control, payment/note and booking action |
+| Finding driver | Route map and shared stage panel; bounded blue radar illustration, elapsed/search status, cancellation below |
+| Pickup/arrived | Shared black ETA header and white sheet with assigned-driver identity, route and honest waiting/start verification states |
+| In progress | Clear route map, same stage panel with remaining-time header, compact driver/vehicle/contact row and restrained blue progress track |
+| Completion | Same black-header/white-content stage parent, belongings reminder, real driver/vehicle hero, trip reference/date, inline stars, compact route/fare/payment summary, Home and receipt actions |
 
 Vehicle Continue submits directly into matching. Do not restore a compulsory review detour. Preserve the distinction between a nearby preview and an accepted driver. Pre-booking identity/locations remain limited to the approved public projection.
 
@@ -136,3 +136,21 @@ Verify Flutter analysis, relevant ride regressions, small portrait/landscape lay
 Feature records, server snapshots, query/filter selections, form file collections and fixture data belong in feature controllers under `lib/features/<feature>/controllers`. Keep views reusable for real or dummy sources. Pages own navigation, focus, text-editing/scroll/animation/map handles and native presentation coordination. Do not put sample profiles, quotes or response fixtures into a page.
 
 Home's Demo sheet is backed by DemoRegistryController. RideDemoController supplies an isolated data source to production ride pages. UI adjustments belong in shared production widgets; another demo must not duplicate them. See `context/MOBILE_CONTROLLERS_AND_DEMO_FLOWS_PLAN.md` for the inventory, usage and acceptance checklist.
+
+## Home route panel and place strip — 9 November 2026
+
+Home's compact `PlaceCard(compact: true)` carousel floats above, and outside, the route panel. Keep the map visible between independent cards; do not put the place carousel inside the white route-entry surface. Card height accommodates two scaled caption lines, with a bounded photo/placeholder.
+
+Home's route panel uses `SolidSurface.upperChild` with `RideArrivalStrip`: a solid black rounded header, hourglass, white label and gray value pill, followed by the rounded white body and handle. Before booking, label the value as a trip estimate or prompt to select a route; never claim a driver arrival time without assignment data.
+
+Every rider booking stage uses `RideStagePanel` in `features/rides/widgets/rider_flow_components.dart` as the same parent container: a black `RideArrivalStrip` header joined directly to a rounded white body. Home/location entry, vehicle selection, finding, driver assigned/arrived, in-progress and completion each supply stage-specific title/status text. Do not add a separate floating page title or independently positioned black strip. Keep map controls outside this parent over the map, and keep the shared parent edge-to-edge where the reference shows the sheet.
+
+Ordinary `SolidSurface` instances must pass finite parent constraints to their content. Only the optional-header variant needs a vertical composition, with a flexible body. On the live journey, the black ETA backing extends behind the white sheet's top corners. Keep the status header compact with single-line ellipsis at larger system text scales, and keep panel contents scrollable on short screens.
+
+## Independent endpoint selection and Home swipe — 9 November 2026
+
+Home's Pickup and Drop-off rows open the same location-selection stage for one endpoint only. The stage keeps the shared black-header/white-body parent, shows one gray search field, a saved-Home shortcut and vertically stacked suggestions with a bold primary label, muted address and optional distance. A chosen suggestion centers the map under a persistent 32 logical-pixel screen-center pin; pickup pins are green and drop-off pins are red. Keep the selection pin at half the former 64-pixel size and scale its lift/anchor offset with it. Riders can drag the map to refine the point. Continue confirms only the active endpoint and returns to Home. It never starts the quote or booking automatically. Home exposes its next action only after both endpoints are valid, using a 12-pixel blue-to-blueAccent progress rail and right-facing top-down car thumb, without a surrounding CTA frame. Show a small speech-cloud hint reading “Swipe right” above the car, layered above the thumb and rail, and hide it as soon as dragging begins. Keep the control compact with tight vertical spacing. Use `RideSwipeButton` for this interaction.
+
+Use the shared pin artwork in `assets/images/ride_map_pin.png` for ride endpoints across Home, rider trip maps and driver trip maps. Do not add a second custom marker for the rider's current position; retain the existing MapLibre location puck. Keep actual assigned-driver tracking and its vehicle marker. Remove redundant saved-place pins from Home and candidate-vehicle map markers. The assigned-driver map uses `assets/images/ride_car_marker.png`, a top-down car whose front points up. Keep its rotation zero and viewport aligned so it stays facing upward. These asset changes require a new Shorebird base release because bundled assets cannot be delivered as a Dart patch.
+
+Map-first booking stages use a fixed map viewport at 80% of screen height. The shared bottom sheet starts at 30% of screen height and overlays the lower part of the map; expanding it does not resize the map viewport. Home uses the same 80% map height. Keep the map viewport at or below 80% on shorter, landscape or large-text layouts.

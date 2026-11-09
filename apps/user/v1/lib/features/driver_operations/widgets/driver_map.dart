@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:user/features/home/constants/home.constant.dart';
+import 'package:user/features/rides/widgets/ride_map_pin_assets.dart';
 
 class DriverMap extends StatefulWidget {
   final LatLng? location, pickup, dropoff;
@@ -55,31 +56,34 @@ class _DriverMapState extends State<DriverMap> {
           lineJoin: 'round',
         ),
       );
-      await c.addGeoJsonSource('driver-markers', {
+      await c.addImage('ride-pin-green', await RideMapPinAssets.green());
+      await c.addImage('ride-pin-red', await RideMapPinAssets.red());
+      await c.addGeoJsonSource('driver-pickup-pin', {
         'type': 'FeatureCollection',
         'features': [],
       });
-      await c.addCircleLayer(
-        'driver-markers',
-        'driver-marker-circles',
-        const CircleLayerProperties(
-          circleRadius: 10,
-          circleColor: ['get', 'color'],
-          circleStrokeColor: '#FFFFFF',
-          circleStrokeWidth: 3,
+      await c.addSymbolLayer(
+        'driver-pickup-pin',
+        'driver-pickup-pin-symbol',
+        const SymbolLayerProperties(
+          iconImage: 'ride-pin-green',
+          iconSize: .125,
+          iconAnchor: 'bottom',
+          iconAllowOverlap: true,
         ),
       );
+      await c.addGeoJsonSource('driver-dropoff-pin', {
+        'type': 'FeatureCollection',
+        'features': [],
+      });
       await c.addSymbolLayer(
-        'driver-markers',
-        'driver-marker-labels',
+        'driver-dropoff-pin',
+        'driver-dropoff-pin-symbol',
         const SymbolLayerProperties(
-          textField: ['get', 'label'],
-          textSize: 12,
-          textColor: '#111827',
-          textHaloColor: '#FFFFFF',
-          textHaloWidth: 2,
-          textOffset: [0, 1.4],
-          textAnchor: 'top',
+          iconImage: 'ride-pin-red',
+          iconSize: .125,
+          iconAnchor: 'bottom',
+          iconAllowOverlap: true,
         ),
       );
       _renderedRoute = null;
@@ -113,28 +117,24 @@ class _DriverMapState extends State<DriverMap> {
     final route = widget.route;
     final heading = widget.heading, follow = widget.follow;
     try {
-      final features = <Map<String, dynamic>>[];
-      void marker(LatLng? p, String label, String color) {
-        if (p != null) {
-          features.add({
-            'type': 'Feature',
-            'properties': {'label': label, 'color': color},
-            'geometry': {
-              'type': 'Point',
-              'coordinates': [p.longitude, p.latitude],
-            },
-          });
-        }
-      }
-
-      marker(pickup, 'Pickup', '#111827');
-      marker(dropoff, 'Drop-off', '#16A34A');
+      Map<String, dynamic> marker(LatLng p) => {
+        'type': 'Feature',
+        'properties': <String, dynamic>{},
+        'geometry': {
+          'type': 'Point',
+          'coordinates': [p.longitude, p.latitude],
+        },
+      };
       if (!_markersSynced ||
           _renderedPickup != pickup ||
           _renderedDropoff != dropoff) {
-        await c.setGeoJsonSource('driver-markers', {
+        await c.setGeoJsonSource('driver-pickup-pin', {
           'type': 'FeatureCollection',
-          'features': features,
+          'features': [if (pickup != null) marker(pickup)],
+        });
+        await c.setGeoJsonSource('driver-dropoff-pin', {
+          'type': 'FeatureCollection',
+          'features': [if (dropoff != null) marker(dropoff)],
         });
         _markersSynced = true;
         _renderedPickup = pickup;

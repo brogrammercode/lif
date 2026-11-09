@@ -111,7 +111,10 @@ void main() {
       await tester.tap(find.byIcon(Icons.add_circle_outline));
       await tester.pumpAndSettle();
       expect(repo.previews.last, 'Mini/CASH/2');
-      await tester.tap(find.textContaining('Continue to book Mini'));
+      final bookingAction = find.textContaining('Continue to book Mini');
+      await tester.ensureVisible(bookingAction);
+      await tester.pumpAndSettle();
+      await tester.tap(bookingAction);
       await tester.pumpAndSettle();
       expect(repo.bookedPassengers, 2);
       expect(repo.bookedQuote, 'Mini');

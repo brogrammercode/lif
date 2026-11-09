@@ -10,7 +10,6 @@ class RiderFlowScaffold extends StatefulWidget {
   final Widget? statusStrip;
   final String title;
   final VoidCallback? onBack, onRecenter, onRefresh;
-  final double panelFraction;
   const RiderFlowScaffold({
     super.key,
     required this.map,
@@ -20,7 +19,6 @@ class RiderFlowScaffold extends StatefulWidget {
     this.onBack,
     this.onRecenter,
     this.onRefresh,
-    this.panelFraction = .48,
   });
   @override
   State<RiderFlowScaffold> createState() => _RiderFlowScaffoldState();
@@ -28,11 +26,6 @@ class RiderFlowScaffold extends StatefulWidget {
 
 class _RiderFlowScaffoldState extends State<RiderFlowScaffold> {
   double? _fraction;
-  @override
-  void didUpdateWidget(covariant RiderFlowScaffold oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.panelFraction != widget.panelFraction) _fraction = null;
-  }
 
   @override
   Widget build(BuildContext context) => SolidScope(
@@ -40,46 +33,23 @@ class _RiderFlowScaffoldState extends State<RiderFlowScaffold> {
       backgroundColor: RideTokens.canvas,
       body: LayoutBuilder(
         builder: (context, bounds) {
-          final compact =
-              bounds.maxHeight < 600 ||
-              MediaQuery.textScalerOf(context).scale(1) > 1.4;
-          final initial = compact ? .62 : widget.panelFraction;
+          final stripHeight = RideArrivalStrip.heightFor(context);
+          const initial = .30;
           final height = bounds.maxHeight * (_fraction ?? initial);
+          final header =
+              widget.statusStrip ??
+              RideArrivalStrip(label: widget.title, value: '');
           return Stack(
             children: [
               Positioned(
                 top: 0,
                 left: 0,
                 right: 0,
-                bottom: widget.statusStrip == null ? height - 12 : height + 36,
+                height: bounds.maxHeight * .80,
                 child: widget.map,
               ),
               Positioned(
-                top: MediaQuery.paddingOf(context).top + 14,
-                left: 50,
-                right: 50,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 11,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(28),
-                  ),
-                  child: Text(
-                    widget.title,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      height: 1.25,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-              Positioned(
-                top: MediaQuery.paddingOf(context).top + 65,
+                top: MediaQuery.paddingOf(context).top + 12,
                 left: 12,
                 child: SolidIconButton(
                   icon: Icons.chevron_left,
@@ -89,7 +59,7 @@ class _RiderFlowScaffoldState extends State<RiderFlowScaffold> {
               ),
               if (widget.onRefresh != null)
                 Positioned(
-                  top: MediaQuery.paddingOf(context).top + 65,
+                  top: MediaQuery.paddingOf(context).top + 12,
                   right: 12,
                   child: SolidIconButton(
                     icon: Icons.refresh,
@@ -97,27 +67,10 @@ class _RiderFlowScaffoldState extends State<RiderFlowScaffold> {
                     onPressed: widget.onRefresh!,
                   ),
                 ),
-              if (widget.statusStrip != null)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: height - 1,
-                  child: Container(
-                    height: 54,
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    decoration: const BoxDecoration(
-                      color: Colors.black,
-                      borderRadius: BorderRadius.vertical(
-                        top: Radius.circular(16),
-                      ),
-                    ),
-                    child: widget.statusStrip,
-                  ),
-                ),
               if (widget.onRecenter != null)
                 Positioned(
                   right: 16,
-                  bottom: height + (widget.statusStrip == null ? 8 : 64),
+                  bottom: height + 10,
                   child: SolidIconButton(
                     icon: Icons.my_location,
                     tooltip: 'Show route',
@@ -136,12 +89,30 @@ class _RiderFlowScaffoldState extends State<RiderFlowScaffold> {
                   initialChildSize: initial,
                   minChildSize: .30,
                   maxChildSize: .86,
-                  builder: (context, scroll) => SolidSheet(
+                  builder: (context, scroll) => RideStagePanel(
+                    key: const ValueKey('ride-stage-panel'),
+                    header: header,
+                    blackHeight: stripHeight,
                     child: SafeArea(
                       top: false,
-                      child: PrimaryScrollController(
-                        controller: scroll,
-                        child: widget.panel,
+                      child: Column(
+                        children: [
+                          Container(
+                            width: 36,
+                            height: 3,
+                            margin: const EdgeInsets.symmetric(vertical: 9),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFCCCCCC),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                          Expanded(
+                            child: PrimaryScrollController(
+                              controller: scroll,
+                              child: widget.panel,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -417,36 +388,315 @@ class RideFlowSkeleton extends StatelessWidget {
 }
 
 class RideArrivalStrip extends StatelessWidget {
+  static double heightFor(BuildContext context) => 54;
   final String label, value;
   const RideArrivalStrip({super.key, required this.label, required this.value});
   @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      const Icon(Icons.hourglass_top, size: 17, color: Colors.white),
-      const SizedBox(width: 8),
-      Expanded(
-        child: Text(
-          label,
-          style: const TextStyle(fontSize: 14, color: Colors.white),
-        ),
-      ),
-      const SizedBox(width: 8),
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: const Color(0xFF333333),
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: Text(
-          value,
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: Colors.white,
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, bounds) => Row(
+      children: [
+        const Icon(Icons.hourglass_top, size: 17, color: Colors.white),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 14,
+              height: 1.35,
+              color: Colors.white,
+            ),
           ),
         ),
-      ),
-    ],
+        const SizedBox(width: 8),
+        ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: bounds.maxWidth * .42),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFF333333),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 12,
+                height: 1.35,
+                fontWeight: FontWeight.w500,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Compact black swipe action used to leave the Home route selection stage.
+class RideSwipeButton extends StatefulWidget {
+  final bool enabled;
+  final bool busy;
+  final VoidCallback onSwipe;
+
+  const RideSwipeButton({
+    super.key,
+    required this.enabled,
+    required this.onSwipe,
+    this.busy = false,
+  });
+
+  @override
+  State<RideSwipeButton> createState() => _RideSwipeButtonState();
+}
+
+class _RideSwipeButtonState extends State<RideSwipeButton> {
+  double _progress = 0;
+  double _width = 0;
+  bool _completed = false;
+
+  @override
+  void didUpdateWidget(covariant RideSwipeButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.busy && !widget.busy) {
+      _progress = 0;
+      _completed = false;
+    }
+  }
+
+  void _drag(DragUpdateDetails details) {
+    if (!widget.enabled || widget.busy || _completed) return;
+    setState(() {
+      const thumbSize = 68.0;
+      const horizontalInset = 8.0;
+      final travel = _width > thumbSize + horizontalInset * 2
+          ? _width - thumbSize - horizontalInset * 2
+          : 1.0;
+      _progress = (_progress + details.delta.dx / travel)
+          .clamp(0.0, 1.0)
+          .toDouble();
+    });
+  }
+
+  void _finish() {
+    if (!widget.enabled || widget.busy || _completed) return;
+    if (_progress >= .82) {
+      setState(() {
+        _progress = 1;
+        _completed = true;
+      });
+      widget.onSwipe();
+    } else {
+      setState(() => _progress = 0);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      _width = constraints.maxWidth;
+      final active = widget.enabled && !widget.busy;
+      const thumbSize = 68.0;
+      const horizontalInset = 8.0;
+      const trackInset = 10.0;
+      final travel = _width > thumbSize + horizontalInset * 2
+          ? _width - thumbSize - horizontalInset * 2
+          : 1.0;
+      final thumbLeft = horizontalInset + _progress * travel;
+      final trackWidth = (_width - trackInset * 2).clamp(0.0, _width);
+      final trailWidth = widget.busy
+          ? trackWidth
+          : (thumbLeft + thumbSize / 2 - trackInset).clamp(0.0, trackWidth);
+      const hintWidth = 80.0;
+      final hintLeft = (thumbLeft + thumbSize / 2 - hintWidth / 2)
+          .clamp(0.0, (_width - hintWidth).clamp(0.0, _width))
+          .toDouble();
+      final showHint = active && !_completed && _progress < .02;
+
+      return Semantics(
+        button: true,
+        enabled: active,
+        label: widget.busy
+            ? 'Finding ride options'
+            : 'Swipe the car to continue to ride options',
+        onTap: active ? widget.onSwipe : null,
+        child: GestureDetector(
+          key: const ValueKey('ride-swipe-button'),
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragUpdate: active ? _drag : null,
+          onHorizontalDragEnd: active ? (_) => _finish() : null,
+          onHorizontalDragCancel: active ? _finish : null,
+          child: SizedBox(
+            height: 64,
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                Positioned(
+                  left: trackInset,
+                  right: trackInset,
+                  top: 28,
+                  height: 12,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFECECF1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  key: const ValueKey('ride-swipe-trail'),
+                  left: trackInset,
+                  top: 28,
+                  width: trailWidth,
+                  height: 12,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Colors.blue, Colors.blueAccent],
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: thumbLeft,
+                  top: 5,
+                  bottom: 0,
+                  width: thumbSize,
+                  child: Opacity(
+                    opacity: active || widget.busy ? 1 : .5,
+                    child: Center(
+                      child: RotatedBox(
+                        quarterTurns: 1,
+                        child: Image.asset(
+                          'assets/images/ride_car_marker.png',
+                          key: const ValueKey('ride-swipe-car'),
+                          width: 68,
+                          height: 68,
+                          fit: BoxFit.contain,
+                          filterQuality: FilterQuality.medium,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                if (showHint)
+                  Positioned(
+                    key: const ValueKey('ride-swipe-hint-layer'),
+                    left: hintLeft,
+                    top: -6,
+                    width: hintWidth,
+                    child: IgnorePointer(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            alignment: Alignment.center,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Colors.blue.withValues(alpha: .22),
+                              ),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Color(0x18000000),
+                                  blurRadius: 5,
+                                  offset: Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: const Text(
+                              'Swipe right',
+                              key: ValueKey('ride-swipe-hint'),
+                              maxLines: 1,
+                              style: TextStyle(
+                                color: Colors.blue,
+                                fontSize: 10,
+                                height: 1,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          CustomPaint(
+                            size: const Size(12, 6),
+                            painter: _SwipeHintTailPainter(),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class _SwipeHintTailPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final tail = Path()
+      ..moveTo(1, 0)
+      ..lineTo(size.width / 2, size.height)
+      ..lineTo(size.width - 1, 0)
+      ..close();
+    canvas.drawPath(tail, Paint()..color = Colors.white);
+    canvas.drawLine(
+      Offset(1, 0),
+      Offset(size.width / 2, size.height),
+      Paint()
+        ..color = Colors.blue.withValues(alpha: .22)
+        ..strokeWidth = 1,
+    );
+    canvas.drawLine(
+      Offset(size.width / 2, size.height),
+      Offset(size.width - 1, 0),
+      Paint()
+        ..color = Colors.blue.withValues(alpha: .22)
+        ..strokeWidth = 1,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// The single black-header / white-content parent used by every ride stage.
+class RideStagePanel extends StatelessWidget {
+  final Widget header, child;
+  final EdgeInsetsGeometry padding;
+  final double blackHeight, radius;
+  final bool fullRadius;
+
+  const RideStagePanel({
+    super.key,
+    required this.header,
+    required this.child,
+    this.padding = EdgeInsets.zero,
+    this.blackHeight = 54,
+    this.radius = 18,
+    this.fullRadius = false,
+  });
+
+  @override
+  Widget build(BuildContext context) => SolidSurface(
+    upperChild: header,
+    blackHeight: blackHeight,
+    radius: radius,
+    fullRadius: fullRadius,
+    padding: padding,
+    child: child,
   );
 }
 

@@ -433,4 +433,83 @@ The migration was applied as the repair for the reported live quote failure, aft
 
 No backend state/payment/assignment rules changed in this visual replacement. Other existing account/partner/driver pages are not silently migrated by this task; the new document governs their future reworks. The reference's example car, sample identity and Top Rated trophy are never fabricated when actual data is missing.
 
+## 9 November 2026 — Home place-strip and joined-header repair
+
+- [x] Preserve the in-progress `SolidSurface.upperChild` / `blackHeight` API and edge-to-edge Home panel.
+- [x] Fix shared surfaces losing finite child constraints through an unconditional Column.
+- [x] Move Home place cards outside the white route panel; use a compact photo/title variant with scaled height.
+- [x] Keep the black header and rounded white body joined, with an hourglass and gray estimate pill.
+- [x] Use honest pre-booking trip estimates; retain driver ETA wording for assigned trips.
+- [x] Extend live black-strip backing under rounded white corners; adapt ETA layout for large text.
+- [x] Bound the Home overlay, preserve safe-area/keyboard access and make short-screen contents scrollable.
+- [x] Bound missing-photo placeholders and retain accessible fallback labels.
+- [x] Final analyzer: no issues. Full suite: 183 tests passed, including bounded 140 × 160 cards, optional headers, portrait/landscape and 2× text.
+- [ ] Physical-device MapLibre/keyboard and visual comparison.
+
+The reported 157 px RenderFlex error points to the shared surface/card constraint path. A second narrow-placeholder overflow was reproduced in a focused test and repaired. The preceding Android platform-view context diagnostic is separate; this repair does not modify MapLibre, native files or the SDK cache, and does not claim that native diagnostic is resolved.
+
+## 9 November 2026 — Shared parent panel across every ride stage
+
+### Plan and implementation checklist
+
+- [x] Use one reusable parent surface for every booking stage: a solid black title/status strip directly attached to the rounded white main-content sheet.
+- [x] Keep Home and location selection in the same `RideStagePanel`; give location entry its own title and active endpoint label.
+- [x] Put category selection and booking in `RideStagePanel` inside the map/draggable-sheet scaffold.
+- [x] Put searching, assigned, waiting/verification and in-progress states in that same parent; each stage supplies its actual title and current timing/status value.
+- [x] Put completion and receipt/rating content inside the same parent and preserve refresh/back actions.
+- [x] Remove duplicate floating/map and centered-search titles so the shared black header is the single stage title.
+- [x] Keep map, back/recenter controls and map attribution outside the sheet parent; preserve controller-owned state, polling, booking and server transitions.
+- [x] Regression test the shared stage container and Home layout at portrait, landscape and large text.
+- [ ] Compare all ride stages on physical devices against the supplied reference and verify live MapLibre/device safe-area behavior.
+
+Implementation: `RideStagePanel` is the shared black-header/white-content parent in `rider_flow_components.dart`. `RiderFlowScaffold` now makes the black header part of the draggable sheet instead of positioning it as a separate sibling. Home and location selection use the same panel; completion keeps refresh and back controls inside the white content area.
+
+## 9 November 2026 — Independent pickup/drop-off selection and swipe-to-continue
+
+### Plan and completion checklist
+
+- [x] Open a dedicated picker from each Home endpoint row, with only that pickup or drop-off editable.
+- [x] Present one search field, a saved-Home shortcut and stacked place suggestions with primary/secondary labels and optional distance.
+- [x] Center the map on a selected result, retain a fixed center pin, support map dragging to refine, and reverse-geocode the settled center.
+- [x] Confirm only the active endpoint and return to Home phase 1; do not request quotes or continue automatically.
+- [x] Keep Home's continue action hidden until both endpoints are selected; require a swipe with a blue progress trail and right-facing car icon.
+- [x] Replace the assigned-driver vehicle marker with the supplied top-down car PNG and hold its front upright on screen.
+- [x] Add shared-flow regression coverage for the swipe threshold and preserve the existing Home layout coverage.
+- [x] Flutter analyzer and full Flutter test suite pass after the implementation.
+- [ ] Check the real MapLibre map, search suggestions, center-pin drag and final swipe on a physical device.
+
+Implementation lives in `home_page.dart`, `home_controller.dart`, `rider_flow_components.dart` and `rider_trip_map.dart`. The added PNG is a bundled asset; a future Shorebird delivery requires a new base release rather than a Dart-only patch.
+
+## 9 November 2026 — Shared ride endpoint pin artwork
+
+- [x] Use the supplied pin PNG for the map-center selector and confirmed ride endpoints.
+- [x] Render pickup green and drop-off red in the picker, rider trip map and driver trip map.
+- [x] Remove Home's separate auto-current-location and saved-place pins; the MapLibre location puck remains the only standalone current-location marker.
+- [x] Remove nearby candidate vehicle dots from the ride-selection map; keep actual assigned-driver vehicle tracking.
+- [x] Replace the old circle endpoint markers in rider and driver trip maps.
+- [x] Verify the source asset and generated green variant retain dimensions and endpoint colors.
+- [ ] Verify map symbol sizing and pin anchoring on a physical device.
+
+The shared rendering helper is `ride_map_pin_assets.dart`. The selected endpoint uses the single fixed center pin while the map is being adjusted, avoiding a duplicate coordinate-anchored pin in the same picker screen.
+
+## 9–10 November 2026 — Consistent 80% ride-map viewport
+
+- [x] Set Home's map viewport to 80% of screen height.
+- [x] Set every `RiderFlowScaffold` ride map to the same fixed 80% viewport.
+- [x] Keep the shared draggable bottom sheet starting at 30%; it overlays the map instead of resizing it.
+- [x] Add layout assertions for Home and shared ride stages.
+- [x] Verify focused ride layout tests and Flutter analyzer after the 80% adjustment.
+- [ ] Compare map framing and sheet expansion on physical devices, including landscape and large text.
+
+The original 70% viewport was increased to 80% on 10 November 2026 at the user's request. The sheet remains at its existing 30% initial extent and overlays the lower map area.
+
+## 10 November 2026 — Home Continue slider style and hint
+
+- [x] Keep pickup/drop-off rows and the shared Home panel intact; use the slider only in the Continue action slot.
+- [x] Remove the surrounding frame and reduce the slider height to 64 px; tighten the Home gap before the control.
+- [x] Make the car rail 12 px high with a blue-to-blueAccent progress gradient.
+- [x] Render the “Swipe right” hint as a cloud above the car and rail; hide it as soon as dragging begins.
+- [x] Remove runtime car tinting and use the bundled car artwork directly.
+- [x] Verify slider geometry, hint layering, Home layout and Flutter analysis.
+
 

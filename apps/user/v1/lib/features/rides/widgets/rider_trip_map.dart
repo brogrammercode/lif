@@ -1,16 +1,16 @@
 import 'dart:async';
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/features/home/constants/home.constant.dart';
+import 'package:user/features/rides/widgets/ride_map_pin_assets.dart';
 
 class RiderTripMap extends StatefulWidget {
   final LatLng pickup, dropoff;
   final LatLng? driver;
   final String driverLabel;
   final List<LatLng> points;
-  final List<LatLng> nearbyVehicles;
   final int recenter;
   const RiderTripMap({
     super.key,
@@ -19,7 +19,6 @@ class RiderTripMap extends StatefulWidget {
     this.driver,
     this.driverLabel = 'Driver',
     required this.points,
-    this.nearbyVehicles = const [],
     this.recenter = 0,
   });
   @override
@@ -58,53 +57,18 @@ class _RiderMapState extends State<RiderTripMap> {
           lineJoin: 'round',
         ),
       );
-      final recorder = ui.PictureRecorder();
-      final canvas = Canvas(recorder);
-      final body = Paint()..color = Colors.white;
-      final outline = Paint()
-        ..color = const Color(0xFF333333)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2;
-      final shape = RRect.fromRectAndRadius(
-        const Rect.fromLTWH(17, 5, 30, 54),
-        const Radius.circular(9),
+      await c.addImage('ride-pin-green', await RideMapPinAssets.green());
+      await c.addImage('ride-pin-red', await RideMapPinAssets.red());
+      final vehicleIcon = await rootBundle.load(
+        'assets/images/ride_car_marker.png',
       );
-      canvas.drawRRect(shape, body);
-      canvas.drawRRect(shape, outline);
-      final window = Paint()..color = const Color(0xFF2D3338);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          const Rect.fromLTWH(21, 14, 22, 13),
-          const Radius.circular(3),
+      await c.addImage(
+        'ride-vehicle',
+        vehicleIcon.buffer.asUint8List(
+          vehicleIcon.offsetInBytes,
+          vehicleIcon.lengthInBytes,
         ),
-        window,
       );
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          const Rect.fromLTWH(21, 39, 22, 10),
-          const Radius.circular(3),
-        ),
-        window,
-      );
-      for (final x in [14.0, 47.0]) {
-        for (final y in [15.0, 42.0]) {
-          canvas.drawRRect(
-            RRect.fromRectAndRadius(
-              Rect.fromLTWH(x, y, 3, 10),
-              const Radius.circular(1),
-            ),
-            window,
-          );
-        }
-      }
-      final picture = recorder.endRecording();
-      final image = await picture.toImage(64, 64);
-      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (bytes != null) {
-        await c.addImage('ride-vehicle', bytes.buffer.asUint8List());
-      }
-      image.dispose();
-      picture.dispose();
       await c.addGeoJsonSource('rider-vehicles', {
         'type': 'FeatureCollection',
         'features': [],
@@ -114,7 +78,10 @@ class _RiderMapState extends State<RiderTripMap> {
         'rider-vehicle-icons',
         const SymbolLayerProperties(
           iconImage: 'ride-vehicle',
-          iconSize: .65,
+          iconSize: .125,
+          iconRotate: 0,
+          iconRotationAlignment: 'viewport',
+          iconAnchor: 'center',
           iconAllowOverlap: true,
           textField: ['get', 'label'],
           textSize: 12,
@@ -125,31 +92,32 @@ class _RiderMapState extends State<RiderTripMap> {
           textAnchor: 'top',
         ),
       );
-      await c.addGeoJsonSource('rider-pins', {
+      await c.addGeoJsonSource('rider-pickup-pin', {
         'type': 'FeatureCollection',
         'features': [],
       });
-      await c.addCircleLayer(
-        'rider-pins',
-        'rider-points',
-        const CircleLayerProperties(
-          circleRadius: 10,
-          circleColor: ['get', 'color'],
-          circleStrokeColor: '#FFFFFF',
-          circleStrokeWidth: 3,
+      await c.addSymbolLayer(
+        'rider-pickup-pin',
+        'rider-pickup-pin-symbol',
+        const SymbolLayerProperties(
+          iconImage: 'ride-pin-green',
+          iconSize: .125,
+          iconAnchor: 'bottom',
+          iconAllowOverlap: true,
         ),
       );
+      await c.addGeoJsonSource('rider-dropoff-pin', {
+        'type': 'FeatureCollection',
+        'features': [],
+      });
       await c.addSymbolLayer(
-        'rider-pins',
-        'rider-labels',
+        'rider-dropoff-pin',
+        'rider-dropoff-pin-symbol',
         const SymbolLayerProperties(
-          textField: ['get', 'label'],
-          textSize: 12,
-          textColor: '#111827',
-          textHaloColor: '#FFFFFF',
-          textHaloWidth: 2,
-          textOffset: [0, 1.4],
-          textAnchor: 'top',
+          iconImage: 'ride-pin-red',
+          iconSize: .125,
+          iconAnchor: 'bottom',
+          iconAllowOverlap: true,
         ),
       );
       _ready = true;
@@ -202,19 +170,18 @@ class _RiderMapState extends State<RiderTripMap> {
         });
         _rendered = points;
       }
-      await c.setGeoJsonSource('rider-pins', {
+      await c.setGeoJsonSource('rider-pickup-pin', {
         'type': 'FeatureCollection',
-        'features': [
-          marker(pickup, 'Pickup', '#101010'),
-          marker(dropoff, 'Drop-off', '#101010'),
-        ],
+        'features': [marker(pickup, '', '')],
+      });
+      await c.setGeoJsonSource('rider-dropoff-pin', {
+        'type': 'FeatureCollection',
+        'features': [marker(dropoff, '', '')],
       });
       await c.setGeoJsonSource('rider-vehicles', {
         'type': 'FeatureCollection',
         'features': [
           if (driver != null) marker(driver, widget.driverLabel, '#101010'),
-          for (final vehicle in widget.nearbyVehicles)
-            marker(vehicle, 'Nearby', '#101010'),
         ],
       });
     } catch (_) {

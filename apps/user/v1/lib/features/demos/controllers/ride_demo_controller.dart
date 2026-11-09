@@ -20,6 +20,28 @@ enum RideDemoStep {
 class RideDemoController extends FeatureController {
   static const tripId = 'demo-trip';
   static const riderId = 'demo-rider';
+  // Demo-only photography. Keep these values in the controller fixture so the
+  // production views can render the same image fields as live API records.
+  static const _riderAvatar =
+      'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=256&q=80';
+  static const _driverAvatar =
+      'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=256&q=80';
+  static const _stationPhoto =
+      'https://images.unsplash.com/photo-1692395445997-d2098b8726e7?auto=format&fit=crop&w=900&q=85';
+  static const _cityPhoto =
+      'https://images.unsplash.com/photo-1449824913935-59a10b8d2000?auto=format&fit=crop&w=900&q=85';
+  static const _cityPhotoAlt =
+      'https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?auto=format&fit=crop&w=900&q=85';
+  static const _stationPhotoAlt =
+      'https://images.unsplash.com/photo-1687317587523-d3e2eb5289e4?auto=format&fit=crop&w=900&q=85';
+  static const _categoryImages = {
+    'BIKE':
+        'https://images.unsplash.com/photo-1719229805296-45a3f266c2c0?auto=format&fit=crop&w=700&q=80',
+    'SEDAN':
+        'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=700&q=80',
+    'SUV':
+        'https://images.unsplash.com/photo-1519641471654-76ce0107ad1b?auto=format&fit=crop&w=700&q=80',
+  };
   late final DioClient transport = DemoTransport(this);
   RideDemoStep step = RideDemoStep.home;
   int navigationRevision = 0;
@@ -50,7 +72,7 @@ class RideDemoController extends FeatureController {
     'id': riderId,
     'first_name': 'Aarav',
     'last_name': 'Sharma',
-    'avatar_url': null,
+    'avatar_url': _riderAvatar,
     'email': 'rider@example.test',
     'phone_e164': '+919000000001',
   };
@@ -63,7 +85,7 @@ class RideDemoController extends FeatureController {
       'id': 'demo-driver-user',
       'first_name': 'Rohan',
       'last_name': 'Kumar',
-      'avatar_url': null,
+      'avatar_url': _driverAvatar,
     },
   };
   Map<String, dynamic> get vehicle => vehicleFor(category);
@@ -89,7 +111,12 @@ class RideDemoController extends FeatureController {
           : xl
           ? 6
           : 4,
-      'photo_url': null,
+      'photo_url':
+          _categoryImages[bike
+              ? 'BIKE'
+              : xl
+              ? 'SUV'
+              : 'SEDAN'],
     };
   }
 
@@ -101,7 +128,10 @@ class RideDemoController extends FeatureController {
       'address': endpoints['dropoff']['address'],
       'latitude': endpoints['dropoff']['latitude'],
       'longitude': endpoints['dropoff']['longitude'],
-      'photos': [],
+      'photos': [
+        {'url': _stationPhoto},
+        {'url': _stationPhotoAlt},
+      ],
       'place_type': 'OTHER',
     },
     {
@@ -111,7 +141,10 @@ class RideDemoController extends FeatureController {
       'address': endpoints['pickup']['address'],
       'latitude': endpoints['pickup']['latitude'],
       'longitude': endpoints['pickup']['longitude'],
-      'photos': [],
+      'photos': [
+        {'url': _cityPhoto},
+        {'url': _cityPhotoAlt},
+      ],
       'place_type': 'HOME',
     },
   ];
@@ -148,7 +181,7 @@ class RideDemoController extends FeatureController {
           'category_snapshot': {
             'name': entry.$2,
             'capacity': entry.$4,
-            'image_url': null,
+            'image_url': _categoryImages[entry.$3],
             'payment_policy': {
               'cash_enabled': true,
               'direct_upi_enabled': true,

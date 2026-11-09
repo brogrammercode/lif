@@ -4,13 +4,13 @@ import 'package:user/features/home/controllers/home_controller.dart';
 import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/features/rides/pages/vehicle_selection_page.dart';
 import 'package:user/features/rides/widgets/rider_flow_components.dart';
+import 'package:user/features/rides/widgets/ride_map_pin_assets.dart';
 import 'package:user/features/saved_places/widgets/place_components.dart';
 import 'package:user/components/ui/app_skeleton.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 
 import 'package:user/features/rides/ride_display.dart';
 import 'package:user/core/route_observer.dart';
-import 'dart:ui';
 import 'dart:math' as math;
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -22,8 +22,6 @@ import 'package:iconsax/iconsax.dart';
 import 'package:user/features/home/constants/home.constant.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/core/network/api_result.dart';
-
-import 'package:user/components/ui/app_logo.dart';
 
 class HomePage extends StatefulWidget {
   final bool showDemoLauncher;
@@ -90,7 +88,6 @@ class _HomePageState extends State<HomePage>
   final FocusNode _toFocus = FocusNode();
   List<LatLng> get _routePoints => _controller.routePoints;
   set _routePoints(List<LatLng> value) => _controller.routePoints = value;
-  double? get _routeDistance => _controller.routeDistance;
   set _routeDistance(double? value) => _controller.routeDistance = value;
   double? get _routeDuration => _controller.routeDuration;
   set _routeDuration(double? value) => _controller.routeDuration = value;
@@ -152,6 +149,28 @@ class _HomePageState extends State<HomePage>
       initialEndpoints: source?.initialEndpoints,
     )..addListener(_controllerChanged);
     WidgetsBinding.instance.addObserver(this);
+    if (widget.locationSelection) {
+      final field = widget.editPickup ? SearchField.from : SearchField.to;
+      final selected = rideMap(
+        widget.endpoints?[field == SearchField.from ? 'pickup' : 'dropoff'],
+      );
+      final point = ridePoint(selected['latitude'], selected['longitude']);
+      _activeField = field;
+      _mapPickField = field;
+      _pickupChosenManually = true;
+      if (field == SearchField.from) {
+        if (point != null) {
+          _fromLocation = point;
+          _hasPickupLocation = true;
+        } else {
+          _hasPickupLocation = false;
+        }
+        _setSearchText(_fromController, '${selected['address'] ?? ''}');
+      } else {
+        _toLocation = point;
+        _setSearchText(_toController, '${selected['address'] ?? ''}');
+      }
+    }
     _initializeLocation();
     unawaited(_loadSavedPlaces());
     unawaited(_loadProfileAvatar());
@@ -163,18 +182,6 @@ class _HomePageState extends State<HomePage>
       }
     });
     if (widget.locationSelection) {
-      final from = rideMap(widget.endpoints?['pickup']),
-          to = rideMap(widget.endpoints?['dropoff']);
-      final p = ridePoint(from['latitude'], from['longitude']);
-      if (p != null) {
-        _fromLocation = p;
-        _hasPickupLocation = true;
-        _pickupChosenManually = true;
-      }
-      _toLocation = ridePoint(to['latitude'], to['longitude']);
-      _fromController.text = '${from['address'] ?? ''}';
-      _toController.text = '${to['address'] ?? ''}';
-      _activeField = widget.editPickup ? SearchField.from : SearchField.to;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) (widget.editPickup ? _fromFocus : _toFocus).requestFocus();
       });
@@ -414,6 +421,8 @@ class _HomePageState extends State<HomePage>
       }
       unawaited(_reverseGeocode(location, overrideField: SearchField.from));
       if (_toLocation != null) unawaited(_fetchRoute());
+    } else if (widget.locationSelection && _selectionPoint == null) {
+      _animatedMapMove(location, HomeConstants.DEFAULT_ZOOM, result.heading);
     }
     return true;
   }
@@ -520,7 +529,7 @@ class _HomePageState extends State<HomePage>
     }
     if (query.length < 3) return;
 
-    _debounce = Timer(const Duration(seconds: 3), () {
+    _debounce = Timer(const Duration(milliseconds: 450), () {
       _fetchSuggestions(query, field, generation);
     });
   }
@@ -691,32 +700,78 @@ class _HomePageState extends State<HomePage>
   }
 
   Map<String, dynamic> get _endpoints => _controller.endpoints;
-  Future<void> _chooseLocations({bool pickup = false}) async {
-    final result = await Navigator.push<Map<String, dynamic>>(
+  LatLng? get _selectionPoint {
+    if (!widget.locationSelection) return null;
+    return widget.editPickup
+        ? (_hasPickupLocation ? _fromLocation : null)
+        : _toLocation;
+  }
+
+  LatLng get _mapCenter =>
+      _selectionPoint ?? _currentDeviceLocation ?? _fromLocation;
+
+  Future<void> _chooseLocations({
+    bool pickup = false,
+    Map<String, dynamic>? selectionOverride,
+  }) async {
+    final field = pickup ? SearchField.from : SearchField.to;
+    final current =
+        selectionOverride ??
+        (field == SearchField.from
+            ? <String, dynamic>{
+                'address': _fromController.text,
+                'latitude': _hasPickupLocation ? _fromLocation.latitude : null,
+                'longitude': _hasPickupLocation
+                    ? _fromLocation.longitude
+                    : null,
+              }
+            : <String, dynamic>{
+                'address': _toController.text,
+                'latitude': _toLocation?.latitude,
+                'longitude': _toLocation?.longitude,
+              });
+    final result = await Navigator.push<RideEndpointSelection>(
       context,
       MaterialPageRoute(
         builder: (_) => HomePage(
           mapBuilder: widget.mapBuilder,
           locationSelection: true,
-          endpoints: _endpoints,
+          endpoints: {pickup ? 'pickup' : 'dropoff': current},
           editPickup: pickup,
         ),
       ),
     );
     if (!mounted || result == null) return;
-    final from = rideMap(result['pickup']), to = rideMap(result['dropoff']);
     setState(() {
-      _fromLocation = ridePoint(from['latitude'], from['longitude'])!;
-      _toLocation = ridePoint(to['latitude'], to['longitude'])!;
-      _hasPickupLocation = true;
-      _pickupChosenManually = true;
-      _setSearchText(_fromController, '${from['address']}');
-      _setSearchText(_toController, '${to['address']}');
+      if (result.field == SearchField.from) {
+        _fromLocation = result.point;
+        _hasPickupLocation = true;
+        _pickupChosenManually = true;
+        _setSearchText(_fromController, result.address);
+      } else {
+        _toLocation = result.point;
+        _setSearchText(_toController, result.address);
+      }
       _activeField = SearchField.none;
       _mapPickField = null;
+      _suggestions = [];
     });
-    await _fetchRoute();
-    if (mounted && _routeError == null) await _loadRideQuotes();
+    _invalidateRouteChoice();
+    if (_hasPickupLocation && _toLocation != null) {
+      await _fetchRoute();
+    }
+  }
+
+  void _confirmLocationSelection() {
+    final field = widget.editPickup ? SearchField.from : SearchField.to;
+    final point = field == SearchField.from ? _fromLocation : _toLocation;
+    final address = _searchControllerFor(field).text.trim();
+    if (point == null || address.isEmpty || _isMapDragging) return;
+    FocusScope.of(context).unfocus();
+    Navigator.pop(
+      context,
+      RideEndpointSelection(field: field, point: point, address: address),
+    );
   }
 
   Future<void> _loadRideQuotes() async {
@@ -727,10 +782,7 @@ class _HomePageState extends State<HomePage>
       return;
     }
     FocusScope.of(context).unfocus();
-    if (widget.locationSelection) {
-      Navigator.pop(context, _endpoints);
-      return;
-    }
+    if (widget.locationSelection) return;
     setState(() => _isRequestingQuote = true);
     try {
       await _checkTravel();
@@ -832,7 +884,9 @@ class _HomePageState extends State<HomePage>
     _pendingSuggestions = null;
     _pendingSuggestionQuery = null;
     _pendingSuggestionField = null;
-    _mapPickField = null;
+    final field = widget.locationSelection
+        ? (widget.editPickup ? SearchField.from : SearchField.to)
+        : _activeField;
     final displayName = suggestion['display_name'] ?? '';
     final shortName = displayName.split(',').first;
 
@@ -852,26 +906,30 @@ class _HomePageState extends State<HomePage>
       _suggestions = [];
       _invalidateRouteChoice();
       _isMapDragging = false;
-      if (_activeField == SearchField.from) {
+      _mapPickField = widget.locationSelection ? field : null;
+      if (field == SearchField.from) {
         _setSearchText(_fromController, shortName);
         _fromLocation = newLoc;
         _hasPickupLocation = true;
         _pickupChosenManually = true;
         _fromFocus.unfocus();
-      } else if (_activeField == SearchField.to) {
+      } else if (field == SearchField.to) {
         _setSearchText(_toController, shortName);
         _toLocation = newLoc;
         _toFocus.unfocus();
       }
-      _activeField = SearchField.none;
+      _activeField = widget.locationSelection ? field : SearchField.none;
     });
     _scheduleMapDataSync();
 
-    if (!(_hasPickupLocation && _toLocation != null)) {
+    if (widget.locationSelection ||
+        !(_hasPickupLocation && _toLocation != null)) {
       _animatedMapMove(newLoc, 16.0, 0.0);
     }
 
-    if (_hasPickupLocation && _toLocation != null) {
+    if (!widget.locationSelection &&
+        _hasPickupLocation &&
+        _toLocation != null) {
       _fetchRoute();
     }
   }
@@ -909,19 +967,25 @@ class _HomePageState extends State<HomePage>
     final restored =
         _lastMapCameraPosition ??
         CameraPosition(
-          target: _fromLocation,
+          target: _mapCenter,
           zoom: HomeConstants.DEFAULT_ZOOM,
           tilt: HomeConstants.MAP_TILT,
         );
-    unawaited(controller.moveCamera(CameraUpdate.newCameraPosition(restored)));
+    _isProgrammaticMapMove = true;
+    unawaited(() async {
+      try {
+        await controller.moveCamera(CameraUpdate.newCameraPosition(restored));
+      } finally {
+        _isProgrammaticMapMove = false;
+      }
+    }());
   }
 
   Future<void> _onMapStyleLoaded() async {
     final controller = _mapController;
     if (controller == null) return;
     try {
-      final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
-      _mapMarkerIconScale = 1 / devicePixelRatio;
+      _mapMarkerIconScale = .125;
       await controller.addGeoJsonSource('home-route', _emptyFeatureCollection);
       await controller.addLineLayer(
         'home-route',
@@ -935,26 +999,10 @@ class _HomePageState extends State<HomePage>
         enableInteraction: false,
       );
       await controller.addImage(
-        'home-from-pin',
-        await _buildPreviousMarkerImage(
-          color: Colors.black,
-          trianglePointsDown: false,
-        ),
+        'ride-pin-green',
+        await RideMapPinAssets.green(),
       );
-      await controller.addImage(
-        'home-to-pin',
-        await _buildPreviousMarkerImage(
-          color: Colors.green,
-          trianglePointsDown: true,
-        ),
-      );
-      await controller.addImage(
-        'home-saved-pin',
-        await _buildPreviousMarkerImage(
-          color: const Color(0xFFEA580C),
-          trianglePointsDown: false,
-        ),
-      );
+      await controller.addImage('ride-pin-red', await RideMapPinAssets.red());
       await controller.setSymbolIconAllowOverlap(true);
       await controller.setSymbolIconIgnorePlacement(true);
       await controller.setSymbolTextAllowOverlap(true);
@@ -968,62 +1016,6 @@ class _HomePageState extends State<HomePage>
     } catch (error) {
       debugPrint('MapLibre style setup failed: $error');
     }
-  }
-
-  Future<Uint8List> _buildPreviousMarkerImage({
-    required Color color,
-    required bool trianglePointsDown,
-  }) async {
-    final width = 28.r;
-    final height = 40.r;
-    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
-    final recorder = PictureRecorder();
-    final canvas = Canvas(recorder);
-    canvas.scale(devicePixelRatio);
-    final center = Offset(width / 2, 12.r);
-    final circle = Path()
-      ..addOval(Rect.fromCircle(center: center, radius: 12.r));
-    canvas.drawShadow(circle, color.withValues(alpha: 0.3), 4, true);
-    canvas.drawCircle(center, 12.r, Paint()..color = color);
-    final triangle = Path();
-    if (trianglePointsDown) {
-      triangle
-        ..moveTo(width / 2, 16.r)
-        ..lineTo(width / 2 + 4.5.r, 8.r)
-        ..lineTo(width / 2 - 4.5.r, 8.r);
-    } else {
-      triangle
-        ..moveTo(width / 2, 8.r)
-        ..lineTo(width / 2 + 4.5.r, 16.r)
-        ..lineTo(width / 2 - 4.5.r, 16.r);
-    }
-    triangle.close();
-    canvas.drawPath(triangle, Paint()..color = Colors.white);
-    canvas.drawRect(
-      Rect.fromCenter(
-        center: Offset(width / 2, 32.r),
-        width: 2.r,
-        height: 16.r,
-      ),
-      Paint()..color = color.withValues(alpha: 0.2),
-    );
-    canvas.drawRect(
-      Rect.fromCenter(
-        center: Offset(width / 2, 32.r),
-        width: 2.r,
-        height: 16.r,
-      ),
-      Paint()..color = color,
-    );
-
-    final image = await recorder.endRecording().toImage(
-      (width * devicePixelRatio).round(),
-      (height * devicePixelRatio).round(),
-    );
-    final data = await image.toByteData(format: ImageByteFormat.png);
-    image.dispose();
-    if (data == null) throw StateError('Could not create map pin image.');
-    return data.buffer.asUint8List();
   }
 
   Future<void> _syncUserLocationPuck() async {
@@ -1091,7 +1083,9 @@ class _HomePageState extends State<HomePage>
       _toFocus.unfocus();
       _scheduleMapDataSync();
       await _reverseGeocode(center, overrideField: settledField);
-      if (mounted && _toLocation != null) await _fetchRoute();
+      if (mounted && !widget.locationSelection && _toLocation != null) {
+        await _fetchRoute();
+      }
     });
   }
 
@@ -1119,40 +1113,16 @@ class _HomePageState extends State<HomePage>
             },
           ];
     final markerSymbols = <SymbolOptions>[];
-    if (_hasPickupLocation &&
+    if (!widget.locationSelection &&
+        _hasPickupLocation &&
+        _pickupChosenManually &&
         !(_isMapDragging && _mapPickField == SearchField.from)) {
-      markerSymbols.add(
-        _markerSymbol(
-          _fromLocation,
-          _fromController.text.isNotEmpty
-              ? _fromController.text
-              : 'Current location',
-          'home-from-pin',
-        ),
-      );
+      markerSymbols.add(_markerSymbol(_fromLocation, 'ride-pin-green'));
     }
-    if (_toLocation != null &&
+    if (!widget.locationSelection &&
+        _toLocation != null &&
         !(_isMapDragging && _mapPickField == SearchField.to)) {
-      markerSymbols.add(
-        _markerSymbol(
-          _toLocation!,
-          _toController.text.isNotEmpty ? _toController.text : 'Destination',
-          'home-to-pin',
-        ),
-      );
-    }
-    for (final place in _savedPlaces) {
-      final latitude = _coordinateValue(place['latitude']);
-      final longitude = _coordinateValue(place['longitude']);
-      if (latitude == null || longitude == null) continue;
-      final label = '${place['label'] ?? ''}'.trim();
-      markerSymbols.add(
-        _markerSymbol(
-          LatLng(latitude, longitude),
-          label.isEmpty ? 'Saved place' : label,
-          'home-saved-pin',
-        ),
-      );
+      markerSymbols.add(_markerSymbol(_toLocation!, 'ride-pin-red'));
     }
     try {
       await controller.setGeoJsonSource('home-route', {
@@ -1168,20 +1138,12 @@ class _HomePageState extends State<HomePage>
     }
   }
 
-  SymbolOptions _markerSymbol(LatLng point, String label, String icon) =>
-      SymbolOptions(
-        geometry: point,
-        iconImage: icon,
-        iconSize: _mapMarkerIconScale,
-        iconAnchor: 'bottom',
-        textField: label,
-        textSize: 12,
-        textColor: '#1F2937',
-        textHaloColor: '#FFFFFF',
-        textHaloWidth: 2,
-        textOffset: const Offset(0, 1.3),
-        textAnchor: 'top',
-      );
+  SymbolOptions _markerSymbol(LatLng point, String icon) => SymbolOptions(
+    geometry: point,
+    iconImage: icon,
+    iconSize: _mapMarkerIconScale,
+    iconAnchor: 'bottom',
+  );
 
   double? _coordinateValue(dynamic value) =>
       value is num ? value.toDouble() : double.tryParse('${value ?? ''}');
@@ -1193,6 +1155,7 @@ class _HomePageState extends State<HomePage>
 
   @override
   Widget build(BuildContext context) {
+    final mapHeight = MediaQuery.sizeOf(context).height * .80;
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.dark.copyWith(
         statusBarColor: Colors.transparent,
@@ -1208,52 +1171,85 @@ class _HomePageState extends State<HomePage>
             children: [
               // Layer 0: tilted vector map with 3D buildings.
               if (_mapMounted)
-                (widget.mapBuilder ?? (map) => map)(
-                  MapLibreMap(
-                    initialCameraPosition: CameraPosition(
-                      target:
-                          _lastMapCameraPosition?.target ??
-                          _pendingMapCenter ??
-                          _fromLocation,
-                      zoom:
-                          _lastMapCameraPosition?.zoom ??
-                          HomeConstants.DEFAULT_ZOOM,
-                      bearing: _lastMapCameraPosition?.bearing ?? 0,
-                      tilt:
-                          _lastMapCameraPosition?.tilt ??
-                          HomeConstants.MAP_TILT,
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: mapHeight,
+                  child: (widget.mapBuilder ?? (map) => map)(
+                    MapLibreMap(
+                      initialCameraPosition: CameraPosition(
+                        target:
+                            _lastMapCameraPosition?.target ??
+                            _pendingMapCenter ??
+                            _mapCenter,
+                        zoom:
+                            _lastMapCameraPosition?.zoom ??
+                            HomeConstants.DEFAULT_ZOOM,
+                        bearing: _lastMapCameraPosition?.bearing ?? 0,
+                        tilt:
+                            _lastMapCameraPosition?.tilt ??
+                            HomeConstants.MAP_TILT,
+                      ),
+                      styleString: HomeConstants.MAP_STYLE_URL,
+                      locationSource: const ManualLocationSource(),
+                      myLocationEnabled: true,
+                      myLocationRenderMode: MyLocationRenderMode.normal,
+                      onMapCreated: _onMapCreated,
+                      onStyleLoadedCallback: _onMapStyleLoaded,
+                      onCameraMove: _onMapCameraMove,
+                      trackCameraPosition: true,
+                      tiltGesturesEnabled: true,
+                      attributionButtonPosition:
+                          AttributionButtonPosition.topRight,
+                      attributionButtonMargins: math.Point<double>(12.r, 132.r),
                     ),
-                    styleString: HomeConstants.MAP_STYLE_URL,
-                    locationSource: const ManualLocationSource(),
-                    myLocationEnabled: true,
-                    myLocationRenderMode: MyLocationRenderMode.normal,
-                    onMapCreated: _onMapCreated,
-                    onStyleLoadedCallback: _onMapStyleLoaded,
-                    onCameraMove: _onMapCameraMove,
-                    trackCameraPosition: true,
-                    tiltGesturesEnabled: true,
-                    attributionButtonPosition:
-                        AttributionButtonPosition.topRight,
-                    attributionButtonMargins: math.Point<double>(12.r, 132.r),
                   ),
                 )
               else
-                const ColoredBox(color: Colors.white),
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: mapHeight,
+                  child: const ColoredBox(color: Colors.white),
+                ),
 
-              if (_mapPickField != null &&
-                  (_isMapDragging || _activeField != SearchField.none))
-                Positioned.fill(
+              if (widget.locationSelection && _mapPickField != null)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: mapHeight,
                   child: IgnorePointer(
                     child: Center(
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 180),
                         transform: Matrix4.translationValues(
                           0,
-                          _isMapDragging ? -15.r : 0,
+                          _isMapDragging ? -7.5.r : 0,
                           0,
                         ),
-                        child: _buildMarkerWidget(
-                          isGreen: _mapPickField == SearchField.to,
+                        child: Transform.translate(
+                          offset: Offset(0, -16.r),
+                          child: ColorFiltered(
+                            colorFilter: _mapPickField == SearchField.from
+                                ? RideMapPinAssets.pickupFilter
+                                : const ColorFilter.mode(
+                                    Colors.white,
+                                    BlendMode.srcOver,
+                                  ),
+                            child: Image.asset(
+                              RideMapPinAssets.assetPath,
+                              key: const ValueKey(
+                                'home-location-selection-pin',
+                              ),
+                              width: 32.r,
+                              height: 32.r,
+                              fit: BoxFit.contain,
+                              filterQuality: FilterQuality.high,
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -1386,8 +1382,8 @@ class _HomePageState extends State<HomePage>
                     ),
             ),
           ),
+          // The map header intentionally omits the centered 1More logo.
           // Notification Button
-          AppLogo(width: 112.r, height: 44.r),
           GestureDetector(
             onTap: () => Navigator.pushNamed(context, AppRoutes.notifications),
             child: _buildMapControl(
@@ -1418,8 +1414,7 @@ class _HomePageState extends State<HomePage>
   Widget _buildTopHeader(BuildContext context) {
     return Column(
       children: [
-        AppLogo(width: 112.r, height: 44.r),
-        SizedBox(height: 6.r),
+        // Keep the loading/search state aligned with the logo-free map header.
         Icon(
           _isSearchingDriver ? Icons.search : Icons.motorcycle,
           size: 30.r,
@@ -1440,258 +1435,333 @@ class _HomePageState extends State<HomePage>
     );
   }
 
-  Widget _buildMarkerWidget({required bool isGreen}) {
-    final color = isGreen ? Colors.green : Colors.black;
-    return Transform.translate(
-      offset: Offset(0, -20.r),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 24.r,
-            height: 24.r,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: color.withValues(alpha: 0.3),
-                  blurRadius: 8.r,
-                  offset: Offset(0, 4.r),
-                ),
+  Widget _buildLayer2(BuildContext context) {
+    final locationsSelected =
+        _hasPickupLocation &&
+        _toLocation != null &&
+        _fromController.text.trim().isNotEmpty &&
+        _toController.text.trim().isNotEmpty;
+    final valid = locationsSelected && !_isMapDragging && !_isFetchingRoute;
+    final selectedField = widget.editPickup ? SearchField.from : SearchField.to;
+    final selectedPoint = selectedField == SearchField.from
+        ? (_hasPickupLocation ? _fromLocation : null)
+        : _toLocation;
+    final selectionReady =
+        selectedPoint != null &&
+        _searchControllerFor(selectedField).text.trim().isNotEmpty &&
+        !_isMapDragging;
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom;
+    final available = math.max(
+      0.0,
+      MediaQuery.sizeOf(context).height -
+          keyboard -
+          MediaQuery.paddingOf(context).top -
+          100,
+    );
+    return Positioned(
+      bottom: keyboard,
+      left: 0,
+      right: 0,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: math.min(
+            MediaQuery.sizeOf(context).height * .78,
+            available,
+          ),
+        ),
+        child: SingleChildScrollView(
+          key: const ValueKey('home-booking-overlay'),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!widget.locationSelection && _communityPlaces.isNotEmpty) ...[
+                _buildPlaceStrip(context),
+                const SizedBox(height: 12),
               ],
-            ),
-            child: Center(
-              child: Transform.rotate(
-                angle: isGreen ? math.pi : 0,
-                child: CustomPaint(
-                  size: Size(9.r, 8.r),
-                  painter: _TrianglePainter(color: Colors.white),
+              RideStagePanel(
+                key: const ValueKey('home-route-panel'),
+                header: RideArrivalStrip(
+                  label: widget.locationSelection
+                      ? 'Choose ${widget.editPickup ? 'pickup' : 'drop-off'}'
+                      : _routeDuration == null
+                      ? 'Plan your ride'
+                      : 'Estimated trip time',
+                  value: widget.locationSelection
+                      ? widget.editPickup
+                            ? 'Pickup'
+                            : 'Drop-off'
+                      : _routeDuration == null
+                      ? 'Select route'
+                      : rideDuration(_routeDuration),
+                ),
+                blackHeight: RideArrivalStrip.heightFor(context),
+                padding: EdgeInsets.fromLTRB(
+                  18,
+                  12,
+                  18,
+                  18 +
+                      (keyboard == 0
+                          ? MediaQuery.paddingOf(context).bottom
+                          : 0),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 36,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 14),
+                        decoration: BoxDecoration(
+                          color: RideTokens.muted.withValues(alpha: .3),
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                      ),
+                    ),
+                    if (widget.locationSelection) ...[
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: _buildSearchField(
+                              label: widget.editPickup ? 'Pickup' : 'Drop-off',
+                              controller: widget.editPickup
+                                  ? _fromController
+                                  : _toController,
+                              focusNode: widget.editPickup
+                                  ? _fromFocus
+                                  : _toFocus,
+                              field: selectedField,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          _homePlaceShortcut(),
+                        ],
+                      ),
+                      if (_isMapDragging) ...[
+                        const SizedBox(height: 10),
+                        const Text(
+                          'Move the map to place the pin, then wait for the address to update.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: RideTokens.muted,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+
+                      if (_isFetchingSuggestions) const RideFlowSkeleton(),
+                      if (_suggestions.isNotEmpty)
+                        ..._suggestions.map(_buildSuggestionRow),
+                      if (_suggestions.isEmpty && !_isFetchingSuggestions)
+                        for (final place in _savedPlaces.take(3))
+                          _buildSavedPlaceSuggestion(place),
+                    ] else ...[
+                      _endpointRow(
+                        'Pickup',
+                        _fromController.text,
+                        Icons.gps_fixed,
+                        () => _chooseLocations(pickup: true),
+                      ),
+                      const Divider(height: 20),
+                      _endpointRow(
+                        'Drop-off',
+                        _toController.text,
+                        Icons.route,
+                        () => _chooseLocations(),
+                      ),
+                    ],
+                    if (_routeError != null)
+                      TextButton(
+                        onPressed: _isFetchingRoute ? null : _fetchRoute,
+                        child: Text(_routeError!),
+                      ),
+                    if (_isFetchingRoute)
+                      const Text(
+                        'Checking route…',
+                        style: TextStyle(color: RideTokens.muted),
+                      ),
+                    if (widget.locationSelection && selectionReady) ...[
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        height: 60,
+                        child: SolidButton(
+                          text:
+                              'Confirm ${widget.editPickup ? 'pickup' : 'drop-off'}',
+                          onPressed: _confirmLocationSelection,
+                        ),
+                      ),
+                    ] else if (!widget.locationSelection &&
+                        locationsSelected) ...[
+                      const SizedBox(height: 10),
+                      RideSwipeButton(
+                        enabled: valid && !_isRequestingQuote,
+                        busy: _isRequestingQuote,
+                        onSwipe: _loadRideQuotes,
+                      ),
+                    ],
+                  ],
                 ),
               ),
-            ),
+            ],
           ),
-          Container(
-            width: 2.r,
-            height: 16.r,
-            decoration: BoxDecoration(
-              color: color,
-              boxShadow: [
-                BoxShadow(
-                  color: color.withValues(alpha: 0.2),
-                  blurRadius: 2.r,
-                  offset: Offset(1.r, 0),
-                ),
-              ],
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildLayer2(BuildContext context) {
-    final valid =
-        _hasPickupLocation &&
-        _toLocation != null &&
-        !_isMapDragging &&
-        !_isFetchingRoute &&
-        _fromController.text.trim().isNotEmpty &&
-        _toController.text.trim().isNotEmpty;
-    return Positioned(
-      left: 16,
-      right: 16,
-      bottom:
-          math.max(
-            MediaQuery.paddingOf(context).bottom,
-            MediaQuery.viewInsetsOf(context).bottom,
-          ) +
-          12,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: math.min(
-            MediaQuery.sizeOf(context).height * .60,
-            math.max(
-              140,
-              MediaQuery.sizeOf(context).height -
-                  MediaQuery.viewInsetsOf(context).bottom -
-                  MediaQuery.paddingOf(context).top -
-                  100,
-            ),
-          ),
+  Widget _buildPlaceStrip(BuildContext context) => SizedBox(
+    key: const ValueKey('home-place-strip'),
+    height: PlaceCard.compactHeight(context),
+    child: ListView.separated(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      scrollDirection: Axis.horizontal,
+      itemCount: _communityPlaces.length.clamp(0, 8),
+      separatorBuilder: (_, _) => const SizedBox(width: 10),
+      itemBuilder: (_, i) => SizedBox(
+        width: 200,
+        child: PlaceCard(
+          compact: true,
+          place: _communityPlaces[i],
+          onTap: () async {
+            final place = _communityPlaces[i];
+            final point = ridePoint(place['latitude'], place['longitude']);
+            if (point == null) return;
+            await _chooseLocations(
+              selectionOverride: {
+                'address': '${place['name'] ?? place['address']}',
+                'latitude': point.latitude,
+                'longitude': point.longitude,
+              },
+            );
+          },
         ),
-        child: SolidSurface(
-          padding: const EdgeInsets.all(18),
-          child: SingleChildScrollView(
+      ),
+    ),
+  );
+
+  Widget _homePlaceShortcut() => SizedBox(
+    width: 57,
+    height: 57,
+    child: Material(
+      color: const Color(0xFFF1F2F4),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        key: const ValueKey('location-home-shortcut'),
+        borderRadius: BorderRadius.circular(12),
+        onTap: _selectSavedHome,
+        child: const Icon(Icons.home_rounded, color: Colors.black, size: 21),
+      ),
+    ),
+  );
+
+  void _selectSavedHome() {
+    final home = _savedPlaces.cast<Map<String, dynamic>?>().firstWhere(
+      (place) =>
+          '${place?['place_type'] ?? ''}'.toUpperCase() == 'HOME' ||
+          '${place?['label'] ?? place?['name'] ?? ''}'.trim().toLowerCase() ==
+              'home',
+      orElse: () => null,
+    );
+    if (home == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Save a Home place to use this shortcut.'),
+        ),
+      );
+      return;
+    }
+    _onSuggestionSelected({
+      'display_name': home['address'] ?? home['label'] ?? 'Home',
+      'lat': '${home['latitude']}',
+      'lon': '${home['longitude']}',
+    });
+  }
+
+  Widget _buildSavedPlaceSuggestion(Map<String, dynamic> place) =>
+      _buildLocationSuggestion(
+        title: '${place['label'] ?? place['name'] ?? 'Saved place'}',
+        subtitle: '${place['address'] ?? ''}',
+        icon: Icons.bookmark_outline,
+        onTap: () => _onSuggestionSelected({
+          'display_name': place['address'] ?? place['label'],
+          'lat': '${place['latitude']}',
+          'lon': '${place['longitude']}',
+        }),
+      );
+
+  Widget _buildSuggestionRow(dynamic raw) {
+    final item = rideMap(raw);
+    final fullName = '${item['display_name'] ?? ''}'.trim();
+    final parts = fullName.split(',').map((part) => part.trim()).toList();
+    final title = parts.isEmpty || parts.first.isEmpty
+        ? 'Suggested location'
+        : parts.first;
+    final subtitle = parts.skip(1).where((part) => part.isNotEmpty).join(', ');
+    final distance = item['distance'] ?? item['distance_text'];
+    return _buildLocationSuggestion(
+      title: title,
+      subtitle: subtitle,
+      distance: distance == null ? null : '$distance',
+      onTap: () => _onSuggestionSelected(item),
+    );
+  }
+
+  Widget _buildLocationSuggestion({
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+    IconData icon = Icons.location_on,
+    String? distance,
+  }) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(12),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 21, color: const Color(0xFFB5B8BF)),
+          const SizedBox(width: 12),
+          Expanded(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Center(
-                  child: Container(
-                    width: 36,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 14),
-                    decoration: BoxDecoration(
-                      color: RideTokens.muted.withValues(alpha: .3),
-                      borderRadius: BorderRadius.circular(9),
-                    ),
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
-                if (!widget.locationSelection &&
-                    _communityPlaces.isNotEmpty) ...[
-                  SizedBox(
-                    height: 160,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: _communityPlaces.length.clamp(0, 8),
-                      separatorBuilder: (_, _) => const SizedBox(width: 10),
-                      itemBuilder: (_, i) => SizedBox(
-                        width: 140,
-                        child: PlaceCard(
-                          place: _communityPlaces[i],
-                          onTap: () async {
-                            final p = _communityPlaces[i];
-                            final point = ridePoint(
-                              p['latitude'],
-                              p['longitude'],
-                            );
-                            if (point == null) return;
-                            setState(() {
-                              _toLocation = point;
-                              _setSearchText(
-                                _toController,
-                                '${p['name'] ?? p['address']}',
-                              );
-                            });
-                            await _chooseLocations();
-                          },
-                        ),
-                      ),
+                if (subtitle.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: RideTokens.muted,
                     ),
-                  ),
-                  const SizedBox(height: 14),
-                ],
-                if (widget.locationSelection) ...[
-                  Row(
-                    children: [
-                      SolidIconButton(
-                        icon: Icons.arrow_back,
-                        tooltip: 'Back to map',
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                      const SizedBox(width: 10),
-                      const Expanded(
-                        child: RiderFlowHeading('Choose locations'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  _buildSearchField(
-                    label: 'Pickup',
-                    controller: _fromController,
-                    focusNode: _fromFocus,
-                    field: SearchField.from,
-                    isSearching: true,
-                  ),
-                  const SizedBox(height: 14),
-                  _buildSearchField(
-                    label: 'Drop-off',
-                    controller: _toController,
-                    focusNode: _toFocus,
-                    field: SearchField.to,
-                    isSearching: true,
-                  ),
-                  const SizedBox(height: 10),
-                  TextButton.icon(
-                    icon: const Icon(Icons.pin_drop_outlined),
-                    label: const Text('Pick active location on map'),
-                    onPressed: () {
-                      FocusScope.of(context).unfocus();
-                      setState(() {
-                        _mapPickField = _activeField == SearchField.none
-                            ? SearchField.to
-                            : _activeField;
-                        _activeField = _mapPickField!;
-                      });
-                    },
-                  ),
-                  if (_isFetchingSuggestions) const RideFlowSkeleton(),
-                  for (final item in _suggestions)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.location_on_outlined),
-                      title: Text('${item['display_name'] ?? ''}', maxLines: 2),
-                      onTap: () => _onSuggestionSelected(item),
-                    ),
-                  if (_suggestions.isEmpty && !_isFetchingSuggestions)
-                    for (final place in _savedPlaces.take(3))
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.bookmark_outline),
-                        title: Text('${place['label'] ?? place['address']}'),
-                        subtitle: Text(
-                          '${place['address'] ?? ''}',
-                          maxLines: 1,
-                        ),
-                        onTap: () => _onSuggestionSelected({
-                          'display_name': place['address'],
-                          'lat': '${place['latitude']}',
-                          'lon': '${place['longitude']}',
-                        }),
-                      ),
-                ] else ...[
-                  _endpointRow(
-                    'Pickup',
-                    _fromController.text,
-                    Icons.trip_origin,
-                    () => _chooseLocations(pickup: true),
-                  ),
-                  const Divider(height: 20),
-                  _endpointRow(
-                    'Drop-off',
-                    _toController.text,
-                    Icons.location_on_outlined,
-                    () => _chooseLocations(),
                   ),
                 ],
-                if (_routeError != null)
-                  TextButton(
-                    onPressed: _isFetchingRoute ? null : _fetchRoute,
-                    child: Text(_routeError!),
-                  ),
-                if (_isFetchingRoute)
-                  const Text(
-                    'Checking route…',
-                    style: TextStyle(color: RideTokens.muted),
-                  ),
-                if (_routeDistance != null && _routeDuration != null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    child: Text(
-                      '${rideDistance(_routeDistance)} · ${rideDuration(_routeDuration)}',
-                      style: const TextStyle(color: RideTokens.muted),
-                    ),
-                  ),
-                const SizedBox(height: 12),
-                SolidButton(
-                  text: widget.locationSelection
-                      ? 'Confirm locations'
-                      : 'Continue',
-                  busy: _isRequestingQuote,
-                  onPressed: valid && !_isRequestingQuote
-                      ? _loadRideQuotes
-                      : (!widget.locationSelection
-                            ? () => _chooseLocations()
-                            : null),
-                ),
               ],
             ),
           ),
-        ),
+          if (distance != null) ...[
+            const SizedBox(width: 8),
+            Text(
+              distance,
+              style: const TextStyle(fontSize: 12, color: RideTokens.muted),
+            ),
+          ],
+        ],
       ),
-    );
-  }
+    ),
+  );
 
   Widget _endpointRow(
     String label,
@@ -1721,7 +1791,7 @@ class _HomePageState extends State<HomePage>
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 15,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],
@@ -1747,7 +1817,7 @@ class _HomePageState extends State<HomePage>
     }
     setState(() {
       _activeField = field;
-      _mapPickField = null;
+      _mapPickField = widget.locationSelection ? field : null;
     });
   }
 
@@ -1756,46 +1826,37 @@ class _HomePageState extends State<HomePage>
     required TextEditingController controller,
     required FocusNode focusNode,
     required SearchField field,
-    required bool isSearching,
-  }) => TextField(
-    controller: controller,
-    focusNode: focusNode,
-    decoration: InputDecoration(
-      labelText: label,
-      hintText: 'Search location…',
-      prefixIcon: Icon(
-        field == SearchField.from
-            ? Icons.trip_origin
-            : Icons.location_on_outlined,
+  }) => Semantics(
+    label: '$label location',
+    child: TextField(
+      controller: controller,
+      focusNode: focusNode,
+      decoration: InputDecoration(
+        hintText: 'Where do you want to go?',
+        filled: true,
+        fillColor: const Color(0xFFF1F2F4),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 16,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
       ),
+      onTap: () => _activateEndpoint(field),
+      onSubmitted: (_) {
+        focusNode.unfocus();
+        _showPendingSuggestions();
+      },
     ),
-    onTap: () => _activateEndpoint(field),
-    onSubmitted: (_) {
-      focusNode.unfocus();
-      _showPendingSuggestions();
-    },
   );
-}
-
-class _TrianglePainter extends CustomPainter {
-  final Color color;
-
-  _TrianglePainter({required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
-    final path = Path()
-      ..moveTo(size.width / 2, 0)
-      ..lineTo(size.width, size.height)
-      ..lineTo(0, size.height)
-      ..close();
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _TrianglePainter oldDelegate) =>
-      oldDelegate.color != color;
 }

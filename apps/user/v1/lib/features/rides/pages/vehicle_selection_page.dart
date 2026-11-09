@@ -100,14 +100,6 @@ class _VehicleSelectionState extends State<VehicleSelectionPage>
       pickup: ridePoint(pickup['latitude'], pickup['longitude'])!,
       dropoff: ridePoint(dropoff['latitude'], dropoff['longitude'])!,
       points: widget.points,
-      nearbyVehicles: _controller.previews
-          .map((item) => rideMap(item['map_position']))
-          .map(
-            (position) =>
-                ridePoint(position['latitude'], position['longitude']),
-          )
-          .whereType<LatLng>()
-          .toList(),
       recenter: _recenter,
     );
     return PopScope(
@@ -117,223 +109,243 @@ class _VehicleSelectionState extends State<VehicleSelectionPage>
       },
       child: RiderFlowScaffold(
         title: 'Choose your ride',
+        statusStrip: RideArrivalStrip(
+          label: 'Choose your ride',
+          value: _controller.loading
+              ? 'Loading'
+              : rideDuration(_controller.selectedQuote['duration_s']),
+        ),
         map: widget.mapBuilder?.call(map) ?? map,
-        panelFraction: .57,
         onRecenter: () => setState(() => _recenter++),
         onBack: _back,
-        panel: Column(
-          children: [
-            Expanded(
-              child: ListView(
+        panel: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
                 padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-                children: [
-                  if (_controller.loading)
-                    const RideFlowSkeleton()
-                  else ...[
-                    SizedBox(
-                      height: 94,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: _controller.quotes.length,
-                        separatorBuilder: (_, _) => const SizedBox(width: 10),
-                        itemBuilder: (_, index) {
-                          final category = rideMap(
-                            _controller.quotes[index]['category_snapshot'],
-                          );
-                          return Semantics(
-                            selected: index == _controller.selected,
-                            button: true,
-                            child: InkWell(
-                              onTap: _controller.locked
-                                  ? null
-                                  : () => _controller.select(index),
-                              borderRadius: BorderRadius.circular(20),
-                              child: SolidSurface(
-                                dark: index == _controller.selected,
-                                padding: const EdgeInsets.all(10),
-                                child: SizedBox(
-                                  width: 76,
-                                  child: Column(
-                                    children: [
-                                      Expanded(
-                                        child: RideFlowImage(
-                                          url: category['image_url'] as String?,
-                                          size: 38,
-                                          iconColor:
-                                              index == _controller.selected
-                                              ? Colors.white
-                                              : RideTokens.ink,
-                                          fallback:
-                                              ['BIKE', 'SCOOTER'].contains(
-                                                _controller
-                                                    .quotes[index]['vehicle_type'],
-                                              )
-                                              ? Icons.two_wheeler
-                                              : Icons.directions_car_outlined,
-                                        ),
-                                      ),
-                                      Text(
-                                        '${category['name'] ?? 'Ride'}',
-                                        maxLines: 2,
-                                        textAlign: TextAlign.center,
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: index == _controller.selected
-                                              ? Colors.white
-                                              : RideTokens.ink,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    if (_controller.previewLoading)
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_controller.loading)
                       const RideFlowSkeleton()
-                    else if (_controller.previews.isEmpty)
-                      const Text(
-                        'No nearby preview available. Search can expand after booking.',
-                        style: TextStyle(color: RideTokens.muted),
-                      )
                     else ...[
-                      Text(
-                        'Nearby · ${_controller.previews.length} shown',
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 8),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            for (final preview in _controller.previews)
-                              Padding(
-                                padding: const EdgeInsets.only(right: 8),
-                                child: SizedBox(
-                                  width: MediaQuery.sizeOf(context).width - 64,
-                                  child: RideVehicleDriverCard(
-                                    vehicle: rideMap(preview['vehicle']),
-                                    driver: rideMap(preview['driver']),
-                                    preview: true,
+                      SizedBox(
+                        height: 94,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _controller.quotes.length,
+                          separatorBuilder: (_, _) => const SizedBox(width: 10),
+                          itemBuilder: (_, index) {
+                            final category = rideMap(
+                              _controller.quotes[index]['category_snapshot'],
+                            );
+                            return Semantics(
+                              selected: index == _controller.selected,
+                              button: true,
+                              child: InkWell(
+                                onTap: _controller.locked
+                                    ? null
+                                    : () => _controller.select(index),
+                                borderRadius: BorderRadius.circular(20),
+                                child: SolidSurface(
+                                  dark: index == _controller.selected,
+                                  padding: const EdgeInsets.all(10),
+                                  child: SizedBox(
+                                    width: 76,
+                                    child: Column(
+                                      children: [
+                                        Expanded(
+                                          child: RideFlowImage(
+                                            url:
+                                                category['image_url']
+                                                    as String?,
+                                            size: 38,
+                                            iconColor:
+                                                index == _controller.selected
+                                                ? Colors.white
+                                                : RideTokens.ink,
+                                            fallback:
+                                                ['BIKE', 'SCOOTER'].contains(
+                                                  _controller
+                                                      .quotes[index]['vehicle_type'],
+                                                )
+                                                ? Icons.two_wheeler
+                                                : Icons.directions_car_outlined,
+                                          ),
+                                        ),
+                                        Text(
+                                          '${category['name'] ?? 'Ride'}',
+                                          maxLines: 2,
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: index == _controller.selected
+                                                ? Colors.white
+                                                : RideTokens.ink,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
-                          ],
+                            );
+                          },
                         ),
                       ),
+                      const SizedBox(height: 14),
+                      if (_controller.previewLoading)
+                        const RideFlowSkeleton()
+                      else if (_controller.previews.isEmpty)
+                        const Text(
+                          'No nearby preview available. Search can expand after booking.',
+                          style: TextStyle(color: RideTokens.muted),
+                        )
+                      else ...[
+                        Text(
+                          'Nearby · ${_controller.previews.length} shown',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 8),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              for (final preview in _controller.previews)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: SizedBox(
+                                    width:
+                                        MediaQuery.sizeOf(context).width - 64,
+                                    child: RideVehicleDriverCard(
+                                      vehicle: rideMap(preview['vehicle']),
+                                      driver: rideMap(preview['driver']),
+                                      preview: true,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const Text(
+                          'Availability preview. Your driver is confirmed after acceptance.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: RideTokens.muted,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 14),
+                      RideEndpoints({
+                        'pickup_address': pickup['address'],
+                        'dropoff_address': dropoff['address'],
+                      }),
+                      const SizedBox(height: 12),
+                      Text(
+                        '${rideDistance(_controller.selectedQuote['distance_m'])} · ${rideDuration(_controller.selectedQuote['duration_s'])} trip estimate',
+                        style: const TextStyle(color: RideTokens.muted),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          const Expanded(child: Text('Passengers')),
+                          IconButton(
+                            onPressed:
+                                _controller.locked ||
+                                    _controller.passengers <= 1
+                                ? null
+                                : () {
+                                    _controller.changePassengers(-1);
+                                  },
+                            icon: const Icon(Icons.remove_circle_outline),
+                          ),
+                          Text('${_controller.passengers}'),
+                          IconButton(
+                            onPressed:
+                                _controller.locked ||
+                                    _controller.passengers >=
+                                        (rideNumber(
+                                              _controller.category['capacity'],
+                                            ) ??
+                                            1)
+                                ? null
+                                : () {
+                                    _controller.changePassengers(1);
+                                  },
+                            icon: const Icon(Icons.add_circle_outline),
+                          ),
+                        ],
+                      ),
+                      LiquidGlassDropdownFormField<String>(
+                        key: ValueKey(
+                          '${_controller.selectedQuote['id']}-${_controller.method}',
+                        ),
+                        initialValue: _controller.method,
+                        decoration: const InputDecoration(
+                          labelText: 'Pay the driver after your ride',
+                        ),
+                        items: _controller.methods
+                            .map(
+                              (m) => DropdownMenuItem(
+                                value: m,
+                                child: Text(
+                                  m == 'CASH' ? 'Cash' : 'Direct UPI',
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: _controller.locked
+                            ? null
+                            : (v) {
+                                _controller.changeMethod(v!);
+                              },
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _note,
+                        onChanged: _controller.changeNote,
+                        enabled: !_controller.locked,
+                        maxLength: 500,
+                        decoration: const InputDecoration(
+                          labelText: 'Pickup note (optional)',
+                        ),
+                      ),
+                      if (_controller.error != null ||
+                          _controller.booking.error != null)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          child: Text(
+                            _controller.booking.error ?? _controller.error!,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                        ),
+                      if (_controller.expired)
+                        TextButton(
+                          onPressed: _controller.booking.busy
+                              ? null
+                              : _controller.refresh,
+                          child: const Text(
+                            'Quote expired · Get fresh options',
+                          ),
+                        ),
+                      const SizedBox(height: 8),
                       const Text(
-                        'Availability preview. Your driver is confirmed after acceptance.',
+                        'Cash or direct UPI to your driver. No platform commission.',
+                        textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 12, color: RideTokens.muted),
                       ),
                     ],
-                    const SizedBox(height: 14),
-                    RideEndpoints({
-                      'pickup_address': pickup['address'],
-                      'dropoff_address': dropoff['address'],
-                    }),
-                    const SizedBox(height: 12),
-                    Text(
-                      '${rideDistance(_controller.selectedQuote['distance_m'])} · ${rideDuration(_controller.selectedQuote['duration_s'])} trip estimate',
-                      style: const TextStyle(color: RideTokens.muted),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        const Expanded(child: Text('Passengers')),
-                        IconButton(
-                          onPressed:
-                              _controller.locked || _controller.passengers <= 1
-                              ? null
-                              : () {
-                                  _controller.changePassengers(-1);
-                                },
-                          icon: const Icon(Icons.remove_circle_outline),
-                        ),
-                        Text('${_controller.passengers}'),
-                        IconButton(
-                          onPressed:
-                              _controller.locked ||
-                                  _controller.passengers >=
-                                      (rideNumber(
-                                            _controller.category['capacity'],
-                                          ) ??
-                                          1)
-                              ? null
-                              : () {
-                                  _controller.changePassengers(1);
-                                },
-                          icon: const Icon(Icons.add_circle_outline),
-                        ),
-                      ],
-                    ),
-                    LiquidGlassDropdownFormField<String>(
-                      key: ValueKey(
-                        '${_controller.selectedQuote['id']}-${_controller.method}',
-                      ),
-                      initialValue: _controller.method,
-                      decoration: const InputDecoration(
-                        labelText: 'Pay the driver after your ride',
-                      ),
-                      items: _controller.methods
-                          .map(
-                            (m) => DropdownMenuItem(
-                              value: m,
-                              child: Text(m == 'CASH' ? 'Cash' : 'Direct UPI'),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: _controller.locked
-                          ? null
-                          : (v) {
-                              _controller.changeMethod(v!);
-                            },
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _note,
-                      onChanged: _controller.changeNote,
-                      enabled: !_controller.locked,
-                      maxLength: 500,
-                      decoration: const InputDecoration(
-                        labelText: 'Pickup note (optional)',
-                      ),
-                    ),
-                    if (_controller.error != null ||
-                        _controller.booking.error != null)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        child: Text(
-                          _controller.booking.error ?? _controller.error!,
-                          style: const TextStyle(color: Colors.red),
-                        ),
-                      ),
-                    if (_controller.expired)
-                      TextButton(
-                        onPressed: _controller.booking.busy
-                            ? null
-                            : _controller.refresh,
-                        child: const Text('Quote expired · Get fresh options'),
-                      ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Cash or direct UPI to your driver. No platform commission.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 12, color: RideTokens.muted),
-                    ),
                   ],
-                ],
+                ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-              child: _bookingAction(),
-            ),
-          ],
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                child: _bookingAction(),
+              ),
+            ],
+          ),
         ),
       ),
     );

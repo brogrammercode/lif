@@ -98,34 +98,78 @@ class SolidScope extends StatelessWidget {
 
 class SolidSurface extends StatelessWidget {
   final Widget child;
+  final Widget? upperChild;
   final EdgeInsetsGeometry padding;
   final EdgeInsetsGeometry? margin;
   final double radius;
   final bool dark;
   final Color? tint;
+  final double blackHeight;
+  final bool? fullRadius;
+
   const SolidSurface({
     super.key,
     required this.child,
+    this.upperChild,
     this.padding = const EdgeInsets.all(16),
     this.margin,
     this.radius = 14,
     this.dark = false,
     this.tint,
+    this.blackHeight = 80,
+    this.fullRadius = true,
   });
+
   @override
-  Widget build(BuildContext context) => Container(
-    margin: margin,
-    decoration: BoxDecoration(
-      color: dark ? Colors.black : tint ?? Colors.white,
-      borderRadius: BorderRadius.circular(radius),
-      border: Border.all(color: dark ? Colors.black : RideTokens.line),
-    ),
-    clipBehavior: Clip.antiAlias,
-    child: Material(
-      type: MaterialType.transparency,
-      child: Padding(padding: padding, child: child),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final body = Container(
+      decoration: BoxDecoration(
+        color: dark ? Colors.black : tint ?? Colors.white,
+        borderRadius: fullRadius == true
+            ? BorderRadius.circular(radius)
+            : BorderRadius.only(
+                topLeft: Radius.circular(radius),
+                topRight: Radius.circular(radius),
+              ),
+        border: Border.all(color: dark ? Colors.black : RideTokens.line),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Material(
+        type: MaterialType.transparency,
+        child: Padding(padding: padding, child: child),
+      ),
+    );
+    if (upperChild == null) {
+      return Padding(padding: margin ?? EdgeInsets.zero, child: body);
+    }
+    return Container(
+      margin: margin,
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: fullRadius == true
+            ? BorderRadius.circular(radius)
+            : BorderRadius.only(
+                topLeft: Radius.circular(radius),
+                topRight: Radius.circular(radius),
+              ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            height: blackHeight,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: upperChild,
+            ),
+          ),
+          Flexible(fit: FlexFit.loose, child: body),
+        ],
+      ),
+    );
+  }
 }
 
 class SolidIconButton extends StatelessWidget {

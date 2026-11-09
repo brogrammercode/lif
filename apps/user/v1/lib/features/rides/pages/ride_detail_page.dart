@@ -285,28 +285,69 @@ class _RiderTripState extends State<RideDetailPage>
       hideContacts: true,
     );
     if (_controller.status == 'COMPLETED') {
-      return SolidPage(
-        title: "You've arrived",
-        action: IconButton(
-          tooltip: 'Refresh ride',
-          onPressed: _controller.reading ? null : _load,
-          icon: const Icon(Icons.refresh),
-        ),
-        child: RiderCompletionPanel(
-          data: _controller.data!,
-          actions: actions,
-          busy: _controller.busy || _receiptOpen,
-          onHome: _home,
-          onReceipt: _receipt,
-          onSafety: _safety,
-          onRate: (score, comment) async {
-            final user = rideMap(_controller.trip['driver'])['user_id'];
-            if (user != null) {
-              await _act(
-                () => _controller.rate(score, comment.isEmpty ? null : comment),
-              );
-            }
-          },
+      return SolidScope(
+        child: Scaffold(
+          backgroundColor: Colors.white,
+          body: SafeArea(
+            child: RideStagePanel(
+              header: const RideArrivalStrip(
+                label: "You've arrived",
+                value: 'Ride complete',
+              ),
+              blackHeight: RideArrivalStrip.heightFor(context),
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: 48,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          if (Navigator.of(context).canPop())
+                            IconButton(
+                              tooltip: 'Back',
+                              onPressed: Navigator.of(context).maybePop,
+                              icon: const Icon(Icons.arrow_back),
+                            )
+                          else
+                            const SizedBox(width: 48),
+                          IconButton(
+                            tooltip: 'Refresh ride',
+                            onPressed: _controller.reading ? null : _load,
+                            icon: const Icon(Icons.refresh),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: RiderCompletionPanel(
+                      data: _controller.data!,
+                      actions: actions,
+                      busy: _controller.busy || _receiptOpen,
+                      onHome: _home,
+                      onReceipt: _receipt,
+                      onSafety: _safety,
+                      onRate: (score, comment) async {
+                        final user = rideMap(
+                          _controller.trip['driver'],
+                        )['user_id'];
+                        if (user != null) {
+                          await _act(
+                            () => _controller.rate(
+                              score,
+                              comment.isEmpty ? null : comment,
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       );
     }
@@ -346,25 +387,26 @@ class _RiderTripState extends State<RideDetailPage>
           : _controller.status == 'IN_PROGRESS'
           ? 'On your way to your destination'
           : 'Get ready, the driver will come soon',
-      statusStrip: ['SEARCHING', 'REQUESTED'].contains(_controller.status)
-          ? null
-          : RideArrivalStrip(
-              label: _controller.status == 'IN_PROGRESS'
-                  ? (_controller.routeFresh && _controller.locationFresh
-                        ? 'Time to drop-off'
-                        : 'Route estimate')
-                  : _controller.status == 'DRIVER_WAITING'
-                  ? 'Your driver is waiting'
-                  : 'The driver will arrive in',
-              value: _controller.status == 'DRIVER_WAITING'
-                  ? _elapsed(_controller.trip['arrived_at'])
-                  : _controller.routeFresh && _controller.locationFresh
-                  ? rideDuration(_controller.routeData?['duration_s'])
-                  : 'Updating',
-            ),
+      statusStrip: RideArrivalStrip(
+        label: ['SEARCHING', 'REQUESTED'].contains(_controller.status)
+            ? 'Finding your driver'
+            : _controller.status == 'IN_PROGRESS'
+            ? (_controller.routeFresh && _controller.locationFresh
+                  ? 'Time to drop-off'
+                  : 'Route estimate')
+            : _controller.status == 'DRIVER_WAITING'
+            ? 'Your driver is waiting'
+            : 'The driver will arrive in',
+        value: ['SEARCHING', 'REQUESTED'].contains(_controller.status)
+            ? _elapsed(_controller.trip['requested_at'])
+            : _controller.status == 'DRIVER_WAITING'
+            ? _elapsed(_controller.trip['arrived_at'])
+            : _controller.routeFresh && _controller.locationFresh
+            ? rideDuration(_controller.routeData?['duration_s'])
+            : 'Updating',
+      ),
       onRefresh: _load,
       map: widget.mapBuilder?.call(map) ?? map,
-      panelFraction: _controller.status == 'IN_PROGRESS' ? .34 : .43,
       onRecenter: () => setState(() => _recenter++),
       panel: RiderLivePanel(
         data: _controller.data!,

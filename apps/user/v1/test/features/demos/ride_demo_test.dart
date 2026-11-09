@@ -9,6 +9,7 @@ import 'package:user/features/demos/pages/ride_demo_host.dart';
 import 'package:user/features/home/pages/home_page.dart';
 import 'package:user/features/rides/pages/vehicle_selection_page.dart';
 import 'package:user/features/rides/pages/ride_detail_page.dart';
+import 'package:user/features/rides/widgets/rider_flow_components.dart';
 import 'package:user/features/rides/controllers/rider_trip_controller.dart';
 import 'package:user/features/rides/controllers/vehicle_selection_controller.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
@@ -16,6 +17,34 @@ import 'package:user/features/driver_operations/driver_operations.repo.dart';
 
 void main() {
   setUpAll(() => GoogleFonts.config.allowRuntimeFetching = false);
+  test('demo fixture provides usable photography for every image slot', () {
+    final demo = RideDemoController();
+    bool isHttpsImage(dynamic value) =>
+        value is String && Uri.tryParse(value)?.scheme == 'https';
+
+    expect(isHttpsImage(demo.profile['avatar_url']), isTrue);
+    expect(isHttpsImage(demo.driver['user']['avatar_url']), isTrue);
+    expect(isHttpsImage(demo.vehicleFor('demo-bike')['photo_url']), isTrue);
+    expect(isHttpsImage(demo.vehicleFor('demo-car')['photo_url']), isTrue);
+    expect(isHttpsImage(demo.vehicleFor('demo-xl')['photo_url']), isTrue);
+    expect(
+      (demo.quote['quotes'] as List).every(
+        (quote) => isHttpsImage(quote['category_snapshot']['image_url']),
+      ),
+      isTrue,
+    );
+    expect(
+      demo.places.every(
+        (place) =>
+            (place['photos'] as List).isNotEmpty &&
+            (place['photos'] as List).every(
+              (photo) => isHttpsImage(photo['url']),
+            ),
+      ),
+      isTrue,
+    );
+    demo.dispose();
+  });
   test(
     'demo adapters use production booking controller and retain selection',
     () async {
@@ -119,7 +148,10 @@ void main() {
       expect(find.byType(VehicleSelectionPage), findsOneWidget);
       expect(find.text('Comfort'), findsOneWidget);
       expect(tester.takeException(), isNull, reason: 'Vehicle layout');
-      await tester.tap(find.textContaining('Continue to book Bike'));
+      final bookingAction = find.textContaining('Continue to book Bike');
+      await tester.ensureVisible(bookingAction);
+      await tester.pumpAndSettle();
+      await tester.tap(bookingAction);
       await tester.pumpAndSettle();
       expect(find.byType(RideDetailPage), findsOneWidget);
       expect(find.text('Finding your driver'), findsOneWidget);
@@ -128,7 +160,14 @@ void main() {
       await tester.tap(find.text('Driver assigned').last);
       await tester.pumpAndSettle();
       expect(find.byType(RideDetailPage), findsOneWidget);
-      expect(find.text('Get ready, the driver will come soon'), findsOneWidget);
+      expect(find.text('The driver will arrive in'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.byTooltip('Choose demo stage'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Completed').last);
+      await tester.pumpAndSettle();
+      expect(find.byType(RideStagePanel), findsOneWidget);
+      expect(find.text('Ride complete'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     },

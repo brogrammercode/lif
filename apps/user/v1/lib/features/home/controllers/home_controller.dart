@@ -9,6 +9,18 @@ import 'package:user/features/user_app/user_app.repo.dart';
 
 enum SearchField { none, from, to }
 
+class RideEndpointSelection {
+  final SearchField field;
+  final LatLng point;
+  final String address;
+
+  const RideEndpointSelection({
+    required this.field,
+    required this.point,
+    required this.address,
+  });
+}
+
 class LocationResult {
   final String status;
   final LatLng? point;
