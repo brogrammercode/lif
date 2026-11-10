@@ -12,6 +12,7 @@ class RiderFlowScaffold extends StatefulWidget {
   final String title;
   final VoidCallback? onBack, onRecenter, onRefresh;
   final double? panelContentHeight;
+  final double initialPanelFraction, maximumPanelFraction;
   const RiderFlowScaffold({
     super.key,
     required this.map,
@@ -22,6 +23,8 @@ class RiderFlowScaffold extends StatefulWidget {
     this.onRecenter,
     this.onRefresh,
     this.panelContentHeight,
+    this.initialPanelFraction = .30,
+    this.maximumPanelFraction = .86,
   });
   @override
   State<RiderFlowScaffold> createState() => _RiderFlowScaffoldState();
@@ -29,6 +32,13 @@ class RiderFlowScaffold extends StatefulWidget {
 
 class _RiderFlowScaffoldState extends State<RiderFlowScaffold> {
   double? _fraction;
+  @override
+  void didUpdateWidget(covariant RiderFlowScaffold oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialPanelFraction != widget.initialPanelFraction) {
+      _fraction = null;
+    }
+  }
 
   @override
   Widget build(BuildContext context) => SolidScope(
@@ -37,16 +47,16 @@ class _RiderFlowScaffoldState extends State<RiderFlowScaffold> {
       body: LayoutBuilder(
         builder: (context, bounds) {
           final stripHeight = RideArrivalStrip.heightFor(context);
-          const initial = .30;
+          final initial = widget.initialPanelFraction;
           const dragHandleHeight = 21.0;
           final measuredMax = widget.panelContentHeight == null
-              ? .86
+              ? widget.maximumPanelFraction
               : ((stripHeight +
                             dragHandleHeight +
                             MediaQuery.paddingOf(context).bottom +
                             widget.panelContentHeight!) /
                         bounds.maxHeight)
-                    .clamp(initial, .86)
+                    .clamp(initial, widget.maximumPanelFraction)
                     .toDouble();
           final height = bounds.maxHeight * (_fraction ?? initial);
           final header =
@@ -199,6 +209,8 @@ class RideVehicleDriverCard extends StatelessWidget {
   final bool preview, compact;
   final Widget? contactActions;
   final String? categoryLabel, distanceLabel;
+  final String? personLabel;
+  final bool showRating;
   const RideVehicleDriverCard({
     super.key,
     required this.vehicle,
@@ -208,6 +220,8 @@ class RideVehicleDriverCard extends StatelessWidget {
     this.contactActions,
     this.categoryLabel,
     this.distanceLabel,
+    this.personLabel,
+    this.showRating = true,
   });
   @override
   Widget build(BuildContext context) {
@@ -236,9 +250,9 @@ class RideVehicleDriverCard extends StatelessWidget {
         (rideNumber(driver['ratings_count']) ?? 0) > 0 && ratingAverage != null
         ? '${ratingAverage.toStringAsFixed(1)} ⭐'
         : 'New ⭐';
-    final driverSubtitle = preview
-        ? (distanceLabel ?? 'Nearby driver')
-        : 'Your driver';
+    final driverSubtitle =
+        personLabel ??
+        (preview ? (distanceLabel ?? 'Nearby driver') : 'Your driver');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -365,36 +379,37 @@ class RideVehicleDriverCard extends StatelessWidget {
                             ),
                     ),
                   ),
-                  Positioned(
-                    bottom: 1,
-                    left: 0,
-                    right: 0,
-                    child: Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color: RideTokens.line.withValues(alpha: .7),
+                  if (showRating)
+                    Positioned(
+                      bottom: 1,
+                      left: 0,
+                      right: 0,
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 2,
                           ),
-                        ),
-                        child: Text(
-                          rating,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 10,
-                            height: 1.2,
-                            fontWeight: FontWeight.w600,
-                            color: RideTokens.ink,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: RideTokens.line.withValues(alpha: .7),
+                            ),
+                          ),
+                          child: Text(
+                            rating,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              height: 1.2,
+                              fontWeight: FontWeight.w600,
+                              color: RideTokens.ink,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -405,7 +420,8 @@ class RideVehicleDriverCard extends StatelessWidget {
                 children: [
                   Text(
                     name.isEmpty
-                        ? (preview ? 'Available driver' : 'Your driver')
+                        ? (personLabel ??
+                              (preview ? 'Available driver' : 'Your driver'))
                         : name,
                     style: const TextStyle(
                       fontSize: 16,

@@ -121,13 +121,13 @@ void main() {
       repo.requests[0].complete(directions('PICKUP', 'Pickup Road'));
       await tester.pumpAndSettle();
       expect(find.text('turn onto Pickup Road'), findsOneWidget);
-      await tester.tap(find.text('Reroute'));
+      await tester.tap(find.byTooltip('Refresh ride'));
       await tester.pump();
       expect(repo.requests, hasLength(2));
       repo.status = 'IN_PROGRESS';
       await tester.pump(const Duration(seconds: 5));
       await tester.pump();
-      expect(find.text('Navigate to drop-off'), findsOneWidget);
+      expect(find.text('Time to drop-off'), findsOneWidget);
       expect(find.text('turn onto Pickup Road'), findsNothing);
       expect(map!.route, isEmpty);
       repo.requests[1].complete(directions('PICKUP', 'Late Pickup Road'));
@@ -137,7 +137,7 @@ void main() {
       expect(repo.requests, hasLength(3));
       repo.requests[2].complete(directions('DROPOFF', 'Dropoff Road'));
       await tester.pumpAndSettle();
-      expect(find.text('turn onto Dropoff Road'), findsOneWidget);
+      expect(map!.route, isNotEmpty);
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );
@@ -167,7 +167,7 @@ void main() {
     await tester.tap(find.text('Complete'));
     await tester.pumpAndSettle();
     expect(repo.reads, 2);
-    expect(find.text('COMPLETED'), findsOneWidget);
+    expect(find.text('Collect the ride fare'), findsOneWidget);
     expect(find.text('Complete ride'), findsNothing);
     repo.requests.single.complete(directions('DROPOFF', 'Old Road'));
     await tester.pumpAndSettle();

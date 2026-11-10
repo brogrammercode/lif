@@ -10,6 +10,7 @@ class DriverHomeController extends FeatureController {
   final repo = DriverOperationsRepository();
   final tracking = DriverTrackingService.instance;
   Map<String, dynamic>? data;
+  final Set<String> presentedOfferIds = {};
   String? error;
   Completer<void>? readDone;
   bool loading = false, busy = false, opening = false, foreground = true;

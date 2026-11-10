@@ -591,6 +591,16 @@ export class DriverOperationsService {
                   estimated_fare: true,
                   estimated_distance_m: true,
                   estimated_duration_s: true,
+                  passenger_count: true,
+                  rider_note: true,
+                  rider: {
+                    select: {
+                      id: true,
+                      first_name: true,
+                      last_name: true,
+                      avatar_url: true,
+                    },
+                  },
                 },
               },
             },
@@ -611,10 +621,32 @@ export class DriverOperationsService {
             make: profile.active_vehicle.make,
             model: profile.active_vehicle.model,
             plate_number: profile.active_vehicle.plate_number,
+            color: profile.active_vehicle.color,
+            brand: profile.active_vehicle.brand
+              ? {
+                  name: profile.active_vehicle.brand.name,
+                  logo_url: profile.active_vehicle.brand.logo_url,
+                }
+              : null,
           }
         : null,
       offers: offers.map((offer) => ({
         ...offer,
+        vehicle: profile.active_vehicle
+          ? {
+              id: profile.active_vehicle.id,
+              make: profile.active_vehicle.make,
+              model: profile.active_vehicle.model,
+              plate_number: profile.active_vehicle.plate_number,
+              color: profile.active_vehicle.color,
+              brand: profile.active_vehicle.brand
+                ? {
+                    name: profile.active_vehicle.brand.name,
+                    logo_url: profile.active_vehicle.brand.logo_url,
+                  }
+                : null,
+            }
+          : null,
         can_accept: profile.availability === 'AVAILABLE' && !current,
       })),
     };

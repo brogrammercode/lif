@@ -1,6 +1,6 @@
 import 'package:user/core/state/feature_controller.dart';
 
-enum DemoFlowId { rideBooking }
+enum DemoFlowId { rideBooking, driverRide }
 
 class DemoFlowDefinition {
   final DemoFlowId id;
@@ -10,6 +10,11 @@ class DemoFlowDefinition {
 
 class DemoRegistryController extends FeatureController {
   final List<DemoFlowDefinition> flows = const [
+    DemoFlowDefinition(
+      DemoFlowId.driverRide,
+      'Driver ride flow',
+      'Request, pickup QR, progress, collection and completion',
+    ),
     DemoFlowDefinition(
       DemoFlowId.rideBooking,
       'Ride booking flow',

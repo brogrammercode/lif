@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/features/demos/controllers/demo_registry_controller.dart';
 import 'package:user/features/demos/pages/ride_demo_host.dart';
+import 'package:user/features/demos/pages/driver_demo_host.dart';
 
 class DemoLauncher extends StatelessWidget {
   final Widget Function(Widget)? mapBuilder;
@@ -45,6 +46,13 @@ class DemoLauncher extends StatelessWidget {
     }
     if (!context.mounted || selected == null) return;
     switch (selected) {
+      case DemoFlowId.driverRide:
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => DriverDemoHost(mapBuilder: mapBuilder),
+          ),
+        );
       case DemoFlowId.rideBooking:
         await Navigator.push(
           context,

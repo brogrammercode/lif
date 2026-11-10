@@ -254,14 +254,14 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
               SolidIconButton(
                 dark: true,
                 icon: Icons.phone_outlined,
-                tooltip: 'Call driver',
+                tooltip: driver ? 'Call passenger' : 'Call driver',
                 onPressed: _busy || !active ? null : _call,
               ),
               const SizedBox(width: 6),
               SolidIconButton(
                 dark: true,
                 icon: Icons.chat_bubble_outline,
-                tooltip: 'Chat with driver',
+                tooltip: driver ? 'Chat with passenger' : 'Chat with driver',
                 onPressed: !active
                     ? null
                     : () => Navigator.pushNamed(

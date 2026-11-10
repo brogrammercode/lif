@@ -37,6 +37,19 @@ class DriverTripController extends FeatureController {
       navigating = false,
       foreground = true,
       follow = true;
+  void updatePosition() {
+    final fix = tracking.position.value;
+    if (isDisposed || !active || fix == null) return;
+    update(
+      () => progress = NavigationProgress.calculate(
+        LatLng(fix.latitude, fix.longitude),
+        points,
+        steps,
+      ),
+    );
+    unawaited(navigation());
+  }
+
   Future<void> load() async {
     if (loading || isDisposed || id == null) return;
     loading = true;

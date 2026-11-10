@@ -116,3 +116,7 @@ The host has its own Navigator and RouteObserver. Covered rider trip pages pause
 - [ ] Compare each stage visually at the tester's preferred size and adjust shared production components.
 - [ ] Check background/resume during demo chat and map interaction.
 - [ ] Exercise actual Google login, camera/document picker and driver GPS on hardware. Widget/fake transport tests do not prove provider/device behavior.
+
+## Driver demo — 11 November 2026
+
+Home's registry now includes **Driver ride flow**. `DriverDemoController` extends the scoped sample source and drives production `DriverRequestPage` / `DriverTripPage` through Request, Arriving, At pickup/QR, In progress, Payment and Completed. A simulated tracking adapter implements the tracking contract without accessing real GPS or uploading location. Real trip pages receive the injected repository in nested `TripActionsPanel` controls as well. Manual code: 162904. Vehicle identity is preserved while the counterparty profile switches to the passenger. Detailed acceptance tracker: `DRIVER_RIDE_FLOW_UI_REWORK.md`.

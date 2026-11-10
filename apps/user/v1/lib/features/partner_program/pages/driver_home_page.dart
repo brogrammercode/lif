@@ -15,6 +15,7 @@ import 'package:user/features/driver_operations/widgets/driver_glass.dart';
 import 'package:user/features/driver_operations/widgets/driver_map.dart';
 import 'package:user/features/driver_vehicles/widgets/driver_vehicle_gate.dart';
 import 'package:user/features/rides/ride_display.dart';
+import 'package:user/features/driver_vehicles/pages/driver_request_page.dart';
 
 class DriverHomePage extends StatelessWidget {
   const DriverHomePage({super.key});
@@ -36,7 +37,41 @@ class _DriverHomeState extends State<DriverHomeContent>
   late final _controller = DriverHomeController()
     ..addListener(_controllerChanged);
   void _controllerChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    if (_opening || _busy || _route?.isCurrent != true) return;
+    final offer = rideMaps(_data?['offers'])
+        .where(
+          (row) =>
+              row['can_accept'] == true &&
+              !_controller.presentedOfferIds.contains('${row['id']}') &&
+              (DateTime.tryParse(
+                    '${row['expires_at']}',
+                  )?.isAfter(DateTime.now()) ??
+                  false),
+        )
+        .firstOrNull;
+    if (offer != null) {
+      _controller.presentedOfferIds.add('${offer['id']}');
+      _opening = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_openRequest(offer));
+      });
+    }
+  }
+
+  Future<void> _openRequest(Map<String, dynamic> offer) async {
+    _opening = true;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DriverRequestPage(offer: offer, repository: _repo),
+      ),
+    );
+    if (mounted) {
+      _opening = false;
+      await _load();
+    }
   }
 
   DriverOperationsRepository get _repo => _controller.repo;
@@ -260,23 +295,11 @@ class _DriverHomeState extends State<DriverHomeContent>
               children: [
                 Expanded(
                   child: LiquidGlassButton(
-                    text: 'Accept',
-                    icon: const Icon(Icons.check_rounded),
+                    text: 'View request',
+                    icon: const Icon(Icons.route_outlined),
                     onPressed: _busy || !valid || offer['can_accept'] != true
                         ? null
-                        : () => _act(() async {
-                            final id = await _repo.accept('${offer['id']}');
-                            if (mounted) {
-                              _opening = true;
-                              unawaited(
-                                Navigator.pushReplacementNamed(
-                                  context,
-                                  AppRoutes.driverRideDetail,
-                                  arguments: id,
-                                ),
-                              );
-                            }
-                          }),
+                        : () => _openRequest(offer),
                   ),
                 ),
                 const SizedBox(width: 8),

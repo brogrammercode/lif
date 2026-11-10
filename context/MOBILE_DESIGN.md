@@ -152,3 +152,9 @@ Home's Pickup and Drop-off rows open the same location-selection stage for one e
 Use the shared pin artwork in `assets/images/ride_map_pin.png` for ride endpoints across Home, rider trip maps and driver trip maps. Do not add a second custom marker for the rider's current position; retain the existing MapLibre location puck. Keep actual assigned-driver tracking and its vehicle marker. Remove redundant saved-place pins from Home and candidate-vehicle map markers. The assigned-driver map uses `assets/images/ride_car_marker.png`, a top-down car whose front points up. Keep its rotation zero and viewport aligned so it stays facing upward. These asset changes require a new Shorebird base release because bundled assets cannot be delivered as a Dart patch.
 
 Map-first booking stages use a fixed map viewport at 80% of screen height. The shared bottom sheet starts at 30% of screen height and overlays the lower part of the map; expanding it does not resize the map viewport. Home uses the same 80% map height. Keep the map viewport at or below 80% on shorter, landscape or large-text layouts.
+
+## Driver ride stages — 11 November 2026
+
+Driver request, approach/waiting, progress, payment and completion use the same `RiderFlowScaffold` black status strip and solid white body. Driver progress reuses the rider's distance-driven car slider plus an explicit Complete ride button. Driver completion reuses `RiderCompletionPanel` under this black strip and initially opens below the screen top. Passenger identity replaces driver identity; the assigned vehicle and its brand logo/registration remain unchanged. Never copy a driver's rating onto a passenger.
+
+See `context/DRIVER_RIDE_FLOW_UI_REWORK.md` for phase mapping, server gates and isolated driver demo details.

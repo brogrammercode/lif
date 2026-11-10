@@ -298,6 +298,7 @@ class RiderCompletionPanel extends StatefulWidget {
   final bool busy;
   final ScrollController? scrollController;
   final GlobalKey? captureKey;
+  final bool driverView;
   const RiderCompletionPanel({
     super.key,
     required this.data,
@@ -308,6 +309,7 @@ class RiderCompletionPanel extends StatefulWidget {
     required this.busy,
     this.scrollController,
     this.captureKey,
+    this.driverView = false,
   });
   @override
   State<RiderCompletionPanel> createState() => _CompletionState();
@@ -328,7 +330,9 @@ class _CompletionState extends State<RiderCompletionPanel> {
     final trip = rideMap(widget.data['trip']),
         vehicle = rideMap(trip['vehicle']),
         driver = rideMap(trip['driver']);
-    final user = rideMap(driver['user']);
+    final user = widget.driverView
+        ? rideMap(trip['rider'])
+        : rideMap(driver['user']);
     final payment = rideMap(widget.data['payment']);
     final method =
         '${payment['method'] ?? payment['collection_method'] ?? trip['collection_preference'] ?? 'Not recorded'}';
@@ -445,7 +449,9 @@ class _CompletionState extends State<RiderCompletionPanel> {
       RideFact('Trip completed', rideReference(trip['id'])),
       RideFact('Date', rideTime(trip['completed_at'])),
       const SizedBox(height: 20),
-      if (trip['review'] == null && driver['user_id'] != null) ...[
+      if (!widget.driverView &&
+          trip['review'] == null &&
+          driver['user_id'] != null) ...[
         const Text(
           'How was your trip?',
           textAlign: TextAlign.center,
@@ -481,7 +487,7 @@ class _CompletionState extends State<RiderCompletionPanel> {
             child: const Text('Submit rating'),
           ),
         ],
-      ] else if (trip['review'] != null)
+      ] else if (!widget.driverView && trip['review'] != null)
         const Text(
           'Your rating has been saved. Thank you for your feedback.',
           textAlign: TextAlign.center,
@@ -582,7 +588,9 @@ class _CompletionState extends State<RiderCompletionPanel> {
                     borderRadius: BorderRadius.circular(28),
                   ),
                 ),
-                child: const Text('Download bill'),
+                child: Text(
+                  widget.driverView ? 'View receipt' : 'Download bill',
+                ),
               ),
             ),
           ],
