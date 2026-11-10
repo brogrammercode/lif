@@ -73,6 +73,10 @@ it('availability rejects foreign/expired drafts and returns only bounded public 
     model: 'Model',
     color: 'Black',
     plate_number: 'PRIVATE-PLATE',
+    brand: {
+      name: 'Catalog Brand',
+      logo_url: 'https://example.test/logo.webp',
+    },
   };
   let queried = false;
   Object.defineProperty(db, 'client', {
@@ -111,8 +115,8 @@ it('availability rejects foreign/expired drafts and returns only bounded public 
           return Array.from({ length: 12 }, () => ({
             id: 'driver',
             user_id: 'driver-user',
-            current_latitude: new Prisma.Decimal(25),
-            current_longitude: new Prisma.Decimal(86),
+            current_latitude: new Prisma.Decimal(25.001),
+            current_longitude: new Prisma.Decimal(86.001),
             user: {
               first_name: 'Driver',
               avatar_url: null,
@@ -140,6 +144,13 @@ it('availability rejects foreign/expired drafts and returns only bounded public 
   owned = true;
   const result = await service.rider_availability('rider', input);
   assert.equal(result.items.length, 8);
+  const firstPreview = result.items[0];
+  assert.ok(firstPreview);
+  assert.equal(firstPreview.distance_m % 50, 0);
+  assert.deepEqual(firstPreview.vehicle.brand, {
+    name: 'Catalog Brand',
+    logo_url: 'https://example.test/logo.webp',
+  });
   const json = JSON.stringify(result);
   for (const value of [
     'PRIVATE-PHONE',

@@ -17,4 +17,5 @@ export const rider_vehicle_select = {
   type: true,
   capacity: true,
   photo_url: true,
+  brand: { select: { name: true, logo_url: true } },
 } as const;

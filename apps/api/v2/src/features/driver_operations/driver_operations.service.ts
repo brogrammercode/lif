@@ -35,7 +35,13 @@ import {
 const options = { maxWait: 10000, timeout: 30000 };
 const include = {
   rider: {
-    select: { id: true, first_name: true, last_name: true, phone_e164: true },
+    select: {
+      id: true,
+      first_name: true,
+      last_name: true,
+      avatar_url: true,
+      phone_e164: true,
+    },
   },
   driver: {
     include: {
@@ -226,6 +232,15 @@ export class DriverOperationsService {
         .filter((d) => !upis || upis.has(d.user_id))
         .slice(0, 8)
         .map((d) => ({
+          distance_m:
+            Math.round(
+              trip_distance_m(
+                latitude,
+                longitude,
+                d.current_latitude!.toNumber(),
+                d.current_longitude!.toNumber(),
+              ) / 50,
+            ) * 50,
           map_position: {
             latitude: Number(d.current_latitude!.toNumber().toFixed(3)),
             longitude: Number(d.current_longitude!.toNumber().toFixed(3)),
@@ -243,6 +258,12 @@ export class DriverOperationsService {
             model: d.active_vehicle!.model,
             color: d.active_vehicle!.color,
             capacity: d.active_vehicle!.capacity,
+            brand: d.active_vehicle!.brand
+              ? {
+                  name: d.active_vehicle!.brand.name,
+                  logo_url: d.active_vehicle!.brand.logo_url,
+                }
+              : null,
             photo_url:
               typeof object(quote.category_snapshot).image_url === 'string'
                 ? object(quote.category_snapshot).image_url
@@ -708,6 +729,7 @@ export class DriverOperationsService {
           id: trip.rider.id,
           first_name: trip.rider.first_name,
           last_name: trip.rider.last_name,
+          avatar_url: trip.rider.avatar_url,
         },
       },
       server_time: new Date(),

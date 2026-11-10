@@ -4,7 +4,15 @@ export const MATCHING_VEHICLE_INCLUDE = {
   vehicle_category: {
     include: { parent: true, _count: { select: { children: true } } },
   },
-  brand: { select: { id: true, name: true, status: true, is_active: true } },
+  brand: {
+    select: {
+      id: true,
+      name: true,
+      logo_url: true,
+      status: true,
+      is_active: true,
+    },
+  },
   catalog_model: {
     select: {
       id: true,
