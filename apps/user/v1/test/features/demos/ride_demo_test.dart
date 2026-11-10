@@ -9,6 +9,7 @@ import 'package:user/features/demos/pages/ride_demo_host.dart';
 import 'package:user/features/home/pages/home_page.dart';
 import 'package:user/features/rides/pages/vehicle_selection_page.dart';
 import 'package:user/features/rides/pages/ride_detail_page.dart';
+import 'package:user/features/rides/widgets/ride_glass.dart';
 import 'package:user/features/rides/widgets/rider_flow_components.dart';
 import 'package:user/features/rides/controllers/rider_trip_controller.dart';
 import 'package:user/features/rides/controllers/vehicle_selection_controller.dart';
@@ -28,11 +29,38 @@ void main() {
     expect(isHttpsImage(demo.vehicleFor('demo-car')['photo_url']), isTrue);
     expect(isHttpsImage(demo.vehicleFor('demo-xl')['photo_url']), isTrue);
     expect(
+      isHttpsImage(demo.vehicleFor('demo-bike')['brand']['logo_url']),
+      isTrue,
+    );
+    expect(
+      isHttpsImage(demo.vehicleFor('demo-car')['brand']['logo_url']),
+      isTrue,
+    );
+    expect(
+      demo.vehicleFor('demo-bike')['brand']['logo_url'],
+      'https://res.cloudinary.com/drxuvrw65/image/upload/v1792684132/1more-admin/vehicle-brands/74618f08-2e02-44c2-a9d5-42213978f227.webp',
+    );
+    expect(
       (demo.quote['quotes'] as List).every(
         (quote) => isHttpsImage(quote['category_snapshot']['image_url']),
       ),
       isTrue,
     );
+    final activeCategoryImages = {
+      'BIKE':
+          'https://res.cloudinary.com/drxuvrw65/image/upload/v1794312100/1more-admin/vehicle-categories/ba556f0c-7fbd-457d-b29f-265c65db5a45.webp',
+      'SEDAN':
+          'https://res.cloudinary.com/drxuvrw65/image/upload/v1794312253/1more-admin/vehicle-categories/573d83dd-92e3-4d0b-8192-a268b324ea36.webp',
+      'SUV':
+          'https://res.cloudinary.com/drxuvrw65/image/upload/v1794312264/1more-admin/vehicle-categories/a7629980-03b1-47ec-a253-6d926e1c6af8.webp',
+    };
+    for (final quote in demo.quote['quotes'] as List) {
+      final type = quote['vehicle_type'];
+      expect(
+        quote['category_snapshot']['image_url'],
+        activeCategoryImages[type],
+      );
+    }
     expect(
       demo.places.every(
         (place) =>
@@ -62,6 +90,11 @@ void main() {
       expect(demo.status, 'SEARCHING');
       expect(demo.passengers, 2);
       expect(demo.selectedQuote['id'], 'demo-car');
+      expect(selection.driverDistanceLabel({'distance_m': 620}), '620 m away');
+      expect(
+        selection.driverDistanceLabel({'distance_m': 1450}),
+        '1.5 km away',
+      );
       selection.dispose();
       demo.dispose();
     },
@@ -148,26 +181,74 @@ void main() {
       expect(find.byType(VehicleSelectionPage), findsOneWidget);
       expect(find.text('Comfort'), findsOneWidget);
       expect(tester.takeException(), isNull, reason: 'Vehicle layout');
-      final bookingAction = find.textContaining('Continue to book Bike');
+      expect(find.text('Passengers'), findsOneWidget);
+      expect(find.text('Pay the driver after your ride'), findsNothing);
+      expect(find.text('Pickup note (optional)'), findsNothing);
+      final panel = find.byKey(const ValueKey('ride-stage-panel'));
+      final panelContent = find.byKey(
+        const ValueKey('vehicle-selection-content'),
+      );
+      final naturalContentHeight = tester.getSize(panelContent).height;
+      final initialPanelHeight = tester.getSize(panel).height;
+      await tester.drag(panel, const Offset(0, -600));
+      await tester.pumpAndSettle();
+      final expandedPanelHeight = tester.getSize(panel).height;
+      expect(expandedPanelHeight, greaterThan(initialPanelHeight));
+      expect(
+        expandedPanelHeight,
+        lessThanOrEqualTo(naturalContentHeight + 110),
+      );
+      expect(find.text('620 m away'), findsOneWidget);
+      final bookingAction = find.text('Continue');
       await tester.ensureVisible(bookingAction);
       await tester.pumpAndSettle();
+      final button = find.ancestor(
+        of: bookingAction,
+        matching: find.byType(FilledButton),
+      );
+      expect(tester.getSize(button).height, greaterThanOrEqualTo(60));
       await tester.tap(bookingAction);
       await tester.pumpAndSettle();
       expect(find.byType(RideDetailPage), findsOneWidget);
       expect(find.text('Finding your driver'), findsOneWidget);
+      await tester.drag(
+        find.byKey(const ValueKey('ride-stage-panel')),
+        const Offset(0, -500),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Searching nearby driver'), findsOneWidget);
+      expect(find.text('Search area · 2 km'), findsOneWidget);
+      expect(find.text('Cancel'), findsOneWidget);
+      expect(find.textContaining('We expand the search'), findsNothing);
+      expect(find.byType(RideEndpoints), findsNothing);
+      final cancelButton = find.ancestor(
+        of: find.text('Cancel'),
+        matching: find.byType(OutlinedButton),
+      );
+      expect(tester.getSize(cancelButton).height, 60);
+      expect(tester.takeException(), isNull, reason: 'Searching layout');
       await tester.tap(find.byTooltip('Choose demo stage'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Driver assigned').last);
       await tester.pumpAndSettle();
       expect(find.byType(RideDetailPage), findsOneWidget);
       expect(find.text('The driver will arrive in'), findsOneWidget);
+      expect(find.text('Your driver'), findsOneWidget);
+      final driverName = tester.widget<Text>(find.text('Rohan Kumar'));
+      expect(driverName.style?.fontWeight, FontWeight.w500);
+      expect(
+        tester.getSize(find.byType(RideVehicleDriverCard)).width,
+        greaterThan(300),
+      );
       expect(tester.takeException(), isNull);
       await tester.tap(find.byTooltip('Choose demo stage'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Completed').last);
       await tester.pumpAndSettle();
-      expect(find.byType(RideStagePanel), findsOneWidget);
-      expect(find.text('Ride complete'), findsOneWidget);
+      expect(find.byType(DraggableScrollableSheet), findsOneWidget);
+      expect(find.text("You've arrived"), findsOneWidget);
+      expect(find.text('Trip Details'), findsOneWidget);
+      expect(find.text('Download bill'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     },

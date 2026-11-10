@@ -35,6 +35,10 @@ dependencies:
   open_filex: ^5.0.0
   url_launcher: ^6.3.3
   image_picker: 1.2.4
+  video_player: 2.11.1
+  mobile_scanner: 7.5.0
+  qr_flutter: 4.1.0
+  pdf: ^3.13.1
 
 dev_dependencies:
   flutter_test:
@@ -48,5 +52,6 @@ flutter:
     - assets/images/login-tennis-bg.png
     - assets/images/ride_car_marker.png
     - assets/images/ride_map_pin.png
+    - assets/videos/driver_search_animation.mp4
     - .env
     - shorebird.yaml

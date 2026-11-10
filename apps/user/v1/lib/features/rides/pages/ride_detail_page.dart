@@ -23,9 +23,15 @@ import 'package:user/features/rides/ride_fare_summary.dart';
 import 'package:user/features/rides/widgets/ride_outcome.dart';
 import 'package:user/features/rides/widgets/rider_trip_map.dart';
 import 'package:user/features/rides/widgets/trip_cancellation_dialog.dart';
-import 'package:user/features/rides/widgets/trip_receipt_sheet.dart';
 import 'package:user/features/rides/widgets/trip_safety_sheet.dart';
+import 'package:user/features/rides/widgets/trip_start_qr_sheet.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/rendering.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
 
 class RideDetailPage extends StatefulWidget {
   final UserAppRepository? repository;
@@ -46,8 +52,25 @@ class _RiderTripState extends State<RideDetailPage>
   late RouteObserver<ModalRoute<dynamic>> _routeObserver;
   late RiderTripController _controller;
   bool _initialized = false, _receiptOpen = false, _initialReceipt = false;
+  final GlobalKey _billCaptureKey = GlobalKey();
+  double? _rideStageContentHeight;
+  String? _rideStageContentStatus;
   ModalRoute<dynamic>? _route;
   int _recenter = 0;
+
+  void _updateRideStageContentHeight(String status, double height) {
+    if (!mounted ||
+        (_rideStageContentStatus == status &&
+            _rideStageContentHeight != null &&
+            (_rideStageContentHeight! - height).abs() < 1)) {
+      return;
+    }
+    setState(() {
+      _rideStageContentStatus = status;
+      _rideStageContentHeight = height;
+    });
+  }
+
   void _updated() {
     if (!mounted) return;
     setState(() {});
@@ -168,6 +191,47 @@ class _RiderTripState extends State<RideDetailPage>
     }
   }
 
+  Future<void> _refreshStartCode() async {
+    final rideId = _controller.id;
+    if (rideId == null || _controller.busy) return;
+    await _act(() async {
+      await _controller.ops.refreshCode(rideId);
+      await _controller.load();
+    });
+  }
+
+  Future<void> _showTripStartQr() async {
+    var start = rideMap(_controller.data?['start']);
+    if (start['code'] == null && start['locked'] != true) {
+      await _refreshStartCode();
+      start = rideMap(_controller.data?['start']);
+    }
+    if (!mounted) return;
+    if (start['code'] == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            start['locked'] == true
+                ? 'The trip code is temporarily locked. Try again after it expires.'
+                : 'A trip QR code is not available yet. Refresh the trip and try again.',
+          ),
+        ),
+      );
+      return;
+    }
+    if (start['rider_confirmed'] != true) {
+      await _act(_controller.confirm);
+      start = rideMap(_controller.data?['start']);
+      if (!mounted || start['rider_confirmed'] != true) return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (_) => TripStartQrSheet(code: '${start['code']}'),
+    );
+  }
+
   Future<void> _rate() async {
     final input = await showDialog<Map<String, dynamic>>(
       context: context,
@@ -212,16 +276,72 @@ class _RiderTripState extends State<RideDetailPage>
           _controller.status != 'COMPLETED') {
         return;
       }
-      await showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        useSafeArea: true,
-        builder: (_) => FractionallySizedBox(
-          heightFactor: .86,
-          child: TripReceiptSheet(data: _controller.data!),
+      final trip = rideMap(_controller.data!['trip']);
+      final vehicle = rideMap(trip['vehicle']);
+      final brand = rideMap(vehicle['brand']);
+      final user = rideMap(rideMap(trip['driver'])['user']);
+      final imageUrls = [
+        '${brand['logo_url'] ?? vehicle['brand_logo_url'] ?? ''}',
+        '${user['avatar_url'] ?? ''}',
+      ].where((url) => url.startsWith('http')).toSet();
+      await Future.wait(
+        imageUrls.map(
+          (url) => precacheImage(
+            NetworkImage(url),
+            context,
+          ).timeout(const Duration(seconds: 8), onTimeout: () {}),
         ),
       );
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      final renderObject = _billCaptureKey.currentContext?.findRenderObject();
+      if (renderObject is! RenderRepaintBoundary) {
+        throw StateError('The completed ride view is not ready to export yet.');
+      }
+      final ui.Image snapshot = await renderObject.toImage(pixelRatio: 2);
+      try {
+        final byteData = await snapshot.toByteData(
+          format: ui.ImageByteFormat.png,
+        );
+        if (byteData == null) {
+          throw StateError('Could not render the completed ride view.');
+        }
+        final imageBytes = byteData.buffer.asUint8List();
+        final pageWidth = 595.0;
+        final pageHeight = pageWidth * snapshot.height / snapshot.width;
+        final document = pw.Document();
+        final image = pw.MemoryImage(imageBytes);
+        document.addPage(
+          pw.Page(
+            pageFormat: PdfPageFormat(pageWidth, pageHeight, marginAll: 0),
+            build: (_) => pw.Image(image, fit: pw.BoxFit.fill),
+          ),
+        );
+        final pdfBytes = Uint8List.fromList(await document.save());
+        final fileName =
+            '1More-${rideReference(trip['id']).replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '-')}.pdf';
+        final saved = await FilePicker.saveFile(
+          fileName: fileName,
+          bytes: pdfBytes,
+          mimeType: 'application/pdf',
+          dialogTitle: 'Save ride bill',
+          type: FileType.custom,
+          allowedExtensions: const ['pdf'],
+        );
+        if (mounted && saved != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Ride bill saved as PDF.')),
+          );
+        }
+      } finally {
+        snapshot.dispose();
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+      }
     } finally {
       if (mounted) setState(() => _receiptOpen = false);
     }
@@ -246,8 +366,7 @@ class _RiderTripState extends State<RideDetailPage>
   @override
   Widget build(BuildContext context) {
     if (_controller.data != null &&
-        (_controller.active ||
-            _controller.liveJourney && _controller.status == 'COMPLETED')) {
+        (_controller.active || _controller.status == 'COMPLETED')) {
       return _referenceJourney();
     }
     return SolidPage(
@@ -283,74 +402,8 @@ class _RiderTripState extends State<RideDetailPage>
       cancelRide: _cancel,
       repository: _controller.ops,
       hideContacts: true,
+      hideCompletedPayment: true,
     );
-    if (_controller.status == 'COMPLETED') {
-      return SolidScope(
-        child: Scaffold(
-          backgroundColor: Colors.white,
-          body: SafeArea(
-            child: RideStagePanel(
-              header: const RideArrivalStrip(
-                label: "You've arrived",
-                value: 'Ride complete',
-              ),
-              blackHeight: RideArrivalStrip.heightFor(context),
-              child: Column(
-                children: [
-                  SizedBox(
-                    height: 48,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          if (Navigator.of(context).canPop())
-                            IconButton(
-                              tooltip: 'Back',
-                              onPressed: Navigator.of(context).maybePop,
-                              icon: const Icon(Icons.arrow_back),
-                            )
-                          else
-                            const SizedBox(width: 48),
-                          IconButton(
-                            tooltip: 'Refresh ride',
-                            onPressed: _controller.reading ? null : _load,
-                            icon: const Icon(Icons.refresh),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: RiderCompletionPanel(
-                      data: _controller.data!,
-                      actions: actions,
-                      busy: _controller.busy || _receiptOpen,
-                      onHome: _home,
-                      onReceipt: _receipt,
-                      onSafety: _safety,
-                      onRate: (score, comment) async {
-                        final user = rideMap(
-                          _controller.trip['driver'],
-                        )['user_id'];
-                        if (user != null) {
-                          await _act(
-                            () => _controller.rate(
-                              score,
-                              comment.isEmpty ? null : comment,
-                            ),
-                          );
-                        }
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    }
     final pickup = ridePoint(
       _controller.trip['pickup_latitude'],
       _controller.trip['pickup_longitude'],
@@ -376,9 +429,121 @@ class _RiderTripState extends State<RideDetailPage>
                 : _controller.basePoints,
             recenter: _recenter,
           );
+    if (_controller.status == 'COMPLETED') {
+      return SolidScope(
+        child: Scaffold(
+          backgroundColor: Colors.white,
+          body: Stack(
+            children: [
+              Positioned.fill(child: widget.mapBuilder?.call(map) ?? map),
+              DraggableScrollableSheet(
+                initialChildSize: .90,
+                minChildSize: .68,
+                maxChildSize: .94,
+                builder: (context, scrollController) => Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(24),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Color(0x18000000),
+                        blurRadius: 12,
+                        offset: Offset(0, -3),
+                      ),
+                    ],
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        height: 72,
+                        child: Column(
+                          children: [
+                            Container(
+                              width: 36,
+                              height: 4,
+                              margin: const EdgeInsets.only(top: 8, bottom: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFCCCCCC),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                            ),
+                            Expanded(
+                              child: Row(
+                                children: [
+                                  IconButton(
+                                    tooltip: 'Back',
+                                    onPressed: () {
+                                      if (Navigator.of(context).canPop()) {
+                                        Navigator.of(context).maybePop();
+                                      } else {
+                                        _home();
+                                      }
+                                    },
+                                    icon: const Icon(Icons.arrow_back_ios_new),
+                                  ),
+                                  const Expanded(
+                                    child: Text(
+                                      "You've arrived",
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Safety and sharing',
+                                    onPressed: _safety,
+                                    icon: const Icon(Icons.ios_share_rounded),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: RiderCompletionPanel(
+                          data: _controller.data!,
+                          actions: actions,
+                          busy: _controller.busy,
+                          scrollController: scrollController,
+                          captureKey: _billCaptureKey,
+                          onHome: _home,
+                          onReceipt: _receipt,
+                          onRate: (score, comment) async {
+                            final user = rideMap(
+                              _controller.trip['driver'],
+                            )['user_id'];
+                            if (user != null) {
+                              await _act(
+                                () => _controller.rate(
+                                  score,
+                                  comment.isEmpty ? null : comment,
+                                ),
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     final estimate = _controller.routeFresh && _controller.locationFresh
         ? '${rideDuration(_controller.routeData?['duration_s'])} ${_controller.status == 'IN_PROGRESS' ? 'to drop-off' : 'to pickup'} · ${rideDistance(_controller.routeData?['distance_m'])} remaining'
         : 'A current route estimate is unavailable';
+    final waitingForTripStart = _controller.status == 'DRIVER_WAITING';
+    final start = rideMap(_controller.data!['start']);
+    final startCode = start['code'];
     return RiderFlowScaffold(
       title: ['SEARCHING', 'REQUESTED'].contains(_controller.status)
           ? 'Your ride request'
@@ -399,13 +564,31 @@ class _RiderTripState extends State<RideDetailPage>
             : 'The driver will arrive in',
         value: ['SEARCHING', 'REQUESTED'].contains(_controller.status)
             ? _elapsed(_controller.trip['requested_at'])
-            : _controller.status == 'DRIVER_WAITING'
-            ? _elapsed(_controller.trip['arrived_at'])
+            : waitingForTripStart
+            ? startCode == null
+                  ? (start['locked'] == true ? 'Locked' : 'Refresh')
+                  : '$startCode'
             : _controller.routeFresh && _controller.locationFresh
             ? rideDuration(_controller.routeData?['duration_s'])
             : 'Updating',
+        onValueTap:
+            waitingForTripStart && startCode == null && start['locked'] != true
+            ? _refreshStartCode
+            : null,
       ),
       onRefresh: _load,
+      panelContentHeight:
+          [
+                'SEARCHING',
+                'REQUESTED',
+                'DRIVER_ASSIGNED',
+                'DRIVER_ARRIVING',
+                'DRIVER_WAITING',
+                'IN_PROGRESS',
+              ].contains(_controller.status) &&
+              _rideStageContentStatus == _controller.status
+          ? _rideStageContentHeight
+          : null,
       map: widget.mapBuilder?.call(map) ?? map,
       onRecenter: () => setState(() => _recenter++),
       panel: RiderLivePanel(
@@ -420,10 +603,14 @@ class _RiderTripState extends State<RideDetailPage>
           onChanged: _changed,
           repository: _controller.ops,
           contactsOnly: true,
+          showSupport: _controller.status != 'DRIVER_WAITING',
         ),
         onCancel: _cancel,
         onSafety: _safety,
         onRefresh: _load,
+        onContentHeightChanged: (height) =>
+            _updateRideStageContentHeight(_controller.status, height),
+        onShowTripQr: _showTripStartQr,
         error: _controller.error ?? _controller.routeError,
         busy: _controller.busy,
         locationFresh: _controller.locationFresh,

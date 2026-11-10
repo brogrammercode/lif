@@ -33,6 +33,14 @@ class VehicleSelectionController extends FeatureController {
       quotes.isEmpty ? {} : quotes[selected.clamp(0, quotes.length - 1)];
   Map<String, dynamic> get category =>
       rideMap(selectedQuote['category_snapshot']);
+  String? driverDistanceLabel(Map<String, dynamic> preview) {
+    final distance = rideNumber(preview['distance_m']);
+    if (distance == null || distance < 0) return null;
+    if (distance < 1000) return '${distance.round()} m away';
+    final roundedKm = (distance / 100).round() / 10;
+    return '${roundedKm.toStringAsFixed(1)} km away';
+  }
+
   List<String> get methods => [
     if (rideMap(category['payment_policy'])['cash_enabled'] != false) 'CASH',
     if (rideMap(category['payment_policy'])['direct_upi_enabled'] == true)

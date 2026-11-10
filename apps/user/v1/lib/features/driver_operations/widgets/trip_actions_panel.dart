@@ -12,6 +12,7 @@ import 'package:user/core/network/api_result.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/driver_operations/driver_operations.repo.dart';
 import 'package:user/features/driver_operations/widgets/driver_glass.dart';
+import 'package:user/features/driver_operations/pages/trip_start_qr_scanner_page.dart';
 
 class TripActionsPanel extends StatefulWidget {
   final String rideId;
@@ -21,6 +22,8 @@ class TripActionsPanel extends StatefulWidget {
   final Future<void> Function()? cancelRide;
   final DriverOperationsRepository? repository;
   final bool contactsOnly, hideContacts;
+  final bool showSupport;
+  final bool hideCompletedPayment;
   const TripActionsPanel({
     super.key,
     required this.rideId,
@@ -30,6 +33,8 @@ class TripActionsPanel extends StatefulWidget {
     this.cancelRide,
     this.repository,
     this.contactsOnly = false,
+    this.showSupport = true,
+    this.hideCompletedPayment = false,
     this.hideContacts = false,
   });
   @override
@@ -72,6 +77,13 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
   }
 
   Future<void> _load() => _controller.load();
+
+  Future<void> _scanAndStart() async {
+    if (_busy) return;
+    final code = await TripStartQrScannerPage.scan(context);
+    if (!mounted || code == null) return;
+    await _run(() => _repo.start(widget.rideId, code));
+  }
 
   Future<void> _run(Future<void> Function() action) async {
     if (_busy) return;
@@ -258,6 +270,16 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
                         arguments: widget.rideId,
                       ),
               ),
+              if (widget.showSupport) ...[
+                const SizedBox(width: 6),
+                SolidIconButton(
+                  dark: true,
+                  icon: Icons.help_outline_rounded,
+                  tooltip: 'Ride support',
+                  onPressed: () =>
+                      Navigator.pushNamed(context, AppRoutes.support),
+                ),
+              ],
             ],
           ),
           if (_error != null)
@@ -279,6 +301,11 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
         ![null, 'PENDING', 'FAILED'].contains(paymentStatus);
     final options = data['payment_options'] as Map? ?? {};
     final review = data['review'] as Map?;
+    if (status == 'COMPLETED' &&
+        widget.hideCompletedPayment &&
+        review == null) {
+      return const SizedBox.shrink();
+    }
     final noShowAfter = DateTime.tryParse('${data['no_show_after']}');
     final canReportNoShow =
         noShowAfter != null &&
@@ -358,6 +385,11 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
               'Rider confirmation: ${start['rider_confirmed'] == true ? 'Done' : 'Waiting'} · Driver code: ${start['driver_verified'] == true ? 'Done' : 'Waiting'}',
             ),
             if (driver && start['driver_verified'] != true) ...[
+              OutlinedButton.icon(
+                onPressed: _busy ? null : _scanAndStart,
+                icon: const Icon(Icons.qr_code_scanner_rounded),
+                label: const Text('Scan rider QR code'),
+              ),
               TextField(
                 controller: _code,
                 keyboardType: TextInputType.number,
@@ -411,7 +443,7 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
                 ),
               ),
           ],
-          if (status == 'COMPLETED') ...[
+          if (status == 'COMPLETED' && !widget.hideCompletedPayment) ...[
             Text(
               switch (paymentStatus) {
                 'CAPTURED' => 'Payment received',

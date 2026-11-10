@@ -34,13 +34,19 @@ class RideDemoController extends FeatureController {
       'https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?auto=format&fit=crop&w=900&q=85';
   static const _stationPhotoAlt =
       'https://images.unsplash.com/photo-1687317587523-d3e2eb5289e4?auto=format&fit=crop&w=900&q=85';
+  static const _demoBrandLogoUrl =
+      'https://res.cloudinary.com/drxuvrw65/image/upload/v1792684132/1more-admin/vehicle-brands/74618f08-2e02-44c2-a9d5-42213978f227.webp';
   static const _categoryImages = {
     'BIKE':
-        'https://images.unsplash.com/photo-1719229805296-45a3f266c2c0?auto=format&fit=crop&w=700&q=80',
+        'https://res.cloudinary.com/drxuvrw65/image/upload/v1794312100/1more-admin/vehicle-categories/ba556f0c-7fbd-457d-b29f-265c65db5a45.webp',
+    'SCOOTER':
+        'https://res.cloudinary.com/drxuvrw65/image/upload/v1794312136/1more-admin/vehicle-categories/58ba7371-50e5-4160-a8a2-da47ce15211b.webp',
+    'AUTO':
+        'https://res.cloudinary.com/drxuvrw65/image/upload/v1794312171/1more-admin/vehicle-categories/7c04e89d-53c6-4c7d-99d6-19426ff28ecb.webp',
     'SEDAN':
-        'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=700&q=80',
+        'https://res.cloudinary.com/drxuvrw65/image/upload/v1794312253/1more-admin/vehicle-categories/573d83dd-92e3-4d0b-8192-a268b324ea36.webp',
     'SUV':
-        'https://images.unsplash.com/photo-1519641471654-76ce0107ad1b?auto=format&fit=crop&w=700&q=80',
+        'https://res.cloudinary.com/drxuvrw65/image/upload/v1794312264/1more-admin/vehicle-categories/a7629980-03b1-47ec-a253-6d926e1c6af8.webp',
   };
   late final DioClient transport = DemoTransport(this);
   RideDemoStep step = RideDemoStep.home;
@@ -94,6 +100,10 @@ class RideDemoController extends FeatureController {
     return {
       'id': 'demo-vehicle-$quoteId',
       'make': bike ? 'Hero' : 'Maruti Suzuki',
+      'brand': {
+        'name': bike ? 'Hero' : 'Maruti Suzuki',
+        'logo_url': _demoBrandLogoUrl,
+      },
       'model': bike
           ? 'Splendor Plus'
           : xl
@@ -384,6 +394,7 @@ class RideDemoController extends FeatureController {
           {
             'driver': driver,
             'vehicle': vehicleFor('${query?['quote_id'] ?? category}'),
+            'distance_m': 620,
             'map_position': {'latitude': 25.254, 'longitude': 86.982},
           },
         ],

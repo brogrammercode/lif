@@ -1,5 +1,6 @@
 import 'package:user/components/ui/solid_ui.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import 'package:user/components/ui/app_skeleton.dart';
 import 'package:user/features/rides/ride_display.dart';
@@ -10,6 +11,7 @@ class RiderFlowScaffold extends StatefulWidget {
   final Widget? statusStrip;
   final String title;
   final VoidCallback? onBack, onRecenter, onRefresh;
+  final double? panelContentHeight;
   const RiderFlowScaffold({
     super.key,
     required this.map,
@@ -19,6 +21,7 @@ class RiderFlowScaffold extends StatefulWidget {
     this.onBack,
     this.onRecenter,
     this.onRefresh,
+    this.panelContentHeight,
   });
   @override
   State<RiderFlowScaffold> createState() => _RiderFlowScaffoldState();
@@ -35,6 +38,16 @@ class _RiderFlowScaffoldState extends State<RiderFlowScaffold> {
         builder: (context, bounds) {
           final stripHeight = RideArrivalStrip.heightFor(context);
           const initial = .30;
+          const dragHandleHeight = 21.0;
+          final measuredMax = widget.panelContentHeight == null
+              ? .86
+              : ((stripHeight +
+                            dragHandleHeight +
+                            MediaQuery.paddingOf(context).bottom +
+                            widget.panelContentHeight!) /
+                        bounds.maxHeight)
+                    .clamp(initial, .86)
+                    .toDouble();
           final height = bounds.maxHeight * (_fraction ?? initial);
           final header =
               widget.statusStrip ??
@@ -88,7 +101,7 @@ class _RiderFlowScaffoldState extends State<RiderFlowScaffold> {
                   key: ValueKey(initial),
                   initialChildSize: initial,
                   minChildSize: .30,
-                  maxChildSize: .86,
+                  maxChildSize: measuredMax,
                   builder: (context, scroll) => RideStagePanel(
                     key: const ValueKey('ride-stage-panel'),
                     header: header,
@@ -169,17 +182,14 @@ class RideFlowImage extends StatelessWidget {
   Widget build(BuildContext context) => SizedBox(
     width: size,
     height: size,
-    child: ClipRRect(
-      borderRadius: BorderRadius.circular(size / 3),
-      child: url == null || url!.isEmpty
-          ? Icon(fallback, size: size * .55, color: iconColor)
-          : Image.network(
-              url!,
-              fit: BoxFit.cover,
-              cacheWidth: (size * 3).round(),
-              errorBuilder: (_, _, _) => Icon(fallback, color: iconColor),
-            ),
-    ),
+    child: url == null || url!.isEmpty
+        ? Icon(fallback, size: size * .55, color: iconColor)
+        : Image.network(
+            url!,
+            fit: BoxFit.contain,
+            cacheWidth: (size * 3).round(),
+            errorBuilder: (_, _, _) => Icon(fallback, color: iconColor),
+          ),
   );
 }
 
@@ -188,7 +198,7 @@ class RideVehicleDriverCard extends StatelessWidget {
   final Map<String, dynamic> vehicle, driver;
   final bool preview, compact;
   final Widget? contactActions;
-  final String? categoryLabel;
+  final String? categoryLabel, distanceLabel;
   const RideVehicleDriverCard({
     super.key,
     required this.vehicle,
@@ -197,17 +207,41 @@ class RideVehicleDriverCard extends StatelessWidget {
     this.compact = false,
     this.contactActions,
     this.categoryLabel,
+    this.distanceLabel,
   });
   @override
   Widget build(BuildContext context) {
     final person = rideMap(driver['user']);
+    final brand = rideMap(vehicle['brand']);
+    final brandName = '${brand['name'] ?? vehicle['make'] ?? ''}'.trim();
+    final brandLogoUrl =
+        '${brand['logo_url'] ?? vehicle['brand_logo_url'] ?? ''}'.trim();
+    Widget brandFallback() => Center(
+      child: Text(
+        brandName.isEmpty ? 'Vehicle' : brandName,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+          color: RideTokens.ink,
+        ),
+      ),
+    );
     final name = '${person['first_name'] ?? ''} ${person['last_name'] ?? ''}'
         .trim();
-    final rating = (rideNumber(driver['ratings_count']) ?? 0) > 0
-        ? '${driver['rating_average']} ★'
-        : 'Unrated';
+    final ratingAverage = rideNumber(driver['rating_average']);
+    final rating =
+        (rideNumber(driver['ratings_count']) ?? 0) > 0 && ratingAverage != null
+        ? '${ratingAverage.toStringAsFixed(1)} ⭐'
+        : 'New ⭐';
+    final driverSubtitle = preview
+        ? (distanceLabel ?? 'Nearby driver')
+        : 'Your driver';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
       children: [
         if (!compact) ...[
           SolidSurface(
@@ -243,26 +277,31 @@ class RideVehicleDriverCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 SizedBox(
-                  width: 108,
+                  width: 66,
                   height: 66,
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
-                      Positioned.fill(
-                        child: vehicle['photo_url'] is String
+                      Container(
+                        width: 60,
+                        height: 60,
+                        clipBehavior: Clip.antiAlias,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: RideTokens.line.withValues(alpha: .55),
+                          ),
+                        ),
+                        padding: const EdgeInsets.all(8),
+                        child: brandLogoUrl.isNotEmpty
                             ? Image.network(
-                                vehicle['photo_url'],
+                                brandLogoUrl,
                                 fit: BoxFit.contain,
-                                cacheWidth: 324,
-                                errorBuilder: (_, _, _) => const Icon(
-                                  Icons.directions_car_outlined,
-                                  size: 52,
-                                ),
+                                cacheWidth: 180,
+                                errorBuilder: (_, _, _) => brandFallback(),
                               )
-                            : const Icon(
-                                Icons.directions_car_outlined,
-                                size: 52,
-                              ),
+                            : brandFallback(),
                       ),
                       if (categoryLabel != null)
                         Positioned(
@@ -294,31 +333,64 @@ class RideVehicleDriverCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
         ],
+        SizedBox(height: 5),
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             SizedBox(
-              width: 52,
-              height: 62,
+              width: 64,
+              height: 64,
               child: Stack(
                 children: [
-                  RideFlowImage(
-                    url: person['avatar_url'] as String?,
-                    size: 48,
-                    fallback: Icons.person_outline,
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: SizedBox(
+                      width: 58,
+                      height: 58,
+                      child:
+                          person['avatar_url'] is String &&
+                              '${person['avatar_url']}'.isNotEmpty
+                          ? Image.network(
+                              '${person['avatar_url']}',
+                              fit: BoxFit.cover,
+                              cacheWidth: 162,
+                              errorBuilder: (_, _, _) => const ColoredBox(
+                                color: Color(0xFFF0F1F3),
+                                child: Icon(Icons.person_outline),
+                              ),
+                            )
+                          : const ColoredBox(
+                              color: Color(0xFFF0F1F3),
+                              child: Icon(Icons.person_outline),
+                            ),
+                    ),
                   ),
                   Positioned(
-                    bottom: 0,
+                    bottom: 1,
                     left: 0,
                     right: 0,
-                    child: Container(
-                      color: Colors.white,
-                      child: Text(
-                        rating,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: RideTokens.ink,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: RideTokens.line.withValues(alpha: .7),
+                          ),
+                        ),
+                        child: Text(
+                          rating,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            height: 1.2,
+                            fontWeight: FontWeight.w600,
+                            color: RideTokens.ink,
+                          ),
                         ),
                       ),
                     ),
@@ -337,7 +409,7 @@ class RideVehicleDriverCard extends StatelessWidget {
                         : name,
                     style: const TextStyle(
                       fontSize: 16,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w500,
                       color: RideTokens.ink,
                     ),
                   ),
@@ -345,13 +417,9 @@ class RideVehicleDriverCard extends StatelessWidget {
                   Text(
                     compact
                         ? '${vehicle['plate_number'] ?? ''}'
-                        : preview
-                        ? 'Nearby · not assigned yet'
-                        : (rideNumber(driver['ratings_count']) ?? 0) > 0
-                        ? '${driver['ratings_count']} driver ratings'
-                        : 'Your assigned driver',
+                        : driverSubtitle,
                     style: const TextStyle(
-                      fontSize: 12,
+                      fontSize: 13,
                       color: RideTokens.muted,
                     ),
                   ),
@@ -390,7 +458,13 @@ class RideFlowSkeleton extends StatelessWidget {
 class RideArrivalStrip extends StatelessWidget {
   static double heightFor(BuildContext context) => 54;
   final String label, value;
-  const RideArrivalStrip({super.key, required this.label, required this.value});
+  final VoidCallback? onValueTap;
+  const RideArrivalStrip({
+    super.key,
+    required this.label,
+    required this.value,
+    this.onValueTap,
+  });
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, bounds) => Row(
@@ -412,21 +486,31 @@ class RideArrivalStrip extends StatelessWidget {
         const SizedBox(width: 8),
         ConstrainedBox(
           constraints: BoxConstraints(maxWidth: bounds.maxWidth * .42),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFF333333),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onValueTap,
               borderRadius: BorderRadius.circular(18),
-            ),
-            child: Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 12,
-                height: 1.35,
-                fontWeight: FontWeight.w500,
-                color: Colors.white,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF333333),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.35,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.white,
+                  ),
+                ),
               ),
             ),
           ),
@@ -440,6 +524,8 @@ class RideArrivalStrip extends StatelessWidget {
 class RideSwipeButton extends StatefulWidget {
   final bool enabled;
   final bool busy;
+  final bool readOnly;
+  final double? progressValue;
   final VoidCallback onSwipe;
 
   const RideSwipeButton({
@@ -447,6 +533,8 @@ class RideSwipeButton extends StatefulWidget {
     required this.enabled,
     required this.onSwipe,
     this.busy = false,
+    this.readOnly = false,
+    this.progressValue,
   });
 
   @override
@@ -498,14 +586,16 @@ class _RideSwipeButtonState extends State<RideSwipeButton> {
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       _width = constraints.maxWidth;
-      final active = widget.enabled && !widget.busy;
+      final active = widget.enabled && !widget.busy && !widget.readOnly;
       const thumbSize = 68.0;
       const horizontalInset = 8.0;
       const trackInset = 10.0;
       final travel = _width > thumbSize + horizontalInset * 2
           ? _width - thumbSize - horizontalInset * 2
           : 1.0;
-      final thumbLeft = horizontalInset + _progress * travel;
+      final progress =
+          widget.progressValue?.clamp(0.0, 1.0).toDouble() ?? _progress;
+      final thumbLeft = horizontalInset + progress * travel;
       final trackWidth = (_width - trackInset * 2).clamp(0.0, _width);
       final trailWidth = widget.busy
           ? trackWidth
@@ -514,12 +604,14 @@ class _RideSwipeButtonState extends State<RideSwipeButton> {
       final hintLeft = (thumbLeft + thumbSize / 2 - hintWidth / 2)
           .clamp(0.0, (_width - hintWidth).clamp(0.0, _width))
           .toDouble();
-      final showHint = active && !_completed && _progress < .02;
+      final showHint = active && !_completed && progress < .02;
 
       return Semantics(
-        button: true,
+        button: !widget.readOnly,
         enabled: active,
-        label: widget.busy
+        label: widget.readOnly
+            ? 'Trip progress'
+            : widget.busy
             ? 'Finding ride options'
             : 'Swipe the car to continue to ride options',
         onTap: active ? widget.onSwipe : null,
@@ -568,7 +660,7 @@ class _RideSwipeButtonState extends State<RideSwipeButton> {
                   bottom: 0,
                   width: thumbSize,
                   child: Opacity(
-                    opacity: active || widget.busy ? 1 : .5,
+                    opacity: widget.readOnly || active || widget.busy ? 1 : .5,
                     child: Center(
                       child: RotatedBox(
                         quarterTurns: 1,
@@ -643,6 +735,45 @@ class _RideSwipeButtonState extends State<RideSwipeButton> {
   );
 }
 
+class RideDestinationProgressBar extends StatelessWidget {
+  final double? remainingDistance, totalDistance;
+
+  const RideDestinationProgressBar({
+    super.key,
+    required this.remainingDistance,
+    required this.totalDistance,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final double progress =
+        remainingDistance != null && totalDistance != null && totalDistance! > 0
+        ? (1 - remainingDistance! / totalDistance!).clamp(0.0, 1.0).toDouble()
+        : 0.0;
+    final label = remainingDistance != null && totalDistance != null
+        ? 'Trip progress ${(progress * 100).round()} percent, ${rideDistance(remainingDistance)} remaining to destination'
+        : 'Trip progress unavailable';
+
+    return Semantics(
+      label: label,
+      child: ExcludeSemantics(
+        child: TweenAnimationBuilder<double>(
+          tween: Tween<double>(begin: progress, end: progress),
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeInOut,
+          builder: (context, animatedProgress, _) => RideSwipeButton(
+            enabled: false,
+            busy: false,
+            readOnly: true,
+            progressValue: animatedProgress,
+            onSwipe: () {},
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _SwipeHintTailPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
@@ -698,6 +829,48 @@ class RideStagePanel extends StatelessWidget {
     padding: padding,
     child: child,
   );
+}
+
+class RideContentSizeReporter extends SingleChildRenderObjectWidget {
+  final ValueChanged<Size> onSizeChanged;
+
+  const RideContentSizeReporter({
+    super.key,
+    required this.onSizeChanged,
+    required super.child,
+  });
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      RideContentSizeRenderObject(onSizeChanged);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    covariant RideContentSizeRenderObject renderObject,
+  ) {
+    renderObject.onSizeChanged = onSizeChanged;
+  }
+}
+
+class RideContentSizeRenderObject extends RenderProxyBox {
+  RideContentSizeRenderObject(this.onSizeChanged);
+
+  ValueChanged<Size> onSizeChanged;
+  Size? _lastReportedSize;
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    final measuredSize = size;
+    if (_lastReportedSize == measuredSize) return;
+    _lastReportedSize = measuredSize;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (attached && _lastReportedSize == measuredSize) {
+        onSizeChanged(measuredSize);
+      }
+    });
+  }
 }
 
 class RideRouteTimeline extends StatelessWidget {
