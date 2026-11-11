@@ -1,5 +1,7 @@
 # 1More mobile design system
 
+Ride action slider update (11 November 2026): rider Home and driver payment use the shared blue pill slider from `C:/Users/harsh/Downloads/image 193.png`: 40 px blue pill, 48 px touch area, light blue chevron thumb and white inline text. Labels differ by action. The destination progress bar remains separate. See `context/MOBILE_DESIGN.md` for the current specification.
+
 Canonical source: [context/MOBILE_DESIGN.md](../../../context/MOBILE_DESIGN.md).
 
 Current authority: 8 November 2026. This specification replaces the previous liquid-glass specification in full.

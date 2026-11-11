@@ -1,4 +1,5 @@
 import 'package:user/features/driver_operations/controllers/trip_actions_controller.dart';
+import 'package:user/features/rides/widgets/rider_flow_components.dart';
 import 'package:user/components/ui/glass_dropdown.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/components/ui/solid_ui.dart';
@@ -24,6 +25,7 @@ class TripActionsPanel extends StatefulWidget {
   final bool contactsOnly, hideContacts;
   final bool showSupport;
   final bool hideCompletedPayment;
+  final bool driverCollectionSlider;
   const TripActionsPanel({
     super.key,
     required this.rideId,
@@ -35,6 +37,7 @@ class TripActionsPanel extends StatefulWidget {
     this.contactsOnly = false,
     this.showSupport = true,
     this.hideCompletedPayment = false,
+    this.driverCollectionSlider = false,
     this.hideContacts = false,
   });
   @override
@@ -238,12 +241,19 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
     }
     final status = '${data['status']}';
     final driver = data['is_driver'] == true;
-    final active = [
-      'DRIVER_ASSIGNED',
-      'DRIVER_ARRIVING',
-      'DRIVER_WAITING',
-      'IN_PROGRESS',
-    ].contains(status);
+    final active =
+        (status == 'COMPLETED' &&
+            [
+              null,
+              'PENDING',
+              'FAILED',
+            ].contains((data['payment'] as Map?)?['status'])) ||
+        [
+          'DRIVER_ASSIGNED',
+          'DRIVER_ARRIVING',
+          'DRIVER_WAITING',
+          'IN_PROGRESS',
+        ].contains(status);
     if (widget.contactsOnly) {
       return Column(
         mainAxisSize: MainAxisSize.min,
@@ -320,6 +330,24 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
     final selected = allowed.contains(preferred)
         ? '$preferred'
         : (allowed.isEmpty ? 'CASH' : allowed.first);
+    if (widget.driverCollectionSlider && driver && status == 'COMPLETED') {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (!collectionLocked && allowed.isNotEmpty) ...[
+            RideSwipeButton(
+              enabled: !_busy,
+              busy: _busy,
+              label: 'Slide to confirm payment',
+              onSwipe: () => _run(
+                () => _repo.collection(widget.rideId, selected, true, null),
+              ),
+            ),
+          ] else
+            const Text('Waiting for payment confirmation.'),
+        ],
+      );
+    }
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

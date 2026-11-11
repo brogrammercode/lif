@@ -29,6 +29,19 @@ class DriverTripController extends FeatureController {
   List<LatLng> points = [];
   List<Map<String, dynamic>> steps = [];
   NavigationProgress? progress;
+  bool get canComplete {
+    final total = rideNumber(trip?['estimated_distance_m']);
+    final remaining = progress?.remainingMetres;
+    return points.length >= 2 &&
+        progress?.offRouteMetres.isFinite == true &&
+        trip?['status'] == 'IN_PROGRESS' &&
+        total != null &&
+        total > 0 &&
+        remaining != null &&
+        remaining >= 0 &&
+        remaining / total < .1;
+  }
+
   Completer<void>? readDone;
   DateTime? lastNavigation;
   bool loading = false,

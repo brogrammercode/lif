@@ -131,6 +131,7 @@ class _DriverTripPageState extends State<DriverTripPage>
   }
 
   Future<void> _complete() async {
+    if (!_controller.canComplete) return;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -141,7 +142,7 @@ class _DriverTripPageState extends State<DriverTripPage>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Continue ride'),
+            child: const Text('Stay on ride'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -275,6 +276,7 @@ class _DriverTripPageState extends State<DriverTripPage>
               externalContext: data,
               repository: _controller.ops,
               hideContacts: true,
+              driverCollectionSlider: true,
               onChanged: _controller.load,
             );
             return SingleChildScrollView(
@@ -312,6 +314,21 @@ class _DriverTripPageState extends State<DriverTripPage>
                         compact: moving,
                         personLabel: 'Your passenger',
                         showRating: false,
+                        personBadge: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.people_alt_outlined, size: 10),
+                            const SizedBox(width: 2),
+                            Text(
+                              '${trip['passenger_count'] ?? 1}',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                height: 1.2,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
                         contactActions: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -342,14 +359,16 @@ class _DriverTripPageState extends State<DriverTripPage>
                             trip['estimated_distance_m'],
                           ),
                         ),
-                        const SizedBox(height: 14),
-                        _button('Complete ride', _complete),
+                        if (_controller.canComplete) ...[
+                          const SizedBox(height: 14),
+                          _button('Complete ride', _complete),
+                        ],
                       ] else ...[
                         RideRouteTimeline(trip),
                         const SizedBox(height: 16),
                         if (_payment)
                           actions
-                        else ...[
+                        else if (_status != 'DRIVER_WAITING') ...[
                           if (_controller.navError != null)
                             Text(
                               _controller.navError!,
@@ -367,11 +386,6 @@ class _DriverTripPageState extends State<DriverTripPage>
                               'I have arrived at pickup',
                               () => _act(_arrive),
                             ),
-                          ExpansionTile(
-                            tilePadding: EdgeInsets.zero,
-                            title: const Text('Trip actions and manual code'),
-                            children: [actions],
-                          ),
                         ],
                       ],
                       if (moving && _controller.offers.isNotEmpty)

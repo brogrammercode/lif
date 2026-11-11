@@ -426,6 +426,37 @@ class _CompletionState extends State<RiderCompletionPanel> {
                   ),
                 ),
               ),
+              if (widget.driverView)
+                Positioned(
+                  right: 8,
+                  bottom: 0,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: RideTokens.line),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.people_alt_outlined, size: 10),
+                        const SizedBox(width: 2),
+                        Text(
+                          '${trip['passenger_count'] ?? 1}',
+                          style: const TextStyle(
+                            fontSize: 10,
+                            height: 1.2,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

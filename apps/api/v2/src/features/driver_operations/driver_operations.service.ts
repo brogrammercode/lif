@@ -1459,7 +1459,13 @@ export class DriverOperationsService {
     client_key: string,
   ) {
     return this.write(user_id, ride_id, false, async (tx, trip) => {
-      if (!active(trip.status))
+      if (
+        !active(trip.status) &&
+        !(
+          trip.status === 'COMPLETED' &&
+          (!trip.payment || ['PENDING', 'FAILED'].includes(trip.payment.status))
+        )
+      )
         throw new AppError(
           409,
           'TRIP_CHAT_CLOSED',
@@ -1504,7 +1510,13 @@ export class DriverOperationsService {
   }
   async contact_attempt(user_id: string, ride_id: string) {
     return this.write(user_id, ride_id, false, async (tx, trip) => {
-      if (!active(trip.status))
+      if (
+        !active(trip.status) &&
+        !(
+          trip.status === 'COMPLETED' &&
+          (!trip.payment || ['PENDING', 'FAILED'].includes(trip.payment.status))
+        )
+      )
         throw new AppError(
           409,
           'TRIP_CONTACT_CLOSED',

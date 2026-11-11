@@ -244,45 +244,18 @@ void main() {
       ),
     );
     final swipe = find.byKey(const ValueKey('ride-swipe-button'));
-    final trail = find.byKey(const ValueKey('ride-swipe-trail'));
-    final hintLayer = find.byKey(const ValueKey('ride-swipe-hint-layer'));
-    final car = find.byKey(const ValueKey('ride-swipe-car'));
-    expect(tester.getSize(swipe).height, 64);
-    expect(tester.getSize(trail).height, 12);
-    expect(tester.getSize(trail).width, lessThan(80));
-    expect(find.byKey(const ValueKey('ride-swipe-frame')), findsNothing);
-    final trailContainer = tester.widget<Container>(
-      find.descendant(of: trail, matching: find.byType(Container)).first,
-    );
-    final trailDecoration = trailContainer.decoration! as BoxDecoration;
-    expect((trailDecoration.gradient! as LinearGradient).colors, [
-      Colors.blue,
-      Colors.blueAccent,
-    ]);
-    expect(find.byKey(const ValueKey('ride-swipe-hint')), findsOneWidget);
-    final sliderStack = tester.widget<Stack>(
-      find.descendant(of: swipe, matching: find.byType(Stack)).first,
-    );
-    expect(
-      sliderStack.children.last.key,
-      const ValueKey('ride-swipe-hint-layer'),
-    );
-    expect(
-      tester.getTopLeft(hintLayer).dy,
-      lessThan(tester.getTopLeft(car).dy),
-    );
-    final gesture = await tester.startGesture(tester.getCenter(swipe));
-    await gesture.moveBy(const Offset(160, 0));
-    await tester.pump();
-    expect(find.byKey(const ValueKey('ride-swipe-prompt')), findsNothing);
-    expect(find.byKey(const ValueKey('ride-swipe-hint')), findsNothing);
-    expect(trail, findsOneWidget);
-    expect(find.byKey(const ValueKey('ride-swipe-car')), findsOneWidget);
-    await gesture.up();
+    expect(tester.getSize(swipe).height, 48);
+    expect(find.text('Slide to continue'), findsOneWidget);
+    expect(find.byKey(const ValueKey('ride-swipe-car')), findsNothing);
+    await tester.tap(swipe);
     await tester.pumpAndSettle();
+    expect(calls, 0);
     await tester.drag(swipe, const Offset(80, 0));
     await tester.pumpAndSettle();
     expect(calls, 0);
+    await tester.drag(swipe, const Offset(280, 0));
+    await tester.pumpAndSettle();
+    expect(calls, 1);
     await tester.drag(swipe, const Offset(280, 0));
     await tester.pumpAndSettle();
     expect(calls, 1);

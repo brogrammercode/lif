@@ -81,9 +81,7 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );
-  testWidgets('production complete and collection actions advance driver demo', (
-    tester,
-  ) async {
+  testWidgets('production payment slider advances driver demo', (tester) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
@@ -99,19 +97,12 @@ void main() {
         .widget<PopupMenuButton<DriverDemoPhase>>(
           find.byType(PopupMenuButton<DriverDemoPhase>),
         )
-        .onSelected!(DriverDemoPhase.inProgress);
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Complete ride'));
-    await tester.tap(find.text('Complete ride'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Complete'));
+        .onSelected!(DriverDemoPhase.payment);
     await tester.pumpAndSettle();
     expect(find.text('Collect the ride fare'), findsOneWidget);
-    await tester.ensureVisible(find.text('Confirm full fare received'));
-    await tester.tap(find.text('Confirm full fare received'));
-    // The collection button remains busy while its confirmation dialog is open.
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(find.text('Received'));
+    final slider = tester.widget<RideSwipeButton>(find.byType(RideSwipeButton));
+    expect(slider.label, 'Slide to confirm payment');
+    slider.onSwipe();
     await tester.pumpAndSettle();
     expect(find.text('Ride completed'), findsOneWidget);
     expect(find.text('Aarav Sharma'), findsOneWidget);

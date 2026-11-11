@@ -48,6 +48,7 @@ class _DriverDemoHostState extends State<DriverDemoHost> {
         offer: _controller.offer,
         repository: _repo,
         mapBuilder: widget.mapBuilder,
+        currentPosition: _controller.tracking.position,
       ),
       AppRoutes.driverRideDetail => DriverTripPage(
         repository: _repo,

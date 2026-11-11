@@ -210,6 +210,8 @@ class RideVehicleDriverCard extends StatelessWidget {
   final Widget? contactActions;
   final String? categoryLabel, distanceLabel;
   final String? personLabel;
+  final String? vehicleSubtitle;
+  final Widget? personBadge;
   final bool showRating;
   const RideVehicleDriverCard({
     super.key,
@@ -221,6 +223,8 @@ class RideVehicleDriverCard extends StatelessWidget {
     this.categoryLabel,
     this.distanceLabel,
     this.personLabel,
+    this.vehicleSubtitle,
+    this.personBadge,
     this.showRating = true,
   });
   @override
@@ -278,9 +282,17 @@ class RideVehicleDriverCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 5),
                       Text(
-                        [vehicle['make'], vehicle['model'], vehicle['color']]
+                        (vehicleSubtitle != null
+                                ? [vehicleSubtitle]
+                                : [
+                                    vehicle['make'],
+                                    vehicle['model'],
+                                    vehicle['color'],
+                                  ])
                             .where((v) => v != null && '$v'.isNotEmpty)
                             .join(' · '),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontSize: 12,
                           color: RideTokens.ink,
@@ -379,7 +391,7 @@ class RideVehicleDriverCard extends StatelessWidget {
                             ),
                     ),
                   ),
-                  if (showRating)
+                  if (personBadge != null || showRating)
                     Positioned(
                       bottom: 1,
                       left: 0,
@@ -397,16 +409,18 @@ class RideVehicleDriverCard extends StatelessWidget {
                               color: RideTokens.line.withValues(alpha: .7),
                             ),
                           ),
-                          child: Text(
-                            rating,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontSize: 10,
-                              height: 1.2,
-                              fontWeight: FontWeight.w600,
-                              color: RideTokens.ink,
-                            ),
-                          ),
+                          child:
+                              personBadge ??
+                              Text(
+                                rating,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  height: 1.2,
+                                  fontWeight: FontWeight.w600,
+                                  color: RideTokens.ink,
+                                ),
+                              ),
                         ),
                       ),
                     ),
@@ -538,6 +552,7 @@ class RideArrivalStrip extends StatelessWidget {
 
 /// Compact black swipe action used to leave the Home route selection stage.
 class RideSwipeButton extends StatefulWidget {
+  final String label;
   final bool enabled;
   final bool busy;
   final bool readOnly;
@@ -551,6 +566,7 @@ class RideSwipeButton extends StatefulWidget {
     this.busy = false,
     this.readOnly = false,
     this.progressValue,
+    this.label = 'Slide to continue',
   });
 
   @override
@@ -599,156 +615,336 @@ class _RideSwipeButtonState extends State<RideSwipeButton> {
   }
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      _width = constraints.maxWidth;
-      final active = widget.enabled && !widget.busy && !widget.readOnly;
-      const thumbSize = 68.0;
-      const horizontalInset = 8.0;
-      const trackInset = 10.0;
-      final travel = _width > thumbSize + horizontalInset * 2
-          ? _width - thumbSize - horizontalInset * 2
-          : 1.0;
-      final progress =
-          widget.progressValue?.clamp(0.0, 1.0).toDouble() ?? _progress;
-      final thumbLeft = horizontalInset + progress * travel;
-      final trackWidth = (_width - trackInset * 2).clamp(0.0, _width);
-      final trailWidth = widget.busy
-          ? trackWidth
-          : (thumbLeft + thumbSize / 2 - trackInset).clamp(0.0, trackWidth);
-      const hintWidth = 80.0;
-      final hintLeft = (thumbLeft + thumbSize / 2 - hintWidth / 2)
-          .clamp(0.0, (_width - hintWidth).clamp(0.0, _width))
-          .toDouble();
-      final showHint = active && !_completed && progress < .02;
+  Widget build(BuildContext context) => !widget.readOnly
+      ? _RidePillSlider(
+          enabled: widget.enabled,
+          busy: widget.busy,
+          label: widget.label,
+          onSlide: widget.onSwipe,
+        )
+      : LayoutBuilder(
+          builder: (context, constraints) {
+            _width = constraints.maxWidth;
+            final active = widget.enabled && !widget.busy && !widget.readOnly;
+            const thumbSize = 68.0;
+            const horizontalInset = 8.0;
+            const trackInset = 10.0;
+            final travel = _width > thumbSize + horizontalInset * 2
+                ? _width - thumbSize - horizontalInset * 2
+                : 1.0;
+            final progress =
+                widget.progressValue?.clamp(0.0, 1.0).toDouble() ?? _progress;
+            final thumbLeft = horizontalInset + progress * travel;
+            final trackWidth = (_width - trackInset * 2).clamp(0.0, _width);
+            final trailWidth = widget.busy
+                ? trackWidth
+                : (thumbLeft + thumbSize / 2 - trackInset).clamp(
+                    0.0,
+                    trackWidth,
+                  );
+            final hintWidth = widget.label == 'Swipe right' ? 80.0 : 140.0;
+            final hintLeft = (thumbLeft + thumbSize / 2 - hintWidth / 2)
+                .clamp(0.0, (_width - hintWidth).clamp(0.0, _width))
+                .toDouble();
+            final showHint = active && !_completed && progress < .02;
 
-      return Semantics(
-        button: !widget.readOnly,
-        enabled: active,
-        label: widget.readOnly
-            ? 'Trip progress'
-            : widget.busy
-            ? 'Finding ride options'
-            : 'Swipe the car to continue to ride options',
-        onTap: active ? widget.onSwipe : null,
-        child: GestureDetector(
-          key: const ValueKey('ride-swipe-button'),
-          behavior: HitTestBehavior.opaque,
-          onHorizontalDragUpdate: active ? _drag : null,
-          onHorizontalDragEnd: active ? (_) => _finish() : null,
-          onHorizontalDragCancel: active ? _finish : null,
-          child: SizedBox(
-            height: 64,
-            child: Stack(
-              clipBehavior: Clip.none,
-              alignment: Alignment.center,
-              children: [
-                Positioned(
-                  left: trackInset,
-                  right: trackInset,
-                  top: 28,
-                  height: 12,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFECECF1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  key: const ValueKey('ride-swipe-trail'),
-                  left: trackInset,
-                  top: 28,
-                  width: trailWidth,
-                  height: 12,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Colors.blue, Colors.blueAccent],
-                      ),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: thumbLeft,
-                  top: 5,
-                  bottom: 0,
-                  width: thumbSize,
-                  child: Opacity(
-                    opacity: widget.readOnly || active || widget.busy ? 1 : .5,
-                    child: Center(
-                      child: RotatedBox(
-                        quarterTurns: 1,
-                        child: Image.asset(
-                          'assets/images/ride_car_marker.png',
-                          key: const ValueKey('ride-swipe-car'),
-                          width: 68,
-                          height: 68,
-                          fit: BoxFit.contain,
-                          filterQuality: FilterQuality.medium,
+            return Semantics(
+              button: !widget.readOnly,
+              enabled: active,
+              label: widget.readOnly
+                  ? 'Trip progress'
+                  : widget.busy
+                  ? 'Finding ride options'
+                  : 'Swipe the car to continue to ride options',
+              onTap: active ? widget.onSwipe : null,
+              child: GestureDetector(
+                key: const ValueKey('ride-swipe-button'),
+                behavior: HitTestBehavior.opaque,
+                onHorizontalDragUpdate: active ? _drag : null,
+                onHorizontalDragEnd: active ? (_) => _finish() : null,
+                onHorizontalDragCancel: active ? _finish : null,
+                child: SizedBox(
+                  height: 64,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    alignment: Alignment.center,
+                    children: [
+                      Positioned(
+                        left: trackInset,
+                        right: trackInset,
+                        top: 28,
+                        height: 12,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFECECF1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                ),
-                if (showHint)
-                  Positioned(
-                    key: const ValueKey('ride-swipe-hint-layer'),
-                    left: hintLeft,
-                    top: -6,
-                    width: hintWidth,
-                    child: IgnorePointer(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            alignment: Alignment.center,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 9,
-                              vertical: 5,
+                      Positioned(
+                        key: const ValueKey('ride-swipe-trail'),
+                        left: trackInset,
+                        top: 28,
+                        width: trailWidth,
+                        height: 12,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Colors.blue, Colors.blueAccent],
                             ),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: Colors.blue.withValues(alpha: .22),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: thumbLeft,
+                        top: 5,
+                        bottom: 0,
+                        width: thumbSize,
+                        child: Opacity(
+                          opacity: widget.readOnly || active || widget.busy
+                              ? 1
+                              : .5,
+                          child: Center(
+                            child: RotatedBox(
+                              quarterTurns: 1,
+                              child: Image.asset(
+                                'assets/images/ride_car_marker.png',
+                                key: const ValueKey('ride-swipe-car'),
+                                width: 68,
+                                height: 68,
+                                fit: BoxFit.contain,
+                                filterQuality: FilterQuality.medium,
                               ),
-                              boxShadow: const [
-                                BoxShadow(
-                                  color: Color(0x18000000),
-                                  blurRadius: 5,
-                                  offset: Offset(0, 2),
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (showHint)
+                        Positioned(
+                          key: const ValueKey('ride-swipe-hint-layer'),
+                          left: hintLeft,
+                          top: -6,
+                          width: hintWidth,
+                          child: IgnorePointer(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  alignment: Alignment.center,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 9,
+                                    vertical: 5,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: Colors.blue.withValues(alpha: .22),
+                                    ),
+                                    boxShadow: const [
+                                      BoxShadow(
+                                        color: Color(0x18000000),
+                                        blurRadius: 5,
+                                        offset: Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Text(
+                                    widget.label,
+                                    key: ValueKey('ride-swipe-hint'),
+                                    maxLines: 1,
+                                    style: TextStyle(
+                                      color: Colors.blue,
+                                      fontSize: 10,
+                                      height: 1,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                CustomPaint(
+                                  size: const Size(12, 6),
+                                  painter: _SwipeHintTailPainter(),
                                 ),
                               ],
                             ),
-                            child: const Text(
-                              'Swipe right',
-                              key: ValueKey('ride-swipe-hint'),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+}
+
+/// Reference image 193: solid blue pill with a lighter chevron thumb.
+class _RidePillSlider extends StatefulWidget {
+  final bool enabled, busy;
+  final String label;
+  final VoidCallback onSlide;
+  const _RidePillSlider({
+    required this.enabled,
+    required this.busy,
+    required this.label,
+    required this.onSlide,
+  });
+  @override
+  State<_RidePillSlider> createState() => _RidePillSliderState();
+}
+
+class _RidePillSliderState extends State<_RidePillSlider> {
+  double _progress = 0;
+  bool _submitted = false;
+  bool get _active => widget.enabled && !widget.busy && !_submitted;
+  @override
+  void didUpdateWidget(covariant _RidePillSlider oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.busy && !widget.busy) {
+      _submitted = false;
+      _progress = 0;
+    }
+  }
+
+  void _submit() {
+    if (!_active) return;
+    setState(() {
+      _progress = 1;
+      _submitted = true;
+    });
+    widget.onSlide();
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      const thumbWidth = 58.0;
+      final travel = (constraints.maxWidth - thumbWidth - 9).clamp(
+        1.0,
+        double.infinity,
+      );
+      return Semantics(
+        label: widget.label,
+        button: true,
+        enabled: _active,
+        onTap: _active ? _submit : null,
+        child: GestureDetector(
+          key: const ValueKey('ride-swipe-button'),
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragUpdate: !_active
+              ? null
+              : (details) => setState(
+                  () => _progress = (_progress + details.delta.dx / travel)
+                      .clamp(0.0, 1.0),
+                ),
+          onHorizontalDragEnd: !_active
+              ? null
+              : (_) {
+                  if (_progress >= .9) {
+                    _submit();
+                  } else {
+                    setState(() => _progress = 0);
+                  }
+                },
+          onHorizontalDragCancel: () {
+            if (!_submitted) setState(() => _progress = 0);
+          },
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 48),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Opacity(
+                opacity: widget.enabled || widget.busy ? 1 : .5,
+                child: Container(
+                  height: 52,
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF4566FF),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: const Color(0xFF5664E6),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        left: 64,
+                        right: 10,
+                        child: Center(
+                          child: Opacity(
+                            opacity: widget.busy
+                                ? 1
+                                : (1 - _progress * 1.5).clamp(0.0, 1.0),
+                            child: Text(
+                              widget.busy ? 'Processing…' : widget.label,
                               maxLines: 1,
-                              style: TextStyle(
-                                color: Colors.blue,
-                                fontSize: 10,
-                                height: 1,
-                                fontWeight: FontWeight.w600,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                height: 1.2,
+                                fontWeight: FontWeight.w500,
                               ),
                             ),
                           ),
-                          CustomPaint(
-                            size: const Size(12, 6),
-                            painter: _SwipeHintTailPainter(),
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
+                      Positioned(
+                        left: 3 + _progress * travel,
+                        top: 3,
+                        bottom: 3,
+                        child: Container(
+                          width: thumbWidth,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF91A5FF),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Center(
+                            child: CustomPaint(
+                              size: Size(22, 10),
+                              painter: _SlideChevrons(),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-              ],
+                ),
+              ),
             ),
           ),
         ),
       );
     },
   );
+}
+
+class _SlideChevrons extends CustomPainter {
+  const _SlideChevrons();
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    for (var i = 0; i < 4; i++) {
+      final x = 2.0 + i * 5;
+      canvas.drawPath(
+        Path()
+          ..moveTo(x, 2)
+          ..lineTo(x + 3, 5)
+          ..lineTo(x, 8),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SlideChevrons oldDelegate) => false;
 }
 
 class RideDestinationProgressBar extends StatelessWidget {
@@ -833,11 +1029,12 @@ class RideStagePanel extends StatelessWidget {
     this.padding = EdgeInsets.zero,
     this.blackHeight = 54,
     this.radius = 18,
-    this.fullRadius = false,
+    this.fullRadius = true,
   });
 
   @override
   Widget build(BuildContext context) => SolidSurface(
+    margin: EdgeInsets.symmetric(vertical: 10, horizontal: 10),
     upperChild: header,
     blackHeight: blackHeight,
     radius: radius,

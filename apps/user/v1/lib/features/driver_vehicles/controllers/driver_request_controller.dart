@@ -2,6 +2,7 @@ import 'package:user/core/state/feature_controller.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/features/driver_operations/driver_operations.repo.dart';
 import 'package:user/features/rides/ride_display.dart';
+import 'dart:async';
 
 class DriverRequestController extends FeatureController {
   final DriverOperationsRepository repository;
@@ -9,8 +10,24 @@ class DriverRequestController extends FeatureController {
   bool busy = false, loading = false;
   bool _responding = false;
   String? error;
+  static const requestWindow = Duration(seconds: 30);
+  final DateTime receivedAt = DateTime.now();
+  bool dismissed = false;
+  int get secondsRemaining =>
+      (requestWindow.inSeconds -
+              DateTime.now().difference(receivedAt).inSeconds)
+          .clamp(0, requestWindow.inSeconds);
+  double get remainingFraction => secondsRemaining / requestWindow.inSeconds;
+  void tick() {
+    if (isDisposed || dismissed) return;
+    update(() {
+      if (secondsRemaining == 0) dismissed = true;
+    });
+  }
+
   DriverRequestController(this.repository, this.offer);
   bool get valid =>
+      !dismissed &&
       offer['can_accept'] == true &&
       (DateTime.tryParse('${offer['expires_at']}')?.isAfter(DateTime.now()) ??
           false);

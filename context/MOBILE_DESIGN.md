@@ -12,6 +12,8 @@ The seven-stage ride sequence remains unchanged. This update replaces its visual
 
 ## Material rules
 
+Ride action slider exception (11 November 2026): rider Home after both endpoints are selected and driver payment receipt use `RideSwipeButton`, following `C:/Users/harsh/Downloads/image 193.png`. Use a 40 px solid blue pill within a 48 px touch area, light blue rounded thumb with four white chevrons, and 12 px white inline text. Rider text is “Slide to continue”; driver text is “Slide to confirm payment”. Do not add the car, floating hint, or exposed track to these actions. The read-only destination progress bar retains its car treatment.
+
 - Use fully opaque white sheets and cards. Black status strips and black circular contact controls are solid black.
 - No backdrop blur, frosted inputs, translucent fills, pastel lighting, reflective rims, glossy gradients or oversized soft shadows.
 - Cards use a fine neutral border and, only where needed, an almost imperceptible neutral shadow.

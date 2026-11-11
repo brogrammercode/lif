@@ -39,6 +39,15 @@ Fixtures and state transitions live in the controller, not the page. Profile swa
 
 No release, version bump or push is part of this task.
 
+## Driver phase refinements — 11 November 2026
+
+- Arrival ends at **I have arrived at pickup**; pickup ends after the destination row. QR start remains available beside contacts.
+- Complete ride appears only with valid route progress and less than 10% of the estimated journey distance remaining. Missing route data never unlocks completion.
+- Passenger count uses the compact profile badge in request, arrival, pickup, progress, payment and completion.
+- Payment uses the shared swipe control labelled **Payment received**, with server-side collection policy and receipt confirmation. Both apps refresh the authoritative payment snapshot; a captured payment moves them to completion. Opening an external UPI app does not constitute a captured payment.
+- Call and chat remain authorized for trip participants during pending/failed payment collection. Existing ownership, rate limits and resolved-trip contact restrictions still apply.
+- Flutter analyzer and API compilation passed. Device GPS, calls, camera and real payment delivery still require device acceptance.
+
 ## Baseline regression evidence
 
 The broader `flutter test test/features/demos test/features/driver_operations test/features/rides` run completed with 71 passing and 11 failing tests before the final extra driver interaction test was added. The identical suite at committed baseline `00c59b7` in a detached temporary worktree completed with 69 passing and the same 11 failing test names. The two additional passing tests were the initial new driver demo regressions. The final focused run including the extra production Complete/collection interaction has 12 passing tests.

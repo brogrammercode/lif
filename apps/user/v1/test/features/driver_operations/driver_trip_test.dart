@@ -58,6 +58,7 @@ class DriverTripRepo extends DriverOperationsRepository {
         'dropoff_latitude': '25.24',
         'dropoff_longitude': '86.96',
         'estimated_fare': '50',
+        'estimated_distance_m': 1000,
       },
     };
   }
@@ -159,7 +160,17 @@ void main() {
     tester,
   ) async {
     final repo = DriverTripRepo()..status = 'IN_PROGRESS';
-    await tester.pumpWidget(tripPage(repo, TripTracking()));
+    final tracking = TripTracking()..position.value = trackingFix(25.24);
+    await tester.pumpWidget(tripPage(repo, tracking));
+    await tester.pumpAndSettle();
+    expect(find.text('Complete ride'), findsNothing);
+    repo.requests.single.complete({
+      ...directions('DROPOFF', 'Old Road'),
+      'geometry': [
+        [86.95, 25.23],
+        [86.95, 25.24],
+      ],
+    });
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Complete ride'));
     await tester.tap(find.text('Complete ride'));
@@ -169,8 +180,6 @@ void main() {
     expect(repo.reads, 2);
     expect(find.text('Collect the ride fare'), findsOneWidget);
     expect(find.text('Complete ride'), findsNothing);
-    repo.requests.single.complete(directions('DROPOFF', 'Old Road'));
-    await tester.pumpAndSettle();
     expect(find.text('turn onto Old Road'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
   });
