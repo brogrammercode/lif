@@ -13,8 +13,9 @@ import 'package:user/features/user_app/user_app.constant.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
 class SupportPage extends StatefulWidget {
+  final bool openRequest;
   final UserAppRepository? repository;
-  const SupportPage({super.key, this.repository});
+  const SupportPage({super.key, this.repository, this.openRequest = false});
 
   @override
   State<SupportPage> createState() => _SupportPageState();
@@ -37,6 +38,11 @@ class _SupportPageState extends State<SupportPage> {
   void initState() {
     super.initState();
     _load();
+    if (widget.openRequest) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _newRequest();
+      });
+    }
   }
 
   Future<void> _load({bool preserve = false}) async {

@@ -4,6 +4,8 @@ Current authority: 8 November 2026. This specification replaces the previous liq
 
 ## Reference and scope
 
+Profile/Settings reference (14 November 2026): `image 208.png` supplies content placement. Render its upper banner in black, with the solid white rounded body and neutral ride typography. Use role-specific 2×2 summary cards, compact grouped menu rows and a vehicle-brand avatar badge for driver mode. See `PROFILE_SETTINGS_REWORK.md` for the requested sections and temporary controller-owned sample data.
+
 The visual authority is `C:/Users/harsh/Downloads/image 163.png`, the supplied assigned-driver screen. Match its solid surfaces, neutral typography, compact scale, white/black palette, blue category badge and blue map route. The screenshot shows a phone frame; the app renders the inner screen only. Do not reproduce the hardware frame, notch, status-bar pixels, sample identity or example map labels.
 
 The user explicitly rejected glassmorphism. New screens and future mobile reworks follow this document. The current implementation scope is the complete rider ride flow, including Home, endpoint entry, vehicle selection, search, assigned/arrived, ongoing ride and completion. Other existing modules retain their implementation until explicitly migrated; they are not design references for new work. Admin continues to use its separate web design.

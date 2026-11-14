@@ -11,7 +11,8 @@ import 'package:user/features/user_app/user_app.repo.dart';
 
 class ProfilePage extends StatefulWidget {
   final UserAppRepository? repository;
-  const ProfilePage({super.key, this.repository});
+  final bool phoneOnly;
+  const ProfilePage({super.key, this.repository, this.phoneOnly = false});
   @override
   State<ProfilePage> createState() => _ProfilePageState();
 }
@@ -53,8 +54,8 @@ class _ProfilePageState extends State<ProfilePage> {
     setState(() => _saving = true);
     try {
       await _repository.updateProfile({
-        'first_name': _firstName.text.trim(),
-        'last_name': _lastName.text.trim(),
+        if (!widget.phoneOnly) 'first_name': _firstName.text.trim(),
+        if (!widget.phoneOnly) 'last_name': _lastName.text.trim(),
         if (_phone.text.trim().isNotEmpty) 'phone_e164': _phone.text.trim(),
       });
       if (!mounted) return;
@@ -78,7 +79,7 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) => AppPage(
     glass: true,
-    title: UserAppCopy.PROFILE,
+    title: widget.phoneOnly ? 'Change Phone Number' : UserAppCopy.PROFILE,
     child: FutureBuilder<Map<String, dynamic>>(
       future: _profile,
       builder: (context, snapshot) {
@@ -185,17 +186,20 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
                     ),
                     SizedBox(height: 20.h),
-                    _field(
-                      UserAppCopy.FIRST_NAME,
-                      _firstName,
-                      validator: _requiredName,
-                    ),
-                    _field(
-                      UserAppCopy.LAST_NAME,
-                      _lastName,
-                      validator: _requiredName,
-                    ),
-                    _field(UserAppCopy.EMAIL, _email, enabled: false),
+                    if (!widget.phoneOnly)
+                      _field(
+                        UserAppCopy.FIRST_NAME,
+                        _firstName,
+                        validator: _requiredName,
+                      ),
+                    if (!widget.phoneOnly)
+                      _field(
+                        UserAppCopy.LAST_NAME,
+                        _lastName,
+                        validator: _requiredName,
+                      ),
+                    if (!widget.phoneOnly)
+                      _field(UserAppCopy.EMAIL, _email, enabled: false),
                     _field(
                       UserAppCopy.PHONE,
                       _phone,

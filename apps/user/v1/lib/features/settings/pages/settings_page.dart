@@ -1,4 +1,8 @@
 import 'package:user/features/settings/controllers/settings_controller.dart';
+import 'package:user/components/ui/solid_ui.dart';
+import 'package:user/features/support/pages/support_page.dart';
+import 'package:user/features/profile/pages/profile_page.dart';
+import 'package:user/features/settings/widgets/profile_overview.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -8,7 +12,7 @@ import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/auth/app_mode.repo.dart';
-import 'package:user/features/driver_account/pages/driver_documents_page.dart';
+
 import 'package:user/features/settings/settings.repo.dart';
 import 'package:user/features/settings/widgets/app_mode_tile.dart';
 import 'package:user/features/settings/widgets/settings_profile.dart';
@@ -72,34 +76,6 @@ class _SettingsPageState extends State<SettingsPage> {
   // SessionGate, preserving the existing account and vehicle gates.
   void _home() =>
       Navigator.pushNamedAndRemoveUntil(context, AppRoutes.gate, (_) => false);
-
-  Future<void> _documents() async {
-    final account = _account;
-    if (account == null) return;
-    if (!account.hasDriverAccess) {
-      await _open(AppRoutes.partnerProgram);
-      return;
-    }
-    await Navigator.push<void>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => DriverDocumentsPage(readOnly: account.exited),
-      ),
-    );
-    if (mounted) await _load();
-  }
-
-  Future<void> _vehicles() async {
-    final account = _account;
-    if (account == null) return;
-    await _open(
-      account.exited
-          ? AppRoutes.driverAccount
-          : account.hasDriverAccess
-          ? AppRoutes.driverVehicles
-          : AppRoutes.partnerProgram,
-    );
-  }
 
   Future<void> _photo() async {
     if (_choosingPhoto || _savingPhoto || _account == null) return;
@@ -365,113 +341,290 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _menu() => Column(
-    children: [
-      SettingsProfileHeader(
-        user: _account!.user,
-        onEditPhoto: _photo,
-        savingPhoto: _savingPhoto,
-      ),
-      for (final tile in [
-        SettingsMenuTile(
-          icon: Icons.badge_outlined,
-          title: 'Personal Information',
-          subtitle: 'Name, email, phone',
-          onTap: () => _open(AppRoutes.profile),
-        ),
-        SettingsMenuTile(
-          icon: Icons.description_outlined,
-          title: 'Documents',
-          subtitle: _account!.hasDriverAccess
-              ? 'RC, insurance and PUC'
-              : 'Application & verification',
-          onTap: _documents,
-        ),
-        SettingsMenuTile(
-          icon: Icons.directions_car_outlined,
-          title: 'Saved Vehicles',
-          subtitle: _account!.exited
-              ? 'View your vehicle records'
-              : _account!.hasDriverAccess
-              ? 'Manage your registered vehicles'
-              : 'Add vehicles through Partner Program',
-          onTap: _vehicles,
-        ),
-        SettingsMenuTile(
-          icon: Icons.credit_card_outlined,
-          title: 'Payment Methods',
-          subtitle: 'Manage your payment options',
-          onTap: () => _open(AppRoutes.paymentMethods),
-        ),
-        SettingsMenuTile(
-          icon: Icons.settings_outlined,
-          title: 'Settings',
-          subtitle: 'Notifications, safety and support',
-          onTap: _settings,
-        ),
-      ])
-        Padding(
-          padding: const EdgeInsets.only(bottom: SettingsStyle.tileGap),
-          child: tile,
-        ),
-    ],
-  );
-
-  @override
-  Widget build(BuildContext context) => LiquidGlassScope(
-    child: Semantics(
-      namesRoute: true,
-      label: 'Profile settings',
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        body: LiquidGlassBackdrop(
-          child: SafeArea(
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      LiquidGlassIconButton(
-                        icon: Icons.chevron_left,
-                        tooltip: 'Back',
-                        onPressed: () async {
-                          if (!await Navigator.maybePop(context) && mounted) {
-                            _home();
-                          }
-                        },
-                      ),
-                      LiquidGlassIconButton(
-                        icon: Icons.settings_outlined,
-                        tooltip: 'Account settings',
-                        onPressed: _settings,
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: _error != null && _account == null
-                      ? AppLoadError(message: _error!, onRetry: _load)
-                      : SingleChildScrollView(
-                          controller: _scroll,
-                          padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-                          child: Center(
-                            child: ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 480),
-                              child: _account == null
-                                  ? const SettingsSkeleton()
-                                  : _menu(),
-                            ),
-                          ),
-                        ),
-                ),
-              ],
+  void _information(String title, String body) {
+    Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SolidScope(
+          child: Scaffold(
+            appBar: AppBar(title: Text(title)),
+            body: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Text(
+                body,
+                style: const TextStyle(fontSize: 14, height: 1.6),
+              ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editProfile({bool phoneOnly = false}) async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SolidScope(child: ProfilePage(phoneOnly: phoneOnly)),
+      ),
+    );
+    if (mounted) await _load();
+  }
+
+  Widget _menu() {
+    final account = _account!;
+    final driver = account.mode == AppMode.driver && account.hasDriverAccess;
+    final stats = _controller.summary;
+    String distance(String key) {
+      final value = num.tryParse('${stats[key]}');
+      return value == null
+          ? 'Not recorded'
+          : '${(value / 1000).toStringAsFixed(1)} km';
+    }
+
+    final brand = stats['vehicle_brand'];
+    Widget row(IconData icon, String title, VoidCallback tap) =>
+        ProfileRow(icon: icon, title: title, onTap: tap);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ProfileIdentity(
+          user: account.user,
+          brand: driver
+              ? (brand is Map
+                    ? Map<String, dynamic>.from(brand)
+                    : <String, dynamic>{})
+              : null,
+          onPhoto: _photo,
+          busy: _savingPhoto,
+        ),
+        for (var index = 0; index < 2; index++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var column = 0; column < 2; column++) ...[
+                    if (column == 1) const SizedBox(width: 8),
+                    Expanded(
+                      child: [
+                        ProfileStat(
+                          icon: driver
+                              ? Icons.payments_outlined
+                              : Icons.account_balance_wallet_outlined,
+                          title: driver ? 'Total Earning' : 'Wallet',
+                          value: driver
+                              ? (stats['total_earnings'] == null
+                                    ? 'Unavailable'
+                                    : 'INR ${num.tryParse('${stats['total_earnings']}')?.toStringAsFixed(2) ?? '?'}')
+                              : 'INR ${stats['wallet']}',
+                        ),
+                        ProfileStat(
+                          icon: Icons.route_outlined,
+                          title: 'Ride Milestone',
+                          value: distance(
+                            driver ? 'driver_distance_m' : 'rider_distance_m',
+                          ),
+                        ),
+                        ProfileStat(
+                          icon: driver
+                              ? Icons.straighten_outlined
+                              : Icons.explore_outlined,
+                          title: driver
+                              ? 'Longest Covered Distance'
+                              : 'Place Explored',
+                          value: driver
+                              ? distance('longest_distance_m')
+                              : '${stats['places_explored'] ?? '?'}',
+                        ),
+                        ProfileStat(
+                          icon: driver
+                              ? Icons.hourglass_empty
+                              : Icons.savings_outlined,
+                          title: driver ? 'Pending' : 'Money Saved',
+                          value: driver
+                              ? 'Pending'
+                              : 'INR ${stats['money_saved']}',
+                        ),
+                      ][index * 2 + column],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        if (_controller.summaryError != null)
+          Text(
+            _controller.summaryError!,
+            style: const TextStyle(fontSize: 12, color: RideTokens.muted),
+          ),
+        ProfileSection(
+          title: 'Personal',
+          children: [
+            row(Icons.person_outline, 'Edit Profile', () => _editProfile()),
+            row(
+              Icons.phone_android_outlined,
+              'Change Phone Number',
+              () => _editProfile(phoneOnly: true),
+            ),
+            row(
+              Icons.place_outlined,
+              'Saved Places',
+              () => _open(AppRoutes.savedPlaces),
+            ),
+          ],
+        ),
+        ProfileSection(
+          title: 'Partner Program',
+          children: [
+            row(
+              Icons.info_outline,
+              'About Partner Program',
+              () => _information(
+                'About Partner Program',
+                _controller.partnerInformation,
+              ),
+            ),
+            row(
+              Icons.handshake_outlined,
+              'Apply',
+              () => _open(AppRoutes.partnerProgram),
+            ),
+          ],
+        ),
+        ProfileSection(
+          title: 'Help & Support',
+          children: [
+            row(
+              Icons.contacts_outlined,
+              'Emergency Contacts',
+              () => _open(AppRoutes.emergencyContacts),
+            ),
+            row(Icons.support_agent, 'Help Me', () => _open(AppRoutes.support)),
+            row(
+              Icons.report_problem_outlined,
+              'Report a Complaint',
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      const SolidScope(child: SupportPage(openRequest: true)),
+                ),
+              ),
+            ),
+            row(
+              Icons.quiz_outlined,
+              'FAQ',
+              () => _information('FAQ', _controller.faq),
+            ),
+          ],
+        ),
+        ProfileSection(
+          title: 'About',
+          children: [
+            row(
+              Icons.privacy_tip_outlined,
+              'Privacy Policy',
+              () => _information(
+                'Privacy Policy',
+                _controller.privacyInformation,
+              ),
+            ),
+            row(
+              Icons.description_outlined,
+              'Terms of Service',
+              () => _information(
+                'Terms of Service',
+                _controller.termsInformation,
+              ),
+            ),
+            ProfileRow(
+              icon: Icons.info_outline,
+              title: _controller.version.isEmpty
+                  ? 'Version unavailable'
+                  : 'Version ${_controller.version}',
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => SolidScope(
+    child: Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 12),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Back',
+                    color: Colors.white,
+                    icon: const Icon(Icons.chevron_left),
+                    onPressed: () async {
+                      if (!await Navigator.maybePop(context) && mounted) {
+                        _home();
+                      }
+                    },
+                  ),
+                  const Expanded(
+                    child: Text(
+                      'Profile',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Account options',
+                    color: Colors.white,
+                    icon: const Icon(Icons.more_horiz),
+                    onPressed: _settings,
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Container(
+                clipBehavior: Clip.antiAlias,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                ),
+                child: RefreshIndicator(
+                  onRefresh: _load,
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    controller: _scroll,
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 480),
+                        child: _account == null
+                            ? (_error == null
+                                  ? const ProfileOverviewSkeleton()
+                                  : AppLoadError(
+                                      message: _error!,
+                                      onRetry: _load,
+                                    ))
+                            : _menu(),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     ),
