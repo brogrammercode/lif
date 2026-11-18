@@ -302,7 +302,7 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
                       style: const TextStyle(
                         color: GlassTokens.ink,
                         fontSize: 15,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ),
@@ -348,7 +348,7 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
                   style: const TextStyle(
                     color: GlassTokens.ink,
                     fontSize: 15,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
                 const SizedBox(height: 7),

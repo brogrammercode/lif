@@ -3,10 +3,12 @@
 class RideDetailIntent {
   final String id;
   final bool receipt;
+  final bool history;
   final bool liveJourney;
   const RideDetailIntent(
     this.id, {
     this.receipt = false,
+    this.history = false,
     this.liveJourney = false,
   });
 }

@@ -218,7 +218,7 @@ class _SupportPageState extends State<SupportPage> {
                             color: GlassTokens.ink,
                             fontSize: 15,
                             height: 1.3,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                         const SizedBox(height: 4),

@@ -1279,7 +1279,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         status.toLowerCase().replaceAll('_', ' '),
         style: TextStyle(
           fontSize: 12,
-          fontWeight: FontWeight.w700,
+          fontWeight: FontWeight.w500,
           color: rejected
               ? AppColors.googleRed
               : approved
@@ -1377,7 +1377,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
                 label,
                 style: const TextStyle(
                   fontSize: 15,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ),
@@ -1675,7 +1675,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
             style: const TextStyle(
               color: AppColors.googleRed,
               fontSize: 13,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ),
@@ -1803,8 +1803,8 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           step.title,
           key: ValueKey('partner-step-${step.key}'),
           style: const TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w600,
+            fontSize: 20,
+            fontWeight: FontWeight.w500,
             color: GlassTokens.ink,
           ),
         ),
@@ -1885,7 +1885,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           liveRegion: true,
           child: Text(
             _uploadProgress!,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
           ),
         ),
         const SizedBox(height: 12),
@@ -2074,7 +2074,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         const Text(
           'Welcome to the Partner Program',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 25, fontWeight: FontWeight.w600),
+          style: TextStyle(fontSize: 25, fontWeight: FontWeight.w500),
         ),
         const SizedBox(height: 12),
         const Text(
@@ -2315,7 +2315,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
                 _nativeHandoffLabel,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w500,
                   color: AppColors.textPrimary,
                 ),
               ),

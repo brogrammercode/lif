@@ -16,9 +16,13 @@ Reference: `C:/Users/harsh/Downloads/image 208.png`. The Profile page uses the r
 
 ## Data decision
 
+### Visual refinement — 17 November 2026
+
+Profile overview text uses w500 throughout. Menu labels use 14 px, supporting labels 12 px and page side padding 20 px, aligned with the ride sheet scale. Section backgrounds are #FAFAFA and icon wells #F8F8F8. Leading icons use restrained blue, green, amber, red and purple accents; header controls stay white for contrast. A route-scoped `AnnotatedRegion<SystemUiOverlayStyle>` sets light status-bar icons over the black header, including the corresponding iOS brightness hint.
+
 The user explicitly requested dummy values and filled content for now. All sample card values, vehicle branding, FAQ and document content live in `SettingsController`, never in page fixtures. Privacy Policy and Terms are labelled sample content within their documents. They are not final approved legal documents. The fourth driver card is labelled Pending because its purpose is undecided. The installed version is loaded independently with `package_info_plus`.
 
-No new backend endpoint, schema or persisted business data is introduced. Existing photo upload, session/mode restoration, account sign-out and support request mechanisms remain in use. Account options retain secondary account actions.
+No new backend endpoint, schema or persisted business data is introduced. Existing photo upload, session/mode restoration and support request mechanisms remain in use. On 17 November the Profile overflow menu was removed as requested; Profile now passes no optional header action. Personal includes role-specific My Rides and controller-backed My Wallet. See `PROFILE_DESTINATION_SHELL_MIGRATION.md` for every migrated destination.
 
 ## Main files
 

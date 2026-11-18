@@ -101,7 +101,7 @@ class _DirectionsState extends State<PlaceDirectionsPage>
                           placeName(widget.place),
                           style: const TextStyle(
                             fontSize: 18,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w500,
                             color: GlassTokens.ink,
                           ),
                         ),

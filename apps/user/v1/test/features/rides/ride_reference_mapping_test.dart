@@ -5,13 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:user/components/ui/liquid_glass.dart';
-import 'package:user/components/ui/glass_dropdown.dart';
-import 'package:user/core/routes.dart';
 import 'package:user/features/rides/pages/ride_detail_page.dart';
 import 'package:user/features/rides/pages/rides_page.dart';
 import 'package:user/features/rides/ride_detail_intent.dart';
 import 'package:user/features/rides/ride_fare_summary.dart';
-import 'package:user/features/rides/widgets/ride_glass.dart';
+import 'package:user/features/rides/widgets/ride_history_layout.dart';
 import 'package:user/features/rides/widgets/trip_safety_sheet.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 import '../partner_program/partner_glass_test.dart' as glass;
@@ -194,70 +192,14 @@ void main() {
     expect(RideFareSummary({'estimated_fare': 'NaN'}).primaryAmount, isNull);
   });
 
-  testWidgets('history search debounces and discards outdated responses', (
-    tester,
-  ) async {
+  testWidgets('history reads rides without requesting filters', (tester) async {
     final repo = MappingRepo();
     await tester.pumpWidget(glass.shell(RidesPage(repository: repo)));
     await tester.pumpAndSettle();
-    expect(find.text('38 recorded ride requests'), findsOneWidget);
-    expect(find.text('All (38)'), findsOneWidget);
+    expect(find.text('Date / category'), findsNothing);
     expect(repo.catalogReads, 0);
-    repo.pending['old'] = Completer();
-    await tester.enterText(
-      find.byKey(const ValueKey('ride-history-search')),
-      'old',
-    );
-    await tester.pump(const Duration(milliseconds: 399));
-    expect(repo.requests.length, 1);
-    expect(find.byType(RideHistoryCard), findsNothing);
-    await tester.pump(const Duration(milliseconds: 2));
-    expect(repo.requests.last['query'], 'old');
-    await tester.enterText(
-      find.byKey(const ValueKey('ride-history-search')),
-      'University',
-    );
-    await tester.pump(const Duration(milliseconds: 401));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('ride-University')), findsOneWidget);
-    repo.pending['old']!.complete(repo.result('old'));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('ride-old')), findsNothing);
-    expect(find.byKey(const ValueKey('ride-University')), findsOneWidget);
-    expect(repo.catalogReads, 0);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
-
-  testWidgets('filters send month and exact category ID to the history API', (
-    tester,
-  ) async {
-    final repo = MappingRepo();
-    await tester.pumpWidget(glass.shell(RidesPage(repository: repo)));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Filter rides'));
-    await tester.pumpAndSettle();
-    expect(repo.catalogReads, 1);
-    final dropdowns = find.byType(LiquidGlassDropdownFormField<String>);
-    final category = tester.widget<LiquidGlassDropdownFormField<String>>(
-      dropdowns.at(0),
-    );
-    category.onChanged!('opaque-bike-id');
-    await tester.pumpAndSettle();
-    tester
-        .widget<LiquidGlassDropdownFormField<String>>(dropdowns.at(1))
-        .onChanged!('10');
-    await tester.pumpAndSettle();
-    tester
-        .widget<LiquidGlassDropdownFormField<String>>(dropdowns.at(2))
-        .onChanged!('2026');
-    await fixtures.press(tester, find.text('Apply filters'));
-    expect(repo.requests.last['category'], 'opaque-bike-id');
-    expect(repo.requests.last['month'], '2026-10');
-    expect(find.text('October 2026'), findsOneWidget);
-    expect(find.text('38 matching ride requests'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
+    expect(repo.requests.single['category'], isNull);
+    expect(repo.requests.single['month'], isNull);
   });
 
   testWidgets('completed receipt uses a verified trip context', (tester) async {
@@ -286,44 +228,24 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  for (final action in ['View receipt', 'Book again']) {
-    testWidgets('history $action preserves the opaque trip and coordinates', (
-      tester,
-    ) async {
-      final repo = MappingRepo()..status = 'COMPLETED';
-      Object? arguments;
-      String? routeName;
-      await tester.pumpWidget(
-        MaterialApp(
-          key: UniqueKey(),
-          home: RidesPage(repository: repo),
-          onGenerateRoute: (settings) {
-            arguments = settings.arguments;
-            routeName = settings.name;
-            return MaterialPageRoute<void>(
-              builder: (_) => const Scaffold(body: Text('Destination')),
-            );
-          },
+  testWidgets('history opens detail with the opaque trip reference', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      glass.shell(
+        RidesPage(
+          repository: MappingRepo(),
+          operationsRepository: UnfulfilledTrip(),
         ),
-      );
-      await tester.pumpAndSettle();
-      await fixtures.press(tester, find.text(action));
-      if (action == 'View receipt') {
-        expect(routeName, AppRoutes.rideDetail);
-        expect((arguments as RideDetailIntent).id, unfulfilled['id']);
-        expect((arguments as RideDetailIntent).receipt, isTrue);
-      } else {
-        expect(routeName, AppRoutes.home);
-        expect(
-          ((arguments as Map)['rebook'] as Map)['pickup_latitude'],
-          '25.23',
-        );
-        expect(((arguments as Map)['rebook'] as Map)['id'], unfulfilled['id']);
-      }
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox.shrink());
-    });
-  }
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(RideHistoryCard));
+    await tester.pumpAndSettle();
+    expect(find.byType(BottomSheet), findsOneWidget);
+    final detail = tester.widget<RideDetailPage>(find.byType(RideDetailPage));
+    expect(detail.historyRideId, unfulfilled['id']);
+  });
 
   testWidgets(
     'a failed receipt refresh retains the trip without presenting stale collection data',
@@ -356,18 +278,10 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(glass.shell(RidesPage(repository: MappingRepo())));
     await tester.pumpAndSettle();
-    expect(find.text('TRP-9007199254740993123'), findsOneWidget);
-    expect(find.text('5.0 km - Est. 12 min'), findsOneWidget);
-    await glass.capture(tester, 'my-rides-reference-history');
-    final action = find.text('Retry booking');
-    await tester.scrollUntilVisible(
-      action,
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.pumpAndSettle();
-    expect(action.hitTestable(), findsOneWidget);
-    await glass.capture(tester, 'my-rides-reference-history-actions');
+    expect(find.text('Station, Bhagalpur'), findsOneWidget);
+    expect(find.text('University, Bhagalpur'), findsOneWidget);
+    expect(find.text('Distance'), findsOneWidget);
+    expect(find.byType(RideHistoryCard).hitTestable(), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });

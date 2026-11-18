@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:user/components/ui/app_skeleton.dart';
 
 abstract final class RideTokens {
@@ -43,16 +44,18 @@ class SolidScope extends StatelessWidget {
                 bodyMedium: const TextStyle(
                   fontSize: 14,
                   height: 1.35,
+                  fontWeight: FontWeight.w500,
                   color: RideTokens.ink,
                 ),
                 bodySmall: const TextStyle(
                   fontSize: 12,
                   height: 1.35,
+                  fontWeight: FontWeight.w500,
                   color: RideTokens.muted,
                 ),
                 titleMedium: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
                   color: RideTokens.ink,
                 ),
               ),
@@ -271,31 +274,94 @@ class SolidSheet extends StatelessWidget {
   );
 }
 
+/// Shared account/content page frame, matching the Profile reference.
 class SolidPage extends StatelessWidget {
   final String title;
   final Widget child;
   final Widget? action;
+  final Color bodyColor;
+  final VoidCallback? onBack;
+  final bool resizeToAvoidBottomInset;
   const SolidPage({
     super.key,
     required this.title,
     required this.child,
     this.action,
+    this.bodyColor = Colors.white,
+    this.onBack,
+    this.resizeToAvoidBottomInset = true,
   });
   @override
-  Widget build(BuildContext context) => SolidScope(
-    child: Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: Text(
-          title,
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+  Widget build(BuildContext context) => AnnotatedRegion<SystemUiOverlayStyle>(
+    value: const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+      statusBarBrightness: Brightness.dark,
+      systemStatusBarContrastEnforced: false,
+    ),
+    child: SolidScope(
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        resizeToAvoidBottomInset: resizeToAvoidBottomInset,
+        body: SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 6, 8, 12),
+                child: IconTheme(
+                  data: const IconThemeData(color: Colors.white, size: 24),
+                  child: Theme(
+                    data: Theme.of(context).copyWith(
+                      iconButtonTheme: IconButtonThemeData(
+                        style: IconButton.styleFrom(
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                    child: SizedBox(
+                      height: 48,
+                      child: NavigationToolbar(
+                        centerMiddle: true,
+                        leading: IconButton(
+                          tooltip: 'Back',
+                          color: Colors.white,
+                          icon: const Icon(Icons.chevron_left),
+                          onPressed:
+                              onBack ?? () => Navigator.maybePop(context),
+                        ),
+                        middle: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.white,
+                          ),
+                        ),
+                        trailing: action ?? const SizedBox(width: 48),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Container(
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    color: bodyColor,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(24),
+                    ),
+                  ),
+                  child: SafeArea(top: false, child: child),
+                ),
+              ),
+            ],
+          ),
         ),
-        centerTitle: true,
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
-        actions: [?action],
       ),
-      body: SafeArea(top: false, child: child),
     ),
   );
 }

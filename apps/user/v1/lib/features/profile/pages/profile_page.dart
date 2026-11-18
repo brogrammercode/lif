@@ -135,8 +135,8 @@ class _ProfilePageState extends State<ProfilePage> {
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: GlassTokens.ink,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w600,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -172,8 +172,8 @@ class _ProfilePageState extends State<ProfilePage> {
                       'Personal information',
                       style: TextStyle(
                         color: GlassTokens.ink,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                     const SizedBox(height: 5),

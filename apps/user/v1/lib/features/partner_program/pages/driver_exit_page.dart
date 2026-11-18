@@ -1,3 +1,4 @@
+import 'package:user/features/rides/ride_display.dart' show rideMoney;
 import 'package:user/features/partner_program/controllers/driver_exit_controller.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:async';
@@ -219,7 +220,10 @@ class _DriverExitPageState extends State<DriverExitPage>
                         if (_request!['dues_amount'] != null) ...[
                           const Divider(height: 32),
                           Text(
-                            '${_request!['currency']} ${_request!['dues_amount']}',
+                            rideMoney(
+                              _request!['dues_amount'],
+                              currency: '${_request!['currency'] ?? 'INR'}',
+                            ),
                             style: const TextStyle(
                               fontSize: 24,
                               fontWeight: FontWeight.w600,

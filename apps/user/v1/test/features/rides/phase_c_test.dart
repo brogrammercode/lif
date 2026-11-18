@@ -468,7 +468,7 @@ void main() {
           ),
         ),
       );
-      expect(find.textContaining('INR 5.00'), findsOneWidget);
+      expect(find.textContaining('₹5.00'), findsOneWidget);
       expect(find.textContaining('No fee is collected now'), findsOneWidget);
       expect(find.text('Keep ride'), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());

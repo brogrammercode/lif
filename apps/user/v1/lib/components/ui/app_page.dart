@@ -20,57 +20,16 @@ class AppPage extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => glass
-      ? LiquidGlassPage(
-          title: title,
-          action: action,
-          edgeToEdge: scrollable,
-          child: child,
-        )
-      : Scaffold(
-          backgroundColor: const Color(0xFFFAFAFA),
-          body: SafeArea(
-            child: Column(
-              children: [
-                Padding(
-                  padding: EdgeInsets.fromLTRB(16.w, 8.h, 16.w, 12.h),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        onPressed: () => Navigator.maybePop(context),
-                        icon: Icon(
-                          Icons.arrow_back_ios_new,
-                          size: 20.w,
-                          color: AppColors.textPrimary,
-                        ),
-                      ),
-                      SizedBox(width: 4.w),
-                      Expanded(
-                        child: Text(
-                          title,
-                          style: TextStyle(
-                            fontSize: 20.sp,
-                            fontWeight: FontWeight.w900,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                      ),
-                      ?action,
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: scrollable
-                      ? child
-                      : Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 16.w),
-                          child: child,
-                        ),
-                ),
-              ],
-            ),
+  Widget build(BuildContext context) => SolidPage(
+    title: title,
+    action: action,
+    child: scrollable
+        ? child
+        : Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: child,
           ),
-        );
+  );
 }
 
 class AppSectionLabel extends StatelessWidget {
@@ -82,7 +41,7 @@ class AppSectionLabel extends StatelessWidget {
     style: TextStyle(
       fontSize: 12.sp,
       fontWeight: LiquidGlassTheme.of(context)
-          ? FontWeight.w600
+          ? FontWeight.w500
           : FontWeight.w800,
       color: LiquidGlassTheme.of(context)
           ? GlassTokens.muted
@@ -104,7 +63,7 @@ class AppEmptyState extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) {
-    final glass = LiquidGlassTheme.of(context);
+    final glass = SolidTheme.of(context) || LiquidGlassTheme.of(context);
     final content = Padding(
       padding: EdgeInsets.all(glass ? 24 : 28.w),
       child: Column(
@@ -132,7 +91,7 @@ class AppEmptyState extends StatelessWidget {
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: glass ? 18 : 18.sp,
-              fontWeight: glass ? FontWeight.w600 : FontWeight.w900,
+              fontWeight: glass ? FontWeight.w500 : FontWeight.w900,
               color: glass ? GlassTokens.ink : AppColors.textPrimary,
             ),
           ),
@@ -193,7 +152,7 @@ class AppLoadError extends StatelessWidget {
   const AppLoadError({super.key, required this.message, required this.onRetry});
   @override
   Widget build(BuildContext context) {
-    final glass = LiquidGlassTheme.of(context);
+    final glass = SolidTheme.of(context) || LiquidGlassTheme.of(context);
     final content = Padding(
       padding: EdgeInsets.all(glass ? 22 : 24.w),
       child: Column(

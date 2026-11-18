@@ -1,3 +1,4 @@
+import 'package:user/features/rides/ride_display.dart' show rideMoney;
 import 'package:user/features/settings/controllers/settings_controller.dart';
 import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/features/support/pages/support_page.dart';
@@ -5,6 +6,7 @@ import 'package:user/features/profile/pages/profile_page.dart';
 import 'package:user/features/settings/widgets/profile_overview.dart';
 import 'dart:async';
 import 'dart:io';
+import 'package:user/features/settings/pages/wallet_page.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:user/components/ui/app_page.dart';
@@ -14,9 +16,8 @@ import 'package:user/core/routes.dart';
 import 'package:user/features/auth/app_mode.repo.dart';
 
 import 'package:user/features/settings/settings.repo.dart';
-import 'package:user/features/settings/widgets/app_mode_tile.dart';
+
 import 'package:user/features/settings/widgets/settings_profile.dart';
-import 'package:user/features/user_app/user_app.constant.dart';
 
 class SettingsPage extends StatefulWidget {
   final SettingsRepository? repository;
@@ -38,7 +39,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final _scroll = ScrollController();
   SettingsAccount? get _account => _controller.account;
   String? get _error => _controller.error;
-  bool _choosingPhoto = false, _savingPhoto = false, _signingOut = false;
+  bool _choosingPhoto = false, _savingPhoto = false;
 
   @override
   void initState() {
@@ -94,7 +95,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 children: [
                   const Text(
                     'Profile photo',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
                   ),
                   const SizedBox(height: 18),
                   SettingsMenuTile(
@@ -180,179 +181,20 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _signOut() async {
-    if (_signingOut || _savingPhoto) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => LiquidGlassDialog(
-        title: const Text(UserAppCopy.LOG_OUT),
-        content: const Text(UserAppCopy.LOG_OUT_CONFIRMATION),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text(UserAppCopy.LOG_OUT),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-    setState(() => _signingOut = true);
-    try {
-      await _repository.signOut();
-      if (mounted) {
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          AppRoutes.login,
-          (_) => false,
-        );
-      }
-    } catch (error) {
-      _notice(ApiResult.errorMessage(error));
-    } finally {
-      if (mounted) setState(() => _signingOut = false);
-    }
-  }
-
-  void _settings() {
-    final account = _account;
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: false,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * 0.88,
-      ),
-      builder: (sheetContext) {
-        void open(String route) {
-          Navigator.pop(sheetContext);
-          unawaited(_open(route));
-        }
-
-        Widget tile(
-          IconData icon,
-          String title,
-          String subtitle,
-          String route,
-        ) => Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: SettingsMenuTile(
-            icon: icon,
-            title: title,
-            subtitle: subtitle,
-            onTap: () => open(route),
-          ),
-        );
-        return LiquidGlassSheet(
-          child: SafeArea(
-            top: false,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Text(
-                    'Settings',
-                    style: TextStyle(fontSize: 23, fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    account == null
-                        ? 'Your 1More account'
-                        : 'Account ID ${account.user.id}',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: SettingsStyle.muted,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  if (account?.hasDriverAccess == true)
-                    AppModeTile(user: account!.user, initialMode: account.mode),
-                  tile(
-                    Icons.handshake_outlined,
-                    'Partner Program',
-                    'Application, verification and status',
-                    AppRoutes.partnerProgram,
-                  ),
-                  if (account?.hasDriverAccess == true)
-                    tile(
-                      Icons.account_balance_wallet_outlined,
-                      'Driver account & earnings',
-                      'Payout details, statements and requests',
-                      AppRoutes.driverAccount,
-                    ),
-                  if (account != null)
-                    tile(
-                      Icons.history,
-                      account.mode == AppMode.driver
-                          ? 'Driver trips'
-                          : UserAppCopy.RIDES,
-                      'Your journeys and ride history',
-                      account.mode == AppMode.driver
-                          ? AppRoutes.driverRides
-                          : AppRoutes.rides,
-                    ),
-                  tile(
-                    Icons.place_outlined,
-                    UserAppCopy.SAVED_PLACES,
-                    'Home, work and favourite places',
-                    AppRoutes.savedPlaces,
-                  ),
-                  tile(
-                    Icons.notifications_none,
-                    UserAppCopy.NOTIFICATIONS,
-                    'Ride and account updates',
-                    AppRoutes.notifications,
-                  ),
-                  tile(
-                    Icons.health_and_safety_outlined,
-                    UserAppCopy.EMERGENCY_CONTACTS,
-                    'People you can reach in an emergency',
-                    AppRoutes.emergencyContacts,
-                  ),
-                  tile(
-                    Icons.support_agent,
-                    UserAppCopy.SUPPORT,
-                    'Get in touch with the 1More team',
-                    AppRoutes.support,
-                  ),
-                  SettingsMenuTile(
-                    icon: Icons.logout,
-                    title: _signingOut ? 'Signing out…' : UserAppCopy.LOG_OUT,
-                    subtitle: 'Sign out of this account on this device',
-                    destructive: true,
-                    onTap: _signingOut || _savingPhoto
-                        ? null
-                        : () {
-                            Navigator.pop(sheetContext);
-                            unawaited(_signOut());
-                          },
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   void _information(String title, String body) {
     Navigator.push<void>(
       context,
       MaterialPageRoute(
-        builder: (_) => SolidScope(
-          child: Scaffold(
-            appBar: AppBar(title: Text(title)),
-            body: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Text(
-                body,
-                style: const TextStyle(fontSize: 14, height: 1.6),
+        builder: (_) => SolidPage(
+          title: title,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Text(
+              body,
+              style: const TextStyle(
+                fontSize: 14,
+                height: 1.6,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
@@ -415,10 +257,8 @@ class _SettingsPageState extends State<SettingsPage> {
                               : Icons.account_balance_wallet_outlined,
                           title: driver ? 'Total Earning' : 'Wallet',
                           value: driver
-                              ? (stats['total_earnings'] == null
-                                    ? 'Unavailable'
-                                    : 'INR ${num.tryParse('${stats['total_earnings']}')?.toStringAsFixed(2) ?? '?'}')
-                              : 'INR ${stats['wallet']}',
+                              ? rideMoney(stats['total_earnings'])
+                              : rideMoney(stats['wallet']),
                         ),
                         ProfileStat(
                           icon: Icons.route_outlined,
@@ -445,7 +285,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           title: driver ? 'Pending' : 'Money Saved',
                           value: driver
                               ? 'Pending'
-                              : 'INR ${stats['money_saved']}',
+                              : rideMoney(stats['money_saved']),
                         ),
                       ][index * 2 + column],
                     ),
@@ -457,11 +297,30 @@ class _SettingsPageState extends State<SettingsPage> {
         if (_controller.summaryError != null)
           Text(
             _controller.summaryError!,
-            style: const TextStyle(fontSize: 12, color: RideTokens.muted),
+            style: const TextStyle(
+              fontSize: 12,
+              color: RideTokens.muted,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ProfileSection(
           title: 'Personal',
           children: [
+            row(
+              Icons.route_outlined,
+              'My Rides',
+              () => _open(driver ? AppRoutes.driverRides : AppRoutes.rides),
+            ),
+            row(
+              Icons.account_balance_wallet_outlined,
+              'My Wallet',
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => WalletPage(controller: _controller),
+                ),
+              ),
+            ),
             row(Icons.person_outline, 'Edit Profile', () => _editProfile()),
             row(
               Icons.phone_android_outlined,
@@ -553,78 +412,26 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   @override
-  Widget build(BuildContext context) => SolidScope(
-    child: Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 6, 8, 12),
-              child: Row(
-                children: [
-                  IconButton(
-                    tooltip: 'Back',
-                    color: Colors.white,
-                    icon: const Icon(Icons.chevron_left),
-                    onPressed: () async {
-                      if (!await Navigator.maybePop(context) && mounted) {
-                        _home();
-                      }
-                    },
-                  ),
-                  const Expanded(
-                    child: Text(
-                      'Profile',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Account options',
-                    color: Colors.white,
-                    icon: const Icon(Icons.more_horiz),
-                    onPressed: _settings,
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: Container(
-                clipBehavior: Clip.antiAlias,
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                ),
-                child: RefreshIndicator(
-                  onRefresh: _load,
-                  child: SingleChildScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    controller: _scroll,
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 480),
-                        child: _account == null
-                            ? (_error == null
-                                  ? const ProfileOverviewSkeleton()
-                                  : AppLoadError(
-                                      message: _error!,
-                                      onRetry: _load,
-                                    ))
-                            : _menu(),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
+  Widget build(BuildContext context) => SolidPage(
+    title: 'Profile',
+    onBack: () async {
+      if (!await Navigator.maybePop(context) && mounted) _home();
+    },
+    child: RefreshIndicator(
+      onRefresh: _load,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        controller: _scroll,
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: _account == null
+                ? (_error == null
+                      ? const ProfileOverviewSkeleton()
+                      : AppLoadError(message: _error!, onRetry: _load))
+                : _menu(),
+          ),
         ),
       ),
     ),

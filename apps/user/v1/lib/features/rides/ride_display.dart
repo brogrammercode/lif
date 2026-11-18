@@ -49,9 +49,13 @@ List<LatLng> rideGeometry(dynamic value) => value is List
           .whereType<LatLng>()
           .toList()
     : [];
-String rideMoney(dynamic amount) => rideNumber(amount) == null
-    ? 'Unavailable'
-    : 'INR ${rideNumber(amount)!.toStringAsFixed(2)}';
+String rideMoney(dynamic amount, {String currency = 'INR'}) {
+  final value = rideNumber(amount);
+  if (value == null) return 'Unavailable';
+  final prefix = currency.toUpperCase() == 'INR' ? '₹' : '$currency ';
+  return '$prefix${value.toStringAsFixed(2)}';
+}
+
 String rideDistance(dynamic metres) => rideNumber(metres) == null
     ? 'Unavailable'
     : '${(rideNumber(metres)! / 1000).toStringAsFixed(1)} km';

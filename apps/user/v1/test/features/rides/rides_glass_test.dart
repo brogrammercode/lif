@@ -1,3 +1,5 @@
+import 'package:user/features/rides/ride_detail_intent.dart';
+import 'package:user/features/rides/widgets/ride_history_layout.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -78,7 +80,7 @@ class CompletedTrip extends phase.TripRepo {
           'user_id': 'driver',
           'user': {'first_name': 'Ravi', 'last_name': 'Kumar'},
         },
-        'review': {'score': 4},
+        'review': {'score': 4, 'comment': 'Smooth trip'},
         'quote': {
           'base_fare': '0',
           'distance_fare': '72',
@@ -118,7 +120,7 @@ Future<void> detail(
               MaterialPageRoute<void>(
                 settings: const RouteSettings(
                   name: AppRoutes.rideDetail,
-                  arguments: 'ride',
+                  arguments: RideDetailIntent('ride', history: true),
                 ),
                 builder: (_) => RideDetailPage(
                   operationsRepository: repo,
@@ -156,63 +158,74 @@ void main() {
     }
   });
 
-  testWidgets(
-    'history retains rows during refresh but clears them for another filter/page',
-    (tester) async {
-      final repo = GlassHistoryRepo()..pending = Completer();
-      await tester.pumpWidget(glass.shell(RidesPage(repository: repo)));
-      await tester.pump();
-      expect(find.byType(RidesSkeleton), findsOneWidget);
-      expect(find.byType(CircularProgressIndicator), findsNothing);
-      repo.pending!.complete(repo.result('all', 1));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('ride-all-1')), findsOneWidget);
-      repo.pending = Completer();
-      await tester.tap(find.byTooltip('Refresh rides'));
-      await tester.pump();
-      expect(find.byKey(const ValueKey('ride-all-1')), findsOneWidget);
-      repo.pending!.completeError(StateError('Offline'));
-      await tester.pumpAndSettle();
-      expect(find.text('Showing your last loaded rides.'), findsOneWidget);
-      repo.pending = Completer();
-      await tester.tap(find.text('Past'));
-      await tester.pump();
-      expect(find.byKey(const ValueKey('ride-all-1')), findsNothing);
-      expect(find.byType(RidesSkeleton), findsOneWidget);
-      repo.pending!.complete(repo.result('past', 1));
-      await tester.pumpAndSettle();
-      repo.pending = Completer();
-      await fixtures.press(tester, find.text('Next'));
-      expect(find.byKey(const ValueKey('ride-past-1')), findsNothing);
-      repo.pending!.complete(repo.result('past', 2));
-      await tester.pumpAndSettle();
-      expect(repo.requests, ['all:1', 'all:1', 'past:1', 'past:2']);
-      expect(find.byKey(const ValueKey('ride-past-2')), findsOneWidget);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox.shrink());
-    },
-  );
+  testWidgets('history groups past rides and appends when scrolled', (
+    tester,
+  ) async {
+    final repo = GlassHistoryRepo()..pending = Completer();
+    await tester.pumpWidget(glass.shell(RidesPage(repository: repo)));
+    await tester.pump();
+    expect(find.byType(RidesSkeleton), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    repo.pending!.complete(repo.result('all', 1));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('ride-all-1')), findsOneWidget);
+    expect(find.text('Past rides'), findsOneWidget);
+    expect(find.text('Pickup point'), findsOneWidget);
+    repo.pending = Completer();
+    expect(find.byTooltip('Refresh rides'), findsNothing);
+    await tester.drag(find.byType(RefreshIndicator), const Offset(0, 340));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byKey(const ValueKey('ride-all-1')), findsOneWidget);
+    repo.pending!.completeError(StateError('Offline'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('ride-all-1')), findsOneWidget);
+    expect(find.text('Date / category'), findsNothing);
+    expect(find.text('Next'), findsNothing);
+    expect(find.text('Past'), findsNothing);
+    expect(find.byKey(const ValueKey('ride-history-search')), findsNothing);
+    repo.pending = Completer();
+    await tester.tap(find.text('Try again'));
+    await tester.pump();
+    repo.pending!.complete(repo.result('all', 1));
+    await tester.pumpAndSettle();
+    repo.pending = Completer();
+    await tester.drag(find.byType(ListView), const Offset(0, -340));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('ride-all-1')), findsOneWidget);
+    repo.pending!.complete(repo.result('all', 2));
+    await tester.pumpAndSettle();
+    expect(repo.requests, ['all:1', 'all:1', 'all:1', 'all:2']);
+    expect(find.byKey(const ValueKey('ride-all-2')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   testWidgets('history cards open the exact rider trip reference', (
     tester,
   ) async {
-    String? selected;
     await tester.pumpWidget(
-      MaterialApp(
-        home: RidesPage(repository: GlassHistoryRepo()),
-        onGenerateRoute: (settings) {
-          selected = settings.arguments as String?;
-          return MaterialPageRoute<void>(
-            builder: (_) => const Scaffold(body: Text('Owned trip')),
-          );
-        },
+      glass.shell(
+        RidesPage(
+          repository: GlassHistoryRepo(),
+          operationsRepository: CompletedTrip(),
+        ),
       ),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byType(RideHistoryCard));
     await tester.pumpAndSettle();
-    expect(selected, 'all-1');
-    expect(find.text('Owned trip'), findsOneWidget);
+    expect(find.byType(BottomSheet), findsOneWidget);
+    expect(
+      tester.widget<RideDetailPage>(find.byType(RideDetailPage)).historyRideId,
+      'all-1',
+    );
+    expect(find.text('Ravi Kumar'), findsOneWidget);
+    expect(find.byTooltip('Close ride details'), findsNothing);
+    expect(find.text('Completed'), findsOneWidget);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(BottomSheet), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -225,23 +238,25 @@ void main() {
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
         await detail(tester, CompletedTrip(), scale: scale);
-        expect(find.text('Stored route map'), findsOneWidget);
-        expect(find.byType(LiquidGlassSurface), findsWidgets);
-        await glass.capture(tester, 'my-rides-detail-header-$scale');
-        await fixtures.press(tester, find.text('License plate'));
-        expect(find.text('BR10AA1234'), findsOneWidget);
+        expect(find.text('Stored route map'), findsNothing);
+        expect(find.text('Pickup point'), findsOneWidget);
+        await fixtures.press(tester, find.text('BR10AA1234'));
         expect(find.text('Ravi Kumar'), findsOneWidget);
-        expect(find.text('4/5'), findsOneWidget);
-        await glass.capture(tester, 'my-rides-detail-facts-$scale');
-        await fixtures.press(tester, find.text('Recorded duration'));
+        await fixtures.press(tester, find.text('Smooth trip'));
+        expect(find.byIcon(Icons.star), findsNWidgets(4));
         expect(find.text('8 min'), findsOneWidget);
-        await fixtures.press(tester, find.text('Cost details'));
-        expect(find.text('Commission'), findsOneWidget);
-        expect(find.text('SF Traffic Mitigation Tax'), findsNothing);
-        await fixtures.press(tester, find.text('View receipt'));
-        expect(find.text('Ride receipt'), findsOneWidget);
-        await fixtures.press(tester, find.text('Done'));
-        expect(find.text('Ride receipt'), findsNothing);
+        await tester.tap(find.byTooltip('Show route map'));
+        await tester.pumpAndSettle();
+        expect(find.text('Ride map'), findsOneWidget);
+        await tester.scrollUntilVisible(
+          find.text('Stored route map'),
+          100,
+          scrollable: find.byType(Scrollable).first,
+        );
+        expect(find.text('Stored route map'), findsOneWidget);
+        await tester.tap(find.byTooltip('Show trip summary'));
+        await tester.pumpAndSettle();
+        expect(find.text('Ride details'), findsOneWidget);
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
       },
@@ -269,7 +284,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await fixtures.press(tester, find.text('Next'));
+      await tester.drag(find.byType(ListView), const Offset(0, -340));
+      await tester.pumpAndSettle();
       expect(repo.requests.last, 'all:2');
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(

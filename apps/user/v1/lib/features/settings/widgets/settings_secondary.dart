@@ -44,9 +44,9 @@ class SettingsIntroCard extends StatelessWidget {
                     title,
                     style: const TextStyle(
                       color: GlassTokens.ink,
-                      fontSize: 17,
+                      fontSize: 16,
                       height: 1.25,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                   const SizedBox(height: 5),
@@ -105,7 +105,7 @@ class SettingsStatusPill extends StatelessWidget {
               style: TextStyle(
                 color: color,
                 fontSize: 11,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
@@ -138,8 +138,8 @@ class SettingsSectionHeader extends StatelessWidget {
               title,
               style: const TextStyle(
                 color: GlassTokens.ink,
-                fontSize: 17,
-                fontWeight: FontWeight.w600,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
               ),
             ),
             if (helper != null) ...[
@@ -192,7 +192,7 @@ class SettingsEmptyCard extends StatelessWidget {
             style: const TextStyle(
               color: GlassTokens.ink,
               fontSize: 16,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w500,
             ),
           ),
           const SizedBox(height: 5),

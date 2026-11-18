@@ -7,6 +7,7 @@ import 'package:user/core/routes.dart';
 import 'package:user/core/route_observer.dart';
 import 'package:user/core/theme.dart';
 import 'package:user/firebase_options.dart';
+import 'package:user/components/ui/solid_ui.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,6 +30,7 @@ class MyApp extends StatelessWidget {
           title: AppConstants.APP_TITLE,
           debugShowCheckedModeBanner: false,
           theme: AppTheme.lightTheme,
+          builder: (context, child) => SolidScope(child: child!),
           initialRoute: AppRoutes.gate,
           routes: AppRoutes.routes,
           navigatorObservers: [appRouteObserver],

@@ -145,7 +145,7 @@ class _DriverTripsPageState extends State<DriverTripsPage> {
                                 ),
                                 style: const TextStyle(
                                   color: GlassTokens.ink,
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
                               const SizedBox(width: 6),

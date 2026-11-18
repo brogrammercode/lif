@@ -6,6 +6,8 @@ Current authority: 8 November 2026. This specification replaces the previous liq
 
 Profile/Settings reference (14 November 2026): `image 208.png` supplies content placement. Render its upper banner in black, with the solid white rounded body and neutral ride typography. Use role-specific 2×2 summary cards, compact grouped menu rows and a vehicle-brand avatar badge for driver mode. See `PROFILE_SETTINGS_REWORK.md` for the requested sections and temporary controller-owned sample data.
 
+Content-page frame (17 November 2026): `SolidPage` is the common black-header/rounded-white-body frame. `AppPage` and the legacy `LiquidGlassPage` entry point delegate to it. Keep the centered 16 px w500 title, back control and light status-bar icons consistent. Profile has no trailing menu; destination pages may retain necessary actions. The Navigator is wrapped in `SolidScope` so routes, dialogs and sheets render solid. Track individual screens in `PROFILE_DESTINATION_SHELL_MIGRATION.md`.
+
 The visual authority is `C:/Users/harsh/Downloads/image 163.png`, the supplied assigned-driver screen. Match its solid surfaces, neutral typography, compact scale, white/black palette, blue category badge and blue map route. The screenshot shows a phone frame; the app renders the inner screen only. Do not reproduce the hardware frame, notch, status-bar pixels, sample identity or example map labels.
 
 The user explicitly rejected glassmorphism. New screens and future mobile reworks follow this document. The current implementation scope is the complete rider ride flow, including Home, endpoint entry, vehicle selection, search, assigned/arrived, ongoing ride and completion. Other existing modules retain their implementation until explicitly migrated; they are not design references for new work. Admin continues to use its separate web design.
@@ -162,3 +164,16 @@ Map-first booking stages use a fixed map viewport at 80% of screen height. The s
 Driver request, approach/waiting, progress, payment and completion use the same `RiderFlowScaffold` black status strip and solid white body. Driver progress reuses the rider's distance-driven car slider plus an explicit Complete ride button. Driver completion reuses `RiderCompletionPanel` under this black strip and initially opens below the screen top. Passenger identity replaces driver identity; the assigned vehicle and its brand logo/registration remain unchanged. Never copy a driver's rating onto a passenger.
 
 See `context/DRIVER_RIDE_FLOW_UI_REWORK.md` for phase mapping, server gates and isolated driver demo details.
+
+## My Rides reference and implementation log
+
+Use the supplied three-panel order-history reference for the rider history, summary, and route map. My Rides uses the standard `SolidPage` header shared with Profile, including its height, centered title, and back button. Pull down to refresh. The list loads more rides as the user scrolls and shows no filters, page controls, or loading copy.
+
+| Screen | Layout and behavior |
+| --- | --- |
+| My Rides | Pale gray list with Active rides and Past rides sections. White cards show pickup and destination at 16 px, a dotted connector, and end-aligned price and distance labels and values. Prices use a ? chip, green for confirmed collection and neutral for other known fares. |
+| Ride details | Tapping a card opens a modal built from the booking flow's `RideStagePanel` and black `RideArrivalStrip`. The hourglass and title sit on the left, and a short status chip sits on the right. The summary reuses the list's route card. The booking flow's vehicle and driver card appears below, followed by rating, trip facts, and feedback. The primary action is black. Completed rides add a receipt icon beside the map toggle and use the booking completion PDF template. Pending payment shows concise receipt status and eligible payment actions. |
+| Route map | The map toggle stays in the sheet. The map has its own rounded card with space around it. MapLibre plots the recorded endpoints and route geometry when available. |
+| Active ride | The same sheet opens first. Open live ride continues into the booking flow. |
+
+Rebooking starts a fresh quote. Display rupee amounts with ?.

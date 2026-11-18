@@ -241,7 +241,7 @@ class _PlaceDetailState extends State<PlaceDetailPage> {
                 'Your place photos',
                 style: TextStyle(
                   fontSize: 21,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w500,
                   color: GlassTokens.ink,
                 ),
               ),
@@ -369,7 +369,7 @@ class _PlaceDetailState extends State<PlaceDetailPage> {
                     placeName(place),
                     style: const TextStyle(
                       fontSize: 23,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w500,
                       color: GlassTokens.ink,
                     ),
                   ),
@@ -591,7 +591,7 @@ class _PlaceDetailState extends State<PlaceDetailPage> {
                   'Reviews',
                   style: TextStyle(
                     fontSize: 20,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w500,
                     color: GlassTokens.ink,
                   ),
                 ),

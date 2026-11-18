@@ -1,3 +1,4 @@
+import 'package:user/features/rides/widgets/ride_history_layout.dart';
 import 'package:user/features/rides/controllers/ride_feedback_controller.dart';
 import 'package:user/core/state/data_source_scope.dart';
 import 'package:user/features/rides/controllers/rider_trip_controller.dart';
@@ -37,11 +38,13 @@ class RideDetailPage extends StatefulWidget {
   final UserAppRepository? repository;
   final DriverOperationsRepository? operationsRepository;
   final Widget Function(Widget)? mapBuilder;
+  final String? historyRideId;
   const RideDetailPage({
     super.key,
     this.repository,
     this.operationsRepository,
     this.mapBuilder,
+    this.historyRideId,
   });
   @override
   State<RideDetailPage> createState() => _RiderTripState();
@@ -53,10 +56,12 @@ class _RiderTripState extends State<RideDetailPage>
   late RiderTripController _controller;
   bool _initialized = false, _receiptOpen = false, _initialReceipt = false;
   final GlobalKey _billCaptureKey = GlobalKey();
+  final ScrollController _historyScroll = ScrollController();
   double? _rideStageContentHeight;
   String? _rideStageContentStatus;
   ModalRoute<dynamic>? _route;
   int _recenter = 0;
+  bool _historyEntry = false, _showHistoryMap = false;
 
   void _updateRideStageContentHeight(String status, double height) {
     if (!mounted ||
@@ -112,8 +117,12 @@ class _RiderTripState extends State<RideDetailPage>
       )..addListener(_updated);
       final args = route?.settings.arguments;
       _initialReceipt = args is RideDetailIntent && args.receipt;
+      _historyEntry =
+          widget.historyRideId != null ||
+          (args is RideDetailIntent && args.history);
       _controller.open(
-        args is RideDetailIntent ? args.id : args as String? ?? '',
+        widget.historyRideId ??
+            (args is RideDetailIntent ? args.id : (args is String ? args : '')),
         source: source?.changes,
         livePresentation: args is RideDetailIntent && args.liveJourney,
       );
@@ -139,6 +148,7 @@ class _RiderTripState extends State<RideDetailPage>
     _controller.dispose();
     _routeObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
+    _historyScroll.dispose();
     super.dispose();
   }
 
@@ -365,6 +375,10 @@ class _RiderTripState extends State<RideDetailPage>
 
   @override
   Widget build(BuildContext context) {
+    if (widget.historyRideId != null ||
+        (_historyEntry && !_controller.liveJourney)) {
+      return _historyDetails();
+    }
     if (_controller.data != null &&
         (_controller.active || _controller.status == 'COMPLETED')) {
       return _referenceJourney();
@@ -393,17 +407,269 @@ class _RiderTripState extends State<RideDetailPage>
     );
   }
 
-  Widget _referenceJourney() {
-    final actions = TripActionsPanel(
-      rideId: _controller.id!,
-      externalContext: _controller.data,
-      onChanged: _changed,
-      confirmRider: _confirm,
-      cancelRide: _cancel,
-      repository: _controller.ops,
-      hideContacts: true,
-      hideCompletedPayment: true,
+  Widget _historyDetails() {
+    final data = _controller.data;
+    final trip = _controller.trip;
+    final payment = rideMap(data?['payment']);
+    final pickup = ridePoint(trip['pickup_latitude'], trip['pickup_longitude']);
+    final dropoff = ridePoint(
+      trip['dropoff_latitude'],
+      trip['dropoff_longitude'],
     );
+    final hasMap = pickup != null && dropoff != null;
+    final mapMode = hasMap && _showHistoryMap;
+    final completed = _controller.status == 'COMPLETED';
+    final canContactDriver =
+        _controller.active ||
+        (completed && [null, 'PENDING', 'FAILED'].contains(payment['status']));
+    final status = switch (_controller.status) {
+      'COMPLETED' => 'Completed',
+      'CANCELLED' => 'Cancelled',
+      'NO_DRIVER_FOUND' || 'DRAFT' => 'Not booked',
+      'EXPIRED' => 'Expired',
+      'REQUESTED' || 'SEARCHING' => 'Requested',
+      'DRIVER_ASSIGNED' || 'DRIVER_ARRIVING' => 'Assigned',
+      'DRIVER_WAITING' => 'At pickup',
+      'IN_PROGRESS' => 'In progress',
+      _ => '',
+    };
+    final canRate =
+        completed &&
+        rideMap(trip['review']).isEmpty &&
+        rideMap(trip['driver'])['user_id'] != null;
+    final title = mapMode ? 'Ride map' : 'Ride details';
+    final action = data == null
+        ? null
+        : IconButton(
+            tooltip: 'Trip support',
+            color: Colors.white,
+            onPressed: _safety,
+            icon: const Icon(Icons.help_outline, size: 20),
+          );
+    final summary = data == null
+        ? (_controller.error == null
+              ? const RidesSkeleton(detail: true)
+              : AppLoadError(message: _controller.error!, onRetry: _load))
+        : Column(
+            children: [
+              Expanded(
+                child: ListView(
+                  controller: _historyScroll,
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                  children: [
+                    RideHistoryRoute(ride: trip, payment: payment),
+                    if (mapMode) ...[
+                      const SizedBox(height: 18),
+                      DecoratedBox(
+                        position: DecorationPosition.foreground,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: RideTokens.line),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: SizedBox(
+                            height: 240,
+                            child: _historyMap(
+                              RiderTripMap(
+                                pickup: pickup,
+                                dropoff: dropoff,
+                                points: _controller.basePoints,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 18),
+                      child: Row(
+                        children: [
+                          Expanded(child: Divider()),
+                          Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 12),
+                            child: Text(
+                              'DETAILS',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: RideTokens.muted,
+                              ),
+                            ),
+                          ),
+                          Expanded(child: Divider()),
+                        ],
+                      ),
+                    ),
+                    RideHistoryDetails(
+                      trip: trip,
+                      payment: payment,
+                      onRate: canRate && !_controller.busy ? _rate : null,
+                      contactActions: canContactDriver
+                          ? TripActionsPanel(
+                              rideId: _controller.id!,
+                              externalContext: data,
+                              onChanged: _changed,
+                              repository: _controller.ops,
+                              contactsOnly: true,
+                              showSupport: false,
+                            )
+                          : null,
+                    ),
+                    if (_controller.error != null)
+                      AppLoadError(message: _controller.error!, onRetry: _load),
+                    if (data['review'] != null ||
+                        (completed && payment['status'] != 'CAPTURED')) ...[
+                      const SizedBox(height: 24),
+                      TripActionsPanel(
+                        rideId: _controller.id!,
+                        externalContext: data,
+                        onChanged: _changed,
+                        repository: _controller.ops,
+                        compactRiderPayment: true,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: _controller.busy
+                            ? null
+                            : _controller.active
+                            ? () => Navigator.pop(context, true)
+                            : hasMap
+                            ? _rebook
+                            : null,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.black,
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size.fromHeight(48),
+                        ),
+                        child: Text(
+                          _controller.active ? 'Open live ride' : 'Rebook ride',
+                        ),
+                      ),
+                    ),
+                    if (hasMap) ...[
+                      const SizedBox(width: 12),
+                      IconButton.outlined(
+                        tooltip: mapMode
+                            ? 'Show trip summary'
+                            : 'Show route map',
+                        onPressed: () {
+                          if (_historyScroll.hasClients) {
+                            _historyScroll.jumpTo(0);
+                          }
+                          setState(() => _showHistoryMap = !mapMode);
+                        },
+                        icon: Icon(
+                          mapMode
+                              ? Icons.receipt_long_outlined
+                              : Icons.map_outlined,
+                        ),
+                        constraints: const BoxConstraints(
+                          minWidth: 48,
+                          minHeight: 48,
+                        ),
+                      ),
+                    ],
+                    if (completed) ...[
+                      const SizedBox(width: 12),
+                      IconButton.outlined(
+                        tooltip: 'Download receipt',
+                        onPressed: _receiptOpen || _controller.busy
+                            ? null
+                            : _receipt,
+                        icon: const Icon(Icons.download_outlined),
+                        constraints: const BoxConstraints(
+                          minWidth: 48,
+                          minHeight: 48,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          );
+    final content = _receiptOpen && completed && data != null
+        ? Stack(
+            children: [
+              summary,
+              Positioned.fill(
+                child: RiderCompletionPanel(
+                  data: data,
+                  actions: _completionActions(),
+                  busy: _controller.busy,
+                  onHome: _home,
+                  onReceipt: _receipt,
+                  onRate: _rateCompletion,
+                  captureKey: _billCaptureKey,
+                  receiptOnly: true,
+                ),
+              ),
+            ],
+          )
+        : summary;
+    if (widget.historyRideId == null) {
+      return SolidPage(
+        title: title,
+        onBack: mapMode ? () => setState(() => _showHistoryMap = false) : null,
+        action: action,
+        child: content,
+      );
+    }
+    return SolidScope(
+      child: RideStagePanel(
+        blackHeight: RideArrivalStrip.heightFor(context),
+        header: RideArrivalStrip(label: title, value: status),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              Container(
+                width: 36,
+                height: 3,
+                margin: const EdgeInsets.symmetric(vertical: 9),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFCCCCCC),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Expanded(child: content),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _historyMap(Widget map) => widget.mapBuilder?.call(map) ?? map;
+
+  TripActionsPanel _completionActions() => TripActionsPanel(
+    rideId: _controller.id!,
+    externalContext: _controller.data,
+    onChanged: _changed,
+    confirmRider: _confirm,
+    cancelRide: _cancel,
+    repository: _controller.ops,
+    hideContacts: true,
+    hideCompletedPayment: true,
+  );
+  Future<void> _rateCompletion(int score, String comment) async {
+    if (rideMap(_controller.trip['driver'])['user_id'] != null) {
+      await _act(
+        () => _controller.rate(score, comment.isEmpty ? null : comment),
+      );
+    }
+  }
+
+  Widget _referenceJourney() {
+    final actions = _completionActions();
     final pickup = ridePoint(
       _controller.trip['pickup_latitude'],
       _controller.trip['pickup_longitude'],
@@ -514,19 +780,7 @@ class _RiderTripState extends State<RideDetailPage>
                           captureKey: _billCaptureKey,
                           onHome: _home,
                           onReceipt: _receipt,
-                          onRate: (score, comment) async {
-                            final user = rideMap(
-                              _controller.trip['driver'],
-                            )['user_id'];
-                            if (user != null) {
-                              await _act(
-                                () => _controller.rate(
-                                  score,
-                                  comment.isEmpty ? null : comment,
-                                ),
-                              );
-                            }
-                          },
+                          onRate: _rateCompletion,
                         ),
                       ),
                     ],

@@ -517,57 +517,15 @@ class LiquidGlassPage extends StatelessWidget {
     this.edgeToEdge = false,
   });
   @override
-  Widget build(BuildContext context) => LiquidGlassScope(
-    child: Scaffold(
-      backgroundColor: GlassTokens.canvas,
-      body: LiquidGlassBackdrop(
-        child: SafeArea(
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
-                child: Row(
-                  children: [
-                    LiquidGlassIconButton(
-                      icon: Icons.chevron_left,
-                      tooltip: 'Back',
-                      onPressed: () => Navigator.maybePop(context),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Text(
-                        title,
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w600,
-                          color: GlassTokens.ink,
-                        ),
-                      ),
-                    ),
-                    if (action != null) ...[
-                      const SizedBox(width: 8),
-                      LiquidGlassSurface(
-                        radius: 99,
-                        padding: EdgeInsets.zero,
-                        child: action!,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              Expanded(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: edgeToEdge ? 0 : 20,
-                  ),
-                  child: child,
-                ),
-              ),
-            ],
+  Widget build(BuildContext context) => SolidPage(
+    title: title,
+    action: action,
+    child: edgeToEdge
+        ? child
+        : Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: child,
           ),
-        ),
-      ),
-    ),
   );
 }
 

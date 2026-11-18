@@ -70,7 +70,7 @@ class _PartnerActivationPageState extends State<PartnerActivationPage> {
             textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 32,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w500,
               letterSpacing: 6,
             ),
             decoration: const InputDecoration(

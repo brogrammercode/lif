@@ -1,45 +1,56 @@
-import 'package:user/core/state/feature_controller.dart';
-import 'package:user/features/rides/ride_history_filter.dart';
-import 'dart:async';
 import 'package:user/core/network/api_result.dart';
+import 'package:user/core/state/feature_controller.dart';
+import 'package:user/features/rides/ride_display.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
-/// Owns feature records, query state and asynchronous loading independently of its view.
 class RideHistoryController extends FeatureController {
   RideHistoryController(this.repo);
+
   final UserAppRepository repo;
-  Map<String, dynamic>? data;
-  String section = 'all';
-  int page = 1;
+  List<Map<String, dynamic>>? rides;
   String? error;
-  int request = 0;
-  String query = '';
-  RideHistoryFilter filters = const RideHistoryFilter();
   bool loading = false;
-  Future<void> load({bool replace = false}) async {
-    if ((loading && !replace) || isDisposed) return;
-    final request = ++this.request;
+  bool _hasMore = false;
+  int _page = 0;
+  int _failedPage = 1;
+
+  Future<void> load() => _fetch(page: 1);
+  Future<void> retry() => _fetch(page: _failedPage);
+
+  Future<void> loadMore() async {
+    if (_hasMore && error == null) await _fetch(page: _page + 1);
+  }
+
+  Future<void> _fetch({required int page}) async {
+    if (loading || isDisposed) return;
     update(() => loading = true);
     try {
-      final data = await repo.riderHistory(
-        page: page,
-        section: section,
-        query: query,
-        categoryId: filters.categoryId,
-        month: filters.month,
-      );
-      if (!isDisposed && request == this.request) {
-        update(() {
-          this.data = data;
-          error = null;
-        });
-      }
+      final data = await repo.riderHistory(page: page);
+      final incoming = rideMaps(data['rows']);
+      final pageSize = rideNumber(data['page_size']);
+      final total = rideNumber(data['total']);
+      update(() {
+        final previous = page == 1 ? const <Map<String, dynamic>>[] : rides!;
+        rides = {
+          for (final ride in previous) ride['id']: ride,
+          for (final ride in incoming) ride['id']: ride,
+        }.values.toList();
+        _page = page;
+        _hasMore =
+            incoming.isNotEmpty &&
+            pageSize != null &&
+            pageSize > 0 &&
+            total != null &&
+            page * pageSize < total;
+        error = null;
+      });
     } catch (e) {
-      if (!isDisposed && request == this.request) {
-        update(() => error = ApiResult.errorMessage(e));
-      }
+      update(() {
+        _failedPage = page;
+        error = ApiResult.errorMessage(e);
+      });
     } finally {
-      if (!isDisposed && request == this.request) update(() => loading = false);
+      update(() => loading = false);
     }
   }
 }

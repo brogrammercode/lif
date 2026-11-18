@@ -513,38 +513,39 @@ class RideArrivalStrip extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(width: 8),
-        ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: bounds.maxWidth * .42),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: onValueTap,
-              borderRadius: BorderRadius.circular(18),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF333333),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    height: 1.35,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.white,
+        if (value.isNotEmpty) const SizedBox(width: 8),
+        if (value.isNotEmpty)
+          ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: bounds.maxWidth * .42),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onValueTap,
+                borderRadius: BorderRadius.circular(18),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF333333),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      height: 1.35,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
       ],
     ),
   );

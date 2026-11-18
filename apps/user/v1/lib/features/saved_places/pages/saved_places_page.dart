@@ -1,3 +1,4 @@
+import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/features/saved_places/controllers/saved_places_controller.dart';
 import 'dart:async';
 import 'dart:math' as math;
@@ -200,7 +201,7 @@ class _SavedPlacesState extends State<SavedPlacesPage>
                     'Previous saves',
                     style: TextStyle(
                       fontSize: 21,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w500,
                       color: GlassTokens.ink,
                     ),
                   ),
@@ -331,7 +332,7 @@ class _SavedPlacesState extends State<SavedPlacesPage>
                 'Place type',
                 style: TextStyle(
                   fontSize: 21,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w500,
                   color: GlassTokens.ink,
                 ),
               ),
@@ -364,308 +365,279 @@ class _SavedPlacesState extends State<SavedPlacesPage>
   }
 
   @override
-  Widget build(BuildContext context) => LiquidGlassScope(
-    child: Scaffold(
-      body: LiquidGlassBackdrop(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final safe = MediaQuery.paddingOf(context);
-            final compact =
-                MediaQuery.sizeOf(context).height < 640 ||
-                MediaQuery.textScalerOf(context).scale(14) > 20;
-            final cardHeight = compact
-                ? 360.0
-                : math.min(290.0, math.max(150.0, constraints.maxHeight * .35));
-            final map = PlaceMap(
-              places: _places,
-              selectedId: _selected,
-              onSelected: _select,
-              recenter: _recenter,
-              topInset: compact ? 0 : safe.top + 180,
-              bottomInset: compact ? 0 : cardHeight + safe.bottom + 70,
-            );
-            final header = Column(
-              children: [
-                Row(
-                  children: [
-                    LiquidGlassIconButton(
-                      icon: Icons.chevron_left,
-                      tooltip: 'Back',
-                      onPressed: () => Navigator.maybePop(context),
+  Widget build(BuildContext context) => SolidPage(
+    title: 'Saved Places',
+    action: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          tooltip: 'Add shared place',
+          icon: const Icon(Icons.add),
+          onPressed: () => _add(),
+        ),
+        IconButton(
+          tooltip: 'Place options',
+          icon: const Icon(Icons.more_horiz),
+          onPressed: _menu,
+        ),
+      ],
+    ),
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final safe = MediaQuery.paddingOf(context);
+        final compact =
+            MediaQuery.sizeOf(context).height < 640 ||
+            MediaQuery.textScalerOf(context).scale(14) > 20;
+        final cardHeight = compact
+            ? 360.0
+            : math.min(290.0, math.max(150.0, constraints.maxHeight * .35));
+        final map = PlaceMap(
+          places: _places,
+          selectedId: _selected,
+          onSelected: _select,
+          recenter: _recenter,
+          topInset: compact ? 0 : safe.top + 180,
+          bottomInset: compact ? 0 : cardHeight + safe.bottom + 70,
+        );
+        final header = Column(
+          children: [
+            LiquidGlassSurface(
+              radius: 20,
+              padding: EdgeInsets.zero,
+              child: TextField(
+                controller: _search,
+                key: const ValueKey('place-search'),
+                decoration: InputDecoration(
+                  hintText: 'Search shared places',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _search.text.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Clear place search',
+                          onPressed: () {
+                            _search.clear();
+                            _find('');
+                          },
+                          icon: const Icon(Icons.close),
+                        ),
+                ),
+                onChanged: _find,
+                onSubmitted: (_) {
+                  FocusScope.of(context).unfocus();
+                  _change(_scope, 1);
+                },
+              ),
+            ),
+            const SizedBox(height: 10),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final item in {
+                    'all': 'Explore',
+                    'saved': 'Saved',
+                    'visited': 'Visited',
+                  }.entries)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: LiquidGlassChip(
+                        label: item.value,
+                        selected: _scope == item.key,
+                        onPressed: () => _change(item.key, 1),
+                      ),
                     ),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text(
-                        'Saved places',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w600,
+                  LiquidGlassChip(
+                    label: _type == null
+                        ? 'Place type'
+                        : placeType({'place_type': _type}),
+                    icon: Icons.tune,
+                    onPressed: _filterType,
+                    onDeleted: _type == null
+                        ? null
+                        : () {
+                            _type = null;
+                            _change(_scope, 1);
+                          },
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+        final results = Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                child: LiquidGlassSurface(
+                  padding: const EdgeInsets.all(12),
+                  child: TextButton(
+                    onPressed: _loading ? null : _load,
+                    child: Text(
+                      '${_loaded ? 'Showing saved results. ' : ''}$_error · Retry',
+                    ),
+                  ),
+                ),
+              ),
+            if (_loading && !_loaded)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 26),
+                child: SizedBox(
+                  height: cardHeight,
+                  child: const SingleChildScrollView(
+                    child: PlaceCardSkeleton(),
+                  ),
+                ),
+              )
+            else if (_places.isEmpty && _error == null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 26),
+                child: LiquidGlassSurface(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.place_outlined,
+                        size: 30,
+                        color: GlassTokens.accent,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _query.isEmpty
+                            ? 'No ${_scope == 'all' ? 'shared' : _scope} places yet'
+                            : 'No places match',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
                           color: GlassTokens.ink,
                         ),
                       ),
-                    ),
-                    LiquidGlassIconButton(
-                      icon: Icons.add,
-                      tooltip: 'Add shared place',
-                      onPressed: () => _add(),
-                    ),
-                    const SizedBox(width: 8),
-                    LiquidGlassIconButton(
-                      icon: Icons.more_horiz,
-                      tooltip: 'Place options',
-                      onPressed: _menu,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                LiquidGlassSurface(
-                  radius: 20,
-                  padding: EdgeInsets.zero,
-                  child: TextField(
-                    controller: _search,
-                    key: const ValueKey('place-search'),
-                    decoration: InputDecoration(
-                      hintText: 'Search shared places',
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIcon: _search.text.isEmpty
-                          ? null
-                          : IconButton(
-                              tooltip: 'Clear place search',
-                              onPressed: () {
-                                _search.clear();
-                                _find('');
-                              },
-                              icon: const Icon(Icons.close),
-                            ),
-                    ),
-                    onChanged: _find,
-                    onSubmitted: (_) {
-                      FocusScope.of(context).unfocus();
-                      _change(_scope, 1);
-                    },
+                      TextButton(
+                        onPressed: () => _add(),
+                        child: const Text('Pick a place on the map'),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 10),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
+              )
+            else if (_places.isNotEmpty)
+              SizedBox(
+                height: cardHeight,
+                child: PageView.builder(
+                  controller: _cards,
+                  itemCount: _places.length,
+                  onPageChanged: (index) {
+                    if (index < _places.length) {
+                      setState(() => _selected = '${_places[index]['id']}');
+                    }
+                  },
+                  itemBuilder: (_, index) => Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: PlaceCard(
+                      key: ValueKey('place-${_places[index]['id']}'),
+                      place: _places[index],
+                      onTap: () => _open('${_places[index]['id']}'),
+                    ),
+                  ),
+                ),
+              ),
+            if (_places.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 10, left: 20, right: 20),
+                child: LiquidGlassSurface(
+                  radius: 18,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 2,
+                  ),
                   child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      for (final item in {
-                        'all': 'Explore',
-                        'saved': 'Saved',
-                        'visited': 'Visited',
-                      }.entries)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: LiquidGlassChip(
-                            label: item.value,
-                            selected: _scope == item.key,
-                            onPressed: () => _change(item.key, 1),
-                          ),
-                        ),
-                      LiquidGlassChip(
-                        label: _type == null
-                            ? 'Place type'
-                            : placeType({'place_type': _type}),
-                        icon: Icons.tune,
-                        onPressed: _filterType,
-                        onDeleted: _type == null
-                            ? null
-                            : () {
-                                _type = null;
-                                _change(_scope, 1);
-                              },
+                      IconButton(
+                        tooltip: 'Previous places page',
+                        onPressed: _page > 1 && !_loading
+                            ? () => _change(_scope, _page - 1)
+                            : null,
+                        icon: const Icon(Icons.chevron_left),
                       ),
-                    ],
-                  ),
-                ),
-              ],
-            );
-            final results = Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-                    child: LiquidGlassSurface(
-                      padding: const EdgeInsets.all(12),
-                      child: TextButton(
-                        onPressed: _loading ? null : _load,
+                      Flexible(
                         child: Text(
-                          '${_loaded ? 'Showing saved results. ' : ''}$_error · Retry',
+                          _loading
+                              ? 'Updating places…'
+                              : '${(_page - 1) * 20 + 1}–${(_page - 1) * 20 + _places.length} of $_total places',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: GlassTokens.ink,
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                if (_loading && !_loaded)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 26),
-                    child: SizedBox(
-                      height: cardHeight,
-                      child: const SingleChildScrollView(
-                        child: PlaceCardSkeleton(),
+                      IconButton(
+                        tooltip: 'Next places page',
+                        onPressed: _page * 20 < _total && !_loading
+                            ? () => _change(_scope, _page + 1)
+                            : null,
+                        icon: const Icon(Icons.chevron_right),
                       ),
-                    ),
-                  )
-                else if (_places.isEmpty && _error == null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 26),
-                    child: LiquidGlassSurface(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.place_outlined,
-                            size: 30,
-                            color: GlassTokens.accent,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            _query.isEmpty
-                                ? 'No ${_scope == 'all' ? 'shared' : _scope} places yet'
-                                : 'No places match',
-                            style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w600,
-                              color: GlassTokens.ink,
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: () => _add(),
-                            child: const Text('Pick a place on the map'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                else if (_places.isNotEmpty)
-                  SizedBox(
-                    height: cardHeight,
-                    child: PageView.builder(
-                      controller: _cards,
-                      itemCount: _places.length,
-                      onPageChanged: (index) {
-                        if (index < _places.length) {
-                          setState(() => _selected = '${_places[index]['id']}');
-                        }
-                      },
-                      itemBuilder: (_, index) => Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        child: PlaceCard(
-                          key: ValueKey('place-${_places[index]['id']}'),
-                          place: _places[index],
-                          onTap: () => _open('${_places[index]['id']}'),
-                        ),
-                      ),
-                    ),
-                  ),
-                if (_places.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(
-                      top: 10,
-                      left: 20,
-                      right: 20,
-                    ),
-                    child: LiquidGlassSurface(
-                      radius: 18,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 2,
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          IconButton(
-                            tooltip: 'Previous places page',
-                            onPressed: _page > 1 && !_loading
-                                ? () => _change(_scope, _page - 1)
-                                : null,
-                            icon: const Icon(Icons.chevron_left),
-                          ),
-                          Flexible(
-                            child: Text(
-                              _loading
-                                  ? 'Updating places…'
-                                  : '${(_page - 1) * 20 + 1}–${(_page - 1) * 20 + _places.length} of $_total places',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: GlassTokens.ink,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'Next places page',
-                            onPressed: _page * 20 < _total && !_loading
-                                ? () => _change(_scope, _page + 1)
-                                : null,
-                            icon: const Icon(Icons.chevron_right),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
-            );
-            final mapView = widget.mapBuilder?.call(map) ?? map;
-            final center = LiquidGlassIconButton(
-              icon: Icons.center_focus_strong,
-              tooltip: 'Show visible place pins',
-              onPressed: () => setState(() => _recenter++),
-            );
-            if (compact) {
-              return SafeArea(
-                child: SingleChildScrollView(
-                  child: Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
-                        child: header,
-                      ),
-                      SizedBox(
-                        height: 280,
-                        child: Stack(
-                          children: [
-                            Positioned.fill(child: mapView),
-                            Positioned(right: 20, bottom: 12, child: center),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      results,
-                      const SizedBox(height: 20),
                     ],
                   ),
                 ),
-              );
-            }
-            return Stack(
-              children: [
-                Positioned.fill(child: mapView),
-                Positioned(
-                  top: safe.top + 10,
-                  left: 20,
-                  right: 20,
-                  child: header,
-                ),
-                if (MediaQuery.viewInsetsOf(context).bottom == 0) ...[
-                  Positioned(
-                    right: 20,
-                    bottom: safe.bottom + cardHeight + 76,
-                    child: center,
+              ),
+          ],
+        );
+        final mapView = widget.mapBuilder?.call(map) ?? map;
+        final center = LiquidGlassIconButton(
+          icon: Icons.center_focus_strong,
+          tooltip: 'Show visible place pins',
+          onPressed: () => setState(() => _recenter++),
+        );
+        if (compact) {
+          return SafeArea(
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
+                    child: header,
                   ),
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: safe.bottom + 14,
-                    child: results,
+                  SizedBox(
+                    height: 280,
+                    child: Stack(
+                      children: [
+                        Positioned.fill(child: mapView),
+                        Positioned(right: 20, bottom: 12, child: center),
+                      ],
+                    ),
                   ),
+                  const SizedBox(height: 16),
+                  results,
+                  const SizedBox(height: 20),
                 ],
-              ],
-            );
-          },
-        ),
-      ),
+              ),
+            ),
+          );
+        }
+        return Stack(
+          children: [
+            Positioned.fill(child: mapView),
+            Positioned(top: safe.top + 10, left: 20, right: 20, child: header),
+            if (MediaQuery.viewInsetsOf(context).bottom == 0) ...[
+              Positioned(
+                right: 20,
+                bottom: safe.bottom + cardHeight + 76,
+                child: center,
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: safe.bottom + 14,
+                child: results,
+              ),
+            ],
+          ],
+        );
+      },
     ),
   );
 }

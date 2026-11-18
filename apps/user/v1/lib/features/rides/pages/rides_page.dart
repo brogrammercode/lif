@@ -1,27 +1,26 @@
+import 'package:user/components/ui/solid_ui.dart';
+import 'package:user/features/driver_operations/driver_operations.repo.dart';
+import 'ride_detail_page.dart';
 import 'package:user/features/rides/controllers/ride_history_controller.dart';
-import 'package:user/components/ui/glass_chip.dart';
-import 'package:user/features/rides/widgets/ride_history_filters.dart';
 import 'package:user/features/rides/ride_detail_intent.dart';
-import 'package:user/features/rides/widgets/trip_safety_sheet.dart';
-import 'package:user/components/ui/liquid_glass.dart';
+import 'package:user/features/rides/widgets/ride_history_layout.dart';
 import 'package:user/features/rides/widgets/ride_glass.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
-import 'package:user/core/route_observer.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/rides/ride_display.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
 class RidesPage extends StatefulWidget {
   final UserAppRepository? repository;
-  const RidesPage({super.key, this.repository});
+  final DriverOperationsRepository? operationsRepository;
+  const RidesPage({super.key, this.repository, this.operationsRepository});
   @override
   State<RidesPage> createState() => _RidesState();
 }
 
-class _RidesState extends State<RidesPage>
-    with WidgetsBindingObserver, RouteAware {
+class _RidesState extends State<RidesPage> with WidgetsBindingObserver {
   late final _controller = RideHistoryController(
     widget.repository ?? UserAppRepository(),
   )..addListener(_controllerChanged);
@@ -30,25 +29,6 @@ class _RidesState extends State<RidesPage>
   }
 
   UserAppRepository get _repo => _controller.repo;
-  Map<String, dynamic>? get _data => _controller.data;
-  set _data(Map<String, dynamic>? value) => _controller.data = value;
-  String get _section => _controller.section;
-  set _section(String value) => _controller.section = value;
-  int get _page => _controller.page;
-  set _page(int value) => _controller.page = value;
-  String? get _error => _controller.error;
-  set _error(String? value) => _controller.error = value;
-  final _search = TextEditingController();
-  Timer? _debounce;
-  int get _request => _controller.request;
-  set _request(int value) => _controller.request = value;
-  String get _query => _controller.query;
-  set _query(String value) => _controller.query = value;
-  RideHistoryFilter get _filters => _controller.filters;
-  set _filters(RideHistoryFilter value) => _controller.filters = value;
-  bool get _loading => _controller.loading;
-  set _loading(bool value) => _controller.loading = value;
-  ModalRoute<dynamic>? _route;
   @override
   void initState() {
     super.initState();
@@ -57,336 +37,109 @@ class _RidesState extends State<RidesPage>
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final route = ModalRoute.of(context);
-    if (_route != route) {
-      appRouteObserver.unsubscribe(this);
-      _route = route;
-      if (route != null) appRouteObserver.subscribe(this, route);
-    }
-  }
-
-  @override
-  void didPopNext() => unawaited(_load());
-  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _route?.isCurrent == true) {
+    if (state == AppLifecycleState.resumed &&
+        ModalRoute.isCurrentOf(context) == true) {
       unawaited(_load());
     }
   }
 
-  Future<void> _load({bool replace = false}) =>
-      _controller.load(replace: replace);
+  Future<void> _load() => _controller.load();
 
-  void _change(String section, int page) {
-    _debounce?.cancel();
-    setState(() {
-      _section = section;
-      _page = page;
-      _data = null;
-      _error = null;
-    });
-    unawaited(_load(replace: true));
-  }
-
-  void _searchChanged(String value) {
-    _debounce?.cancel();
-    setState(() {
-      _query = value.trim();
-      _page = 1;
-      _data = null;
-      _error = null;
-      _loading = true;
-      _request++;
-    });
-    _debounce = Timer(
-      const Duration(milliseconds: 400),
-      () => unawaited(_load(replace: true)),
-    );
-  }
-
-  Future<void> _filter() async {
-    final selected = await showModalBottomSheet<RideHistoryFilter>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => FractionallySizedBox(
-        heightFactor: .85,
-        child: RideHistoryFilters(repository: _repo, initial: _filters),
-      ),
-    );
-    if (selected == null || !mounted) return;
-    _filters = selected;
-    _change(_section, 1);
+  bool _onScroll(ScrollNotification notification) {
+    if (notification.depth != 0 ||
+        notification.metrics.axis != Axis.vertical ||
+        notification.metrics.extentAfter > 320) {
+      return false;
+    }
+    final forward = switch (notification) {
+      ScrollUpdateNotification(:final scrollDelta) => (scrollDelta ?? 0) > 0,
+      OverscrollNotification(:final overscroll) => overscroll > 0,
+      _ => false,
+    };
+    if (forward) unawaited(_controller.loadMore());
+    return false;
   }
 
   @override
   void dispose() {
     _controller.removeListener(_controllerChanged);
     _controller.dispose();
-    _debounce?.cancel();
-    _search.dispose();
-    appRouteObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => AppPage(
-    glass: true,
-    title: 'My rides',
-    action: Wrap(
-      children: [
-        IconButton(
-          tooltip: 'Filter rides',
-          onPressed: _filter,
-          icon: const Icon(Icons.tune),
-        ),
-        IconButton(
-          tooltip: 'Refresh rides',
-          onPressed: _loading ? null : _load,
-          icon: const Icon(Icons.refresh),
-        ),
-      ],
-    ),
-    child: RefreshIndicator(
-      onRefresh: _load,
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.only(bottom: 28),
-        children: [
-          if (_data?['counts'] is Map)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(
-                '${rideMap(_data!['counts'])['all']} ${_query.isNotEmpty || _filters.categoryId != null || _filters.month != null ? 'matching ride requests' : 'recorded ride requests'}',
-                style: const TextStyle(fontSize: 12, color: GlassTokens.muted),
-              ),
-            ),
-          LiquidGlassSurface(
-            padding: const EdgeInsets.all(6),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (final item in {
-                    'all': 'All',
-                    'active': 'Active',
-                    'past': 'Past',
-                    'completed': 'Completed',
-                    'cancelled': 'Cancelled',
-                    'unfulfilled': 'Unfulfilled',
-                  }.entries)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: LiquidGlassChip(
-                        label:
-                            '${item.value}${rideMap(_data?['counts'])[item.key] is num ? ' (${rideMap(_data?['counts'])[item.key]})' : ''}',
-                        selected: _section == item.key,
-                        onPressed: () => _change(item.key, 1),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          LiquidGlassSurface(
-            padding: EdgeInsets.zero,
-            radius: 20,
-            child: TextField(
-              key: const ValueKey('ride-history-search'),
-              controller: _search,
-              decoration: InputDecoration(
-                labelText: 'Search destination, pickup or trip ID',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _search.text.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: 'Clear ride search',
-                        icon: const Icon(Icons.close),
-                        onPressed: () {
-                          _search.clear();
-                          _query = '';
-                          _change(_section, 1);
-                        },
-                      ),
-              ),
-              onChanged: _searchChanged,
-              onSubmitted: (_) => _change(_section, 1),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+  Widget build(BuildContext context) {
+    final rides = _controller.rides;
+    final active = rides?.where(
+      (ride) => riderActiveStatuses.contains(ride['status']),
+    );
+    final past = rides?.where(
+      (ride) => !riderActiveStatuses.contains(ride['status']),
+    );
+    final error = _controller.error;
+    return SolidPage(
+      bodyColor: const Color(0xFFF6F7F8),
+      title: 'My rides',
+      child: RefreshIndicator(
+        onRefresh: _load,
+        child: NotificationListener<ScrollNotification>(
+          onNotification: _onScroll,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(12, 14, 12, 24),
             children: [
-              LiquidGlassChip(
-                icon: Icons.tune,
-                label: 'Date / category',
-                onPressed: _filter,
-              ),
-              if (_filters.categoryId != null)
-                LiquidGlassChip(
-                  label: _filters.categoryName ?? 'Selected category',
-                  onDeleted: () {
-                    _filters = RideHistoryFilter(month: _filters.month);
-                    _change(_section, 1);
-                  },
-                ),
-              if (_filters.month != null)
-                LiquidGlassChip(
-                  label: rideMonthLabel(_filters.month!),
-                  onDeleted: () {
-                    _filters = RideHistoryFilter(
-                      categoryId: _filters.categoryId,
-                      categoryName: _filters.categoryName,
-                    );
-                    _change(_section, 1);
-                  },
-                ),
+              if (rides == null && error == null)
+                const RidesSkeleton(embedded: true),
+              if (rides?.isEmpty == true && error == null)
+                const Center(child: Text('No rides yet')),
+              if (active?.isNotEmpty == true) ...[
+                const RideHistoryHeading('Active rides'),
+                for (final ride in active!) _rideCard(ride),
+              ],
+              if (past?.isNotEmpty == true) ...[
+                const RideHistoryHeading('Past rides'),
+                for (final ride in past!) _rideCard(ride),
+              ],
+              if (error != null)
+                AppLoadError(message: error, onRetry: _controller.retry),
             ],
           ),
-          const SizedBox(height: 16),
-          if (_loading && _data != null)
-            const Padding(
-              padding: EdgeInsets.only(bottom: 12),
-              child: Text(
-                'Updating rides...',
-                style: TextStyle(fontSize: 12, color: GlassTokens.muted),
-              ),
-            ),
-          if (_error != null && _data != null)
-            LiquidGlassSurface(
-              margin: const EdgeInsets.only(bottom: 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Showing your last loaded rides.',
-                    style: TextStyle(fontSize: 13, color: GlassTokens.muted),
-                  ),
-                  TextButton(
-                    onPressed: _loading ? null : _load,
-                    child: Text('$_error - Retry'),
-                  ),
-                ],
-              ),
-            ),
-          if (_data == null) ...[
-            if (_loading)
-              const RidesSkeleton(embedded: true)
-            else
-              AppLoadError(
-                message: _error ?? 'Rides unavailable',
-                onRetry: _load,
-              ),
-          ] else ...[
-            if (rideMaps(_data!['rows']).isEmpty)
-              LiquidGlassSurface(
-                child: AppEmptyState(
-                  icon: Icons.history,
-                  title: _section == 'active'
-                      ? 'No active rides'
-                      : 'No rides match',
-                  subtitle:
-                      'Try another search or filter. Unbooked quotes are not included.',
-                ),
-              ),
-            for (final ride in rideMaps(_data!['rows']))
-              RideHistoryCard(
-                key: ValueKey('ride-${ride['id']}'),
-                ride: ride,
-                onTap: () => Navigator.pushNamed(
-                  context,
-                  AppRoutes.rideDetail,
-                  arguments: ride['id'],
-                ),
-                onRebook:
-                    ridePoint(
-                              ride['pickup_latitude'],
-                              ride['pickup_longitude'],
-                            ) ==
-                            null ||
-                        ridePoint(
-                              ride['dropoff_latitude'],
-                              ride['dropoff_longitude'],
-                            ) ==
-                            null
-                    ? null
-                    : () => Navigator.pushNamedAndRemoveUntil(
-                        context,
-                        AppRoutes.home,
-                        (_) => false,
-                        arguments: {'rebook': ride},
-                      ),
-                onReceipt: () => Navigator.pushNamed(
-                  context,
-                  AppRoutes.rideDetail,
-                  arguments: RideDetailIntent('${ride['id']}', receipt: true),
-                ),
-                onHelp: () => showModalBottomSheet<void>(
-                  context: context,
-                  isScrollControlled: true,
-                  useSafeArea: true,
-                  backgroundColor: Colors.transparent,
-                  builder: (_) => FractionallySizedBox(
-                    heightFactor: .88,
-                    child: LiquidGlassSheet(
-                      child: TripSafetySheet(trip: ride, repository: _repo),
-                    ),
-                  ),
-                ),
-              ),
-            if ((_data!['total'] as num) > 0)
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: Column(
-                  children: [
-                    Wrap(
-                      alignment: WrapAlignment.center,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      spacing: 8,
-                      children: [
-                        TextButton(
-                          onPressed: _loading || _page <= 1
-                              ? null
-                              : () => _change(_section, _page - 1),
-                          child: const Text('Previous'),
-                        ),
-                        Text(
-                          'Page ${_data!['page']}',
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: GlassTokens.muted,
-                          ),
-                        ),
-                        TextButton(
-                          onPressed:
-                              _loading ||
-                                  _page * (_data!['page_size'] as num) >=
-                                      (_data!['total'] as num)
-                              ? null
-                              : () => _change(_section, _page + 1),
-                          child: const Text('Next'),
-                        ),
-                      ],
-                    ),
-                    Text(
-                      'Showing ${(_page - 1) * (_data!['page_size'] as num) + 1}-${((_page - 1) * (_data!['page_size'] as num) + rideMaps(_data!['rows']).length).clamp(0, (_data!['total'] as num))} of ${_data!['total']} journeys',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: GlassTokens.muted,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ],
+        ),
       ),
-    ),
+    );
+  }
+
+  Widget _rideCard(Map<String, dynamic> ride) => RideHistoryCard(
+    key: ValueKey('ride-${ride['id']}'),
+    ride: ride,
+    onTap: () => _openRide('${ride['id']}'),
   );
+
+  Future<void> _openRide(String id) async {
+    final resume = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => FractionallySizedBox(
+        heightFactor: .88,
+        child: RideDetailPage(
+          historyRideId: id,
+          repository: _repo,
+          operationsRepository: widget.operationsRepository,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (resume == true) {
+      await Navigator.pushNamed(
+        context,
+        AppRoutes.rideDetail,
+        arguments: RideDetailIntent(id, liveJourney: true),
+      );
+      if (mounted) unawaited(_load());
+    }
+  }
 }

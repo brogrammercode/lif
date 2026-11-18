@@ -298,7 +298,7 @@ class RiderCompletionPanel extends StatefulWidget {
   final bool busy;
   final ScrollController? scrollController;
   final GlobalKey? captureKey;
-  final bool driverView;
+  final bool driverView, receiptOnly;
   const RiderCompletionPanel({
     super.key,
     required this.data,
@@ -310,6 +310,7 @@ class RiderCompletionPanel extends StatefulWidget {
     this.scrollController,
     this.captureKey,
     this.driverView = false,
+    this.receiptOnly = false,
   });
   @override
   State<RiderCompletionPanel> createState() => _CompletionState();
@@ -686,6 +687,18 @@ class _CompletionState extends State<RiderCompletionPanel> {
       ),
     );
 
+    final receiptPreview = ExcludeSemantics(
+      child: IgnorePointer(
+        child: Opacity(
+          opacity: .01,
+          child: SingleChildScrollView(
+            primary: false,
+            child: RepaintBoundary(key: widget.captureKey, child: capture),
+          ),
+        ),
+      ),
+    );
+    if (widget.receiptOnly) return receiptPreview;
     return Stack(
       children: [
         Column(
@@ -700,23 +713,7 @@ class _CompletionState extends State<RiderCompletionPanel> {
             footer,
           ],
         ),
-        if (widget.captureKey != null)
-          Positioned.fill(
-            child: IgnorePointer(
-              child: Opacity(
-                opacity: .01,
-                child: SingleChildScrollView(
-                  child: SizedBox(
-                    width: MediaQuery.sizeOf(context).width,
-                    child: RepaintBoundary(
-                      key: widget.captureKey,
-                      child: capture,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
+        if (widget.captureKey != null) Positioned.fill(child: receiptPreview),
       ],
     );
   }

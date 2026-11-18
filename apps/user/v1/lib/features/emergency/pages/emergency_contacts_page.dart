@@ -156,7 +156,7 @@ class _EmergencyContactsPageState extends State<EmergencyContactsPage> {
                   style: const TextStyle(
                     color: GlassTokens.ink,
                     fontSize: 18,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -337,7 +337,7 @@ class _EmergencyContactsPageState extends State<EmergencyContactsPage> {
                 style: const TextStyle(
                   color: GlassTokens.accent,
                   fontSize: 18,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ),
@@ -352,7 +352,7 @@ class _EmergencyContactsPageState extends State<EmergencyContactsPage> {
                   style: const TextStyle(
                     color: GlassTokens.ink,
                     fontSize: 15,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
                 const SizedBox(height: 4),

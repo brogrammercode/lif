@@ -1,3 +1,4 @@
+import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/features/saved_places/controllers/place_save_controller.dart';
 import 'package:user/features/saved_places/controllers/place_picker_controller.dart';
 import 'dart:async';
@@ -136,231 +137,189 @@ class _PickerState extends State<PlacePickerPage> {
   }
 
   @override
-  Widget build(BuildContext context) => LiquidGlassScope(
-    child: Scaffold(
-      resizeToAvoidBottomInset: false,
-      body: LiquidGlassBackdrop(
-        child: LayoutBuilder(
-          builder: (context, bounds) {
-            final safe = MediaQuery.paddingOf(context);
-            final compact =
-                MediaQuery.sizeOf(context).height < 640 ||
-                MediaQuery.textScalerOf(context).scale(14) > 20;
-            final previewHeight = compact
-                ? 360.0
-                : math.min(340.0, bounds.maxHeight * .46);
-            final map = PlaceMap(
-              onPicked: _picked,
-              target: _point,
-              topInset: compact ? 0 : safe.top + 150,
-              bottomInset: compact ? 0 : previewHeight + safe.bottom + 30,
-            );
-            final header = Column(
-              children: [
-                Row(
-                  children: [
-                    LiquidGlassIconButton(
-                      icon: Icons.chevron_left,
-                      tooltip: 'Back',
-                      onPressed: () => Navigator.maybePop(context),
-                    ),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Text(
-                        'Pick a place',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w600,
-                          color: GlassTokens.ink,
-                        ),
-                      ),
-                    ),
-                  ],
+  Widget build(BuildContext context) => SolidPage(
+    title: 'Pick a Place',
+    resizeToAvoidBottomInset: false,
+    child: LayoutBuilder(
+      builder: (context, bounds) {
+        final safe = MediaQuery.paddingOf(context);
+        final compact =
+            MediaQuery.sizeOf(context).height < 640 ||
+            MediaQuery.textScalerOf(context).scale(14) > 20;
+        final previewHeight = compact
+            ? 360.0
+            : math.min(340.0, bounds.maxHeight * .46);
+        final map = PlaceMap(
+          onPicked: _picked,
+          target: _point,
+          topInset: compact ? 0 : safe.top + 150,
+          bottomInset: compact ? 0 : previewHeight + safe.bottom + 30,
+        );
+        final header = Column(
+          children: [
+            LiquidGlassSurface(
+              padding: EdgeInsets.zero,
+              radius: 20,
+              child: TextField(
+                controller: _search,
+                key: const ValueKey('place-picker-search'),
+                onChanged: _find,
+                decoration: const InputDecoration(
+                  hintText: 'Search or move the map',
+                  prefixIcon: Icon(Icons.search),
                 ),
-                const SizedBox(height: 14),
-                LiquidGlassSurface(
+                textInputAction: TextInputAction.search,
+                onSubmitted: (_) => FocusScope.of(context).unfocus(),
+              ),
+            ),
+            if (_searching)
+              const Padding(
+                padding: EdgeInsets.only(top: 10),
+                child: LiquidGlassSurface(
+                  child: AppSkeleton(child: SkeletonBox(height: 18)),
+                ),
+              ),
+            if (_results.isNotEmpty &&
+                MediaQuery.viewInsetsOf(context).bottom == 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: LiquidGlassSurface(
                   padding: EdgeInsets.zero,
-                  radius: 20,
-                  child: TextField(
-                    controller: _search,
-                    key: const ValueKey('place-picker-search'),
-                    onChanged: _find,
-                    decoration: const InputDecoration(
-                      hintText: 'Search or move the map',
-                      prefixIcon: Icon(Icons.search),
-                    ),
-                    textInputAction: TextInputAction.search,
-                    onSubmitted: (_) => FocusScope.of(context).unfocus(),
-                  ),
-                ),
-                if (_searching)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 10),
-                    child: LiquidGlassSurface(
-                      child: AppSkeleton(child: SkeletonBox(height: 18)),
-                    ),
-                  ),
-                if (_results.isNotEmpty &&
-                    MediaQuery.viewInsetsOf(context).bottom == 0)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 10),
-                    child: LiquidGlassSurface(
-                      padding: EdgeInsets.zero,
-                      child: SizedBox(
-                        height: math.min(200, bounds.maxHeight * .32),
-                        child: ListView(
-                          children: [
-                            for (final result in _results)
-                              ListTile(
-                                title: Text(
-                                  '${result['display_name']}',
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                onTap: () => _choose(result),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            );
-            final preview = SizedBox(
-              height: previewHeight,
-              child: LiquidGlassSurface(
-                padding: const EdgeInsets.all(14),
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (_photos.isEmpty)
-                        PlacePhoto(
-                          url: placePhotos(_selected).firstOrNull,
-                          height: 110,
-                        )
-                      else
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(18),
-                          child: Image.file(
-                            File(_photos.first.path),
-                            height: 110,
-                            fit: BoxFit.cover,
-                            cacheWidth: 600,
-                            errorBuilder: (_, error, stack) =>
-                                const PlacePhoto(height: 110),
-                          ),
-                        ),
-                      const SizedBox(height: 12),
-                      Text(
-                        _point == null
-                            ? 'Choose your spot'
-                            : placeName(_selected),
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: GlassTokens.ink,
-                        ),
-                      ),
-                      const SizedBox(height: 5),
-                      Text(
-                        _resolving
-                            ? 'Finding this address…'
-                            : '${_selected['address'] ?? 'Drag the map or search for a place.'}',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: GlassTokens.muted,
-                        ),
-                      ),
-                      if (_error != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(
-                            _error!,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.red,
+                  child: SizedBox(
+                    height: math.min(200, bounds.maxHeight * .32),
+                    child: ListView(
+                      children: [
+                        for (final result in _results)
+                          ListTile(
+                            title: Text(
+                              '${result['display_name']}',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
+                            onTap: () => _choose(result),
                           ),
-                        ),
-                      Wrap(
-                        alignment: WrapAlignment.spaceBetween,
-                        children: [
-                          TextButton.icon(
-                            onPressed: _picking || _photos.length >= 3
-                                ? null
-                                : _photo,
-                            icon: const Icon(
-                              Icons.add_photo_alternate_outlined,
-                            ),
-                            label: Text('Add photo (${_photos.length}/3)'),
-                          ),
-                          if (_photos.isNotEmpty)
-                            TextButton(
-                              onPressed: () =>
-                                  setState(() => _photos.removeLast()),
-                              child: const Text('Remove last'),
-                            ),
-                        ],
-                      ),
-                      AppButton(
-                        text: 'Use this location',
-                        onPressed: _point == null || _resolving
-                            ? null
-                            : _continue,
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
-            );
-            final mapView = widget.mapBuilder?.call(map) ?? map;
-            if (compact) {
-              return SafeArea(
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.only(
-                    bottom: MediaQuery.viewInsetsOf(context).bottom,
-                  ),
-                  child: Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
-                        child: header,
+          ],
+        );
+        final preview = SizedBox(
+          height: previewHeight,
+          child: LiquidGlassSurface(
+            padding: const EdgeInsets.all(14),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (_photos.isEmpty)
+                    PlacePhoto(
+                      url: placePhotos(_selected).firstOrNull,
+                      height: 110,
+                    )
+                  else
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: Image.file(
+                        File(_photos.first.path),
+                        height: 110,
+                        fit: BoxFit.cover,
+                        cacheWidth: 600,
+                        errorBuilder: (_, error, stack) =>
+                            const PlacePhoto(height: 110),
                       ),
-                      SizedBox(height: 280, child: mapView),
-                      if (MediaQuery.viewInsetsOf(context).bottom == 0)
-                        Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: preview,
+                    ),
+                  const SizedBox(height: 12),
+                  Text(
+                    _point == null ? 'Choose your spot' : placeName(_selected),
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                      color: GlassTokens.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    _resolving
+                        ? 'Finding this address…'
+                        : '${_selected['address'] ?? 'Drag the map or search for a place.'}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: GlassTokens.muted,
+                    ),
+                  ),
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(fontSize: 12, color: Colors.red),
+                      ),
+                    ),
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    children: [
+                      TextButton.icon(
+                        onPressed: _picking || _photos.length >= 3
+                            ? null
+                            : _photo,
+                        icon: const Icon(Icons.add_photo_alternate_outlined),
+                        label: Text('Add photo (${_photos.length}/3)'),
+                      ),
+                      if (_photos.isNotEmpty)
+                        TextButton(
+                          onPressed: () => setState(() => _photos.removeLast()),
+                          child: const Text('Remove last'),
                         ),
                     ],
                   ),
-                ),
-              );
-            }
-            return Stack(
-              children: [
-                Positioned.fill(child: mapView),
-                Positioned(
-                  top: safe.top + 10,
-                  left: 20,
-                  right: 20,
-                  child: header,
-                ),
-                if (MediaQuery.viewInsetsOf(context).bottom == 0)
-                  Positioned(
-                    left: 26,
-                    right: 26,
-                    bottom: safe.bottom + 20,
-                    child: preview,
+                  AppButton(
+                    text: 'Use this location',
+                    onPressed: _point == null || _resolving ? null : _continue,
                   ),
-              ],
-            );
-          },
-        ),
-      ),
+                ],
+              ),
+            ),
+          ),
+        );
+        final mapView = widget.mapBuilder?.call(map) ?? map;
+        if (compact) {
+          return SafeArea(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.viewInsetsOf(context).bottom,
+              ),
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
+                    child: header,
+                  ),
+                  SizedBox(height: 280, child: mapView),
+                  if (MediaQuery.viewInsetsOf(context).bottom == 0)
+                    Padding(padding: const EdgeInsets.all(20), child: preview),
+                ],
+              ),
+            ),
+          );
+        }
+        return Stack(
+          children: [
+            Positioned.fill(child: mapView),
+            Positioned(top: safe.top + 10, left: 20, right: 20, child: header),
+            if (MediaQuery.viewInsetsOf(context).bottom == 0)
+              Positioned(
+                left: 26,
+                right: 26,
+                bottom: safe.bottom + 20,
+                child: preview,
+              ),
+          ],
+        );
+      },
     ),
   );
 }
@@ -536,8 +495,8 @@ class _SaveFormState extends State<PlaceSaveForm> {
                 const Text(
                   'Save shared place',
                   style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w500,
                     color: GlassTokens.ink,
                   ),
                 ),

@@ -3,6 +3,30 @@ import 'package:user/components/ui/app_skeleton.dart';
 import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/features/auth/models/user.model.dart';
 
+Color _profileIconColor(IconData icon) {
+  if ([
+    Icons.payments_outlined,
+    Icons.savings_outlined,
+    Icons.account_balance_wallet_outlined,
+  ].contains(icon)) {
+    return const Color(0xFF26835B);
+  }
+  if ([Icons.contacts_outlined, Icons.report_problem_outlined].contains(icon)) {
+    return const Color(0xFFD65A54);
+  }
+  if ([Icons.handshake_outlined, Icons.hourglass_empty].contains(icon)) {
+    return const Color(0xFFB87B22);
+  }
+  if ([
+    Icons.privacy_tip_outlined,
+    Icons.description_outlined,
+    Icons.quiz_outlined,
+  ].contains(icon)) {
+    return const Color(0xFF7965B3);
+  }
+  return RideTokens.accent;
+}
+
 class ProfileIdentity extends StatelessWidget {
   final UserModel user;
   final Map<String, dynamic>? brand;
@@ -86,21 +110,25 @@ class ProfileIdentity extends StatelessWidget {
           style: const TextStyle(
             fontSize: 20,
             height: 1.2,
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.w500,
           ),
         ),
         const SizedBox(height: 5),
         Text(
           user.email ?? user.phoneE164 ?? 'Your 1More account',
           textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 12, color: RideTokens.muted),
+          style: const TextStyle(
+            fontSize: 12,
+            color: RideTokens.muted,
+            fontWeight: FontWeight.w500,
+          ),
         ),
       ],
     ),
   );
   Widget _fallback() => const ColoredBox(
-    color: Color(0xFFF4F4F4),
-    child: Icon(Icons.person_outline, size: 42),
+    color: Color(0xFFF8F8F8),
+    child: Icon(Icons.person_outline, size: 42, color: RideTokens.accent),
   );
 }
 
@@ -128,10 +156,10 @@ class ProfileStat extends StatelessWidget {
           width: 32,
           height: 32,
           decoration: const BoxDecoration(
-            color: Color(0xFFF4F4F4),
+            color: Color(0xFFF8F8F8),
             shape: BoxShape.circle,
           ),
-          child: Icon(icon, size: 17),
+          child: Icon(icon, size: 18, color: _profileIconColor(icon)),
         ),
         const SizedBox(height: 12),
         Text(
@@ -139,16 +167,17 @@ class ProfileStat extends StatelessWidget {
           style: const TextStyle(
             fontSize: 18,
             height: 1.2,
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.w500,
           ),
         ),
         const SizedBox(height: 4),
         Text(
           title,
           style: const TextStyle(
-            fontSize: 11,
+            fontSize: 12,
             height: 1.3,
             color: RideTokens.muted,
+            fontWeight: FontWeight.w500,
           ),
         ),
       ],
@@ -169,7 +198,7 @@ class ProfileSection extends StatelessWidget {
     margin: const EdgeInsets.only(top: 14),
     padding: const EdgeInsets.fromLTRB(14, 16, 14, 6),
     decoration: BoxDecoration(
-      color: const Color(0xFFF7F7F7),
+      color: const Color(0xFFFAFAFA),
       borderRadius: BorderRadius.circular(16),
     ),
     child: Column(
@@ -179,7 +208,11 @@ class ProfileSection extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: 7),
           child: Text(
             title,
-            style: const TextStyle(fontSize: 11, color: RideTokens.muted),
+            style: const TextStyle(
+              fontSize: 12,
+              color: RideTokens.muted,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ),
         ...children,
@@ -203,12 +236,12 @@ class ProfileRow extends StatelessWidget {
     type: MaterialType.transparency,
     child: ListTile(
       contentPadding: EdgeInsets.zero,
-      minLeadingWidth: 18,
-      horizontalTitleGap: 10,
-      leading: Icon(icon, size: 18, color: RideTokens.muted),
+      minLeadingWidth: 20,
+      horizontalTitleGap: 12,
+      leading: Icon(icon, size: 20, color: _profileIconColor(icon)),
       title: Text(
         title,
-        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w400),
+        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
       ),
       trailing: onTap == null
           ? null

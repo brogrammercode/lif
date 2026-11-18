@@ -146,7 +146,7 @@ class _SupportTicketPageState extends State<SupportTicketPage> {
                     color: GlassTokens.ink,
                     fontSize: 18,
                     height: 1.3,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -315,7 +315,7 @@ class _MessageBubble extends StatelessWidget {
                 style: TextStyle(
                   color: own ? Colors.white70 : GlassTokens.accent,
                   fontSize: 10,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
               const SizedBox(height: 5),

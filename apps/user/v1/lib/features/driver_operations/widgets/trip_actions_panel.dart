@@ -1,3 +1,4 @@
+import 'package:user/features/rides/ride_display.dart' show rideMoney;
 import 'package:user/features/driver_operations/controllers/trip_actions_controller.dart';
 import 'package:user/features/rides/widgets/rider_flow_components.dart';
 import 'package:user/components/ui/glass_dropdown.dart';
@@ -24,7 +25,7 @@ class TripActionsPanel extends StatefulWidget {
   final DriverOperationsRepository? repository;
   final bool contactsOnly, hideContacts;
   final bool showSupport;
-  final bool hideCompletedPayment;
+  final bool hideCompletedPayment, compactRiderPayment;
   final bool driverCollectionSlider;
   const TripActionsPanel({
     super.key,
@@ -37,6 +38,7 @@ class TripActionsPanel extends StatefulWidget {
     this.contactsOnly = false,
     this.showSupport = true,
     this.hideCompletedPayment = false,
+    this.compactRiderPayment = false,
     this.driverCollectionSlider = false,
     this.hideContacts = false,
   });
@@ -241,6 +243,8 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
     }
     final status = '${data['status']}';
     final driver = data['is_driver'] == true;
+    final compactPayment =
+        widget.compactRiderPayment && !driver && status == 'COMPLETED';
     final active =
         (status == 'COMPLETED' &&
             [
@@ -349,6 +353,7 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
       );
     }
     return AppCard(
+      padding: compactPayment ? const EdgeInsets.all(20) : null,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -358,13 +363,15 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
             Text(
               'Searching for drivers${data['search_radius_km'] == null ? '' : ' within ${data['search_radius_km']} km'}. The search expands while no driver accepts.',
             ),
-          if (active && data['driver_location_fresh'] == false)
+          if (active &&
+              !compactPayment &&
+              data['driver_location_fresh'] == false)
             Text(
               driver
                   ? 'Your precise GPS has not reached the server recently. Refresh location and check permissions before continuing.'
                   : 'Driver location has not updated recently. Contact the driver or Support.',
             ),
-          if (active && !widget.hideContacts)
+          if (active && !compactPayment && !widget.hideContacts)
             Wrap(
               spacing: 8,
               children: [
@@ -483,8 +490,8 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
                 _ => 'Payment pending',
               },
               style: TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 17,
+                fontWeight: compactPayment ? FontWeight.w600 : FontWeight.w800,
+                fontSize: compactPayment ? 16 : 17,
                 color: payment['status'] == 'CAPTURED'
                     ? AppColors.primaryGreen
                     : AppColors.textPrimary,
@@ -502,9 +509,17 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
                 'This payment is already managed or resolved. Contact Support for any payment concern.',
               ),
             if (!collectionLocked) ...[
-              const Text(
-                'Pay the driver directly after the ride. Opening a UPI app does not confirm payment.',
-              ),
+              if (compactPayment) ...[
+                const SizedBox(height: 6),
+                const Text(
+                  'Waiting for the driver to confirm receipt.',
+                  style: TextStyle(fontSize: 13, color: RideTokens.muted),
+                ),
+                if (allowed.isNotEmpty) const SizedBox(height: 14),
+              ] else
+                const Text(
+                  'Pay the driver directly after the ride. Opening a UPI app does not confirm payment.',
+                ),
               if (driver && allowed.isNotEmpty) ...[
                 const SizedBox(height: 16),
                 LiquidGlassDropdownFormField<String>(
@@ -582,6 +597,12 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
               if (!driver) ...[
                 if (options['cash'] == true)
                   OutlinedButton(
+                    style: compactPayment
+                        ? OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(48),
+                            shape: const StadiumBorder(),
+                          )
+                        : null,
                     onPressed: _busy
                         ? null
                         : () => _run(() async {
@@ -589,13 +610,30 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
                           }),
                     child: const Text('Pay driver in cash'),
                   ),
+                if (compactPayment &&
+                    options['cash'] == true &&
+                    options['upi'] == true)
+                  const SizedBox(height: 8),
                 if (options['upi'] == true)
-                  LiquidGlassButton(
-                    text: 'Pay driver via UPI',
-                    icon: const Icon(Icons.account_balance_wallet_outlined),
-                    busy: _busy,
-                    onPressed: _busy ? null : _payUpi,
-                  ),
+                  if (compactPayment)
+                    FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.black,
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size.fromHeight(48),
+                        shape: const StadiumBorder(),
+                      ),
+                      onPressed: _busy ? null : _payUpi,
+                      icon: const Icon(Icons.account_balance_wallet_outlined),
+                      label: const Text('Pay driver via UPI'),
+                    )
+                  else
+                    LiquidGlassButton(
+                      text: 'Pay driver via UPI',
+                      icon: const Icon(Icons.account_balance_wallet_outlined),
+                      busy: _busy,
+                      onPressed: _busy ? null : _payUpi,
+                    ),
               ],
               if (allowed.isEmpty)
                 const Text(
@@ -603,7 +641,7 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
                 ),
             ],
           ],
-          if (active && status != 'IN_PROGRESS') ...[
+          if (active && status != 'IN_PROGRESS' && status != 'COMPLETED') ...[
             TextButton(
               onPressed: _busy
                   ? null
@@ -648,7 +686,7 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
               'Trip review · ${review['status']}',
               style: const TextStyle(fontWeight: FontWeight.w800),
             ),
-            Text('${review['kind']} · INR ${review['fee_amount']}'),
+            Text('${review['kind']} · ${rideMoney(review['fee_amount'])}'),
             Text('${review['reason']}'),
             const Text(
               'Proposed fees require review. They are never added to your next ride or collected by another driver.',

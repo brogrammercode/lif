@@ -50,6 +50,12 @@ void main() {
               child: child!,
             ),
             home: SettingsPage(repository: ProfileRepository(driver)),
+            routes: {
+              '/rides': (_) =>
+                  const SolidPage(title: 'Rider history', child: SizedBox()),
+              '/driver/rides': (_) =>
+                  const SolidPage(title: 'Driver history', child: SizedBox()),
+            },
           ),
         );
         await tester.pumpAndSettle();
@@ -57,10 +63,27 @@ void main() {
         expect(find.byType(ProfileStat), findsNWidgets(4));
         expect(find.text(driver ? 'Total Earning' : 'Wallet'), findsOneWidget);
         expect(find.text('Ride Milestone'), findsOneWidget);
+        expect(find.byTooltip('Account options'), findsNothing);
         final identity = tester.widget<ProfileIdentity>(
           find.byType(ProfileIdentity),
         );
         expect(identity.brand != null, driver);
+        await tester.ensureVisible(find.text('My Wallet'));
+        await tester.tap(find.text('My Wallet'));
+        await tester.pumpAndSettle();
+        expect(find.text('Wallet balance'), findsOneWidget);
+        expect(find.text('₹1250.00'), findsOneWidget);
+        await tester.tap(find.byTooltip('Back'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('My Rides'));
+        await tester.tap(find.text('My Rides'));
+        await tester.pumpAndSettle();
+        expect(
+          find.text(driver ? 'Driver history' : 'Rider history'),
+          findsOneWidget,
+        );
+        await tester.tap(find.byTooltip('Back'));
+        await tester.pumpAndSettle();
         await tester.scrollUntilVisible(find.text('Privacy Policy'), 350);
         await tester.ensureVisible(find.text('Version 0.1.10'));
         expect(find.text('Version 0.1.10'), findsOneWidget);

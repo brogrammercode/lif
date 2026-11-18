@@ -237,8 +237,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
                                 fontSize: 14,
                                 height: 1.3,
                                 fontWeight: unread
-                                    ? FontWeight.w700
-                                    : FontWeight.w600,
+                                    ? FontWeight.w500
+                                    : FontWeight.w500,
                               ),
                             ),
                           ),
