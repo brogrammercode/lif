@@ -1,7 +1,8 @@
 import 'package:user/features/rides/ride_display.dart' show rideMoney;
 import 'package:user/features/settings/controllers/settings_controller.dart';
 import 'package:user/components/ui/solid_ui.dart';
-import 'package:user/features/support/pages/support_page.dart';
+import 'package:user/features/support/pages/complaint_chat_page.dart';
+import 'package:user/features/support/pages/faq_page.dart';
 import 'package:user/features/profile/pages/profile_page.dart';
 import 'package:user/features/settings/widgets/profile_overview.dart';
 import 'dart:async';
@@ -77,6 +78,17 @@ class _SettingsPageState extends State<SettingsPage> {
   // SessionGate, preserving the existing account and vehicle gates.
   void _home() =>
       Navigator.pushNamedAndRemoveUntil(context, AppRoutes.gate, (_) => false);
+
+  Future<void> _signOut() async {
+    if (_controller.signingOut) return;
+    try {
+      await _controller.signOut();
+      if (!mounted) return;
+      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.login, (_) => false);
+    } catch (error) {
+      _notice(ApiResult.errorMessage(error));
+    }
+  }
 
   Future<void> _photo() async {
     if (_choosingPhoto || _savingPhoto || _account == null) return;
@@ -203,12 +215,10 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Future<void> _editProfile({bool phoneOnly = false}) async {
+  Future<void> _editProfile() async {
     await Navigator.push<void>(
       context,
-      MaterialPageRoute(
-        builder: (_) => SolidScope(child: ProfilePage(phoneOnly: phoneOnly)),
-      ),
+      MaterialPageRoute(builder: (_) => SolidScope(child: const ProfilePage())),
     );
     if (mounted) await _load();
   }
@@ -323,11 +333,6 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             row(Icons.person_outline, 'Edit Profile', () => _editProfile()),
             row(
-              Icons.phone_android_outlined,
-              'Change Phone Number',
-              () => _editProfile(phoneOnly: true),
-            ),
-            row(
               Icons.place_outlined,
               'Saved Places',
               () => _open(AppRoutes.savedPlaces),
@@ -367,15 +372,20 @@ class _SettingsPageState extends State<SettingsPage> {
               () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) =>
-                      const SolidScope(child: SupportPage(openRequest: true)),
+                  builder: (_) => const SolidScope(child: ComplaintChatPage()),
                 ),
               ),
             ),
             row(
               Icons.quiz_outlined,
               'FAQ',
-              () => _information('FAQ', _controller.faq),
+              () => Navigator.push<void>(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      SolidScope(child: FaqPage(entries: _controller.faq)),
+                ),
+              ),
             ),
           ],
         ),
@@ -403,6 +413,17 @@ class _SettingsPageState extends State<SettingsPage> {
               title: _controller.version.isEmpty
                   ? 'Version unavailable'
                   : 'Version ${_controller.version}',
+            ),
+          ],
+        ),
+        ProfileSection(
+          title: 'Account',
+          children: [
+            ProfileRow(
+              icon: Icons.logout_rounded,
+              title: _controller.signingOut ? 'Logging out' : 'Log out',
+              onTap: _controller.signingOut ? null : _signOut,
+              busy: _controller.signingOut,
             ),
           ],
         ),

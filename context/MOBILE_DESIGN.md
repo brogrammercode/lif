@@ -2,6 +2,10 @@
 
 Current authority: 8 November 2026. This specification replaces the previous liquid-glass specification in full.
 
+## Login
+
+The login page uses the supplied full-screen video asset as a muted, looping, cover-fit background with a dark readability overlay. Keep the reference composition: a compact horizontally scrolling feature strip at the top, a centered two-line hero and subtitle, one large Google sign-in button, and a small legal footer. Preserve the existing Google sign-in controller/session handoff. Do not show other provider buttons, the old map illustration, lower feature chips or a sign-in card.
+
 ## Reference and scope
 
 Profile/Settings reference (14 November 2026): `image 208.png` supplies content placement. Render its upper banner in black, with the solid white rounded body and neutral ride typography. Use role-specific 2×2 summary cards, compact grouped menu rows and a vehicle-brand avatar badge for driver mode. See `PROFILE_SETTINGS_REWORK.md` for the requested sections and temporary controller-owned sample data.
@@ -22,7 +26,7 @@ Ride action slider exception (11 November 2026): rider Home after both endpoints
 - No backdrop blur, frosted inputs, translucent fills, pastel lighting, reflective rims, glossy gradients or oversized soft shadows.
 - Cards use a fine neutral border and, only where needed, an almost imperceptible neutral shadow.
 - The map remains clear and fills the space above the sheet. Sheets are edge to edge with rounded top corners.
-- Reuse `components/ui/solid_ui.dart`: `SolidScope`, `SolidSurface`, `SolidButton`, `SolidIconButton`, `SolidSheet`, `SolidPage` and `RideTokens`.
+- Reuse `components/ui/solid_ui.dart`: `SolidScope`, `SolidSurface`, `SolidButton`, `SolidIconButton`, `SolidTextFormField`, `SolidDropdownFormField`, `SolidSheet`, `SolidPage` and `RideTokens`.
 - `SolidTheme` is captured by dialogs/sheets. Legacy shared trip controls must render solid when hosted within this scope. They must not reintroduce their old glass renderer inside a ride.
 - Do not add a glass package or duplicate a visual primitive per feature.
 
@@ -171,9 +175,39 @@ Use the supplied three-panel order-history reference for the rider history, summ
 
 | Screen | Layout and behavior |
 | --- | --- |
-| My Rides | Pale gray list with Active rides and Past rides sections. White cards show pickup and destination at 16 px, a dotted connector, and end-aligned price and distance labels and values. Prices use a ? chip, green for confirmed collection and neutral for other known fares. |
+| My Rides | Pale gray list with Active rides and Past rides sections. White cards show pickup and destination at 16 px, a dotted connector, and end-aligned price and distance labels and values. Prices use a ₹ chip, green for confirmed collection and neutral for other known fares. |
 | Ride details | Tapping a card opens a modal built from the booking flow's `RideStagePanel` and black `RideArrivalStrip`. The hourglass and title sit on the left, and a short status chip sits on the right. The summary reuses the list's route card. The booking flow's vehicle and driver card appears below, followed by rating, trip facts, and feedback. The primary action is black. Completed rides add a receipt icon beside the map toggle and use the booking completion PDF template. Pending payment shows concise receipt status and eligible payment actions. |
 | Route map | The map toggle stays in the sheet. The map has its own rounded card with space around it. MapLibre plots the recorded endpoints and route geometry when available. |
 | Active ride | The same sheet opens first. Open live ride continues into the booking flow. |
 
-Rebooking starts a fresh quote. Display rupee amounts with ?.
+Rebooking starts a fresh quote. Display rupee amounts with ₹.
+
+## My Wallet
+
+My Wallet uses the same header as Profile and extends the black background through the balance, gradient card, and actions. The card uses the existing 1More logo and its own wallet artwork. The action row includes Add money, Payment methods, and Activity.
+
+The larger wallet card shows the preview wallet ID, profile name, and sample expiry in spaced monospace type, with 1More branding and decorative chip and contactless marks. Empty transaction history shows a wallet and receipt illustration.
+
+The rounded history section uses compact rows with a transaction icon, title and local timestamp on the left, and a signed rupee amount plus status or type on the right. Tapping a processing transaction or a completed non-ride transaction opens the payment timeline. Completed ride payments open the shared My Rides detail sheet.
+
+Add money uses a rupee amount panel, wallet destination, quick amounts, Continue, and a numeric keypad. A preview top-up advances from processing to completion and credits the preview balance once. The status page uses a black header area, an illustrated status mark, and a white history panel with the payment timeline. The existing payment methods page remains available from My Wallet. Preview ride payments use an isolated ride fixture, and the wallet flow makes no payment-provider call.
+
+Wallet payment screens use medium weight typography at the ride flow scale. Add money docks Continue and the keypad at the bottom on standard viewports and lets the whole layout scroll in short viewports or at large text sizes. The processing indicator rotates while pending and transitions to a success mark. Reduced motion disables both animations. Transaction cards and the history heading have additional vertical space.
+
+## Complaint chat and support escalation
+
+Report a Complaint opens a full-height chat page titled with the complaint subject once a request exists. User messages use blue bubbles on the right; 1More replies use light-gray bubbles on the left. Keep the composer fixed above the safe area, with a gray input and blue circular send action. Do not render group-chat participants or attachment controls unless the support API supports them. The complaint form opens in the shared ride-detail `RideStagePanel`, with the black `RideArrivalStrip` header and white form body. Size the sheet from its available bottom-sheet constraints so keyboard insets do not get subtracted twice or collapse it. Use the shared solid text and select form fields. Creating the request opens its subject-led support conversation.
+
+The reusable `SupportRequestSheet` is the sole complaint/support request form. Both the chat escalation action and Help Me's top-right New support request action open this exact sheet. It keeps field labels above their boxes so focus never floats a label outside the field. Its text fields share the same neutral fill, 12 px corner radius, 14 px entry text, and 48 px minimum single-line height; multiline details keep the same style and grow vertically. Priority opens the shared solid option sheet. Reserve the panel header, margins, and bottom safe-area inset exactly once when sizing around the keyboard. While submitting, the primary button retains its dimensions and shows a circular progress indicator instead of a shimmer placeholder.
+
+The current first responder is a local, guided FAQ matcher owned by `ComplaintAssistantController`; it is not a live generative AI integration. The API has customer ticket and message routes but no staff inbox/reply endpoint in the admin app. A production AI service and staff reply workflow remain pending provider/API decisions; do not present local replies as answers generated by a hosted AI model.
+
+The Help Me list uses compact chat rows on the solid white page: a 44 px circular support avatar, single-line subject, one-line latest message preview, and a compact timestamp aligned at the right. Separate rows with a light divider; tapping a row opens that ticket's subject-led conversation. Keep the new-request action in the black page header. Place the Direct support channels card after all conversation rows, including when the list is empty.
+
+Emergency Contacts uses the same compact white conversation-row geometry, with a contact initial, name, phone/relationship preview, direct call action and a small edit/remove menu. Keep the list clear of introductory panels and secondary safety copy. Add and edit use the black-header/white-body ride stage sheet with the shared solid fields and fixed-height loading button.
+
+## Partner application and activation
+
+The Partner Program uses the standard solid `AppPage` header without a refresh action. Keep each application step focused on its required fields: one step count/progress rail, one stage heading, only the instruction needed for that stage, and the fields/uploads. Use the shared 48 px `SolidTextFormField` and `SolidDropdownFormField`, external labels, 12 px corners, consistent 14 px input text, and 20 px field spacing. Dropdowns and address choices open the shared opaque solid option sheet. Show field help only while the field is active; do not repeat instructions in both the page and field. Policy and confirmation documents are compact, unboxed text. Their agreement controls are small, unboxed, and use short consent copy. Primary partner actions are 60 px high. Image uploads use a taller neutral preview well and show selected images at a useful height.
+
+Keep the application stages in the existing controller-backed workflow: policy acceptance, contact, dynamic detail/document categories, review/corrections, confirmation/signature, final document and one-time driver activation. Preserve file previews, review states, locked approved values, selfie capture, draft recovery and submission gates. Keep status feedback concise and close to the affected fields. Do not add decorative panels, duplicate policy/status actions, or unnecessary explanatory copy. Loading placeholders match the solid form; buttons use the shared ride-flow height and busy indicator. Activation uses one centered six-digit field and one primary action.

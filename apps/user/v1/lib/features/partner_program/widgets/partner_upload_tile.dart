@@ -1,8 +1,7 @@
 import 'dart:typed_data';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:user/core/color.dart';
-import 'package:user/components/ui/liquid_glass.dart';
+import 'package:user/components/ui/solid_ui.dart';
 
 class PartnerUploadFile {
   final String name;
@@ -22,8 +21,8 @@ class PartnerUploadFile {
 /// Shared document/selfie layout. Limit decoded pixels as well as file bytes;
 /// a small compressed image can otherwise exhaust memory during preview.
 class PartnerUploadTile extends StatelessWidget {
-  static const double compactSelectedImageHeight = 168;
-  static const double selectedImageHeight = 220;
+  static const double compactSelectedImageHeight = 184;
+  static const double selectedImageHeight = 236;
 
   static ResizeImage previewImage(Uint8List bytes) => ResizeImage(
     MemoryImage(bytes),
@@ -72,7 +71,7 @@ class PartnerUploadTile extends StatelessWidget {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => StatefulBuilder(
-        builder: (context, update) => LiquidGlassSheet(
+        builder: (context, update) => SolidSheet(
           child: ConstrainedBox(
             constraints: BoxConstraints(
               maxHeight: MediaQuery.sizeOf(context).height * .8,
@@ -135,117 +134,128 @@ class PartnerUploadTile extends StatelessWidget {
     final first = files.firstOrNull;
     final hasPreview =
         image && first != null && (first.path != null || first.bytes != null);
-    return LiquidGlassSurface(
-      padding: const EdgeInsets.all(10),
-      radius: 22,
+    return SolidSurface(
+      padding: const EdgeInsets.all(12),
+      radius: 14,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Semantics(
-            button: true,
-            label: '${label ?? 'Upload'}: $_choiceText',
-            child: InkWell(
-              onTap: busy ? null : onChoose,
-              borderRadius: BorderRadius.circular(16),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Column(
-                  children: [
-                    Stack(
-                      alignment: Alignment.topRight,
-                      children: [
-                        SizedBox(
-                          height: hasPreview ? compactSelectedImageHeight : 48,
-                          width: double.infinity,
-                          child: hasPreview && !busy
-                              ? ClipRRect(
-                                  borderRadius: BorderRadius.circular(14),
-                                  child: Image(
-                                    image: first.path != null
-                                        ? previewFile(first.path!)
-                                        : previewImage(first.bytes!),
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, error, stack) =>
-                                        const Icon(
-                                          Icons.image_outlined,
-                                          size: 28,
-                                        ),
-                                  ),
-                                )
-                              : Icon(
-                                  camera
-                                      ? Icons.photo_camera_outlined
-                                      : image
-                                      ? Icons.image_outlined
-                                      : Icons.description_outlined,
-                                  size: 28,
-                                  color: GlassTokens.ink,
-                                ),
-                        ),
-                        if (onChoose != null)
-                          const Icon(
-                            Icons.add_circle_outline,
-                            size: 20,
-                            color: GlassTokens.accent,
+            image: hasPreview,
+            label: hasPreview
+                ? 'Selected ${label ?? 'image'} preview'
+                : '${label ?? 'Upload'}: $_choiceText',
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: RideTokens.line),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: SizedBox(
+                  height: hasPreview ? compactSelectedImageHeight : 84,
+                  width: double.infinity,
+                  child: hasPreview && !busy
+                      ? Image(
+                          image: first.path != null
+                              ? previewFile(first.path!)
+                              : previewImage(first.bytes!),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, error, stack) => Container(
+                            color: const Color(0xFFF5F5F5),
+                            alignment: Alignment.center,
+                            child: const Icon(
+                              Icons.image_outlined,
+                              size: 30,
+                              color: RideTokens.muted,
+                            ),
                           ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      label ?? (camera ? 'Live selfie' : 'Document'),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: GlassTokens.ink,
-                      ),
-                    ),
-                    if (showGuidance) ...[
-                      const SizedBox(height: 5),
-                      Text(
-                        limitText,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: GlassTokens.muted,
+                        )
+                      : Material(
+                          color: const Color(0xFFF5F5F5),
+                          child: InkWell(
+                            onTap: busy ? null : onChoose,
+                            child: Center(
+                              child: Icon(
+                                camera
+                                    ? Icons.photo_camera_outlined
+                                    : image
+                                    ? Icons.image_outlined
+                                    : Icons.description_outlined,
+                                size: 30,
+                                color: RideTokens.muted,
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
-                    ],
-                    if (onChoose != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        _choiceText,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: GlassTokens.accent,
-                        ),
-                      ),
-                    ],
-                  ],
                 ),
               ),
             ),
           ),
-          if (files.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Text(
+            label ?? (camera ? 'Live selfie' : 'Document'),
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: RideTokens.ink,
+            ),
+          ),
+          if (showGuidance) ...[
             const SizedBox(height: 4),
+            Text(
+              limitText,
+              style: const TextStyle(fontSize: 11, color: RideTokens.muted),
+            ),
+          ],
+          if (files.isNotEmpty) ...[
+            const SizedBox(height: 6),
             Text(
               first!.name,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 11, color: GlassTokens.muted),
+              style: const TextStyle(fontSize: 11, color: RideTokens.muted),
             ),
-            TextButton(
-              style: TextButton.styleFrom(
-                minimumSize: const Size(48, 48),
-                padding: const EdgeInsets.symmetric(vertical: 8),
+          ],
+          if (onChoose != null) ...[
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: busy ? null : onChoose,
+              icon: Icon(
+                busy
+                    ? Icons.hourglass_top_rounded
+                    : camera
+                    ? Icons.photo_camera_outlined
+                    : Icons.upload_file_outlined,
+                size: 18,
               ),
-              onPressed: busy ? null : () => _reviewFiles(context),
-              child: Text(
-                'Review files (${files.length})',
-                textAlign: TextAlign.center,
+              label: Text(_choiceText),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: RideTokens.ink,
+                minimumSize: const Size(0, 44),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                side: const BorderSide(color: RideTokens.line),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+          if (files.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(48, 40),
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                ),
+                onPressed: busy ? null : () => _reviewFiles(context),
+                child: Text('Review files (${files.length})'),
               ),
             ),
           ],
@@ -261,15 +271,15 @@ class PartnerUploadTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             ...files.map(
-              (file) => LiquidGlassSurface(
+              (file) => SolidSurface(
                 margin: const EdgeInsets.only(bottom: 10),
                 padding: const EdgeInsets.all(12),
-                radius: 20,
+                radius: 14,
                 child: Column(
                   children: [
                     if (image && (file.path != null || file.bytes != null))
                       ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(12),
                         child: SizedBox(
                           height: selectedImageHeight,
                           width: double.infinity,
@@ -299,7 +309,7 @@ class PartnerUploadTile extends StatelessWidget {
                               : image
                               ? Icons.image_outlined
                               : Icons.description_outlined,
-                          color: AppColors.primaryGreen,
+                          color: RideTokens.accent,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
@@ -327,9 +337,9 @@ class PartnerUploadTile extends StatelessWidget {
               ),
             ),
             if (onChoose != null)
-              LiquidGlassSurface(
+              SolidSurface(
                 padding: EdgeInsets.zero,
-                radius: 22,
+                radius: 14,
                 child: OutlinedButton.icon(
                   onPressed: busy ? null : onChoose,
                   icon: Icon(
@@ -346,13 +356,21 @@ class PartnerUploadTile extends StatelessWidget {
                               ? 'Choose files'
                               : 'Add / replace files'),
                   ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: RideTokens.ink,
+                    minimumSize: const Size(0, 44),
+                    side: const BorderSide(color: RideTokens.line),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
                 ),
               ),
             if (showGuidance) ...[
               const SizedBox(height: 8),
               Text(
                 limitText,
-                style: const TextStyle(fontSize: 11, color: GlassTokens.muted),
+                style: const TextStyle(fontSize: 11, color: RideTokens.muted),
               ),
             ],
           ],

@@ -63,57 +63,80 @@ class RideHistoryRoute extends StatelessWidget {
       rideDistance(distance),
       alignEnd: true,
     );
-    return _HistorySurface(
+    return HistoryTimelineCard(
       onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-        child: IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SizedBox(
-                width: 26,
-                child: Column(
-                  children: [
-                    const _EndpointIcon(Icons.arrow_downward, _pickup),
-                    Expanded(
-                      child: CustomPaint(
-                        painter: const _DottedConnector(),
-                        size: const Size(2, 0),
-                      ),
-                    ),
-                    const _EndpointIcon(Icons.location_on, RideTokens.ink),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _EndpointRow(
-                      address: ride['pickup_address'],
-                      label: 'Pickup point',
-                      fallback: 'Pickup unavailable',
-                      fact: fareFact,
-                    ),
-                    const SizedBox(height: 16),
-                    _EndpointRow(
-                      address: ride['dropoff_address'],
-                      label: 'Destination',
-                      fallback: 'Destination unavailable',
-                      fact: distanceFact,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+      firstIcon: Icons.arrow_downward,
+      secondIcon: Icons.location_on,
+      firstColor: _pickup,
+      firstRow: HistoryTimelineRow(
+        title: '${ride['pickup_address'] ?? ''}'.trim(),
+        subtitle: 'Pickup point',
+        fallback: 'Pickup unavailable',
+        fact: fareFact,
+      ),
+      secondRow: HistoryTimelineRow(
+        title: '${ride['dropoff_address'] ?? ''}'.trim(),
+        subtitle: 'Destination',
+        fallback: 'Destination unavailable',
+        fact: distanceFact,
       ),
     );
   }
+}
+
+class HistoryTimelineCard extends StatelessWidget {
+  final IconData firstIcon, secondIcon;
+  final Color firstColor;
+  final Widget firstRow, secondRow;
+  final VoidCallback? onTap;
+
+  const HistoryTimelineCard({
+    super.key,
+    required this.firstIcon,
+    required this.secondIcon,
+    required this.firstColor,
+    required this.firstRow,
+    required this.secondRow,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => _HistorySurface(
+    onTap: onTap,
+    child: Padding(
+      padding: const EdgeInsets.all(14),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              width: 26,
+              child: Column(
+                children: [
+                  _EndpointIcon(firstIcon, firstColor),
+                  const Expanded(
+                    child: CustomPaint(
+                      painter: _DottedConnector(),
+                      size: Size(2, 0),
+                    ),
+                  ),
+                  _EndpointIcon(secondIcon, RideTokens.ink),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [firstRow, const SizedBox(height: 16), secondRow],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class _HistorySurface extends StatelessWidget {
@@ -165,25 +188,24 @@ class _DottedConnector extends CustomPainter {
   bool shouldRepaint(_DottedConnector oldDelegate) => false;
 }
 
-class _EndpointRow extends StatelessWidget {
-  final Object? address;
-  final String label, fallback;
+class HistoryTimelineRow extends StatelessWidget {
+  final String title, subtitle, fallback;
   final Widget fact;
-  const _EndpointRow({
-    required this.address,
-    required this.label,
-    required this.fallback,
+  const HistoryTimelineRow({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    this.fallback = 'Unavailable',
     required this.fact,
   });
 
   @override
   Widget build(BuildContext context) {
-    final name = address?.toString().trim() ?? '';
-    final title = Text(
-      name.isEmpty ? fallback : name,
+    final heading = Text(
+      title.isEmpty ? fallback : title,
       style: _value.copyWith(fontSize: 16),
     );
-    final caption = Text(label, style: _label);
+    final caption = Text(subtitle, style: _label);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -191,7 +213,7 @@ class _EndpointRow extends StatelessWidget {
           flex: 3,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [title, caption],
+            children: [heading, caption],
           ),
         ),
         const SizedBox(width: 14),
@@ -228,19 +250,12 @@ class _HistoryFact extends StatelessWidget {
         textAlign: alignEnd ? TextAlign.end : TextAlign.start,
       ),
       if (badge)
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-          decoration: BoxDecoration(
-            color: received ? const Color(0xFFE4F3E9) : const Color(0xFFF1F2F4),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(
-            value,
-            textAlign: TextAlign.end,
-            style: _value.copyWith(
-              color: received ? const Color(0xFF176443) : RideTokens.ink,
-            ),
-          ),
+        HistoryAmountChip(
+          value: value,
+          color: received ? const Color(0xFF176443) : RideTokens.ink,
+          background: received
+              ? const Color(0xFFE4F3E9)
+              : const Color(0xFFF1F2F4),
         )
       else
         Text(
@@ -249,6 +264,31 @@ class _HistoryFact extends StatelessWidget {
           textAlign: alignEnd ? TextAlign.end : TextAlign.start,
         ),
     ],
+  );
+}
+
+class HistoryAmountChip extends StatelessWidget {
+  final String value;
+  final Color color, background;
+  const HistoryAmountChip({
+    super.key,
+    required this.value,
+    required this.color,
+    required this.background,
+  });
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+    decoration: BoxDecoration(
+      color: background,
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Text(
+      value,
+      textAlign: TextAlign.end,
+      style: _value.copyWith(color: color),
+    ),
   );
 }
 
@@ -275,6 +315,7 @@ class RideHistoryDetails extends StatelessWidget {
     final method = switch (money.method) {
       'CASH' => 'Cash',
       'UPI' => 'Direct UPI',
+      'WALLET' => 'Wallet',
       '' => 'Unavailable',
       _ => money.method.replaceAll('_', ' '),
     };

@@ -1,11 +1,10 @@
-import 'package:user/features/profile/controllers/profile_controller.dart';
-import 'package:user/components/ui/liquid_glass.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:user/components/ui/app_page.dart';
-import 'package:user/components/ui/button.dart';
+import 'package:user/components/ui/liquid_glass.dart';
+import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/features/auth/models/user.model.dart';
+import 'package:user/features/profile/controllers/profile_controller.dart';
 import 'package:user/features/user_app/user_app.constant.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
@@ -13,6 +12,7 @@ class ProfilePage extends StatefulWidget {
   final UserAppRepository? repository;
   final bool phoneOnly;
   const ProfilePage({super.key, this.repository, this.phoneOnly = false});
+
   @override
   State<ProfilePage> createState() => _ProfilePageState();
 }
@@ -26,17 +26,15 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   UserAppRepository get _repository => _controller.repository;
-  final _form = GlobalKey<FormState>();
-  final TextEditingController _firstName = TextEditingController();
-  final TextEditingController _lastName = TextEditingController();
-  final TextEditingController _phone = TextEditingController();
-  final TextEditingController _email = TextEditingController();
   Future<Map<String, dynamic>> get _profile => _controller.profile;
   set _profile(Future<Map<String, dynamic>> value) =>
       _controller.profile = value;
-  bool get _saving => _controller.saving;
-  set _saving(bool value) => _controller.saving = value;
+
+  final _firstName = TextEditingController();
+  final _lastName = TextEditingController();
+  final _phone = TextEditingController();
   bool _fieldsLoaded = false;
+  bool _saving = false;
 
   @override
   void dispose() {
@@ -45,40 +43,98 @@ class _ProfilePageState extends State<ProfilePage> {
     _firstName.dispose();
     _lastName.dispose();
     _phone.dispose();
-    _email.dispose();
     super.dispose();
   }
 
-  Future<void> _save() async {
-    if (!_form.currentState!.validate()) return;
+  Future<void> _editName() async {
+    final name = await _editValue(
+      title: 'Name',
+      initialValue: [
+        _firstName.text,
+        _lastName.text,
+      ].where((part) => part.trim().isNotEmpty).join(' '),
+      hint: 'Full name',
+      keyboardType: TextInputType.name,
+    );
+    if (name == null) return;
+    final parts = name.trim().split(RegExp(r'\s+'));
+    setState(() {
+      _firstName.text = parts.first;
+      _lastName.text = parts.skip(1).join(' ');
+    });
+  }
+
+  Future<void> _editPhone() async {
+    final phone = await _editValue(
+      title: 'Phone number',
+      initialValue: _phone.text,
+      hint: '+919876543210',
+      keyboardType: TextInputType.phone,
+    );
+    if (phone != null && mounted) setState(() => _phone.text = phone.trim());
+  }
+
+  Future<String?> _editValue({
+    required String title,
+    required String initialValue,
+    required String hint,
+    required TextInputType keyboardType,
+  }) => showDialog<String>(
+    context: context,
+    builder: (dialogContext) => _ProfileValueDialog(
+      title: title,
+      initialValue: initialValue,
+      hint: hint,
+      keyboardType: keyboardType,
+      onCancel: () => Navigator.pop(dialogContext),
+      onSave: (value) => Navigator.pop(dialogContext, value),
+    ),
+  );
+
+  Future<void> _save(UserModel user) async {
+    if (!widget.phoneOnly &&
+        (_firstName.text.trim().isEmpty || _lastName.text.trim().isEmpty)) {
+      _notice('Enter your first and last name.');
+      return;
+    }
+    final phone = _phone.text.trim();
+    if (widget.phoneOnly && phone.isEmpty) {
+      _notice('Enter your phone number.');
+      return;
+    }
+    if (phone.isNotEmpty && !RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone)) {
+      _notice('Use international format, for example +919876543210.');
+      return;
+    }
+
     setState(() => _saving = true);
     try {
       await _repository.updateProfile({
         if (!widget.phoneOnly) 'first_name': _firstName.text.trim(),
         if (!widget.phoneOnly) 'last_name': _lastName.text.trim(),
-        if (_phone.text.trim().isNotEmpty) 'phone_e164': _phone.text.trim(),
+        if (phone.isNotEmpty && phone != user.phoneE164) 'phone_e164': phone,
       });
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text(UserAppCopy.PROFILE_SAVED)));
       setState(() {
+        _fieldsLoaded = false;
         _profile = _repository.profile();
       });
     } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
-      }
+      if (mounted) _notice(ApiResult.errorMessage(error));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
 
+  void _notice(String message) => ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(SnackBar(content: Text(message)));
+
   @override
-  Widget build(BuildContext context) => AppPage(
-    glass: true,
+  Widget build(BuildContext context) => SolidPage(
     title: widget.phoneOnly ? 'Change Phone Number' : UserAppCopy.PROFILE,
     child: FutureBuilder<Map<String, dynamic>>(
       future: _profile,
@@ -86,175 +142,241 @@ class _ProfilePageState extends State<ProfilePage> {
         if (snapshot.hasError) {
           return AppLoadError(
             message: ApiResult.errorMessage(snapshot.error!),
-            onRetry: () => setState(() {
-              _profile = _repository.profile();
-            }),
+            onRetry: () => setState(() => _profile = _repository.profile()),
           );
         }
         if (!snapshot.hasData) {
-          return const LiquidGlassFormSkeleton();
+          return const Center(child: CircularProgressIndicator());
         }
+
         final user = UserModel.fromJson(snapshot.data!);
         if (!_fieldsLoaded) {
           _firstName.text = user.firstName ?? '';
           _lastName.text = user.lastName ?? '';
           _phone.text = user.phoneE164 ?? '';
-          _email.text = user.email ?? '';
           _fieldsLoaded = true;
         }
-        return ListView(
-          padding: EdgeInsets.only(top: 6.h, bottom: 24.h),
+
+        final displayName = [
+          user.firstName,
+          user.lastName,
+        ].whereType<String>().where((part) => part.isNotEmpty).join(' ');
+        final accountType = user.role.toLowerCase() == 'driver'
+            ? 'Driver account'
+            : 'Rider account';
+
+        return Column(
           children: [
-            LiquidGlassSurface(
-              child: Column(
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 22, 16, 16),
                 children: [
-                  LiquidGlassSurface(
-                    radius: 99,
-                    padding: const EdgeInsets.all(4),
+                  Center(
                     child: CircleAvatar(
-                      radius: 46.r,
-                      backgroundColor: const Color(0x407E8EAB),
-                      backgroundImage: user.avatarUrl == null
+                      radius: 43,
+                      backgroundColor: const Color(0xFFF2F3F5),
+                      foregroundImage: user.avatarUrl == null
                           ? null
                           : NetworkImage(user.avatarUrl!),
                       child: user.avatarUrl == null
-                          ? Icon(
+                          ? const Icon(
                               Icons.person_outline_rounded,
-                              size: 38.w,
-                              color: GlassTokens.accent,
+                              size: 38,
+                              color: RideTokens.ink,
                             )
                           : null,
                     ),
                   ),
-                  SizedBox(height: 14.h),
-                  Text(
-                    [
-                      user.firstName,
-                      user.lastName,
-                    ].whereType<String>().where((v) => v.isNotEmpty).join(' '),
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: GlassTokens.ink,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w500,
+                  const SizedBox(height: 28),
+                  _ProfileGroup(
+                    rows: [
+                      _ProfileRowData(
+                        'Name',
+                        displayName.isEmpty ? 'Add your name' : displayName,
+                        onTap: widget.phoneOnly ? null : _editName,
+                      ),
+                      _ProfileRowData('Account', accountType),
+                    ],
+                  ),
+                  const SizedBox(height: 22),
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 10),
+                    child: Text(
+                      'Private Information',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    user.email ?? 'Signed-in 1More account',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: GlassTokens.muted,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Change your profile photo from Settings. Your email is linked to Google and cannot be edited here.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: GlassTokens.muted,
-                      fontSize: 12,
-                      height: 1.45,
-                    ),
+                  _ProfileGroup(
+                    rows: [
+                      _ProfileRowData(
+                        'Email',
+                        user.email?.isNotEmpty == true
+                            ? user.email!
+                            : 'Not provided',
+                      ),
+                      _ProfileRowData(
+                        'Phone number',
+                        _phone.text.isEmpty ? 'Add phone number' : _phone.text,
+                        onTap: _editPhone,
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
-            SizedBox(height: 20.h),
-            AppCard(
-              child: Form(
-                key: _form,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Text(
-                      'Personal information',
-                      style: TextStyle(
-                        color: GlassTokens.ink,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    const Text(
-                      'Used for ride communication, receipts and account support.',
-                      style: TextStyle(
-                        color: GlassTokens.muted,
-                        fontSize: 12.5,
-                        height: 1.4,
-                      ),
-                    ),
-                    SizedBox(height: 20.h),
-                    if (!widget.phoneOnly)
-                      _field(
-                        UserAppCopy.FIRST_NAME,
-                        _firstName,
-                        validator: _requiredName,
-                      ),
-                    if (!widget.phoneOnly)
-                      _field(
-                        UserAppCopy.LAST_NAME,
-                        _lastName,
-                        validator: _requiredName,
-                      ),
-                    if (!widget.phoneOnly)
-                      _field(UserAppCopy.EMAIL, _email, enabled: false),
-                    _field(
-                      UserAppCopy.PHONE,
-                      _phone,
-                      keyboardType: TextInputType.phone,
-                      hint: '+919876543210',
-                      validator: _phoneNumber,
-                    ),
-                  ],
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 60,
+                  child: SolidButton(
+                    text: widget.phoneOnly
+                        ? 'Save phone number'
+                        : 'Save changes',
+                    onPressed: _saving ? null : () => _save(user),
+                    busy: _saving,
+                  ),
                 ),
               ),
-            ),
-            SizedBox(height: 20.h),
-            AppButton(
-              text: UserAppCopy.SAVE_CHANGES,
-              onPressed: _save,
-              isLoading: _saving,
             ),
           ],
         );
       },
     ),
   );
+}
 
-  Widget _field(
-    String label,
-    TextEditingController controller, {
-    bool enabled = true,
-    TextInputType? keyboardType,
-    String? hint,
-    String? Function(String?)? validator,
-  }) => Padding(
-    padding: EdgeInsets.only(bottom: 18.h),
-    child: TextFormField(
-      controller: controller,
-      enabled: enabled,
-      keyboardType: keyboardType,
-      validator: validator,
-      textInputAction: keyboardType == TextInputType.phone
-          ? TextInputAction.done
-          : TextInputAction.next,
-      decoration: InputDecoration(labelText: label, hintText: hint),
+class _ProfileGroup extends StatelessWidget {
+  final List<_ProfileRowData> rows;
+  const _ProfileGroup({required this.rows});
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.white,
+    shape: RoundedRectangleBorder(
+      side: const BorderSide(color: RideTokens.line),
+      borderRadius: BorderRadius.circular(13),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: Column(
+      children: [
+        for (var index = 0; index < rows.length; index++) ...[
+          if (index > 0)
+            const Padding(
+              padding: EdgeInsets.only(left: 16),
+              child: Divider(height: 1, color: RideTokens.line),
+            ),
+          _ProfileInfoRow(rows[index]),
+        ],
+      ],
     ),
   );
+}
 
-  String? _requiredName(String? value) => value == null || value.trim().isEmpty
-      ? 'Enter this name'
-      : value.trim().length > 80
-      ? 'Use 80 characters or fewer'
-      : null;
+class _ProfileRowData {
+  final String label;
+  final String value;
+  final VoidCallback? onTap;
+  const _ProfileRowData(this.label, this.value, {this.onTap});
+}
 
-  String? _phoneNumber(String? value) {
-    final phone = value?.trim() ?? '';
-    if (phone.isEmpty) return null;
-    return RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone)
-        ? null
-        : 'Use international format, for example +919876543210';
+class _ProfileInfoRow extends StatelessWidget {
+  final _ProfileRowData row;
+  const _ProfileInfoRow(this.row);
+
+  @override
+  Widget build(BuildContext context) {
+    final content = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+      child: Row(
+        children: [
+          Text(
+            row.label,
+            style: const TextStyle(color: RideTokens.muted, fontSize: 14),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              row.value,
+              textAlign: TextAlign.right,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: RideTokens.ink,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          if (row.onTap != null) ...[
+            const SizedBox(width: 7),
+            const Icon(Icons.chevron_right_rounded, size: 20),
+          ],
+        ],
+      ),
+    );
+    if (row.onTap == null) return content;
+    return InkWell(onTap: row.onTap, child: content);
   }
+}
+
+class _ProfileValueDialog extends StatefulWidget {
+  final String title;
+  final String initialValue;
+  final String hint;
+  final TextInputType keyboardType;
+  final VoidCallback onCancel;
+  final ValueChanged<String> onSave;
+
+  const _ProfileValueDialog({
+    required this.title,
+    required this.initialValue,
+    required this.hint,
+    required this.keyboardType,
+    required this.onCancel,
+    required this.onSave,
+  });
+
+  @override
+  State<_ProfileValueDialog> createState() => _ProfileValueDialogState();
+}
+
+class _ProfileValueDialogState extends State<_ProfileValueDialog> {
+  late final TextEditingController _value = TextEditingController(
+    text: widget.initialValue,
+  );
+
+  @override
+  void dispose() {
+    _value.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => LiquidGlassDialog(
+    title: Text(
+      'Edit ${widget.title}',
+      style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w500),
+    ),
+    content: TextField(
+      controller: _value,
+      autofocus: true,
+      keyboardType: widget.keyboardType,
+      textCapitalization: widget.keyboardType == TextInputType.name
+          ? TextCapitalization.words
+          : TextCapitalization.none,
+      decoration: InputDecoration(hintText: widget.hint),
+    ),
+    actions: [
+      TextButton(onPressed: widget.onCancel, child: const Text('Cancel')),
+      TextButton(
+        onPressed: () => widget.onSave(_value.text),
+        child: const Text('Save'),
+      ),
+    ],
+  );
 }

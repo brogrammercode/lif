@@ -11,7 +11,11 @@ Color _profileIconColor(IconData icon) {
   ].contains(icon)) {
     return const Color(0xFF26835B);
   }
-  if ([Icons.contacts_outlined, Icons.report_problem_outlined].contains(icon)) {
+  if ([
+    Icons.contacts_outlined,
+    Icons.report_problem_outlined,
+    Icons.logout_rounded,
+  ].contains(icon)) {
     return const Color(0xFFD65A54);
   }
   if ([Icons.handshake_outlined, Icons.hourglass_empty].contains(icon)) {
@@ -225,11 +229,13 @@ class ProfileRow extends StatelessWidget {
   final IconData icon;
   final String title;
   final VoidCallback? onTap;
+  final bool busy;
   const ProfileRow({
     super.key,
     required this.icon,
     required this.title,
     this.onTap,
+    this.busy = false,
   });
   @override
   Widget build(BuildContext context) => Material(
@@ -243,10 +249,15 @@ class ProfileRow extends StatelessWidget {
         title,
         style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
       ),
-      trailing: onTap == null
+      trailing: busy
+          ? const SizedBox.square(
+              dimension: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : onTap == null
           ? null
           : const Icon(Icons.chevron_right, size: 17, color: RideTokens.muted),
-      onTap: onTap,
+      onTap: busy ? null : onTap,
     ),
   );
 }

@@ -259,16 +259,22 @@ class UserAppRepository {
         (_data(await _client.getData(ApiConstants.SUPPORT_TICKETS)) as List)
             .map((value) => Map<String, dynamic>.from(value as Map)),
       );
-  Future<void> createSupportTicket(
+  Future<Map<String, dynamic>> createSupportTicket(
     Map<String, dynamic> input, {
     String? requestKey,
-  }) async => _client.postData(
-    ApiConstants.SUPPORT_TICKETS,
-    data: input,
-    headers: {
-      ApiConstants.IDP_HEADER:
-          requestKey ?? DateTime.now().microsecondsSinceEpoch.toString(),
-    },
+  }) async => Map<String, dynamic>.from(
+    _data(
+          await _client.postData(
+            ApiConstants.SUPPORT_TICKETS,
+            data: input,
+            headers: {
+              ApiConstants.IDP_HEADER:
+                  requestKey ??
+                  DateTime.now().microsecondsSinceEpoch.toString(),
+            },
+          ),
+        )
+        as Map,
   );
   Future<Map<String, dynamic>> supportTicket(String id) async =>
       Map<String, dynamic>.from(

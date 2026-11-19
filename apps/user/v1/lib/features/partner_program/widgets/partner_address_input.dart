@@ -1,7 +1,6 @@
 import 'package:user/features/partner_program/controllers/partner_address_controller.dart';
-import 'package:user/components/ui/glass_dropdown.dart';
-import 'package:user/components/ui/liquid_glass.dart';
 import 'package:flutter/material.dart';
+import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/core/color.dart';
 
 /// Canonical postal selections; the combined requirement remains one answer.
@@ -99,15 +98,14 @@ class _PartnerAddressInputState extends State<PartnerAddressInput> {
     ValueChanged<String?> changed, {
     bool linked = false,
   }) => Padding(
-    padding: const EdgeInsets.only(bottom: 20),
-    child: LiquidGlassDropdownFormField<String>(
+    padding: const EdgeInsets.only(bottom: 14),
+    child: SolidDropdownFormField<String>(
       key: ValueKey('$label-$value-${options.length}'),
       initialValue: options.contains(value) ? value : null,
       loading: _loading,
-      decoration: InputDecoration(
-        labelText: label,
-        border: GlassTokens.inputBorder,
-      ),
+      enabled: widget.enabled,
+      label: label,
+      hint: 'Select $label',
       items: options
           .map(
             (item) => DropdownMenuItem(
@@ -159,16 +157,16 @@ class _PartnerAddressInputState extends State<PartnerAddressInput> {
             padding: const EdgeInsets.only(bottom: 8),
             child: Text(
               'Previous value: ${widget.controller.text}. Select from the directory to update it.',
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppColors.textSecondary,
-              ),
+              style: const TextStyle(fontSize: 12, color: RideTokens.muted),
             ),
           ),
         if (widget.linkedState == '' || widget.linkedCity == '')
           const Padding(
             padding: EdgeInsets.only(bottom: 8),
-            child: Text('Choose the related state and city fields first.'),
+            child: Text(
+              'Choose the related state and city fields first.',
+              style: TextStyle(fontSize: 12, color: RideTokens.muted),
+            ),
           ),
         _select('State / territory', _states, _state, (value) {
           setState(() {
@@ -236,7 +234,7 @@ class _PartnerAddressInputState extends State<PartnerAddressInput> {
           ),
         const Text(
           'Postal directory: GeoNames (CC BY 4.0). City selections use postal districts.',
-          style: TextStyle(fontSize: 11, color: AppColors.textTertiary),
+          style: TextStyle(fontSize: 11, color: RideTokens.muted),
         ),
       ],
     );

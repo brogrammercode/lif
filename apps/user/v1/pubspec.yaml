@@ -54,5 +54,6 @@ flutter:
     - assets/images/ride_car_marker.png
     - assets/images/ride_map_pin.png
     - assets/videos/driver_search_animation.mp4
+    - assets/videos/login-background.mp4
     - .env
     - shorebird.yaml

@@ -1,13 +1,12 @@
-import 'package:user/features/support/controllers/support_ticket_controller.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/app_skeleton.dart';
-import 'package:user/components/ui/liquid_glass.dart';
-import 'package:user/core/color.dart';
+import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/features/settings/widgets/settings_secondary.dart';
+import 'package:user/features/support/controllers/support_ticket_controller.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
 class SupportTicketPage extends StatefulWidget {
@@ -48,11 +47,9 @@ class _SupportTicketPageState extends State<SupportTicketPage> {
         widget.ticketId ??
         (ModalRoute.of(context)?.settings.arguments as String? ?? '');
     _initialized = true;
-    unawaited(_loadProfile());
-    _load();
+    unawaited(_controller.loadProfile());
+    unawaited(_load());
   }
-
-  Future<void> _loadProfile() => _controller.loadProfile();
 
   Future<void> _load({bool preserve = false}) async {
     await _controller.load(preserve: preserve);
@@ -83,11 +80,6 @@ class _SupportTicketPageState extends State<SupportTicketPage> {
       _message.clear();
       _messageFocus.unfocus();
       await _load(preserve: true);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Reply sent to 1More Support.')),
-        );
-      }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -100,14 +92,12 @@ class _SupportTicketPageState extends State<SupportTicketPage> {
   }
 
   @override
-  Widget build(BuildContext context) => AppPage(
-    title: 'Support request',
-    glass: true,
-    scrollable: true,
+  Widget build(BuildContext context) => SolidPage(
+    title: '${_ticket?['subject'] ?? 'Support conversation'}',
     action: IconButton(
       tooltip: 'Refresh conversation',
       onPressed: _loading ? null : () => _load(preserve: true),
-      icon: const Icon(Icons.refresh_rounded, color: GlassTokens.accent),
+      icon: const Icon(Icons.refresh_rounded, color: Colors.white),
     ),
     child: _body(),
   );
@@ -126,95 +116,67 @@ class _SupportTicketPageState extends State<SupportTicketPage> {
         .map((value) => Map<String, dynamic>.from(value))
         .toList();
     final status = '${ticket['status'] ?? 'OPEN'}';
-    final priority = '${ticket['priority'] ?? 'NORMAL'}';
-    final reference = '${ticket['id'] ?? ''}';
-    final shortReference = reference.length > 8
-        ? reference.substring(reference.length - 8).toUpperCase()
-        : reference.toUpperCase();
     final fallbackOwnId = messages.isEmpty ? null : messages.first['author_id'];
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-          child: LiquidGlassSurface(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${ticket['subject'] ?? 'Support request'}',
-                  style: const TextStyle(
-                    color: GlassTokens.ink,
-                    fontSize: 18,
-                    height: 1.3,
-                    fontWeight: FontWeight.w500,
-                  ),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 7),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.support_agent_rounded,
+                size: 17,
+                color: RideTokens.muted,
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  {'RESOLVED', 'CLOSED'}.contains(status)
+                      ? '1More Support · ${readableEnum(status)}'
+                      : '1More Support',
+                  style: const TextStyle(fontSize: 12, color: RideTokens.muted),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  'Request #$shortReference · Opened ${settingsDateTime(ticket['created_at'])}',
-                  style: const TextStyle(
-                    color: GlassTokens.muted,
-                    fontSize: 11,
-                    height: 1.4,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    SettingsStatusPill(
-                      label: readableEnum(status),
-                      color: _statusColor(status),
-                      icon: _statusIcon(status),
-                    ),
-                    SettingsStatusPill(
-                      label: '${readableEnum(priority)} priority',
-                      color: _priorityColor(priority),
-                    ),
-                  ],
-                ),
-                if ({'RESOLVED', 'CLOSED'}.contains(status)) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    'This request is ${readableEnum(status).toLowerCase()}. Sending a reply asks the team to review it again.',
-                    style: const TextStyle(
-                      color: GlassTokens.muted,
-                      fontSize: 12,
-                      height: 1.4,
-                    ),
-                  ),
-                ],
-              ],
-            ),
+              ),
+              Text(
+                settingsDateTime(ticket['created_at']),
+                style: const TextStyle(fontSize: 11, color: RideTokens.muted),
+              ),
+            ],
+          ),
+        ),
+        const Padding(
+          padding: EdgeInsets.only(bottom: 8),
+          child: Text(
+            'Today',
+            style: TextStyle(fontSize: 11, color: RideTokens.muted),
           ),
         ),
         Expanded(
           child: RefreshIndicator(
             onRefresh: () => _load(preserve: true),
-            color: GlassTokens.accent,
+            color: RideTokens.accent,
             child: messages.isEmpty
                 ? ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                     children: const [
-                      SizedBox(height: 28),
-                      SettingsEmptyCard(
-                        icon: Icons.forum_outlined,
-                        title: 'Conversation is empty',
-                        body: 'Write a reply below to contact 1More Support.',
+                      SizedBox(height: 30),
+                      Text(
+                        'Your support conversation will appear here.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: RideTokens.muted),
                       ),
                     ],
                   )
                 : ListView.builder(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(20, 6, 20, 18),
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                     itemCount: messages.length,
                     itemBuilder: (context, index) {
                       final message = messages[index];
                       final own =
                           message['author_id'] == (_myUserId ?? fallbackOwnId);
-                      return _MessageBubble(message: message, own: own);
+                      return _SupportMessageBubble(message: message, own: own);
                     },
                   ),
           ),
@@ -222,76 +184,72 @@ class _SupportTicketPageState extends State<SupportTicketPage> {
         SafeArea(
           top: false,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
-            child: LiquidGlassSurface(
-              radius: 22,
-              padding: const EdgeInsets.fromLTRB(14, 5, 6, 5),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _message,
-                      focusNode: _messageFocus,
-                      enabled: !_sending,
-                      minLines: 1,
-                      maxLines: 4,
-                      maxLength: 5000,
-                      textCapitalization: TextCapitalization.sentences,
-                      decoration: const InputDecoration(
-                        hintText: 'Write a reply…',
-                        filled: false,
-                        counterText: '',
-                        contentPadding: EdgeInsets.symmetric(vertical: 14),
+            padding: const EdgeInsets.fromLTRB(14, 6, 14, 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _message,
+                    focusNode: _messageFocus,
+                    enabled: !_sending,
+                    minLines: 1,
+                    maxLines: 4,
+                    maxLength: 5000,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: InputDecoration(
+                      hintText: 'Write a message…',
+                      counterText: '',
+                      filled: true,
+                      fillColor: const Color(0xFFF5F5F5),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
                       ),
-                      onSubmitted: (_) => _send(),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
                     ),
+                    onSubmitted: (_) => _send(),
                   ),
-                  IconButton(
-                    tooltip: _sending ? 'Sending reply' : 'Send reply',
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: FilledButton(
                     onPressed: _sending ? null : _send,
-                    icon: Icon(
-                      _sending ? Icons.hourglass_top : Icons.send_rounded,
-                      color: _sending ? GlassTokens.muted : GlassTokens.accent,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: RideTokens.accent,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.zero,
+                      shape: const CircleBorder(),
                     ),
+                    child: _sending
+                        ? const SizedBox.square(
+                            dimension: 19,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.send_rounded, size: 20),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
       ],
     );
   }
-
-  IconData _statusIcon(String status) => switch (status) {
-    'RESOLVED' => Icons.check_circle_outline,
-    'CLOSED' => Icons.lock_outline,
-    'WAITING_FOR_USER' => Icons.mark_chat_unread_outlined,
-    'IN_PROGRESS' => Icons.pending_actions_outlined,
-    _ => Icons.chat_bubble_outline,
-  };
-
-  Color _statusColor(String status) => switch (status) {
-    'RESOLVED' => const Color(0xFF397864),
-    'CLOSED' => GlassTokens.muted,
-    'WAITING_FOR_USER' => const Color(0xFFA66C28),
-    'IN_PROGRESS' => const Color(0xFF785B9B),
-    _ => GlassTokens.accent,
-  };
-
-  Color _priorityColor(String priority) => switch (priority) {
-    'URGENT' => AppColors.googleRed,
-    'HIGH' => const Color(0xFFA66C28),
-    'LOW' => GlassTokens.muted,
-    _ => GlassTokens.accent,
-  };
 }
 
-class _MessageBubble extends StatelessWidget {
+class _SupportMessageBubble extends StatelessWidget {
   final Map<String, dynamic> message;
   final bool own;
-  const _MessageBubble({required this.message, required this.own});
+  const _SupportMessageBubble({required this.message, required this.own});
 
   @override
   Widget build(BuildContext context) => Align(
@@ -302,41 +260,65 @@ class _MessageBubble extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.only(bottom: 12),
-        child: LiquidGlassSurface(
-          dark: own,
-          tint: own ? null : const Color(0xFFE8DEFF),
-          radius: 21,
-          padding: const EdgeInsets.fromLTRB(15, 12, 15, 11),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                own ? 'You' : '1More Support',
-                style: TextStyle(
-                  color: own ? Colors.white70 : GlassTokens.accent,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w500,
-                ),
+        child: Row(
+          mainAxisAlignment: own
+              ? MainAxisAlignment.end
+              : MainAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            if (!own) ...[
+              const CircleAvatar(
+                radius: 11,
+                backgroundColor: Color(0xFFF0F1F3),
+                child: Icon(Icons.support_agent_rounded, size: 14),
               ),
-              const SizedBox(height: 5),
-              Text(
-                '${message['body'] ?? ''}',
-                style: TextStyle(
-                  color: own ? Colors.white : GlassTokens.ink,
-                  fontSize: 13,
-                  height: 1.42,
-                ),
-              ),
-              const SizedBox(height: 7),
-              Text(
-                settingsDateTime(message['created_at']),
-                style: TextStyle(
-                  color: own ? Colors.white60 : GlassTokens.muted,
-                  fontSize: 10,
-                ),
-              ),
+              const SizedBox(width: 7),
             ],
-          ),
+            Flexible(
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(13, 10, 13, 8),
+                decoration: BoxDecoration(
+                  color: own
+                      ? const Color(0xFF1688F8)
+                      : const Color(0xFFF3F3F3),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      own ? 'You' : '1More Support',
+                      style: TextStyle(
+                        color: own ? Colors.white70 : RideTokens.muted,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${message['body'] ?? ''}',
+                      style: TextStyle(
+                        color: own ? Colors.white : RideTokens.ink,
+                        fontSize: 14,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        settingsDateTime(message['created_at']),
+                        style: TextStyle(
+                          color: own ? Colors.white70 : RideTokens.muted,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     ),
@@ -347,34 +329,22 @@ class _ConversationSkeleton extends StatelessWidget {
   const _ConversationSkeleton();
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-    child: AppSkeleton(
-      label: 'Loading support conversation',
+  Widget build(BuildContext context) => AppSkeleton(
+    label: 'Loading support conversation',
+    child: Padding(
+      padding: const EdgeInsets.all(18),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          LiquidGlassSurface(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                SkeletonBox(width: 190, height: 19),
-                SizedBox(height: 10),
-                SkeletonBox(width: 145, height: 11),
-                SizedBox(height: 14),
-                SkeletonBox(width: 96, height: 24),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
+          const SkeletonBox(width: 140, height: 15),
+          const SizedBox(height: 24),
           const Align(
-            alignment: Alignment.centerRight,
-            child: SkeletonBox(width: 230, height: 88),
+            alignment: Alignment.centerLeft,
+            child: SkeletonBox(width: 230, height: 76),
           ),
           const SizedBox(height: 14),
           const Align(
-            alignment: Alignment.centerLeft,
-            child: SkeletonBox(width: 250, height: 108),
+            alignment: Alignment.centerRight,
+            child: SkeletonBox(width: 220, height: 66),
           ),
         ],
       ),

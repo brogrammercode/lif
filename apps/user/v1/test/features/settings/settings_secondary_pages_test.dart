@@ -135,7 +135,7 @@ class FakeSecondarySettingsRepository extends UserAppRepository {
   Future<Map<String, dynamic>> profile() async => {'id': 'user-a'};
 
   @override
-  Future<void> createSupportTicket(
+  Future<Map<String, dynamic>> createSupportTicket(
     Map<String, dynamic> input, {
     String? requestKey,
   }) async {
@@ -159,6 +159,7 @@ class FakeSecondarySettingsRepository extends UserAppRepository {
       },
       ...ticketRows,
     ];
+    return ticketRows.first;
   }
 
   @override

@@ -14,6 +14,7 @@ class AppButton extends StatelessWidget {
   final Color backgroundColor;
   final Color foregroundColor;
   final Color borderColor;
+  final double? height;
 
   const AppButton({
     super.key,
@@ -25,6 +26,7 @@ class AppButton extends StatelessWidget {
     this.backgroundColor = AppColors.primaryGreen,
     this.foregroundColor = AppColors.pureWhite,
     this.borderColor = AppColors.primaryGreen,
+    this.height,
   });
 
   @override
@@ -37,12 +39,14 @@ class AppButton extends StatelessWidget {
           onPressed: onPressed,
           icon: icon,
           busy: isLoading,
+          minHeight: height ?? 48,
         ),
       );
     }
     if (LiquidGlassTheme.of(context)) {
       return SizedBox(
         width: isFullWidth ? double.infinity : null,
+        height: height?.h,
         child: LiquidGlassButton(
           text: text,
           onPressed: onPressed,
@@ -53,7 +57,7 @@ class AppButton extends StatelessWidget {
     }
     final button = SizedBox(
       width: isFullWidth ? double.infinity : null,
-      height: 56.h,
+      height: (height ?? 56).h,
       child: ElevatedButton(
         onPressed: isLoading ? null : onPressed,
         style: ElevatedButton.styleFrom(

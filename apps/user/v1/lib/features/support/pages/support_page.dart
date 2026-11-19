@@ -1,14 +1,13 @@
-import 'package:user/features/support/controllers/support_request_controller.dart';
 import 'package:user/features/support/controllers/support_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
-import 'package:user/components/ui/glass_dropdown.dart';
-import 'package:user/components/ui/liquid_glass.dart';
-import 'package:user/core/color.dart';
+import 'package:user/components/ui/app_skeleton.dart';
+import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/settings/widgets/settings_secondary.dart';
 import 'package:user/features/support/widgets/support_contact_card.dart';
+import 'package:user/features/support/widgets/support_request_sheet.dart';
 import 'package:user/features/user_app/user_app.constant.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
@@ -57,21 +56,32 @@ class _SupportPageState extends State<SupportPage> {
   }
 
   Future<void> _newRequest() async {
-    final created = await showDialog<bool>(
+    final ticket = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
-      barrierDismissible: false,
-      builder: (_) => _SupportRequestDialog(repository: _repository),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => SupportRequestSheet(repository: _repository),
     );
-    if (created == true && mounted) {
-      await _load(preserve: true);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Support request created. Replies will appear here.'),
+    if (!mounted || ticket == null) return;
+    await _load(preserve: true);
+    if (!mounted) return;
+    final ticketId = '${ticket['id'] ?? ''}';
+    if (ticketId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'The request was created but could not be opened. Find it in Help Me.',
           ),
-        );
-      }
+        ),
+      );
+      return;
     }
+    await Navigator.pushNamed(
+      context,
+      AppRoutes.supportTicket,
+      arguments: ticketId,
+    );
+    if (mounted) await _load(preserve: true);
   }
 
   @override
@@ -84,84 +94,59 @@ class _SupportPageState extends State<SupportPage> {
   @override
   Widget build(BuildContext context) => AppPage(
     title: UserAppCopy.SUPPORT,
-    glass: true,
     scrollable: true,
     action: IconButton(
       tooltip: 'New support request',
       onPressed: _newRequest,
-      icon: const Icon(Icons.add_comment_outlined, color: GlassTokens.accent),
+      icon: const Icon(Icons.add_comment_outlined, color: Colors.white),
     ),
     child: _body(),
   );
 
   Widget _body() {
-    if (_loading && _tickets.isEmpty) {
-      return const SettingsListSkeleton(rows: 3);
-    }
-    if (_error != null && _tickets.isEmpty) {
-      return AppLoadError(
-        message: ApiResult.errorMessage(_error!),
-        onRetry: _load,
-      );
-    }
-    final active = _tickets
-        .where((ticket) => !{'RESOLVED', 'CLOSED'}.contains(ticket['status']))
-        .length;
     return RefreshIndicator(
       onRefresh: () => _load(preserve: true),
-      color: GlassTokens.accent,
+      color: RideTokens.accent,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 30),
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
         children: [
-          SettingsIntroCard(
-            icon: Icons.support_agent_outlined,
-            title: 'How can we help?',
-            body:
-                'Call a configured support channel for immediate help, or create a request to keep the full conversation in one place.',
-            footer: SizedBox(
-              width: double.infinity,
-              child: LiquidGlassButton(
-                text: 'Create support request',
-                icon: const Icon(Icons.add_comment_outlined),
-                onPressed: _newRequest,
+          if (_error != null && _tickets.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: AppLoadError(
+                message: ApiResult.errorMessage(_error!),
+                onRetry: _load,
               ),
             ),
-          ),
-          const SizedBox(height: 14),
-          SupportContactCard(repository: _repository),
-          const SizedBox(height: 24),
-          SettingsSectionHeader(
-            title: 'Your requests',
-            helper: _tickets.isEmpty
-                ? 'Requests and replies will appear here.'
-                : '$active active · ${_tickets.length} total',
-            trailing: IconButton(
-              tooltip: 'Refresh requests',
-              onPressed: () => _load(preserve: true),
-              icon: const Icon(
-                Icons.refresh_rounded,
-                color: GlassTokens.accent,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          if (_tickets.isEmpty)
+          if (_loading && _tickets.isEmpty)
+            const _SupportConversationSkeleton(),
+          if (!_loading && _tickets.isEmpty && _error == null)
             SettingsEmptyCard(
               icon: Icons.forum_outlined,
               title: UserAppCopy.EMPTY_SUPPORT,
               body: UserAppCopy.EMPTY_SUPPORT_DESCRIPTION,
-              action: OutlinedButton.icon(
+              action: FilledButton.icon(
                 onPressed: _newRequest,
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('New request'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.black,
+                  foregroundColor: Colors.white,
+                ),
+                icon: const Icon(Icons.add_comment_outlined, size: 18),
+                label: const Text('Start a conversation'),
               ),
             )
-          else
+          else if (_tickets.isNotEmpty)
             for (var index = 0; index < _tickets.length; index++) ...[
               _ticket(_tickets[index]),
-              if (index != _tickets.length - 1) const SizedBox(height: 12),
+              if (index != _tickets.length - 1)
+                const Padding(
+                  padding: EdgeInsets.only(left: 56),
+                  child: Divider(height: 1, color: Color(0xFFEEEEEE)),
+                ),
             ],
+          const SizedBox(height: 28),
+          SupportContactCard(repository: _repository),
         ],
       ),
     );
@@ -169,117 +154,142 @@ class _SupportPageState extends State<SupportPage> {
 
   Widget _ticket(Map<String, dynamic> ticket) {
     final status = '${ticket['status'] ?? 'OPEN'}';
-    final priority = '${ticket['priority'] ?? 'NORMAL'}';
     final messages = (ticket['messages'] as List? ?? const [])
         .whereType<Map>()
         .map((item) => Map<String, dynamic>.from(item))
         .toList();
     final lastMessage = messages.isEmpty ? null : messages.last;
-    final reference = '${ticket['id'] ?? ''}';
-    final shortReference = reference.length > 8
-        ? reference.substring(reference.length - 8).toUpperCase()
-        : reference.toUpperCase();
-    return LiquidGlassSurface(
-      padding: EdgeInsets.zero,
+    final snippet = lastMessage == null
+        ? 'No messages yet'
+        : '${lastMessage['author_id'] == ticket['user_id'] ? 'You: ' : ''}${lastMessage['body'] ?? ''}';
+    final timestamp = _compactTime(
+      ticket['updated_at'] ??
+          lastMessage?['created_at'] ??
+          ticket['created_at'],
+    );
+    return Material(
+      color: Colors.transparent,
       child: InkWell(
         onTap: () => Navigator.pushNamed(
           context,
           AppRoutes.supportTicket,
           arguments: ticket['id'],
         ).then((_) => _load(preserve: true)),
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(12),
         child: Padding(
-          padding: const EdgeInsets.all(17),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 2),
+          child: Row(
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              Stack(
+                clipBehavior: Clip.none,
                 children: [
-                  LiquidGlassSurface(
-                    radius: 99,
-                    padding: const EdgeInsets.all(11),
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF1F3F6),
+                      shape: BoxShape.circle,
+                    ),
                     child: Icon(
                       _statusIcon(status),
-                      size: 21,
+                      size: 22,
                       color: _statusColor(status),
                     ),
                   ),
-                  const SizedBox(width: 13),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${ticket['subject'] ?? 'Support request'}',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: GlassTokens.ink,
-                            fontSize: 15,
-                            height: 1.3,
-                            fontWeight: FontWeight.w500,
-                          ),
+                  Positioned(
+                    right: -1,
+                    bottom: -1,
+                    child: Tooltip(
+                      message: readableEnum(status),
+                      child: Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: _statusColor(status),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Request #$shortReference · ${messages.length} ${messages.length == 1 ? 'message' : 'messages'}',
-                          style: const TextStyle(
-                            color: GlassTokens.muted,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  const Icon(Icons.chevron_right, color: GlassTokens.muted),
                 ],
               ),
-              if (lastMessage != null) ...[
-                const SizedBox(height: 13),
-                Text(
-                  '${lastMessage['body'] ?? ''}',
-                  maxLines: 2,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${ticket['subject'] ?? 'Support request'}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: RideTokens.ink,
+                        fontSize: 14,
+                        height: 1.25,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      snippet,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: RideTokens.muted,
+                        fontSize: 12,
+                        height: 1.3,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              SizedBox(
+                width: 48,
+                child: Text(
+                  timestamp,
+                  textAlign: TextAlign.end,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: GlassTokens.muted,
-                    fontSize: 13,
-                    height: 1.4,
+                    color: RideTokens.muted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
-              ],
-              const SizedBox(height: 13),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  SettingsStatusPill(
-                    label: readableEnum(status),
-                    color: _statusColor(status),
-                    icon: _statusIcon(status),
-                  ),
-                  SettingsStatusPill(
-                    label: '${readableEnum(priority)} priority',
-                    color: _priorityColor(priority),
-                  ),
-                  Text(
-                    settingsDateTime(
-                      ticket['updated_at'] ?? ticket['created_at'],
-                    ),
-                    style: const TextStyle(
-                      color: GlassTokens.muted,
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
               ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  String _compactTime(dynamic value) {
+    final parsed = DateTime.tryParse('$value')?.toLocal();
+    if (parsed == null) return '';
+    final elapsed = DateTime.now().difference(parsed);
+    if (elapsed.isNegative || elapsed.inMinutes < 1) return 'now';
+    if (elapsed.inHours < 1) return '${elapsed.inMinutes}m';
+    if (elapsed.inDays < 1) return '${elapsed.inHours}h';
+    if (elapsed.inDays < 7) return '${elapsed.inDays}d';
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${parsed.day} ${months[parsed.month - 1]}';
   }
 
   IconData _statusIcon(String status) => switch (status) {
@@ -291,169 +301,58 @@ class _SupportPageState extends State<SupportPage> {
   };
 
   Color _statusColor(String status) => switch (status) {
-    'RESOLVED' => const Color(0xFF397864),
-    'CLOSED' => GlassTokens.muted,
-    'WAITING_FOR_USER' => const Color(0xFFA66C28),
-    'IN_PROGRESS' => const Color(0xFF785B9B),
-    _ => GlassTokens.accent,
-  };
-
-  Color _priorityColor(String priority) => switch (priority) {
-    'URGENT' => AppColors.googleRed,
-    'HIGH' => const Color(0xFFA66C28),
-    'LOW' => GlassTokens.muted,
-    _ => GlassTokens.accent,
+    'RESOLVED' => const Color(0xFF2E7D5B),
+    'CLOSED' => RideTokens.muted,
+    'WAITING_FOR_USER' => const Color(0xFFB8791F),
+    'IN_PROGRESS' => const Color(0xFF5368D8),
+    _ => RideTokens.accent,
   };
 }
 
-class _SupportRequestDialog extends StatefulWidget {
-  final UserAppRepository repository;
-  const _SupportRequestDialog({required this.repository});
+class _SupportConversationSkeleton extends StatelessWidget {
+  const _SupportConversationSkeleton();
 
   @override
-  State<_SupportRequestDialog> createState() => _SupportRequestDialogState();
-}
-
-class _SupportRequestDialogState extends State<_SupportRequestDialog> {
-  late final _controller = SupportRequestController()
-    ..addListener(_controllerChanged);
-  void _controllerChanged() {
-    if (mounted) setState(() {});
-  }
-
-  final _form = GlobalKey<FormState>();
-  final _subject = TextEditingController();
-  final _message = TextEditingController();
-  String get _requestKey => _controller.requestKey;
-  String get _priority => _controller.priority;
-  set _priority(String value) => _controller.priority = value;
-  bool get _sending => _controller.sending;
-  set _sending(bool value) => _controller.sending = value;
-  String? get _error => _controller.error;
-  set _error(String? value) => _controller.error = value;
-
-  @override
-  void dispose() {
-    _controller.removeListener(_controllerChanged);
-    _controller.dispose();
-    _subject.dispose();
-    _message.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit() async {
-    if (_sending || !(_form.currentState?.validate() ?? false)) return;
-    setState(() {
-      _sending = true;
-      _error = null;
-    });
-    try {
-      await widget.repository.createSupportTicket({
-        'subject': _subject.text.trim(),
-        'body': _message.text.trim(),
-        'priority': _priority,
-      }, requestKey: _requestKey);
-      if (mounted) Navigator.pop(context, true);
-    } catch (error) {
-      if (mounted) {
-        setState(() {
-          _sending = false;
-          _error = ApiResult.errorMessage(error);
-        });
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => PopScope(
-    canPop: !_sending,
-    child: LiquidGlassDialog(
-      title: const Text('New support request'),
-      content: Form(
-        key: _form,
+  Widget build(BuildContext context) => Column(
+    children: [
+      AppSkeleton(
+        label: 'Loading support conversations',
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Describe one issue per request. Include the ride reference in your message when it concerns a trip.',
-              style: TextStyle(color: GlassTokens.muted, height: 1.45),
-            ),
-            const SizedBox(height: 18),
-            TextFormField(
-              controller: _subject,
-              enabled: !_sending,
-              textCapitalization: TextCapitalization.sentences,
-              textInputAction: TextInputAction.next,
-              maxLength: 160,
-              decoration: const InputDecoration(
-                labelText: 'Subject',
-                hintText: 'What do you need help with?',
-                prefixIcon: Icon(Icons.subject_outlined),
-                counterText: '',
-              ),
-              validator: (value) =>
-                  (value?.trim().isEmpty ?? true) ? 'Enter a subject' : null,
-            ),
-            const SizedBox(height: 18),
-            LiquidGlassDropdownFormField<String>(
-              initialValue: _priority,
-              items: const [
-                DropdownMenuItem(value: 'LOW', child: Text('Low')),
-                DropdownMenuItem(value: 'NORMAL', child: Text('Normal')),
-                DropdownMenuItem(value: 'HIGH', child: Text('High')),
-                DropdownMenuItem(value: 'URGENT', child: Text('Urgent')),
-              ],
-              onChanged: _sending
-                  ? null
-                  : (value) {
-                      if (value != null) setState(() => _priority = value);
-                    },
-              decoration: const InputDecoration(
-                labelText: 'Priority',
-                prefixIcon: Icon(Icons.flag_outlined),
-              ),
-            ),
-            const SizedBox(height: 18),
-            TextFormField(
-              controller: _message,
-              enabled: !_sending,
-              minLines: 4,
-              maxLines: 7,
-              maxLength: 5000,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(
-                labelText: 'Message',
-                hintText: 'Tell us what happened and what you need.',
-                alignLabelWithHint: true,
-              ),
-              validator: (value) =>
-                  (value?.trim().isEmpty ?? true) ? 'Enter a message' : null,
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 10),
-              Text(
-                _error!,
-                style: const TextStyle(
-                  color: AppColors.googleRed,
-                  fontSize: 12,
-                  height: 1.4,
+            for (var index = 0; index < 4; index++) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 13,
+                  horizontal: 2,
+                ),
+                child: Row(
+                  children: [
+                    const SkeletonBox(width: 44, height: 44, circle: true),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          SkeletonBox(width: 150, height: 13),
+                          SizedBox(height: 8),
+                          SkeletonBox(width: 190, height: 11),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const SkeletonBox(width: 36, height: 10),
+                  ],
                 ),
               ),
+              if (index != 3)
+                const Padding(
+                  padding: EdgeInsets.only(left: 56),
+                  child: Divider(height: 1, color: Color(0xFFEEEEEE)),
+                ),
             ],
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _sending ? null : () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton.icon(
-          onPressed: _sending ? null : _submit,
-          icon: Icon(_sending ? Icons.hourglass_top : Icons.send_outlined),
-          label: Text(_sending ? 'Sending…' : 'Send request'),
-        ),
-      ],
-    ),
+    ],
   );
 }

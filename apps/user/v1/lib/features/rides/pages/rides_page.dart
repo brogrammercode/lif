@@ -118,19 +118,11 @@ class _RidesState extends State<RidesPage> with WidgetsBindingObserver {
   );
 
   Future<void> _openRide(String id) async {
-    final resume = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => FractionallySizedBox(
-        heightFactor: .88,
-        child: RideDetailPage(
-          historyRideId: id,
-          repository: _repo,
-          operationsRepository: widget.operationsRepository,
-        ),
-      ),
+    final resume = await showRideHistorySheet(
+      context,
+      rideId: id,
+      repository: _repo,
+      operationsRepository: widget.operationsRepository,
     );
     if (!mounted) return;
     if (resume == true) {

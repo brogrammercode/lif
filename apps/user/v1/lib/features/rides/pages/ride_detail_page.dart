@@ -34,17 +34,41 @@ import 'package:flutter/rendering.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+Future<bool?> showRideHistorySheet(
+  BuildContext context, {
+  required String rideId,
+  UserAppRepository? repository,
+  DriverOperationsRepository? operationsRepository,
+  bool preview = false,
+}) => showModalBottomSheet<bool>(
+  context: context,
+  isScrollControlled: true,
+  useSafeArea: true,
+  backgroundColor: Colors.transparent,
+  builder: (_) => FractionallySizedBox(
+    heightFactor: .88,
+    child: RideDetailPage(
+      historyRideId: rideId,
+      repository: repository,
+      operationsRepository: operationsRepository,
+      previewHistory: preview,
+    ),
+  ),
+);
+
 class RideDetailPage extends StatefulWidget {
   final UserAppRepository? repository;
   final DriverOperationsRepository? operationsRepository;
   final Widget Function(Widget)? mapBuilder;
   final String? historyRideId;
+  final bool previewHistory;
   const RideDetailPage({
     super.key,
     this.repository,
     this.operationsRepository,
     this.mapBuilder,
     this.historyRideId,
+    this.previewHistory = false,
   });
   @override
   State<RideDetailPage> createState() => _RiderTripState();
@@ -435,6 +459,7 @@ class _RiderTripState extends State<RideDetailPage>
     };
     final canRate =
         completed &&
+        !widget.previewHistory &&
         rideMap(trip['review']).isEmpty &&
         rideMap(trip['driver'])['user_id'] != null;
     final title = mapMode ? 'Ride map' : 'Ride details';
@@ -539,6 +564,8 @@ class _RiderTripState extends State<RideDetailPage>
                       child: FilledButton(
                         onPressed: _controller.busy
                             ? null
+                            : widget.previewHistory
+                            ? () => Navigator.pop(context)
                             : _controller.active
                             ? () => Navigator.pop(context, true)
                             : hasMap
@@ -550,7 +577,11 @@ class _RiderTripState extends State<RideDetailPage>
                           minimumSize: const Size.fromHeight(48),
                         ),
                         child: Text(
-                          _controller.active ? 'Open live ride' : 'Rebook ride',
+                          widget.previewHistory
+                              ? 'Back to wallet'
+                              : _controller.active
+                              ? 'Open live ride'
+                              : 'Rebook ride',
                         ),
                       ),
                     ),
@@ -577,7 +608,7 @@ class _RiderTripState extends State<RideDetailPage>
                         ),
                       ),
                     ],
-                    if (completed) ...[
+                    if (completed && !widget.previewHistory) ...[
                       const SizedBox(width: 12),
                       IconButton.outlined(
                         tooltip: 'Download receipt',
@@ -626,7 +657,10 @@ class _RiderTripState extends State<RideDetailPage>
     return SolidScope(
       child: RideStagePanel(
         blackHeight: RideArrivalStrip.heightFor(context),
-        header: RideArrivalStrip(label: title, value: status),
+        header: RideArrivalStrip(
+          label: title,
+          value: widget.previewHistory ? 'Preview' : status,
+        ),
         child: SafeArea(
           top: false,
           child: Column(

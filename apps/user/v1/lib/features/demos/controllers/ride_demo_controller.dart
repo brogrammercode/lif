@@ -18,6 +18,10 @@ enum RideDemoStep {
 
 /// All demo records and transitions live here, never in production widgets.
 class RideDemoController extends FeatureController {
+  final DateTime? receiptTime;
+  final num? receiptFare;
+  RideDemoController({this.receiptTime, this.receiptFare});
+
   static const tripId = 'demo-trip';
   static const riderId = 'demo-rider';
   // Demo-only photography. Keep these values in the controller fixture so the
@@ -214,7 +218,11 @@ class RideDemoController extends FeatureController {
       'COMPLETED',
     ].contains(status);
     final now = DateTime.now().toIso8601String();
-    final stageTime = _stageChangedAt.toIso8601String();
+    final createdTime =
+        receiptTime?.subtract(const Duration(minutes: 14)) ?? _created;
+    final stageTime =
+        (receiptTime?.subtract(const Duration(seconds: 580)) ?? _stageChangedAt)
+            .toIso8601String();
     final trip = {
       'id': tripId,
       'status': status,
@@ -224,8 +232,8 @@ class RideDemoController extends FeatureController {
       'dropoff_address': endpoints['dropoff']['address'],
       'dropoff_latitude': endpoints['dropoff']['latitude'],
       'dropoff_longitude': endpoints['dropoff']['longitude'],
-      'created_at': _created.toIso8601String(),
-      'requested_at': _created.toIso8601String(),
+      'created_at': createdTime.toIso8601String(),
+      'requested_at': createdTime.toIso8601String(),
       'matched_at': assigned ? stageTime : null,
       'arrived_at':
           ['DRIVER_WAITING', 'IN_PROGRESS', 'COMPLETED'].contains(status)
@@ -234,14 +242,18 @@ class RideDemoController extends FeatureController {
       'started_at': ['IN_PROGRESS', 'COMPLETED'].contains(status)
           ? stageTime
           : null,
-      'completed_at': status == 'COMPLETED' ? now : null,
+      'completed_at': status == 'COMPLETED'
+          ? (receiptTime?.toIso8601String() ?? now)
+          : null,
       'driver': assigned ? driver : null,
       'vehicle': assigned ? vehicle : null,
       'passenger_count': passengers,
       'rider_note': note,
       'collection_preference': method,
       'estimated_fare': selectedQuote['total_fare'],
-      'final_fare': status == 'COMPLETED' ? selectedQuote['total_fare'] : null,
+      'final_fare': status == 'COMPLETED'
+          ? (receiptFare ?? selectedQuote['total_fare'])
+          : null,
       'estimated_distance_m': 2800,
       'estimated_duration_s': 540,
       'actual_distance_m': status == 'COMPLETED' ? 2850 : null,
@@ -273,7 +285,7 @@ class RideDemoController extends FeatureController {
       },
       'payment': {
         'status': status == 'COMPLETED' ? 'CAPTURED' : 'PENDING',
-        'amount': selectedQuote['total_fare'],
+        'amount': receiptFare ?? selectedQuote['total_fare'],
         'collection_method': method,
         'method': method,
         'provider_managed': false,
