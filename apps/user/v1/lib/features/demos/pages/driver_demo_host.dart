@@ -6,6 +6,7 @@ import 'package:user/features/demos/controllers/driver_demo_controller.dart';
 import 'package:user/features/demos/controllers/ride_demo_controller.dart';
 import 'package:user/features/driver_operations/driver_operations.repo.dart';
 import 'package:user/features/driver_operations/pages/trip_chat_page.dart';
+import 'package:user/features/driver_operations/widgets/driver_go_online_stage.dart';
 import 'package:user/features/driver_vehicles/pages/driver_request_page.dart';
 import 'package:user/features/driver_vehicles/pages/driver_trip_page.dart';
 
@@ -33,9 +34,22 @@ class _DriverDemoHostState extends State<DriverDemoHost> {
   void _preview(DriverDemoPhase phase) {
     _controller.previewDriver(phase);
     _navigator.currentState?.pushNamedAndRemoveUntil(
-      phase == DriverDemoPhase.request
-          ? '/demo/driver/request'
-          : AppRoutes.driverRideDetail,
+      _routeName(phase),
+      (_) => false,
+      arguments: RideDemoController.tripId,
+    );
+  }
+
+  String _routeName(DriverDemoPhase phase) => switch (phase) {
+    DriverDemoPhase.goOnline => '/demo/driver/go-online',
+    DriverDemoPhase.request => '/demo/driver/request',
+    _ => AppRoutes.driverRideDetail,
+  };
+
+  void _goOnline() {
+    _controller.goOnline();
+    _navigator.currentState?.pushNamedAndRemoveUntil(
+      '/demo/driver/request',
       (_) => false,
       arguments: RideDemoController.tripId,
     );
@@ -44,6 +58,17 @@ class _DriverDemoHostState extends State<DriverDemoHost> {
   Route<dynamic> _route(RouteSettings settings) => MaterialPageRoute(
     settings: settings,
     builder: (_) => switch (settings.name) {
+      '/demo/driver/go-online' => DriverGoOnlineStage(
+        vehicles: _controller.ownedVehicles,
+        selectedVehicleId: _controller.selectedVehicleId,
+        loading: false,
+        busy: false,
+        canGoOnline: true,
+        position: _controller.tracking.position,
+        onSelectVehicle: _controller.selectVehicle,
+        onGoOnline: _goOnline,
+        mapBuilder: widget.mapBuilder,
+      ),
       '/demo/driver/request' => DriverRequestPage(
         offer: _controller.offer,
         repository: _repo,
@@ -91,7 +116,7 @@ class _DriverDemoHostState extends State<DriverDemoHost> {
                 child: Navigator(
                   key: _navigator,
                   onGenerateInitialRoutes: (_, _) => [
-                    _route(const RouteSettings(name: '/demo/driver/request')),
+                    _route(const RouteSettings(name: '/demo/driver/go-online')),
                   ],
                   onGenerateRoute: _route,
                 ),
@@ -131,7 +156,7 @@ class _DriverDemoHostState extends State<DriverDemoHost> {
                         child: const Text('Next'),
                       ),
                       IconButton(
-                        onPressed: () => _preview(DriverDemoPhase.request),
+                        onPressed: () => _preview(DriverDemoPhase.goOnline),
                         icon: const Icon(Icons.restart_alt),
                         tooltip: 'Restart demo',
                       ),

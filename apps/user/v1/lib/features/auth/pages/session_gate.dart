@@ -1,7 +1,5 @@
 import 'package:user/features/auth/controllers/session_controller.dart';
 import 'package:flutter/material.dart';
-import 'package:user/components/ui/app_logo.dart';
-import 'package:user/components/ui/app_skeleton.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/components/ui/app_page.dart';
@@ -52,39 +50,9 @@ class _SessionGateState extends State<SessionGate> {
         );
       }
       if (!snapshot.hasData) {
-        return LiquidGlassScope(
-          child: Scaffold(
-            backgroundColor: GlassTokens.canvas,
-            body: LiquidGlassBackdrop(
-              child: SafeArea(
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 420),
-                      child: LiquidGlassSurface(
-                        child: AppSkeleton(
-                          label: 'Restoring your 1More workspace',
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: const [
-                              AppLogo(width: 116, height: 44),
-                              SizedBox(height: 24),
-                              SkeletonBox(width: 230, height: 18),
-                              SizedBox(height: 11),
-                              SkeletonBox(width: 290, height: 12),
-                              SizedBox(height: 8),
-                              SkeletonBox(width: 210, height: 12),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
+        return const Scaffold(
+          backgroundColor: Colors.white,
+          body: SizedBox.expand(),
         );
       }
       return _RouteReplacement(

@@ -4,6 +4,7 @@ import 'package:user/features/demos/controllers/ride_demo_controller.dart';
 import 'package:user/features/driver_operations/driver_tracking.service.dart';
 
 enum DriverDemoPhase {
+  goOnline,
   request,
   arriving,
   waiting,
@@ -14,12 +15,58 @@ enum DriverDemoPhase {
 
 class DriverDemoController extends RideDemoController {
   DriverDemoController() {
-    previewDriver(DriverDemoPhase.request);
+    previewDriver(DriverDemoPhase.goOnline);
   }
-  DriverDemoPhase phase = DriverDemoPhase.request;
+  DriverDemoPhase phase = DriverDemoPhase.goOnline;
+  String selectedVehicleId = 'demo-driver-maruti';
   final expiresAt = DateTime.now().add(const Duration(minutes: 15));
   final tracking = DemoDriverTracking();
+  List<Map<String, dynamic>> get ownedVehicles => [
+    {
+      'id': 'demo-driver-maruti',
+      'make': 'Maruti Suzuki',
+      'model': 'Dzire',
+      'plate_number': 'BR10 AB1234',
+      'type': 'SEDAN',
+      'is_eligible': true,
+      'brand': {
+        'name': 'Maruti Suzuki',
+        'logo_url':
+            'https://res.cloudinary.com/drxuvrw65/image/upload/v1792684132/1more-admin/vehicle-brands/74618f08-2e02-44c2-a9d5-42213978f227.webp',
+      },
+    },
+    {
+      'id': 'demo-driver-tata',
+      'make': 'Tata',
+      'model': 'Nexon',
+      'plate_number': 'BR10 CD5678',
+      'type': 'SUV',
+      'is_eligible': true,
+      'brand': {'name': 'Tata'},
+    },
+    {
+      'id': 'demo-driver-hyundai',
+      'make': 'Hyundai',
+      'model': 'Aura',
+      'plate_number': 'BR10 EF9012',
+      'type': 'SEDAN',
+      'is_eligible': true,
+      'brand': {'name': 'Hyundai'},
+    },
+  ];
+  Map<String, dynamic> get activeVehicle => ownedVehicles.firstWhere(
+    (vehicle) => vehicle['id'] == selectedVehicleId,
+    orElse: () => ownedVehicles.first,
+  );
+  @override
+  Map<String, dynamic> get vehicle => {
+    ...super.vehicle,
+    ...activeVehicle,
+    'brand': activeVehicle['brand'],
+  };
+
   static String label(DriverDemoPhase phase) => switch (phase) {
+    DriverDemoPhase.goOnline => 'Go online',
     DriverDemoPhase.request => 'Ride request',
     DriverDemoPhase.arriving => 'Arriving',
     DriverDemoPhase.waiting => 'At pickup / QR',
@@ -30,6 +77,7 @@ class DriverDemoController extends RideDemoController {
   void previewDriver(DriverDemoPhase value) {
     phase = value;
     status = switch (value) {
+      DriverDemoPhase.goOnline => 'OFFLINE',
       DriverDemoPhase.request => 'SEARCHING',
       DriverDemoPhase.arriving => 'DRIVER_ARRIVING',
       DriverDemoPhase.waiting => 'DRIVER_WAITING',
@@ -39,6 +87,15 @@ class DriverDemoController extends RideDemoController {
     riderConfirmed = true;
     changed();
   }
+
+  void selectVehicle(String id) {
+    if (ownedVehicles.any((vehicle) => vehicle['id'] == id)) {
+      selectedVehicleId = id;
+      changed();
+    }
+  }
+
+  void goOnline() => previewDriver(DriverDemoPhase.request);
 
   Map<String, dynamic> get offer => {
     'id': 'demo-driver-offer',
@@ -53,7 +110,13 @@ class DriverDemoController extends RideDemoController {
     return {
       ...data,
       'is_driver': true,
-      'driver_availability': status == 'IN_PROGRESS' ? 'ON_TRIP' : 'EN_ROUTE',
+      'driver_availability': switch (phase) {
+        DriverDemoPhase.goOnline => 'OFFLINE',
+        DriverDemoPhase.request => 'AVAILABLE',
+        DriverDemoPhase.arriving || DriverDemoPhase.waiting => 'EN_ROUTE',
+        DriverDemoPhase.inProgress => 'ON_TRIP',
+        DriverDemoPhase.payment || DriverDemoPhase.completed => 'AVAILABLE',
+      },
       'driver_has_active_trip': !['SEARCHING', 'COMPLETED'].contains(status),
       'trip': {
         ...data['trip'] as Map,
@@ -83,7 +146,9 @@ class DriverDemoController extends RideDemoController {
     if (methodName == 'GET' && path == '/driver/operations') {
       result = {
         'offers': phase == DriverDemoPhase.request ? [offer] : [],
-        'availability': 'AVAILABLE',
+        'availability': phase == DriverDemoPhase.goOnline
+            ? 'OFFLINE'
+            : 'AVAILABLE',
       };
     } else if (methodName == 'GET' &&
         path == '/trips/${RideDemoController.tripId}/context') {

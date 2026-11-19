@@ -2,6 +2,7 @@ import 'package:user/core/state/feature_controller.dart';
 import 'package:user/core/network/dio_client.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/auth/auth.repo.dart';
+import 'package:user/features/auth/models/user.model.dart';
 import 'package:user/features/auth/app_mode.repo.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
@@ -18,8 +19,12 @@ class SessionController extends FeatureController {
       return const SessionDestination(AppRoutes.login);
     }
     try {
-      final user = await AuthRepository().currentUser();
-      final travel = await UserAppRepository().travelContext();
+      final sessionReads = await Future.wait<Object>([
+        AuthRepository().currentUser(),
+        UserAppRepository().travelContext(),
+      ]);
+      final user = sessionReads[0] as UserModel;
+      final travel = sessionReads[1] as Map<String, dynamic>;
       if (travel['active_driver_ride'] is Map) {
         return SessionDestination(
           AppRoutes.driverRideDetail,

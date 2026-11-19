@@ -1,7 +1,6 @@
 import 'package:user/features/driver_vehicles/controllers/driver_vehicle_gate_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
-import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/core/route_observer.dart';
 import 'package:user/features/auth/auth.repo.dart';
@@ -104,18 +103,7 @@ class _DriverVehicleGateState extends State<DriverVehicleGate>
       }
       if (snapshot.connectionState == ConnectionState.waiting ||
           !snapshot.hasData) {
-        return const LiquidGlassScope(
-          child: Scaffold(
-            body: LiquidGlassBackdrop(
-              child: SafeArea(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(20, 76, 20, 20),
-                  child: LiquidGlassFormSkeleton(),
-                ),
-              ),
-            ),
-          ),
-        );
+        return widget.child;
       }
       return snapshot.data!
           ? widget.child

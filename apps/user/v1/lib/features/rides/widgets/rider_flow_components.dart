@@ -9,22 +9,29 @@ import 'package:user/features/rides/ride_display.dart';
 class RiderFlowScaffold extends StatefulWidget {
   final Widget map, panel;
   final Widget? statusStrip;
+  final Widget? topLeading;
+  final Widget? topTrailing;
   final String title;
   final VoidCallback? onBack, onRecenter, onRefresh;
   final double? panelContentHeight;
   final double initialPanelFraction, maximumPanelFraction;
+  final bool showBackButton, fitPanelToContent;
   const RiderFlowScaffold({
     super.key,
     required this.map,
     required this.panel,
     required this.title,
     this.statusStrip,
+    this.topLeading,
+    this.topTrailing,
     this.onBack,
     this.onRecenter,
     this.onRefresh,
     this.panelContentHeight,
     this.initialPanelFraction = .30,
     this.maximumPanelFraction = .86,
+    this.showBackButton = true,
+    this.fitPanelToContent = false,
   });
   @override
   State<RiderFlowScaffold> createState() => _RiderFlowScaffoldState();
@@ -35,7 +42,9 @@ class _RiderFlowScaffoldState extends State<RiderFlowScaffold> {
   @override
   void didUpdateWidget(covariant RiderFlowScaffold oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialPanelFraction != widget.initialPanelFraction) {
+    if (oldWidget.initialPanelFraction != widget.initialPanelFraction ||
+        (widget.fitPanelToContent &&
+            oldWidget.panelContentHeight != widget.panelContentHeight)) {
       _fraction = null;
     }
   }
@@ -47,15 +56,24 @@ class _RiderFlowScaffoldState extends State<RiderFlowScaffold> {
       body: LayoutBuilder(
         builder: (context, bounds) {
           final stripHeight = RideArrivalStrip.heightFor(context);
-          final initial = widget.initialPanelFraction;
           const dragHandleHeight = 21.0;
-          final measuredMax = widget.panelContentHeight == null
-              ? widget.maximumPanelFraction
+          const panelVerticalMargin = 20.0;
+          final contentExtent = widget.panelContentHeight == null
+              ? null
               : ((stripHeight +
                             dragHandleHeight +
+                            panelVerticalMargin +
                             MediaQuery.paddingOf(context).bottom +
                             widget.panelContentHeight!) /
                         bounds.maxHeight)
+                    .clamp(.30, widget.maximumPanelFraction)
+                    .toDouble();
+          final initial = widget.fitPanelToContent && contentExtent != null
+              ? contentExtent
+              : widget.initialPanelFraction;
+          final measuredMax = widget.panelContentHeight == null
+              ? widget.maximumPanelFraction
+              : contentExtent!
                     .clamp(initial, widget.maximumPanelFraction)
                     .toDouble();
           final height = bounds.maxHeight * (_fraction ?? initial);
@@ -71,15 +89,29 @@ class _RiderFlowScaffoldState extends State<RiderFlowScaffold> {
                 height: bounds.maxHeight * .80,
                 child: widget.map,
               ),
-              Positioned(
-                top: MediaQuery.paddingOf(context).top + 12,
-                left: 12,
-                child: SolidIconButton(
-                  icon: Icons.chevron_left,
-                  tooltip: 'Back',
-                  onPressed: widget.onBack ?? () => Navigator.maybePop(context),
+              if (widget.showBackButton)
+                Positioned(
+                  top: MediaQuery.paddingOf(context).top + 12,
+                  left: 12,
+                  child: SolidIconButton(
+                    icon: Icons.chevron_left,
+                    tooltip: 'Back',
+                    onPressed:
+                        widget.onBack ?? () => Navigator.maybePop(context),
+                  ),
                 ),
-              ),
+              if (widget.topLeading != null)
+                Positioned(
+                  top: MediaQuery.paddingOf(context).top + 12,
+                  left: 12,
+                  child: widget.topLeading!,
+                ),
+              if (widget.topTrailing != null)
+                Positioned(
+                  top: MediaQuery.paddingOf(context).top + 12,
+                  right: 12,
+                  child: widget.topTrailing!,
+                ),
               if (widget.onRefresh != null)
                 Positioned(
                   top: MediaQuery.paddingOf(context).top + 12,
@@ -554,6 +586,8 @@ class RideArrivalStrip extends StatelessWidget {
 /// Compact black swipe action used to leave the Home route selection stage.
 class RideSwipeButton extends StatefulWidget {
   final String label;
+  final Color accent;
+  final Color? trackColor, thumbColor, labelColor;
   final bool enabled;
   final bool busy;
   final bool readOnly;
@@ -568,6 +602,10 @@ class RideSwipeButton extends StatefulWidget {
     this.readOnly = false,
     this.progressValue,
     this.label = 'Slide to continue',
+    this.accent = RideTokens.accent,
+    this.trackColor,
+    this.thumbColor,
+    this.labelColor,
   });
 
   @override
@@ -621,6 +659,10 @@ class _RideSwipeButtonState extends State<RideSwipeButton> {
           enabled: widget.enabled,
           busy: widget.busy,
           label: widget.label,
+          accent: widget.accent,
+          trackColor: widget.trackColor,
+          thumbColor: widget.thumbColor,
+          labelColor: widget.labelColor,
           onSlide: widget.onSwipe,
         )
       : LayoutBuilder(
@@ -784,13 +826,21 @@ class _RideSwipeButtonState extends State<RideSwipeButton> {
 class _RidePillSlider extends StatefulWidget {
   final bool enabled, busy;
   final String label;
+  final Color accent;
+  final Color trackColor, thumbColor, labelColor;
   final VoidCallback onSlide;
-  const _RidePillSlider({
+  _RidePillSlider({
     required this.enabled,
     required this.busy,
     required this.label,
+    required this.accent,
+    Color? trackColor,
+    Color? thumbColor,
+    Color? labelColor,
     required this.onSlide,
-  });
+  }) : trackColor = trackColor ?? accent,
+       thumbColor = thumbColor ?? accent.withValues(alpha: .58),
+       labelColor = labelColor ?? Colors.white;
   @override
   State<_RidePillSlider> createState() => _RidePillSliderState();
 }
@@ -861,18 +911,13 @@ class _RidePillSliderState extends State<_RidePillSlider> {
                   height: 52,
                   clipBehavior: Clip.antiAlias,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF4566FF),
+                    color: widget.trackColor,
                     borderRadius: BorderRadius.circular(24),
-                    border: Border.all(
-                      color: const Color(0xFF5664E6),
-                      width: 1.5,
-                    ),
+                    border: Border.all(color: widget.trackColor, width: 1.5),
                   ),
                   child: Stack(
                     children: [
                       Positioned.fill(
-                        left: 64,
-                        right: 10,
                         child: Center(
                           child: Opacity(
                             opacity: widget.busy
@@ -882,8 +927,8 @@ class _RidePillSliderState extends State<_RidePillSlider> {
                               widget.busy ? 'Processing…' : widget.label,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: TextStyle(
+                                color: widget.labelColor,
                                 fontSize: 12,
                                 height: 1.2,
                                 fontWeight: FontWeight.w500,
@@ -899,7 +944,7 @@ class _RidePillSliderState extends State<_RidePillSlider> {
                         child: Container(
                           width: thumbWidth,
                           decoration: BoxDecoration(
-                            color: const Color(0xFF91A5FF),
+                            color: widget.thumbColor,
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: const Center(

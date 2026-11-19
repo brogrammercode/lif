@@ -2,12 +2,12 @@ import 'package:user/core/state/data_source_scope.dart';
 import 'package:user/features/demos/widgets/demo_launcher.dart';
 import 'package:user/features/home/controllers/home_controller.dart';
 import 'package:user/components/ui/solid_ui.dart';
+import 'package:user/components/ui/location_access_sheet.dart';
 import 'package:user/features/rides/pages/vehicle_selection_page.dart';
 import 'package:user/features/rides/widgets/rider_flow_components.dart';
 import 'package:user/features/rides/widgets/ride_map_pin_assets.dart';
 import 'package:user/features/saved_places/widgets/place_components.dart';
 import 'package:user/components/ui/app_skeleton.dart';
-import 'package:user/components/ui/liquid_glass.dart';
 
 import 'package:user/features/rides/ride_display.dart';
 import 'package:user/core/route_observer.dart';
@@ -69,6 +69,7 @@ class _HomePageState extends State<HomePage>
   bool get _isRefreshing => _controller.isRefreshing;
   set _isRefreshing(bool value) => _controller.isRefreshing = value;
   bool _waitingForLocationSettingsReturn = false;
+  bool _locationRationaleShown = false;
   bool _mapMounted = true;
   MapLibreMapController? _mapController;
   bool _mapStyleReady = false;
@@ -371,6 +372,24 @@ class _HomePageState extends State<HomePage>
     bool requestPermissionIfDenied = true,
     bool showSettingsDialog = true,
   }) async {
+    if (requestPermissionIfDenied && !_locationRationaleShown) {
+      final permission = await Geolocator.checkPermission();
+      if (!mounted) return false;
+      if (permission == LocationPermission.denied) {
+        _locationRationaleShown = true;
+        final accepted = await LocationAccessSheet.show(
+          context,
+          message:
+              'Your location helps us set your pickup point and show nearby ride options.',
+        );
+        if (!mounted || accepted != true) {
+          return _determinePosition(
+            requestPermissionIfDenied: false,
+            showSettingsDialog: showSettingsDialog,
+          );
+        }
+      }
+    }
     final result = await _controller.locate(
       askPermission: requestPermissionIfDenied,
     );
@@ -434,22 +453,12 @@ class _HomePageState extends State<HomePage>
     required String buttonText,
   }) async {
     if (!mounted) return;
-    final shouldOpenSettings = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => LiquidGlassDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Not now'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(buttonText),
-          ),
-        ],
-      ),
+    final shouldOpenSettings = await LocationAccessSheet.show(
+      context,
+      title: title,
+      message: message,
+      actionLabel: buttonText,
+      secondaryLabel: 'Not now',
     );
     if (shouldOpenSettings == true) {
       _waitingForLocationSettingsReturn = true;

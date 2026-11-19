@@ -1,13 +1,12 @@
-import 'package:user/features/notifications/controllers/notifications_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
-import 'package:user/components/ui/glass_chip.dart';
-import 'package:user/components/ui/liquid_glass.dart';
+import 'package:user/components/ui/app_skeleton.dart';
+import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/driver_operations/driver_operations.repo.dart';
+import 'package:user/features/notifications/controllers/notifications_controller.dart';
 import 'package:user/features/rides/ride_display.dart';
-import 'package:user/features/settings/widgets/settings_secondary.dart';
 import 'package:user/features/user_app/user_app.constant.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
@@ -28,19 +27,18 @@ class _NotificationsPageState extends State<NotificationsPage> {
   late final _controller = NotificationsController(
     widget.repository ?? UserAppRepository(),
   )..addListener(_controllerChanged);
+  late final DriverOperationsRepository _operations =
+      widget.operationsRepository ?? DriverOperationsRepository();
+  bool _opening = false;
+
   void _controllerChanged() {
     if (mounted) setState(() {});
   }
 
   UserAppRepository get _repository => _controller.repository;
-  late final DriverOperationsRepository _operations =
-      widget.operationsRepository ?? DriverOperationsRepository();
   List<Map<String, dynamic>> get _items => _controller.items;
   Object? get _error => _controller.error;
   bool get _loading => _controller.loading;
-  bool _opening = false;
-  String get _filter => _controller.filter;
-  set _filter(String value) => _controller.filter = value;
 
   @override
   void initState() {
@@ -113,187 +111,191 @@ class _NotificationsPageState extends State<NotificationsPage> {
   @override
   Widget build(BuildContext context) => AppPage(
     title: UserAppCopy.NOTIFICATIONS,
-    glass: true,
     scrollable: true,
-    action: IconButton(
-      tooltip: 'Refresh notifications',
-      onPressed: _loading ? null : () => _load(preserve: true),
-      icon: const Icon(Icons.refresh_rounded, color: GlassTokens.accent),
-    ),
     child: _body(),
   );
 
   Widget _body() {
-    if (_loading && _items.isEmpty) return const SettingsListSkeleton(rows: 4);
-    if (_error != null && _items.isEmpty) {
-      return AppLoadError(
-        message: ApiResult.errorMessage(_error!),
-        onRetry: _load,
+    if (_loading && _items.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.fromLTRB(20, 20, 20, 0),
+        child: Column(
+          children: [
+            _NotificationSkeleton(),
+            SizedBox(height: 16),
+            _NotificationSkeleton(),
+            SizedBox(height: 16),
+            _NotificationSkeleton(),
+          ],
+        ),
       );
     }
-    final unread = _items.where((item) => item['read_at'] == null).length;
-    final visible = _filter == 'UNREAD'
-        ? _items.where((item) => item['read_at'] == null).toList()
-        : _items;
-    return RefreshIndicator(
-      onRefresh: () => _load(preserve: true),
-      color: GlassTokens.accent,
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 30),
-        children: [
-          SettingsIntroCard(
-            icon: unread == 0
-                ? Icons.notifications_none_rounded
-                : Icons.notifications_active_outlined,
-            title: unread == 0
-                ? 'You are all caught up'
-                : '$unread unread ${unread == 1 ? 'update' : 'updates'}',
-            body:
-                'Ride progress, account reviews, payments and support replies stay together here.',
-            footer: Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                LiquidGlassChip(
-                  label: 'All (${_items.length})',
-                  icon: Icons.inbox_outlined,
-                  selected: _filter == 'ALL',
-                  onPressed: () => setState(() => _filter = 'ALL'),
-                ),
-                LiquidGlassChip(
-                  label: 'Unread ($unread)',
-                  icon: Icons.mark_email_unread_outlined,
-                  selected: _filter == 'UNREAD',
-                  onPressed: () => setState(() => _filter = 'UNREAD'),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 22),
-          SettingsSectionHeader(
-            title: _filter == 'UNREAD' ? 'Unread updates' : 'Recent updates',
-            helper:
-                'Tap an update to open its related ride, account or request.',
-          ),
-          const SizedBox(height: 12),
-          if (visible.isEmpty)
-            SettingsEmptyCard(
-              icon: _filter == 'UNREAD'
-                  ? Icons.mark_email_read_outlined
-                  : Icons.notifications_none,
-              title: _filter == 'UNREAD'
-                  ? 'No unread updates'
-                  : UserAppCopy.EMPTY_NOTIFICATIONS,
-              body: _filter == 'UNREAD'
-                  ? 'New activity will appear here without hiding your full history.'
-                  : UserAppCopy.EMPTY_NOTIFICATIONS_DESCRIPTION,
-            )
-          else
-            for (var index = 0; index < visible.length; index++) ...[
-              _notification(visible[index]),
-              if (index != visible.length - 1) const SizedBox(height: 12),
-            ],
-        ],
+    if (_error != null && _items.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(20),
+        child: AppLoadError(
+          message: ApiResult.errorMessage(_error!),
+          onRetry: _load,
+        ),
+      );
+    }
+    if (_items.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.fromLTRB(20, 30, 20, 24),
+        child: AppEmptyState(
+          icon: Icons.notifications_none_rounded,
+          title: 'You are all caught up',
+          subtitle: UserAppCopy.EMPTY_NOTIFICATIONS_DESCRIPTION,
+        ),
+      );
+    }
+
+    return ListView.separated(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
+      itemCount: _items.length,
+      separatorBuilder: (_, _) => const Padding(
+        padding: EdgeInsets.only(left: 60),
+        child: Divider(height: 1, color: Color(0xFFEAEAEA)),
       ),
+      itemBuilder: (context, index) => _notification(_items[index]),
     );
   }
 
   Widget _notification(Map<String, dynamic> item) {
     final unread = item['read_at'] == null;
     final type = '${item['type'] ?? 'SYSTEM'}';
+    final body = '${item['body'] ?? ''}'.trim();
+    final date = DateTime.tryParse('${item['created_at'] ?? ''}')?.toLocal();
     return Semantics(
       button: true,
-      label: unread ? 'Unread notification' : 'Read notification',
-      child: LiquidGlassSurface(
-        tint: unread ? const Color(0xFFCAE4FF) : null,
-        padding: EdgeInsets.zero,
-        child: InkWell(
-          onTap: () => _open(item),
-          borderRadius: BorderRadius.circular(24),
-          child: Padding(
-            padding: const EdgeInsets.all(17),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                LiquidGlassSurface(
-                  radius: 99,
-                  padding: const EdgeInsets.all(11),
-                  child: Icon(_icon(type), size: 21, color: _color(type)),
-                ),
-                const SizedBox(width: 13),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '${item['title'] ?? '1More update'}',
-                              style: TextStyle(
-                                color: GlassTokens.ink,
-                                fontSize: 14,
-                                height: 1.3,
-                                fontWeight: unread
-                                    ? FontWeight.w500
-                                    : FontWeight.w500,
-                              ),
+      label:
+          '${unread ? 'Unread' : 'Read'} notification: ${item['title'] ?? '1More update'}',
+      child: InkWell(
+        onTap: () => _open(item),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _NotificationAvatar(icon: _icon(type), color: _color(type)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${item['title'] ?? '1More update'}',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              height: 1.35,
+                              color: RideTokens.ink,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
-                          if (unread) ...[
-                            const SizedBox(width: 9),
-                            Container(
-                              width: 8,
-                              height: 8,
-                              margin: const EdgeInsets.only(top: 5),
-                              decoration: const BoxDecoration(
-                                color: GlassTokens.accent,
+                        ),
+                        if (unread) ...[
+                          const SizedBox(width: 8),
+                          const Padding(
+                            padding: EdgeInsets.only(top: 5),
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: Color(0xFF2E6BE6),
                                 shape: BoxShape.circle,
                               ),
+                              child: SizedBox(width: 9, height: 9),
                             ),
-                          ],
+                          ),
                         ],
-                      ),
-                      const SizedBox(height: 5),
-                      Text(
-                        '${item['body'] ?? ''}',
-                        style: const TextStyle(
-                          color: GlassTokens.muted,
-                          fontSize: 13,
-                          height: 1.42,
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            date == null ? '' : _formattedDate(context, date),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: RideTokens.muted,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          date == null ? '' : _relativeTime(date),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: RideTokens.muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (body.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 13,
+                          vertical: 11,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF4F4F4),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          body,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            height: 1.4,
+                            color: RideTokens.ink,
+                            fontWeight: FontWeight.w400,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          SettingsStatusPill(
-                            label: readableEnum(type),
-                            color: _color(type),
-                          ),
-                          const SizedBox(width: 9),
-                          Expanded(
-                            child: Text(
-                              settingsDateTime(item['created_at']),
-                              textAlign: TextAlign.end,
-                              style: const TextStyle(
-                                color: GlassTokens.muted,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
                     ],
-                  ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
+  }
+
+  String _formattedDate(BuildContext context, DateTime date) {
+    const weekdays = [
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
+    ];
+    return '${weekdays[date.weekday - 1]} ${TimeOfDay.fromDateTime(date).format(context)}';
+  }
+
+  String _relativeTime(DateTime date) {
+    final difference = DateTime.now().difference(date);
+    if (difference.isNegative || difference.inMinutes < 1) return 'just now';
+    if (difference.inMinutes < 60) {
+      final minutes = difference.inMinutes;
+      return '$minutes ${minutes == 1 ? 'minute' : 'minutes'} ago';
+    }
+    if (difference.inHours < 24) {
+      final hours = difference.inHours;
+      return '$hours ${hours == 1 ? 'hour' : 'hours'} ago';
+    }
+    final days = difference.inDays;
+    if (days < 7) return '$days ${days == 1 ? 'day' : 'days'} ago';
+    final weeks = days ~/ 7;
+    return '$weeks ${weeks == 1 ? 'week' : 'weeks'} ago';
   }
 
   IconData _icon(String type) => switch (type) {
@@ -308,9 +310,51 @@ class _NotificationsPageState extends State<NotificationsPage> {
   Color _color(String type) => switch (type) {
     'SAFETY' => const Color(0xFFB44B4B),
     'PAYMENT_UPDATE' => const Color(0xFF397864),
-    'RIDE_UPDATE' => GlassTokens.accent,
+    'RIDE_UPDATE' => const Color(0xFF2E6BE6),
     'ACCOUNT' => const Color(0xFF785B9B),
     'PROMOTION' => const Color(0xFFA66C28),
-    _ => GlassTokens.muted,
+    _ => RideTokens.muted,
   };
+}
+
+class _NotificationAvatar extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  const _NotificationAvatar({required this.icon, required this.color});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 48,
+    height: 48,
+    decoration: BoxDecoration(
+      shape: BoxShape.circle,
+      color: const Color(0xFFF4F4F4),
+      border: Border.all(color: const Color(0xFFE7E7E7)),
+    ),
+    child: Icon(icon, size: 21, color: color),
+  );
+}
+
+class _NotificationSkeleton extends StatelessWidget {
+  const _NotificationSkeleton();
+  @override
+  Widget build(BuildContext context) => const Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      SkeletonBox(width: 48, height: 48, circle: true),
+      SizedBox(width: 12),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SkeletonBox(height: 13),
+            SizedBox(height: 8),
+            SkeletonBox(width: 125, height: 11),
+            SizedBox(height: 12),
+            SkeletonBox(height: 58),
+          ],
+        ),
+      ),
+    ],
+  );
 }

@@ -39,6 +39,12 @@ class DriverOperationsRepository {
     );
   }
 
+  Future<void> selectActiveVehicle(String vehicleId) async {
+    await _client.patchData(
+      '/driver/vehicles/${Uri.encodeComponent(vehicleId)}/active',
+    );
+  }
+
   Future<void> location(Map<String, dynamic> data) async {
     await _client.postData('/driver/location', data: data);
   }
