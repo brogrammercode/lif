@@ -30,6 +30,9 @@ class DriverTripController extends FeatureController {
   List<Map<String, dynamic>> steps = [];
   NavigationProgress? progress;
   bool get canComplete {
+    // TODO: Restore the destination-progress gate once the driver confirms this
+    // interaction. The API still validates that the ride is IN_PROGRESS.
+    /*
     final total = rideNumber(trip?['estimated_distance_m']);
     final remaining = progress?.remainingMetres;
     return points.length >= 2 &&
@@ -40,6 +43,8 @@ class DriverTripController extends FeatureController {
         remaining != null &&
         remaining >= 0 &&
         remaining / total < .1;
+    */
+    return trip?['status'] == 'IN_PROGRESS';
   }
 
   Completer<void>? readDone;

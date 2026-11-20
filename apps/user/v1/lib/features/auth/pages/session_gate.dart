@@ -4,9 +4,11 @@ import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/core/network/api_result.dart';
+import 'package:user/features/auth/widgets/startup_splash.dart';
 
 class SessionGate extends StatefulWidget {
-  const SessionGate({super.key});
+  final Future<void> Function()? initialize;
+  const SessionGate({super.key, this.initialize});
 
   @override
   State<SessionGate> createState() => _SessionGateState();
@@ -14,6 +16,29 @@ class SessionGate extends StatefulWidget {
 
 class _SessionGateState extends State<SessionGate> {
   final _controller = SessionController();
+  late Future<SessionDestination> _destination;
+  Future<void>? _initialization;
+  bool _splashFinished = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _destination = _resolveDestination();
+  }
+
+  Future<SessionDestination> _resolveDestination() async {
+    final initialize = widget.initialize;
+    if (initialize != null) {
+      try {
+        await (_initialization ??= initialize());
+      } catch (_) {
+        _initialization = null;
+        rethrow;
+      }
+    }
+    return _controller.resolveDestination();
+  }
+
   @override
   void dispose() {
     _controller.dispose();
@@ -22,8 +47,25 @@ class _SessionGateState extends State<SessionGate> {
 
   @override
   Widget build(BuildContext context) => FutureBuilder<SessionDestination>(
-    future: _controller.destination,
+    future: _destination,
     builder: (context, snapshot) {
+      if (widget.initialize != null &&
+          (!_splashFinished || !snapshot.hasError)) {
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            StartupSplash(
+              play: !_splashFinished,
+              onFinished: () => setState(() => _splashFinished = true),
+            ),
+            if (_splashFinished && snapshot.hasData)
+              _RouteReplacement(
+                route: snapshot.data!.route,
+                arguments: snapshot.data!.arguments,
+              ),
+          ],
+        );
+      }
       if (snapshot.hasError) {
         return LiquidGlassScope(
           child: Scaffold(
@@ -38,7 +80,7 @@ class _SessionGateState extends State<SessionGate> {
                       child: AppLoadError(
                         message: ApiResult.errorMessage(snapshot.error!),
                         onRetry: () => setState(() {
-                          _controller.retry();
+                          _destination = _resolveDestination();
                         }),
                       ),
                     ),

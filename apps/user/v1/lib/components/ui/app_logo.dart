@@ -14,7 +14,7 @@ class AppLogo extends StatelessWidget {
       AppConstants.APP_LOGO_ASSET,
       width: width,
       height: height,
-      fit: BoxFit.cover,
+      fit: BoxFit.contain,
       alignment: Alignment.center,
       filterQuality: FilterQuality.high,
     ),

@@ -13,7 +13,6 @@ class SessionDestination {
 }
 
 class SessionController extends FeatureController {
-  late Future<SessionDestination> destination = resolveDestination();
   Future<SessionDestination> resolveDestination() async {
     if (!await DioClient().hasSession()) {
       return const SessionDestination(AppRoutes.login);
@@ -53,6 +52,4 @@ class SessionController extends FeatureController {
       rethrow;
     }
   }
-
-  void retry() => update(() => destination = resolveDestination());
 }

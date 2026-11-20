@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:user/constants/app.constant.dart';
+import 'package:user/components/ui/app_logo.dart';
 
 /// The shared visual wallet card used on the wallet page and payment picker.
 class WalletIdentityCard extends StatelessWidget {
@@ -94,7 +94,9 @@ class WalletIdentityCard extends StatelessWidget {
                       const Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          _WalletLogo(),
+                          ExcludeSemantics(
+                            child: AppLogo(width: 42, height: 42),
+                          ),
                           ExcludeSemantics(
                             child: Icon(
                               Icons.contactless_outlined,
@@ -158,51 +160,5 @@ class WalletIdentityCard extends StatelessWidget {
         ),
       ),
     ],
-  );
-}
-
-class _WalletLogo extends StatelessWidget {
-  const _WalletLogo();
-
-  @override
-  Widget build(BuildContext context) => ClipRect(
-    child: SizedBox(
-      width: 128,
-      height: 28,
-      child: OverflowBox(
-        minHeight: 128,
-        maxHeight: 128,
-        child: ColorFiltered(
-          colorFilter: const ColorFilter.matrix([
-            1,
-            0,
-            0,
-            0,
-            0,
-            0,
-            1,
-            0,
-            0,
-            0,
-            0,
-            0,
-            1,
-            0,
-            0,
-            0,
-            0,
-            0,
-            1.25,
-            -14,
-          ]),
-          child: Image.asset(
-            AppConstants.APP_LOGO_ASSET,
-            width: 128,
-            height: 128,
-            excludeFromSemantics: true,
-          ),
-        ),
-      ),
-    ),
   );
 }

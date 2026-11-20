@@ -8,16 +8,22 @@ import 'package:user/core/route_observer.dart';
 import 'package:user/core/theme.dart';
 import 'package:user/firebase_options.dart';
 import 'package:user/components/ui/solid_ui.dart';
+import 'package:user/features/auth/pages/session_gate.dart';
 
-Future<void> main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  runApp(const MyApp(initialize: _initialize));
+}
+
+Future<void> _initialize() async {
   await dotenv.load(fileName: '.env');
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final Future<void> Function()? initialize;
+
+  const MyApp({super.key, this.initialize});
 
   @override
   Widget build(BuildContext context) {
@@ -33,6 +39,12 @@ class MyApp extends StatelessWidget {
           builder: (context, child) => SolidScope(child: child!),
           initialRoute: AppRoutes.gate,
           routes: AppRoutes.routes,
+          onGenerateInitialRoutes: (_) => [
+            MaterialPageRoute<void>(
+              settings: const RouteSettings(name: AppRoutes.gate),
+              builder: (_) => SessionGate(initialize: initialize),
+            ),
+          ],
           navigatorObservers: [appRouteObserver],
         );
       },
