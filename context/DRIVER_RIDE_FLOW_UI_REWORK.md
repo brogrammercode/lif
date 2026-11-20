@@ -72,7 +72,7 @@ No release, version bump or push is part of this task.
 ## Driver phase refinements — 11 November 2026
 
 - Arrival ends at **I have arrived at pickup**; pickup ends after the destination row. QR start remains available beside contacts.
-- Complete ride appears only with valid route progress and less than 10% of the estimated journey distance remaining. Missing route data never unlocks completion.
+- Complete ride is visible throughout `IN_PROGRESS` for now. The former client-side requirement for a valid route and less than 10% remaining is retained as a comment in `DriverTripController`; the API still requires an ongoing ride.
 - Passenger count uses the compact profile badge in request, arrival, pickup, progress, payment and completion.
 - Payment uses the shared swipe control labelled **Payment received**, with server-side collection policy and receipt confirmation. Both apps refresh the authoritative payment snapshot; a captured payment moves them to completion. Opening an external UPI app does not constitute a captured payment.
 - Call and chat remain authorized for trip participants during pending/failed payment collection. Existing ownership, rate limits and resolved-trip contact restrictions still apply.

@@ -2,6 +2,12 @@
 
 Current authority: 8 November 2026. This specification replaces the previous liquid-glass specification in full.
 
+## App icon and startup
+
+Use the supplied standalone white 1More mark in the shared app logo and Android and iOS launcher icons. Center the mark on solid black and keep the whole mark visible at small sizes.
+
+On cold launch, present the bundled `ONE_Splash_Crisp_Logo_9x16_1080p.mp4` clip once at full screen using cover fit, with audio muted. Show a branded frame from the clip before playback and start playback at that frame to avoid a flash from the dark opening. Initialization and session checks run while the splash is visible. If the video is unavailable, continue with the poster. The iOS launch storyboard displays that same poster. Android uses a black system launch window and suppresses the system splash icon on Android 12 and later, then shows the Flutter poster and video. In-app session routing does not replay the clip.
+
 ## Login
 
 The login page uses the supplied full-screen video asset as a muted, looping, cover-fit background with a dark readability overlay. Keep the reference composition: a compact horizontally scrolling feature strip at the top, a centered two-line hero and subtitle, one large Google sign-in button, and a small legal footer. Preserve the existing Google sign-in controller/session handoff. Do not show other provider buttons, the old map illustration, lower feature chips or a sign-in card.
