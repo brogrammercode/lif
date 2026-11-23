@@ -9,6 +9,13 @@ class AppTheme {
       useMaterial3: true,
       colorScheme: ColorScheme.fromSeed(seedColor: AppColors.primaryGreen),
       scaffoldBackgroundColor: AppColors.pureWhite,
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: PredictiveBackPageTransitionsBuilder(
+            fallbackColor: Colors.black,
+          ),
+        },
+      ),
     );
 
     return baseTheme.copyWith(

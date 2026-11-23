@@ -1,4 +1,5 @@
 import 'package:user/features/driver_account/controllers/driver_documents_controller.dart';
+import 'package:user/components/ui/solid_file_upload.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:io';
 import 'dart:typed_data';
@@ -115,33 +116,39 @@ class _DocumentsState extends State<DriverDocumentsPage> {
               Text(
                 '${(bytes.length / 1024).ceil()} KB. The current document remains until you submit. This vehicle will then need approval.',
               ),
-              if (!pdf)
-                Image.memory(
-                  bytes,
-                  height: 180,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, error, stack) => const Text(
-                    'Image preview unavailable. Choose a valid image.',
+              SolidFileUpload(
+                files: [
+                  SolidUploadFile(
+                    name: selected.name,
+                    bytes: bytes,
+                    onOpen: pdf
+                        ? () async {
+                            try {
+                              await VehicleVerificationRepository.openDocument(
+                                selected.name,
+                                bytes,
+                              );
+                            } catch (e) {
+                              if (c.mounted) {
+                                ScaffoldMessenger.of(c).showSnackBar(
+                                  SnackBar(
+                                    content: Text(ApiResult.errorMessage(e)),
+                                  ),
+                                );
+                              }
+                            }
+                          }
+                        : null,
+                    onRemove: () => Navigator.pop(c, false),
                   ),
-                ),
-              if (pdf)
-                OutlinedButton(
-                  onPressed: () async {
-                    try {
-                      await VehicleVerificationRepository.openDocument(
-                        selected.name,
-                        bytes,
-                      );
-                    } catch (e) {
-                      if (c.mounted) {
-                        ScaffoldMessenger.of(c).showSnackBar(
-                          SnackBar(content: Text(ApiResult.errorMessage(e))),
-                        );
-                      }
-                    }
-                  },
-                  child: const Text('Preview PDF'),
-                ),
+                ],
+                image: !pdf,
+                camera: false,
+                busy: false,
+                onChoose: null,
+                limitText: 'Image or PDF · up to 3 MB',
+                showGuidance: false,
+              ),
             ],
           ),
           actions: [

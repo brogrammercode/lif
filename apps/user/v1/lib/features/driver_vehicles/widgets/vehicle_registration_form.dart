@@ -1,5 +1,4 @@
 import 'package:user/features/driver_vehicles/controllers/vehicle_registration_controller.dart';
-import 'package:user/components/ui/glass_dropdown.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -11,24 +10,28 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:user/components/ui/app_page.dart';
-import 'package:user/components/ui/button.dart';
+import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/core/color.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/features/driver_vehicles/vehicle_draft.dart';
 import 'package:user/features/driver_vehicles/vehicle_verification.repo.dart';
 import 'package:user/features/driver_vehicles/widgets/catalog_selector.dart';
 import 'package:user/features/driver_operations/widgets/driver_glass.dart';
-import 'package:user/features/partner_program/widgets/partner_upload_tile.dart';
+import 'package:user/components/ui/solid_file_upload.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
 class VehicleRegistrationForm extends StatefulWidget {
   final Map<String, dynamic>? vehicle;
+  final Map<String, dynamic>? initialBrand;
+  final Map<String, dynamic>? initialModel;
   final Future<void> Function() onSaved;
   final VehicleVerificationRepository? repository;
   final Future<List<Map<String, dynamic>>> Function()? loadCategories;
   const VehicleRegistrationForm({
     super.key,
     this.vehicle,
+    this.initialBrand,
+    this.initialModel,
     required this.onSaved,
     this.repository,
     this.loadCategories,
@@ -95,7 +98,9 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
   Map<String, dynamic>? _field(String key) => vehicleMaps(
     _vehicle?['verification_fields'],
   ).where((f) => f['key'] == key).firstOrNull;
-  bool _locked(String key) => _field(key)?['status'] == 'APPROVED';
+  // Approved values can be changed through this form. The API reopens only
+  // changed fields for review and takes the vehicle offline until approval.
+  bool _locked(String key) => false;
   @override
   void initState() {
     super.initState();
@@ -155,6 +160,10 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
       _categories = categories
           .where((c) => c['is_selectable'] == true)
           .toList();
+      if (vehicle == null) {
+        _brand = widget.initialBrand;
+        _model = widget.initialModel;
+      }
       if (vehicle != null) {
         for (final asset in vehicleMaps(vehicle['verification_assets'])) {
           _names['${asset['field_key']}'] = '${asset['file_name']}';
@@ -395,7 +404,7 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
                       style: TextStyle(
                         color: GlassTokens.ink,
                         fontSize: 19,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w400,
                       ),
                     ),
                   ),
@@ -404,6 +413,7 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
                   icon: Icons.photo_camera_outlined,
                   title: 'Take photo',
                   subtitle: 'Open the camera for a new document photo',
+                  titleWeight: FontWeight.w400,
                   onTap: () => Navigator.pop(context, ImageSource.camera),
                 ),
                 const SizedBox(height: 8),
@@ -411,6 +421,7 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
                   icon: Icons.image_outlined,
                   title: 'Choose image',
                   subtitle: 'Select an existing document image',
+                  titleWeight: FontWeight.w400,
                   onTap: () => Navigator.pop(context, ImageSource.gallery),
                 ),
                 if (!['front_image', 'back_image'].contains(key))
@@ -420,6 +431,7 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
                       icon: Icons.picture_as_pdf_outlined,
                       title: 'Choose PDF document',
                       subtitle: 'Select an RC, insurance or PUC PDF',
+                      titleWeight: FontWeight.w400,
                       onTap: () => Navigator.pop(context, 'pdf'),
                     ),
                   ),
@@ -488,7 +500,7 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
                 height: MediaQuery.sizeOf(context).height * .5,
                 child: InteractiveViewer(
                   child: Image(
-                    image: PartnerUploadTile.previewImage(bytes),
+                    image: SolidFileUpload.previewImage(bytes),
                     fit: BoxFit.contain,
                   ),
                 ),
@@ -672,12 +684,17 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
   Widget _section(String title, List<Widget> children) => Padding(
     padding: const EdgeInsets.only(bottom: 16),
     child: AppCard(
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
             title,
-            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+              color: RideTokens.ink,
+            ),
           ),
           const SizedBox(height: 16),
           ...children,
@@ -697,21 +714,72 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
           validator: (_) =>
               selected == null ? 'Select a ${model ? 'model' : 'brand'}' : null,
           builder: (state) => Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: LiquidGlassSelectField(
-              decoration: InputDecoration(
-                labelText: model ? 'Model' : 'Brand',
-                hintText: 'Select ${model ? 'model' : 'brand'}',
-                errorText: state.errorText,
-              ),
-              onTap:
-                  _busy ||
-                      _locked(key) ||
-                      (model && _brand == null) ||
-                      (!model && _locked('model_id'))
-                  ? null
-                  : () => _choose(model),
-              selection: selected == null ? null : Text('${selected['name']}'),
+            padding: const EdgeInsets.only(bottom: 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(left: 2, bottom: 6),
+                  child: Text(
+                    model ? 'Model' : 'Brand',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: RideTokens.ink,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                Material(
+                  color: const Color(0xFFF5F5F5),
+                  borderRadius: BorderRadius.circular(12),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap:
+                        _busy ||
+                            _locked(key) ||
+                            (model && _brand == null) ||
+                            (!model && _locked('model_id'))
+                        ? null
+                        : () => _choose(model),
+                    child: Container(
+                      constraints: const BoxConstraints(minHeight: 50),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 13,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              selected == null
+                                  ? 'Select ${model ? 'model' : 'brand'}'
+                                  : '${selected['name']}',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: selected == null
+                                    ? RideTokens.muted
+                                    : RideTokens.ink,
+                              ),
+                            ),
+                          ),
+                          const Icon(Icons.keyboard_arrow_down_rounded),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                if (state.errorText != null)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 12, top: 5),
+                    child: Text(
+                      state.errorText!,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFFB3261E),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ),
@@ -754,164 +822,179 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
       canPop: !_busy,
       child: Form(
         key: _form,
-        child: ListView(
-          padding: const EdgeInsets.only(bottom: 24),
+        child: Column(
           children: [
-            DriverPageIntro(
-              icon: _vehicle == null
-                  ? Icons.add_road_rounded
-                  : Icons.fact_check_outlined,
-              title: _vehicle == null
-                  ? 'Register your vehicle'
-                  : 'Correct vehicle submission',
-              description:
-                  'Choose a compatible catalog entry and category, then add clear vehicle photos and private documents for review.',
-            ),
-            const SizedBox(height: 20),
-            _section('Vehicle details', [
-              _catalog(false),
-              _catalog(true),
-              const SizedBox(height: 8),
-              LiquidGlassDropdownFormField<String>(
-                key: ValueKey('category:$_categoryId:${_model?['id']}'),
-                initialValue: selectedCategory,
-                decoration: const InputDecoration(
-                  labelText: 'Vehicle category',
-                ),
-                items: categories
-                    .map(
-                      (c) => DropdownMenuItem<String>(
-                        value: '${c['id']}',
-                        child: Text(
-                          c['parent_name'] == null
-                              ? '${c['name']}'
-                              : '${c['parent_name']} / ${c['name']}',
-                          overflow: TextOverflow.ellipsis,
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.only(top: 20, bottom: 20),
+                children: [
+                  if (_vehicle != null && _vehicle!['status'] == 'ACTIVE') ...[
+                    const Text(
+                      'Changes to approved vehicle details are reviewed before this vehicle can be used again.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.4,
+                        color: RideTokens.muted,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  _section('Vehicle details', [
+                    _catalog(false),
+                    _catalog(true),
+                    const SizedBox(height: 8),
+                    SolidDropdownFormField<String>(
+                      key: ValueKey('category:$_categoryId:${_model?['id']}'),
+                      initialValue: selectedCategory,
+                      label: 'Vehicle category',
+                      items: categories
+                          .map(
+                            (c) => DropdownMenuItem<String>(
+                              value: '${c['id']}',
+                              child: Text(
+                                c['parent_name'] == null
+                                    ? '${c['name']}'
+                                    : '${c['parent_name']} / ${c['name']}',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: _busy || _locked('vehicle_category_id')
+                          ? null
+                          : (v) {
+                              setState(() => _categoryId = v);
+                              _scheduleDraft();
+                            },
+                      validator: (v) =>
+                          v == null ? 'Select a compatible category' : null,
+                    ),
+                    if (_model != null && categories.isEmpty)
+                      const Text(
+                        'No compatible category is configured for this model. Contact your administrator.',
+                        style: TextStyle(color: AppColors.googleRed),
+                      ),
+                    _reviewNote('vehicle_category_id'),
+                    const SizedBox(height: 12),
+                    SolidTextFormField(
+                      controller: _plate,
+                      label: 'Registration number',
+                      enabled: !_busy && !_locked('plate_number'),
+                      textCapitalization: TextCapitalization.characters,
+                      maxLength: 30,
+                      onChanged: (_) => _scheduleDraft(),
+                      validator: (v) =>
+                          RegExp(r'^[A-Z0-9]{3,20}$').hasMatch(
+                            (v ?? '')
+                                .replaceAll(RegExp(r'[\s-]+'), '')
+                                .toUpperCase(),
+                          )
+                          ? null
+                          : 'Enter a valid registration number',
+                    ),
+                    _reviewNote('plate_number'),
+                    const SizedBox(height: 12),
+                    SolidTextFormField(
+                      controller: _color,
+                      label: 'Color',
+                      enabled: !_busy && !_locked('color'),
+                      maxLength: 40,
+                      onChanged: (_) => _scheduleDraft(),
+                      validator: (v) => (v?.trim().isEmpty ?? true)
+                          ? 'Enter the vehicle color'
+                          : null,
+                    ),
+                    _reviewNote('color'),
+                  ]),
+                  _section('Photos and documents', [
+                    for (final entry in vehicleDocuments.entries) ...[
+                      Text(
+                        entry.value,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: RideTokens.ink,
                         ),
                       ),
-                    )
-                    .toList(),
-                onChanged: _busy || _locked('vehicle_category_id')
-                    ? null
-                    : (v) => setState(() {
-                        _categoryId = v;
-                        _scheduleDraft();
-                      }),
-                validator: (v) =>
-                    v == null ? 'Select a compatible category' : null,
-              ),
-              if (_model != null && categories.isEmpty)
-                const Text(
-                  'No compatible category is configured for this model. Contact your administrator.',
-                  style: TextStyle(color: AppColors.googleRed),
-                ),
-              _reviewNote('vehicle_category_id'),
-              const SizedBox(height: 12),
-              LiquidGlassSurface(
-                padding: EdgeInsets.zero,
-                radius: 20,
-                child: TextFormField(
-                  controller: _plate,
-                  enabled: !_busy && !_locked('plate_number'),
-                  textCapitalization: TextCapitalization.characters,
-                  maxLength: 30,
-                  decoration: const InputDecoration(
-                    labelText: 'Registration number',
-                    counterText: '',
-                  ),
-                  onChanged: (_) => _scheduleDraft(),
-                  validator: (v) =>
-                      RegExp(r'^[A-Z0-9]{3,20}$').hasMatch(
-                        (v ?? '')
-                            .replaceAll(RegExp(r'[\s-]+'), '')
-                            .toUpperCase(),
-                      )
-                      ? null
-                      : 'Enter a valid registration number',
-                ),
-              ),
-              _reviewNote('plate_number'),
-              const SizedBox(height: 12),
-              LiquidGlassSurface(
-                padding: EdgeInsets.zero,
-                radius: 20,
-                child: TextFormField(
-                  controller: _color,
-                  enabled: !_busy && !_locked('color'),
-                  maxLength: 40,
-                  decoration: const InputDecoration(
-                    labelText: 'Color',
-                    counterText: '',
-                  ),
-                  onChanged: (_) => _scheduleDraft(),
-                  validator: (v) => (v?.trim().isEmpty ?? true)
-                      ? 'Enter the vehicle color'
-                      : null,
-                ),
-              ),
-              _reviewNote('color'),
-            ]),
-            _section('Photos and documents', [
-              for (final entry in vehicleDocuments.entries) ...[
-                Text(
-                  entry.value,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 8),
-                PartnerUploadTile(
-                  files: [
-                    if (_local.containsKey(entry.key) ||
-                        _documents.containsKey(entry.key))
-                      PartnerUploadFile(
-                        name: _names[entry.key] ?? '${entry.value}.webp',
-                        bytes: _local[entry.key],
-                        onOpen: () => _preview(entry.key),
-                        onRemove: _locked(entry.key)
+                      const SizedBox(height: 8),
+                      SolidFileUpload(
+                        files: [
+                          if (_local.containsKey(entry.key) ||
+                              _documents.containsKey(entry.key))
+                            SolidUploadFile(
+                              name: _names[entry.key] ?? '${entry.value}.webp',
+                              id: _documents[entry.key],
+                              bytes: _local[entry.key],
+                              loadBytes:
+                                  _local.containsKey(entry.key) ||
+                                      _documents[entry.key] == null ||
+                                      (_names[entry.key] ?? '')
+                                          .toLowerCase()
+                                          .endsWith('.pdf')
+                                  ? null
+                                  : () => _repo.image(_documents[entry.key]!),
+                              onOpen: () => _preview(entry.key),
+                              onRemove: _locked(entry.key)
+                                  ? null
+                                  : () => _removeImage(entry.key),
+                            ),
+                        ],
+                        image: !(_names[entry.key] ?? '')
+                            .toLowerCase()
+                            .endsWith('.pdf'),
+                        camera: false,
+                        busy: _busy,
+                        onChoose: _locked(entry.key)
                             ? null
-                            : () => _removeImage(entry.key),
+                            : () => _pick(entry.key),
+                        limitText:
+                            'Photos or PDF for documents, up to 3 MB. Uploaded on submission.',
                       ),
-                  ],
-                  image: !(_names[entry.key] ?? '').toLowerCase().endsWith(
-                    '.pdf',
+                      _reviewNote(entry.key),
+                      const SizedBox(height: 16),
+                    ],
+                  ]),
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: DriverNotice(
+                        icon: Icons.error_outline_rounded,
+                        message: _error!,
+                        error: true,
+                      ),
+                    ),
+                  if (_progress != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text(
+                        _progress!,
+                        style: const TextStyle(color: AppColors.textSecondary),
+                      ),
+                    ),
+                  if (_needsReload)
+                    OutlinedButton(
+                      onPressed: _busy ? null : _reloadLatest,
+                      child: const Text('Reload latest vehicle'),
+                    ),
+                ],
+              ),
+            ),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 60,
+                  child: SolidButton(
+                    text: _vehicle == null
+                        ? 'Submit for review'
+                        : 'Save changes',
+                    busy: _busy,
+                    onPressed: _busy || _needsReload ? null : _submit,
                   ),
-                  camera: false,
-                  busy: _busy,
-                  onChoose: _locked(entry.key) ? null : () => _pick(entry.key),
-                  limitText:
-                      'Photos or PDF for documents, up to 3 MB. Uploaded on submission.',
-                ),
-                _reviewNote(entry.key),
-                const SizedBox(height: 16),
-              ],
-            ]),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: DriverNotice(
-                  icon: Icons.error_outline_rounded,
-                  message: _error!,
-                  error: true,
                 ),
               ),
-            if (_progress != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Text(
-                  _progress!,
-                  style: const TextStyle(color: AppColors.textSecondary),
-                ),
-              ),
-            if (_needsReload)
-              OutlinedButton(
-                onPressed: _busy ? null : _reloadLatest,
-                child: const Text('Reload latest vehicle'),
-              ),
-            AppButton(
-              text: _vehicle == null
-                  ? 'Submit vehicle for verification'
-                  : 'Submit corrections',
-              isLoading: _busy,
-              onPressed: _busy || _needsReload ? null : _submit,
             ),
           ],
         ),

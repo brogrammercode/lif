@@ -1,4 +1,5 @@
 import 'package:user/components/ui/solid_ui.dart';
+import 'package:user/components/ui/solid_file_upload.dart';
 import 'package:user/features/saved_places/controllers/place_save_controller.dart';
 import 'package:user/features/saved_places/controllers/place_picker_controller.dart';
 import 'dart:async';
@@ -213,23 +214,6 @@ class _PickerState extends State<PlacePickerPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (_photos.isEmpty)
-                    PlacePhoto(
-                      url: placePhotos(_selected).firstOrNull,
-                      height: 110,
-                    )
-                  else
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(18),
-                      child: Image.file(
-                        File(_photos.first.path),
-                        height: 110,
-                        fit: BoxFit.cover,
-                        cacheWidth: 600,
-                        errorBuilder: (_, error, stack) =>
-                            const PlacePhoto(height: 110),
-                      ),
-                    ),
                   const SizedBox(height: 12),
                   Text(
                     _point == null ? 'Choose your spot' : placeName(_selected),
@@ -259,22 +243,24 @@ class _PickerState extends State<PlacePickerPage> {
                         style: const TextStyle(fontSize: 12, color: Colors.red),
                       ),
                     ),
-                  Wrap(
-                    alignment: WrapAlignment.spaceBetween,
-                    children: [
-                      TextButton.icon(
-                        onPressed: _picking || _photos.length >= 3
-                            ? null
-                            : _photo,
-                        icon: const Icon(Icons.add_photo_alternate_outlined),
-                        label: Text('Add photo (${_photos.length}/3)'),
-                      ),
-                      if (_photos.isNotEmpty)
-                        TextButton(
-                          onPressed: () => setState(() => _photos.removeLast()),
-                          child: const Text('Remove last'),
+                  SolidFileUpload(
+                    files: [
+                      for (final url in placePhotos(_selected))
+                        SolidUploadFile(name: 'Place photo', imageUrl: url),
+                      for (final photo in _photos)
+                        SolidUploadFile(
+                          name: photo.name,
+                          path: photo.path,
+                          onRemove: () => setState(() => _photos.remove(photo)),
                         ),
                     ],
+                    image: true,
+                    camera: false,
+                    busy: _picking,
+                    allowAdditional: true,
+                    onChoose: _photos.length >= 3 ? null : _photo,
+                    limitText:
+                        'Supported files: JPEG, PNG, or WebP · Max file size: 3 MB · Up to 3 photos',
                   ),
                   AppButton(
                     text: 'Use this location',

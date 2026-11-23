@@ -20,6 +20,7 @@ class SettingsMenuTile extends StatelessWidget {
   final VoidCallback? onTap;
   final bool loading;
   final bool destructive;
+  final FontWeight titleWeight;
   const SettingsMenuTile({
     super.key,
     required this.icon,
@@ -28,6 +29,7 @@ class SettingsMenuTile extends StatelessWidget {
     this.onTap,
     this.loading = false,
     this.destructive = false,
+    this.titleWeight = FontWeight.w600,
   });
 
   @override
@@ -91,7 +93,7 @@ class SettingsMenuTile extends StatelessWidget {
                               style: TextStyle(
                                 fontSize: 14,
                                 height: 1.3,
-                                fontWeight: FontWeight.w600,
+                                fontWeight: titleWeight,
                                 color: destructive
                                     ? AppColors.googleRed
                                     : AppColors.textPrimary,

@@ -158,6 +158,7 @@ class DriverLinkTile extends StatelessWidget {
   final String subtitle;
   final VoidCallback? onTap;
   final Widget? trailing;
+  final FontWeight titleWeight;
   const DriverLinkTile({
     super.key,
     required this.icon,
@@ -166,6 +167,7 @@ class DriverLinkTile extends StatelessWidget {
     required this.subtitle,
     required this.onTap,
     this.trailing,
+    this.titleWeight = FontWeight.w600,
   });
 
   @override
@@ -194,10 +196,10 @@ class DriverLinkTile extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: GlassTokens.ink,
                         fontSize: 15,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: titleWeight,
                       ),
                     ),
                     const SizedBox(height: 3),

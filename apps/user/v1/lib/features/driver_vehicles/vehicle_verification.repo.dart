@@ -119,6 +119,10 @@ class VehicleVerificationRepository {
     }
   }
 
+  Future<void> remove(String id) async {
+    await _client.deleteData('$base/${Uri.encodeComponent(id)}');
+  }
+
   Future<Uint8List> image(String id) async {
     final data = _map(
       await _client.getData('/vehicle-verification/assets/$id'),

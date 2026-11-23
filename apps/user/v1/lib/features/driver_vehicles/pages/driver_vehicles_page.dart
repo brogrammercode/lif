@@ -5,10 +5,11 @@ import 'package:user/components/ui/app_page.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/features/auth/auth.repo.dart';
-import 'package:user/features/driver_operations/widgets/driver_glass.dart';
 import 'package:user/features/driver_vehicles/vehicle_verification.repo.dart';
 import 'package:user/features/driver_vehicles/widgets/vehicle_registration_form.dart';
+import 'package:user/features/driver_vehicles/widgets/catalog_selector.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
+import 'package:user/components/ui/solid_ui.dart';
 
 class DriverVehiclesPage extends StatefulWidget {
   final bool registrationRequired;
@@ -66,7 +67,11 @@ class _DriverVehiclesPageState extends State<DriverVehiclesPage>
 
   Future<void> _reload() => _controller.reload();
 
-  Future<void> _edit([Map<String, dynamic>? vehicle]) async {
+  Future<void> _edit({
+    Map<String, dynamic>? vehicle,
+    Map<String, dynamic>? initialBrand,
+    Map<String, dynamic>? initialModel,
+  }) async {
     if (_busy || _editing) return;
     _editing = true;
     try {
@@ -75,9 +80,11 @@ class _DriverVehiclesPageState extends State<DriverVehiclesPage>
         MaterialPageRoute(
           builder: (context) => AppPage(
             glass: true,
-            title: vehicle == null ? 'Register vehicle' : 'Vehicle corrections',
+            title: vehicle == null ? 'Add Vehicle' : 'Edit Vehicle',
             child: VehicleRegistrationForm(
               vehicle: vehicle,
+              initialBrand: initialBrand,
+              initialModel: initialModel,
               onSaved: () async {
                 if (context.mounted) Navigator.pop(context);
               },
@@ -89,6 +96,295 @@ class _DriverVehiclesPageState extends State<DriverVehiclesPage>
       _editing = false;
     }
     if (mounted) await _reload();
+  }
+
+  Future<void> _addVehicle() async {
+    if (_busy || _editing) return;
+    final brand = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(builder: (_) => const CatalogSelector()),
+    );
+    if (brand == null || !mounted) return;
+    final model = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(builder: (_) => CatalogSelector(brand: brand)),
+    );
+    if (model == null || !mounted) return;
+    await _edit(initialBrand: brand, initialModel: model);
+  }
+
+  Future<void> _vehicleMenu(Map<String, dynamic> vehicle) async {
+    final action = await showSolidActionSheet<String>(
+      context: context,
+      title: '${vehicle['make'] ?? ''} ${vehicle['model'] ?? ''}'.trim(),
+      actions: const [
+        SolidSheetAction(
+          value: 'edit',
+          label: 'Edit vehicle',
+          icon: Icons.edit_outlined,
+        ),
+        SolidSheetAction(
+          value: 'remove',
+          label: 'Delete vehicle',
+          icon: Icons.delete_outline_rounded,
+          destructive: true,
+        ),
+      ],
+    );
+    if (!mounted || action == null) return;
+    if (action == 'edit') {
+      await _edit(vehicle: vehicle);
+    } else {
+      await _confirmRemove(vehicle);
+    }
+  }
+
+  Future<void> _confirmRemove(Map<String, dynamic> vehicle) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: const Text('Delete vehicle?'),
+        content: Text(
+          'Remove ${vehicle['make'] ?? ''} ${vehicle['model'] ?? ''} from your vehicles? Ride history will be kept.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFFB3261E),
+            ),
+            child: const Text('Delete vehicle'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await _controller.repo.remove('${vehicle['id']}');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Vehicle removed. Ride history is retained.'),
+        ),
+      );
+      await _reload();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Map<String, dynamic> _brandFor(Map<String, dynamic> vehicle) {
+    final brand = vehicle['brand'];
+    if (brand is Map) return Map<String, dynamic>.from(brand);
+    final model = vehicle['catalog_model'];
+    if (model is Map && model['brand'] is Map) {
+      return Map<String, dynamic>.from(model['brand'] as Map);
+    }
+    final name = '${vehicle['make'] ?? 'Vehicle'}';
+    return {
+      'id': 'make:${name.toLowerCase()}',
+      'name': name,
+      'logo_url': vehicle['brand_logo_url'],
+    };
+  }
+
+  List<Map<String, dynamic>> _registeredBrands(
+    List<Map<String, dynamic>> vehicles,
+  ) {
+    final brands = <String, Map<String, dynamic>>{};
+    for (final vehicle in vehicles) {
+      final brand = _brandFor(vehicle);
+      brands.putIfAbsent('${brand['id']}', () => brand);
+    }
+    return brands.values.toList(growable: false);
+  }
+
+  Widget _brandChoice(Map<String, dynamic> brand, bool selected) {
+    final logo = '${brand['logo_url'] ?? ''}'.trim();
+    return SizedBox(
+      width: 88,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 70,
+            height: 70,
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white,
+              border: Border.all(
+                color: selected ? RideTokens.ink : RideTokens.line,
+                width: selected ? 1.6 : 1,
+              ),
+            ),
+            child: Container(
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white,
+              ),
+              clipBehavior: Clip.antiAlias,
+              padding: const EdgeInsets.all(12),
+              child: logo.isEmpty
+                  ? const Icon(Icons.directions_car_filled_outlined, size: 27)
+                  : Image.network(
+                      logo,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, _, _) => const Icon(
+                        Icons.directions_car_filled_outlined,
+                        size: 27,
+                      ),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            '${brand['name'] ?? 'Vehicle'}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              color: selected ? RideTokens.ink : RideTokens.muted,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _vehicleTile(Map<String, dynamic> vehicle) {
+    final brand = _brandFor(vehicle);
+    final logo = '${brand['logo_url'] ?? ''}'.trim();
+    final fields = vehicleMaps(vehicle['verification_fields']);
+    final rejection = fields
+        .where((field) => field['rejection_reason'] != null)
+        .map((field) => '${field['label']}: ${field['rejection_reason']}')
+        .join('\n');
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: SolidSurface(
+        radius: 14,
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 58,
+                  height: 58,
+                  padding: const EdgeInsets.all(9),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white,
+                    border: Border.all(color: RideTokens.line),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: logo.isEmpty
+                      ? const Icon(Icons.directions_car_filled_outlined)
+                      : Image.network(
+                          logo,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, _, _) =>
+                              const Icon(Icons.directions_car_filled_outlined),
+                        ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${vehicle['make'] ?? brand['name'] ?? ''} ${vehicle['model'] ?? ''}'
+                            .trim(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                          color: RideTokens.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${vehicle['plate_number'] ?? ''}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: RideTokens.muted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 5),
+                IconButton(
+                  tooltip: 'Vehicle options',
+                  onPressed: _busy ? null : () => _vehicleMenu(vehicle),
+                  icon: const Icon(Icons.more_vert_rounded),
+                ),
+              ],
+            ),
+            const SizedBox(height: 11),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${vehicle['color'] ?? ''} · ${vehicle['vehicle_category'] is Map ? (vehicle['vehicle_category'] as Map)['name'] ?? '' : ''}'
+                        .replaceAll(RegExp(r'^ · | · $'), ''),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: RideTokens.muted,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${vehicle['status'] ?? 'PENDING'}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: vehicle['is_eligible'] == true
+                        ? const Color(0xFF16834A)
+                        : RideTokens.muted,
+                  ),
+                ),
+              ],
+            ),
+            if (rejection.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                rejection,
+                style: const TextStyle(fontSize: 12, color: Color(0xFFB3261E)),
+              ),
+            ],
+            if (vehicle['is_eligible'] == true) ...[
+              const SizedBox(height: 12),
+              SolidButton(
+                text: 'Use this vehicle',
+                minHeight: 46,
+                busy: _busy,
+                onPressed: () => _active('${vehicle['id']}'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _active(String id) async {
@@ -176,163 +472,113 @@ class _DriverVehiclesPageState extends State<DriverVehiclesPage>
           if (!snapshot.hasData) {
             return const LiquidGlassFormSkeleton();
           }
-          final vehicles = vehicleMaps(snapshot.data!['vehicles']);
-          _inlineForm = vehicles.isEmpty;
-          if (vehicles.isEmpty) {
+          final vehicles = vehicleMaps(snapshot.data!['vehicles'])
+              .where((vehicle) => vehicle['status'] != 'INACTIVE')
+              .toList(growable: false);
+          _inlineForm = widget.registrationRequired && vehicles.isEmpty;
+          if (_inlineForm) {
             return VehicleRegistrationForm(onSaved: _reload);
           }
+          final brands = _registeredBrands(vehicles);
+          _controller.ensureSelectedBrand(brands);
+          final selectedBrand = brands
+              .where((brand) => '${brand['id']}' == _controller.selectedBrandId)
+              .firstOrNull;
+          final selectedVehicles = selectedBrand == null
+              ? const <Map<String, dynamic>>[]
+              : vehicles
+                    .where(
+                      (vehicle) =>
+                          '${_brandFor(vehicle)['id']}' ==
+                          '${selectedBrand['id']}',
+                    )
+                    .toList(growable: false);
           return RefreshIndicator(
             onRefresh: _reload,
             child: ListView(
+              padding: const EdgeInsets.only(top: 20, bottom: 24),
               physics: const AlwaysScrollableScrollPhysics(),
               children: [
-                DriverPageIntro(
-                  icon: Icons.garage_outlined,
-                  title: widget.registrationRequired
-                      ? 'Vehicle verification required'
-                      : '${vehicles.length} registered ${vehicles.length == 1 ? 'vehicle' : 'vehicles'}',
-                  description: widget.registrationRequired
-                      ? 'At least one vehicle must finish review before driver operations unlock.'
-                      : 'Choose one eligible vehicle for offers, or review its documents and catalog status.',
-                  trailing: DriverStatusPill(
-                    label:
-                        '${vehicles.where((v) => v['is_eligible'] == true).length} ready',
-                    status: vehicles.any((v) => v['is_eligible'] == true)
-                        ? 'ACTIVE'
-                        : 'PENDING',
-                  ),
-                ),
-                const SizedBox(height: 18),
-                for (final vehicle in vehicles)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    child: AppCard(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                SizedBox(
+                  height: 110,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: brands.length + 1,
+                    separatorBuilder: (_, _) => const SizedBox(width: 8),
+                    itemBuilder: (context, index) {
+                      if (index == brands.length) {
+                        return SizedBox(
+                          width: 76,
+                          child: Column(
                             children: [
-                              LiquidGlassSurface(
-                                radius: 99,
-                                padding: const EdgeInsets.all(12),
-                                child: Icon(
-                                  [
-                                        'BIKE',
-                                        'SCOOTER',
-                                      ].contains(vehicle['vehicle_type'])
-                                      ? Icons.two_wheeler_rounded
-                                      : Icons.directions_car_filled_outlined,
-                                  color: GlassTokens.accent,
+                              SizedBox(
+                                width: 70,
+                                height: 70,
+                                child: Material(
+                                  color: Colors.white,
+                                  shape: const CircleBorder(
+                                    side: BorderSide(color: RideTokens.line),
+                                  ),
+                                  child: InkWell(
+                                    customBorder: const CircleBorder(),
+                                    onTap: _busy ? null : _addVehicle,
+                                    child: const Icon(Icons.add_rounded),
+                                  ),
                                 ),
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      '${vehicle['make']} ${vehicle['model']}',
-                                      style: const TextStyle(
-                                        color: GlassTokens.ink,
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 3),
-                                    Text(
-                                      '${vehicle['plate_number']}',
-                                      style: const TextStyle(
-                                        color: GlassTokens.muted,
-                                      ),
-                                    ),
-                                  ],
+                              const SizedBox(height: 7),
+                              const Text(
+                                'Add',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: RideTokens.muted,
+                                  fontWeight: FontWeight.w500,
                                 ),
-                              ),
-                              DriverStatusPill(
-                                label: '${vehicle['status']}',
-                                status: '${vehicle['status']}',
                               ),
                             ],
                           ),
-                          const SizedBox(height: 16),
-                          if (vehicle['status'] == 'ACTIVE' &&
-                              vehicle['is_eligible'] != true &&
-                              vehicleMaps(
-                                vehicle['verification_fields'],
-                              ).isNotEmpty)
-                            const Padding(
-                              padding: EdgeInsets.only(bottom: 12),
-                              child: DriverNotice(
-                                icon: Icons.warning_amber_rounded,
-                                message:
-                                    'This approved vehicle is unavailable. Ask an administrator to check its brand, model and category configuration.',
-                                warning: true,
-                              ),
-                            ),
-                          for (final field in vehicleMaps(
-                            vehicle['verification_fields'],
-                          ))
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(child: Text('${field['label']}')),
-                                  DriverStatusPill(
-                                    label: '${field['status']}',
-                                    status: '${field['status']}',
-                                  ),
-                                ],
-                              ),
-                            ),
-                          for (final field in vehicleMaps(
-                            vehicle['verification_fields'],
-                          ).where((field) => field['rejection_reason'] != null))
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: DriverNotice(
-                                icon: Icons.info_outline_rounded,
-                                message:
-                                    '${field['label']}: ${field['rejection_reason']}',
-                                error: true,
-                              ),
-                            ),
-                          if (vehicleMaps(
-                                vehicle['verification_fields'],
-                              ).isEmpty ||
-                              [
-                                'UNDER_REVIEW',
-                                'REJECTED',
-                              ].contains(vehicle['status']))
-                            OutlinedButton(
-                              onPressed: _busy ? null : () => _edit(vehicle),
-                              child: Text(
-                                vehicleMaps(
-                                      vehicle['verification_fields'],
-                                    ).isEmpty
-                                    ? 'Complete verification'
-                                    : 'View or correct submission',
-                              ),
-                            ),
-                          if (vehicle['is_eligible'] == true)
-                            LiquidGlassButton(
-                              onPressed: _busy
-                                  ? null
-                                  : () => _active('${vehicle['id']}'),
-                              busy: _busy,
-                              text: 'Use this vehicle',
-                            ),
-                        ],
+                        );
+                      }
+                      final brand = brands[index];
+                      final selected =
+                          '${brand['id']}' == _controller.selectedBrandId;
+                      return GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => _controller.selectBrand('${brand['id']}'),
+                        child: _brandChoice(brand, selected),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 20),
+                if (selectedBrand == null)
+                  const AppEmptyState(
+                    icon: Icons.directions_car_outlined,
+                    title: 'No vehicles yet',
+                    subtitle: 'Add a vehicle to get started.',
+                  )
+                else ...[
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      '${selectedBrand['name']} vehicles',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: RideTokens.ink,
                       ),
                     ),
                   ),
-                LiquidGlassButton(
-                  onPressed: _busy ? null : () => _edit(),
-                  icon: const Icon(Icons.add),
-                  text: 'Register another vehicle',
-                ),
-                const SizedBox(height: 24),
+                  if (selectedVehicles.isEmpty)
+                    const AppEmptyState(
+                      icon: Icons.directions_car_outlined,
+                      title: 'No vehicles for this brand',
+                      subtitle: 'Choose Add to register another vehicle.',
+                    )
+                  else
+                    for (final vehicle in selectedVehicles)
+                      _vehicleTile(vehicle),
+                ],
               ],
             ),
           );

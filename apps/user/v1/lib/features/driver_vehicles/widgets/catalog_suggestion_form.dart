@@ -1,15 +1,12 @@
 import 'package:user/features/driver_vehicles/controllers/catalog_suggestion_controller.dart';
-import 'package:user/components/ui/glass_dropdown.dart';
-import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:user/components/ui/app_page.dart';
-import 'package:user/components/ui/button.dart';
+import 'package:user/components/ui/solid_file_upload.dart';
+import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/features/driver_vehicles/vehicle_verification.repo.dart';
-import 'package:user/features/driver_operations/widgets/driver_glass.dart';
-import 'package:user/features/partner_program/widgets/partner_upload_tile.dart';
 
 class CatalogSuggestionForm extends StatefulWidget {
   final Map<String, dynamic>? brand;
@@ -167,180 +164,273 @@ class _CatalogSuggestionFormState extends State<CatalogSuggestionForm> {
     bool required = false,
     int max = 100,
     bool number = false,
+    int lines = 1,
   }) => Padding(
-    padding: const EdgeInsets.only(bottom: 16),
-    child: LiquidGlassSurface(
-      padding: EdgeInsets.zero,
-      radius: 20,
-      child: TextFormField(
-        controller: _controllers[key],
-        enabled: !_busy,
-        keyboardType: number ? TextInputType.number : TextInputType.text,
-        maxLength: max,
-        decoration: InputDecoration(labelText: label, counterText: ''),
-        validator: (value) {
-          final text = value?.trim() ?? '';
-          if (required && text.isEmpty) return 'This field is required';
-          if (number && text.isNotEmpty) {
-            final n = int.tryParse(text);
-            if (n == null ||
-                (key == 'seating_capacity'
-                    ? n < 1 || n > 8
-                    : n < 1900 || n > 2050)) {
-              return key == 'seating_capacity'
-                  ? 'Enter 1 to 8 passenger seats'
-                  : 'Enter a year from 1900 to 2050';
-            }
-            if (key == 'year_to' &&
-                n < (int.tryParse(_controllers['year_from']!.text) ?? 1900)) {
-              return 'Must be after the first model year';
-            }
+    padding: const EdgeInsets.only(bottom: 14),
+    child: SolidTextFormField(
+      controller: _controllers[key],
+      label: label,
+      enabled: !_busy,
+      keyboardType: number ? TextInputType.number : TextInputType.text,
+      maxLength: max,
+      minLines: lines == 1 ? null : lines,
+      maxLines: lines,
+      validator: (value) {
+        final text = value?.trim() ?? '';
+        if (required && text.isEmpty) return 'This field is required';
+        if (number && text.isNotEmpty) {
+          final n = int.tryParse(text);
+          if (n == null ||
+              (key == 'seating_capacity'
+                  ? n < 1 || n > 8
+                  : n < 1900 || n > 2050)) {
+            return key == 'seating_capacity'
+                ? 'Enter 1 to 8 passenger seats'
+                : 'Enter a year from 1900 to 2050';
           }
-          if (key == 'website_url' && text.isNotEmpty) {
-            final uri = Uri.tryParse(text);
-            if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) {
-              return 'Enter an https:// website';
-            }
+          if (key == 'year_to' &&
+              n < (int.tryParse(_controllers['year_from']!.text) ?? 1900)) {
+            return 'Must be after the first model year';
           }
-          return null;
-        },
-      ),
+        }
+        if (key == 'website_url' && text.isNotEmpty) {
+          final uri = Uri.tryParse(text);
+          if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) {
+            return 'Enter an https:// website';
+          }
+        }
+        return null;
+      },
     ),
   );
+
+  Widget _brandAvatar() {
+    final brandLogo = '${widget.brand?['logo_url'] ?? ''}'.trim();
+    final initialLogo = '${widget.initial?['logo_url'] ?? ''}'.trim();
+    final logo = brandLogo.isNotEmpty ? brandLogo : initialLogo;
+    return Center(
+      child: SizedBox(
+        width: 98,
+        height: 98,
+        child: Stack(
+          children: [
+            Container(
+              width: 90,
+              height: 90,
+              padding: const EdgeInsets.all(17),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                border: Border.all(color: RideTokens.line),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: _logo != null
+                  ? Image.memory(_logo!, fit: BoxFit.contain)
+                  : logo.isNotEmpty
+                  ? Image.network(
+                      logo,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, _, _) =>
+                          const Icon(Icons.directions_car_outlined, size: 34),
+                    )
+                  : const Icon(Icons.directions_car_outlined, size: 34),
+            ),
+            Positioned(
+              right: 0,
+              bottom: 1,
+              child: Material(
+                color: Colors.white,
+                shape: const CircleBorder(),
+                child: IconButton(
+                  tooltip: 'Choose logo',
+                  onPressed: _busy ? null : _pick,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 34,
+                    height: 34,
+                  ),
+                  padding: EdgeInsets.zero,
+                  icon: const Icon(Icons.camera_alt_outlined, size: 18),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: !_busy,
     child: AppPage(
-      glass: true,
-      title: 'Suggest ${_model ? 'model' : 'brand'}',
+      title: widget.initial == null
+          ? 'Suggest ${_model ? 'Model' : 'Brand'}'
+          : 'Edit Suggestion',
       child: Form(
         key: _form,
-        child: ListView(
+        child: Column(
           children: [
-            DriverPageIntro(
-              icon: _model
-                  ? Icons.directions_car_filled_outlined
-                  : Icons.factory_outlined,
-              title: 'Suggest a ${_model ? 'vehicle model' : 'brand'}',
-              description:
-                  'Use the requested catalog entry in registration while an administrator reviews it.',
-            ),
-            const SizedBox(height: 20),
-            if (_model) ...[
-              DriverNotice(
-                icon: Icons.factory_outlined,
-                message: 'Brand: ${widget.brand!['name']}',
-              ),
-              const SizedBox(height: 16),
-            ],
-            _input('name', 'Name', required: true),
-            _input('description', 'Description', max: 1000),
-            if (!_model) ...[
-              _input('country', 'Country', max: 80),
-              _input('website_url', 'Website (optional)', max: 2000),
-            ],
-            if (_model) ...[
-              LiquidGlassDropdownFormField<String>(
-                initialValue: _type,
-                decoration: const InputDecoration(labelText: 'Vehicle type'),
-                items: ['BIKE', 'SCOOTER', 'AUTO', 'SEDAN', 'SUV']
-                    .map(
-                      (v) => DropdownMenuItem(
-                        value: v,
-                        child: Text(
-                          v == 'SUV'
-                              ? v
-                              : '${v[0]}${v.substring(1).toLowerCase()}',
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.only(top: 18, bottom: 18),
+                children: [
+                  _brandAvatar(),
+                  const SizedBox(height: 18),
+                  if (_model) ...[
+                    Text(
+                      'Model for ${widget.brand!['name']}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: RideTokens.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                  _input(
+                    'name',
+                    _model ? 'Model name' : 'Brand name',
+                    required: true,
+                  ),
+                  _input('description', 'Description', max: 1000, lines: 3),
+                  if (!_model) ...[
+                    _input('country', 'Country', max: 80),
+                    _input('website_url', 'Website (optional)', max: 2000),
+                  ],
+                  if (_model) ...[
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: SolidDropdownFormField<String>(
+                        initialValue: _type,
+                        label: 'Vehicle type',
+                        items: ['BIKE', 'SCOOTER', 'AUTO', 'SEDAN', 'SUV']
+                            .map(
+                              (value) => DropdownMenuItem(
+                                value: value,
+                                child: Text(
+                                  value == 'SUV'
+                                      ? value
+                                      : '${value[0]}${value.substring(1).toLowerCase()}',
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: _busy
+                            ? null
+                            : (value) => setState(() => _type = value!),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: SolidDropdownFormField<String>(
+                        initialValue: _fuel,
+                        label: 'Fuel type',
+                        items:
+                            [
+                                  'PETROL',
+                                  'DIESEL',
+                                  'CNG',
+                                  'ELECTRIC',
+                                  'HYBRID',
+                                  'OTHER',
+                                ]
+                                .map(
+                                  (value) => DropdownMenuItem(
+                                    value: value,
+                                    child: Text(
+                                      value == 'CNG'
+                                          ? value
+                                          : '${value[0]}${value.substring(1).toLowerCase()}',
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                        onChanged: _busy
+                            ? null
+                            : (value) => setState(() => _fuel = value!),
+                      ),
+                    ),
+                    _input(
+                      'seating_capacity',
+                      'Passenger seats',
+                      required: true,
+                      number: true,
+                      max: 1,
+                    ),
+                    _input(
+                      'year_from',
+                      'First model year (optional)',
+                      number: true,
+                      max: 4,
+                    ),
+                    _input(
+                      'year_to',
+                      'Last model year (optional)',
+                      number: true,
+                      max: 4,
+                    ),
+                  ],
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      'Logo (optional)',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: RideTokens.ink,
+                      ),
+                    ),
+                  ),
+                  SolidFileUpload(
+                    files: [
+                      if (_logo != null)
+                        SolidUploadFile(
+                          name: _logoName,
+                          bytes: _logo,
+                          onRemove: () => setState(() => _logo = null),
+                        ),
+                    ],
+                    image: true,
+                    camera: false,
+                    busy: _busy,
+                    onChoose: _pick,
+                    limitText:
+                        'Supported files: JPEG, PNG, or WebP · Max file size: 3 MB',
+                  ),
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFFB3261E),
                         ),
                       ),
-                    )
-                    .toList(),
-                onChanged: _busy ? null : (v) => setState(() => _type = v!),
+                    ),
+                ],
               ),
-              const SizedBox(height: 16),
-              LiquidGlassDropdownFormField<String>(
-                initialValue: _fuel,
-                decoration: const InputDecoration(labelText: 'Fuel type'),
-                items:
-                    ['PETROL', 'DIESEL', 'CNG', 'ELECTRIC', 'HYBRID', 'OTHER']
-                        .map(
-                          (v) => DropdownMenuItem(
-                            value: v,
-                            child: Text(
-                              v == 'CNG'
-                                  ? v
-                                  : '${v[0]}${v.substring(1).toLowerCase()}',
-                            ),
-                          ),
-                        )
-                        .toList(),
-                onChanged: _busy ? null : (v) => setState(() => _fuel = v!),
-              ),
-              const SizedBox(height: 16),
-              _input(
-                'seating_capacity',
-                'Passenger seats',
-                required: true,
-                number: true,
-                max: 1,
-              ),
-              _input(
-                'year_from',
-                'First model year (optional)',
-                number: true,
-                max: 4,
-              ),
-              _input(
-                'year_to',
-                'Last model year (optional)',
-                number: true,
-                max: 4,
-              ),
-            ],
-            const Text(
-              'Logo (optional)',
-              style: TextStyle(fontWeight: FontWeight.w700),
             ),
-            const SizedBox(height: 8),
-            if (_logo == null && widget.initial?['logo_url'] is String)
-              Image.network(
-                '${widget.initial!['logo_url']}',
-                height: 80,
-                fit: BoxFit.contain,
-                errorBuilder: (_, error, stack) =>
-                    const Icon(Icons.image_outlined),
-              ),
-            PartnerUploadTile(
-              files: [
-                if (_logo != null)
-                  PartnerUploadFile(
-                    name: _logoName,
-                    bytes: _logo,
-                    onRemove: () => setState(() => _logo = null),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 60,
+                  child: SolidButton(
+                    text: _busy
+                        ? 'Submitting suggestion'
+                        : widget.initial == null
+                        ? 'Submit suggestion'
+                        : 'Save changes',
+                    busy: _busy,
+                    onPressed: _busy ? null : _submit,
                   ),
-              ],
-              image: true,
-              camera: false,
-              busy: _busy,
-              onChoose: _pick,
-              limitText: 'Image up to 3 MB. Uploaded only when you submit.',
-            ),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                child: DriverNotice(
-                  icon: Icons.info_outline_rounded,
-                  message: _error!,
-                  error: true,
                 ),
               ),
-            const SizedBox(height: 20),
-            AppButton(
-              text: 'Submit suggestion',
-              isLoading: _busy,
-              onPressed: _busy ? null : _submit,
             ),
-            const SizedBox(height: 24),
           ],
         ),
       ),

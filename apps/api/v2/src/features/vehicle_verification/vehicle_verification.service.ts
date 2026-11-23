@@ -115,6 +115,83 @@ export class VehicleVerificationService {
       });
     return { ...result, pending_assets };
   }
+  async remove(user_id: string, id: string) {
+    return this.database.client.$transaction(async (tx) => {
+      // Keep vehicle removal serialized with availability and trip transitions.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(720041)`;
+      const driver = await this.driver(tx, user_id);
+      const vehicle = await tx.vehicle.findFirst({
+        where: { id, driver_id: driver.id },
+        select: { id: true, status: true, verification_version: true },
+      });
+      if (!vehicle)
+        throw new AppError(
+          404,
+          'VEHICLE_NOT_FOUND',
+          'This vehicle was not found.',
+        );
+      const trip = await tx.ride.findFirst({
+        where: {
+          driver_id: driver.id,
+          status: {
+            in: [
+              'DRIVER_ASSIGNED',
+              'DRIVER_ARRIVING',
+              'DRIVER_WAITING',
+              'IN_PROGRESS',
+            ],
+          },
+        },
+        select: { id: true },
+      });
+      if (trip)
+        throw new AppError(
+          409,
+          'DRIVER_ON_TRIP',
+          'Finish your current ride before removing a vehicle.',
+        );
+      const profile = await tx.driverProfile.findUniqueOrThrow({
+        where: { id: driver.id },
+        select: { active_vehicle_id: true },
+      });
+      if (vehicle.status !== 'INACTIVE') {
+        const updated = await tx.vehicle.updateMany({
+          where: {
+            id,
+            driver_id: driver.id,
+            verification_version: vehicle.verification_version,
+          },
+          data: {
+            status: 'INACTIVE',
+            verification_version: { increment: 1 },
+          },
+        });
+        if (updated.count !== 1) throw conflict();
+      }
+      if (profile.active_vehicle_id === id) {
+        await tx.driverProfile.update({
+          where: { id: driver.id },
+          data: { active_vehicle_id: null, availability: 'OFFLINE' },
+        });
+      }
+      await create_user_log(tx, {
+        actor_id: user_id,
+        entity_type: 'Vehicle',
+        entity_id: id,
+        action: 'REMOVE_VEHICLE',
+        before_data: {
+          status: vehicle.status,
+          active_vehicle: profile.active_vehicle_id === id,
+        },
+        after_data: {
+          status: 'INACTIVE',
+          active_vehicle: false,
+          ride_history_retained: true,
+        },
+      });
+      return { id, status: 'INACTIVE', removed: true };
+    }, options);
+  }
   async list(user_id: string) {
     const user = await this.database.client.user.findFirst({
       where: { id: user_id, deleted_at: null },
@@ -478,22 +555,17 @@ export class VehicleVerificationService {
         matches_vehicle_submission(previous.verification_fields, input)
       )
         return previous;
-      if (
-        previous &&
-        previous.verification_version > 0 &&
-        (previous.status === 'ACTIVE' || previous.status === 'INACTIVE')
-      )
-        throw new AppError(
-          409,
-          'VEHICLE_LOCKED',
-          'Approved vehicles cannot be edited. Contact your administrator.',
-        );
       if (previous && previous.verification_version !== input.expected_version)
         throw conflict();
-      if (previous && previous.verification_version === 0) {
+      if (
+        previous &&
+        matches_vehicle_submission(previous.verification_fields, input)
+      )
+        return previous;
+      if (previous) {
         const active_ride = await tx.ride.findFirst({
           where: {
-            vehicle_id: previous.id,
+            driver_id: profile.id,
             status: {
               in: [
                 'DRIVER_ASSIGNED',
@@ -509,12 +581,8 @@ export class VehicleVerificationService {
           throw new AppError(
             409,
             'VEHICLE_ON_TRIP',
-            'Finish the current ride before submitting vehicle verification.',
+            'Finish your current ride before changing vehicle details.',
           );
-        await tx.driverProfile.updateMany({
-          where: { id: profile.id, active_vehicle_id: previous.id },
-          data: { active_vehicle_id: null, availability: 'OFFLINE' },
-        });
       }
       const brand = await tx.vehicleBrand.findUnique({
         where: { id: input.brand_id },
@@ -586,12 +654,6 @@ export class VehicleVerificationService {
       const fields: VehicleField[] = Object.entries(vehicle_labels).map(
         ([key, label]) => {
           const before = old_fields.find((f) => f.key === key);
-          if (before?.status === 'APPROVED' && before.value !== values[key])
-            throw new AppError(
-              409,
-              'VEHICLE_FIELD_LOCKED',
-              `${label} is already approved. Contact your administrator to change it.`,
-            );
           if (before && before.value === values[key]) return before;
           return {
             key,
@@ -630,6 +692,16 @@ export class VehicleVerificationService {
             'VEHICLE_ASSET_INVALID',
             `Upload a valid ${vehicle_labels[key]} image for this vehicle.`,
           );
+      }
+      if (previous) {
+        await tx.driverProfile.updateMany({
+          where: { id: profile.id, active_vehicle_id: previous.id },
+          data: {
+            active_vehicle_id: null,
+            availability:
+              profile.availability === 'SUSPENDED' ? 'SUSPENDED' : 'OFFLINE',
+          },
+        });
       }
       const data = {
         brand_id: brand.id,

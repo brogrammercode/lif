@@ -12,7 +12,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:user/features/partner_program/widgets/partner_address_input.dart';
-import 'package:user/features/partner_program/widgets/partner_upload_tile.dart';
+import 'package:user/components/ui/solid_file_upload.dart';
 import 'package:user/features/partner_program/widgets/partner_application_skeleton.dart';
 import 'package:user/features/partner_program/partner_draft_store.dart';
 import 'package:user/features/auth/models/user.model.dart';
@@ -167,7 +167,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
   void didHaveMemoryPressure() {
     for (final file in _files.values.expand((files) => files)) {
       if (file.path != null) {
-        unawaited(PartnerUploadTile.previewFile(file.path!).evict());
+        unawaited(SolidFileUpload.previewFile(file.path!).evict());
       }
     }
   }
@@ -190,7 +190,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     for (final files in _files.values) {
       for (final file in files) {
         if (file.path != null) {
-          unawaited(PartnerUploadTile.previewFile(file.path!).evict());
+          unawaited(SolidFileUpload.previewFile(file.path!).evict());
         }
       }
     }
@@ -262,7 +262,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       for (final files in _files.values) {
         for (final file in files) {
           if (file.path != null) {
-            unawaited(PartnerUploadTile.previewFile(file.path!).evict());
+            unawaited(SolidFileUpload.previewFile(file.path!).evict());
           }
         }
       }
@@ -346,7 +346,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       await WidgetsBinding.instance.endOfFrame;
       for (final file in _files.values.expand((files) => files)) {
         if (file.path != null) {
-          await PartnerUploadTile.previewFile(file.path!).evict();
+          await SolidFileUpload.previewFile(file.path!).evict();
         }
       }
       await task();
@@ -733,7 +733,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     for (final files in _files.values) {
       for (final file in files) {
         if (file.path != null) {
-          await PartnerUploadTile.previewFile(file.path!).evict();
+          await SolidFileUpload.previewFile(file.path!).evict();
         }
       }
     }
@@ -988,7 +988,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     final previousFiles = List<PartnerLocalFile>.from(_files[id] ?? const []);
     for (final previous in previousFiles) {
       if (previous.path != null) {
-        await PartnerUploadTile.previewFile(previous.path!).evict();
+        await SolidFileUpload.previewFile(previous.path!).evict();
       }
     }
     if (!mounted) {
@@ -1163,7 +1163,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         for (final old in previous) {
           if (!selected.contains(old)) {
             if (old.path != null) {
-              await PartnerUploadTile.previewFile(old.path!).evict();
+              await SolidFileUpload.previewFile(old.path!).evict();
             }
             await _draftStore?.remove(old);
           }
@@ -1211,7 +1211,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     try {
       await _saveDraft(required: true);
       if (file.path != null) {
-        await PartnerUploadTile.previewFile(file.path!).evict();
+        await SolidFileUpload.previewFile(file.path!).evict();
       }
       await _draftStore?.remove(file);
     } catch (error) {
@@ -1393,14 +1393,15 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     if (['FILE', 'IMAGE', 'PDF'].contains(type)) {
       final files = _files[id] ?? [];
       children.add(
-        PartnerUploadTile(
+        SolidFileUpload(
           key: ValueKey('partner-upload-$id'),
           compact: compact,
           label: label,
-          showGuidance: false,
+          showGuidance: true,
+          allowAdditional: definition['allow_multiple'] == true,
           files: files
               .map(
-                (file) => PartnerUploadFile(
+                (file) => SolidUploadFile(
                   name: file.name,
                   path: file.path,
                   onOpen: file.assetId == null
@@ -1418,9 +1419,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           onChoose: editing && answer?['status'] != 'APPROVED'
               ? () => _pick(definition)
               : null,
-          limitText: compact
-              ? _uploadHint(definition)
-              : 'Files are uploaded when you submit. Maximum 3 MB per file (or the configured smaller limit).',
+          limitText: _uploadHint(definition),
         ),
       );
       if (compact) {
@@ -1668,7 +1667,6 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       hint: [
         if ('${definition['description'] ?? ''}'.trim().isNotEmpty)
           '${definition['description']}',
-        if (upload) _uploadHint(definition),
       ].join('\n'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -681,6 +681,76 @@ class SolidSheet extends StatelessWidget {
   );
 }
 
+class SolidSheetAction<T> {
+  final T value;
+  final String label;
+  final IconData icon;
+  final bool destructive;
+  const SolidSheetAction({
+    required this.value,
+    required this.label,
+    required this.icon,
+    this.destructive = false,
+  });
+}
+
+Future<T?> showSolidActionSheet<T>({
+  required BuildContext context,
+  required String title,
+  required List<SolidSheetAction<T>> actions,
+}) => showModalBottomSheet<T>(
+  context: context,
+  isScrollControlled: true,
+  backgroundColor: Colors.transparent,
+  builder: (sheetContext) => SolidSheet(
+    child: SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 4, 18, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: RideTokens.ink,
+                ),
+              ),
+            ),
+            for (final action in actions)
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                minLeadingWidth: 36,
+                leading: Icon(
+                  action.icon,
+                  color: action.destructive
+                      ? const Color(0xFFB3261E)
+                      : RideTokens.ink,
+                ),
+                title: Text(
+                  action.label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: action.destructive
+                        ? const Color(0xFFB3261E)
+                        : RideTokens.ink,
+                  ),
+                ),
+                onTap: () => Navigator.pop(sheetContext, action.value),
+              ),
+          ],
+        ),
+      ),
+    ),
+  ),
+);
+
 /// Shared account/content page frame, matching the Profile reference.
 class SolidPage extends StatelessWidget {
   final String title;
@@ -700,11 +770,17 @@ class SolidPage extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) => AnnotatedRegion<SystemUiOverlayStyle>(
-    value: const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
+    value: SystemUiOverlayStyle(
+      statusBarColor: Colors.black,
       statusBarIconBrightness: Brightness.light,
       statusBarBrightness: Brightness.dark,
       systemStatusBarContrastEnforced: false,
+      systemNavigationBarColor: bodyColor,
+      systemNavigationBarIconBrightness: bodyColor.computeLuminance() > 0.5
+          ? Brightness.dark
+          : Brightness.light,
+      systemNavigationBarDividerColor: bodyColor,
+      systemNavigationBarContrastEnforced: false,
     ),
     child: SolidScope(
       child: Scaffold(

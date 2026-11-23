@@ -9,6 +9,21 @@ class DriverVehiclesController extends FeatureController {
   final VehicleVerificationRepository repo;
   late Future<Map<String, dynamic>> data;
   bool busy = false;
+  String? selectedBrandId;
+
+  void selectBrand(String id) {
+    if (selectedBrandId == id) return;
+    update(() => selectedBrandId = id);
+  }
+
+  void ensureSelectedBrand(List<Map<String, dynamic>> brands) {
+    if (brands.isEmpty) {
+      selectedBrandId = null;
+    } else if (!brands.any((brand) => brand['id'] == selectedBrandId)) {
+      selectedBrandId = '${brands.first['id']}';
+    }
+  }
+
   Future<void> reload() async {
     if (isDisposed) return;
     update(() {

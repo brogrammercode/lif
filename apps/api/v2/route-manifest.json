@@ -1105,6 +1105,14 @@
   },
   {
     "feature": "vehicle_verification",
+    "handler": "remove",
+    "method": "delete",
+    "path": "driver/vehicle-verification/:id",
+    "guards": ["AuthGuard", "DriverAccessGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "vehicle_verification",
     "handler": "asset",
     "method": "get",
     "path": "vehicle-verification/assets/:id",

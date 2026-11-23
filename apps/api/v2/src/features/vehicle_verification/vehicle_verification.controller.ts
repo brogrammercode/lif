@@ -139,6 +139,18 @@ export class VehicleVerificationController {
       'Vehicle corrections submitted',
     );
   }
+  @Delete('driver/vehicle-verification/:id')
+  @UseGuards(AuthGuard, DriverAccessGuard)
+  async remove(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    return send_success(
+      res,
+      await this.service.remove(
+        req.auth!.user_id,
+        vehicle_id.parse(req.params.id),
+      ),
+      'Vehicle removed from your available vehicles',
+    );
+  }
   @Get('vehicle-verification/assets/:id')
   @UseGuards(AuthGuard)
   async asset(@Req() req: Request, @Res({ passthrough: true }) res: Response) {

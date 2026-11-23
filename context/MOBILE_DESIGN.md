@@ -226,6 +226,22 @@ The driver home is the Go online ride-flow stage in both availability states. Ke
 
 Use the shared `LocationAccessSheet` before requesting location permission. Its body contains the location illustration, short rationale and a single clear permission/settings action under the standard black header. Keep the panel fitted to its content with the same vertical rhythm as the driver ride phases.
 
+## Driver vehicles
+
+My Vehicles uses the standard black `SolidPage` header. Immediately below it, show a horizontal row of only the driver's registered brands. Each brand has a circular white logo tile with a fine white/neutral rim and its name underneath; select the first available brand automatically and keep the selected brand explicit. The final row item is a matching circular plus tile labeled Add. Below the row, show the selected brand's vehicles as compact solid vehicle tiles using the shared brand identity, model, registration and review state. A trailing menu opens the shared solid action sheet with Edit vehicle and Delete vehicle. Delete requires confirmation and removes the vehicle from available vehicles while retaining the database record and ride history; the server blocks removal during an active ride and clears active vehicle/availability when applicable.
+
+Add opens the catalog brand selector, then that brand's model selector, then the existing vehicle verification form with the selected catalog values prefilled. Edit opens the same form for the existing vehicle. Keep all verified catalog choices, category fit, six required photo/document uploads, review locks, draft recovery and server validation. Form fields use the same compact 48 px solid profile field geometry and the 60 px save action anchored at the bottom. Brand/model search and pagination remain available so the bounded API catalog can be fully browsed.
+
 ## Notifications
 
 Keep the existing black `SolidPage` app bar. Replace the body with a white activity feed matching the supplied reference: compact circular leading identity/type icon, title on the first row, unread blue dot aligned at the far right, date/time and relative age on the next row, then an optional light-gray rounded message block. Separate entries with fine gray dividers and keep the feed vertically scrollable. Remove the intro card, unread filter chips, status pills and refresh action. Preserve mark-as-read and related ride/account/support navigation. The notification API currently supplies title, body, type and read state; show only actions or file previews when corresponding structured payloads and supported actions exist.
+
+## Shared upload presentation
+
+All rider and driver image/file selection uses `SolidFileUpload` from `lib/components/ui/solid_file_upload.dart`. Its empty state follows the supplied dashed drop-zone reference with a centered upload mark, brief accepted-file guidance, and a compact Select files button. Selected images fill the preview well with `BoxFit.cover` and have one remove badge at the upper right; single-file fields do not show a second replace/add action. Multi-file fields may expose Add another file. Keep picker validation, staging, permission handling, submission timing and upload limits in their owning feature controller/repository; the shared widget only presents selection state and actions.
+
+Suggest Brand and Suggest Model use the solid form fields and dropdowns, with the selected brand or logo in a circular tile above the form and a shared full-width logo uploader. An approved or inactive vehicle can be edited: unchanged verification fields retain their existing review state, changed fields return to pending review, and editing the active vehicle clears the active selection and takes the driver offline until reapproval. Editing is blocked during an active ride. Existing documents remain available when changing other fields; replacing a document uses the shared uploader and must be resubmitted for review.
+
+## Page transitions and system bars
+
+Keep Android route transitions on `PredictiveBackPageTransitionsBuilder` and set its non-gesture fallback background to black. Never use the white theme surface or transparency for the transition backdrop, since either can reveal a white system window during page changes. `SolidPage` owns a black status-bar header and sets navigation-bar color/icons from its body color; Home explicitly uses a light navigation area and dark system icons. New app routes should use the shared theme and page shells rather than setting global system UI styles during navigation.

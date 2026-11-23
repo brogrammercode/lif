@@ -1,12 +1,12 @@
 import 'package:user/features/saved_places/controllers/place_review_controller.dart';
 import 'package:user/features/saved_places/controllers/place_detail_controller.dart';
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:user/components/ui/app_page.dart';
+import 'package:user/components/ui/solid_file_upload.dart';
 import 'package:user/components/ui/button.dart';
 import 'package:user/components/ui/glass_chip.dart';
 import 'package:user/components/ui/liquid_glass.dart';
@@ -145,14 +145,20 @@ class _PlaceDetailState extends State<PlaceDetailPage> {
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: Image.file(
-                      File(file.path),
-                      height: 180,
-                      cacheWidth: 600,
-                      fit: BoxFit.cover,
-                    ),
+                  SolidFileUpload(
+                    files: [
+                      SolidUploadFile(
+                        name: file.name,
+                        path: file.path,
+                        onRemove: () => Navigator.pop(dialog, false),
+                      ),
+                    ],
+                    image: true,
+                    camera: false,
+                    busy: uploading,
+                    onChoose: null,
+                    limitText: 'JPEG, PNG, or WebP · up to 3 MB',
+                    showGuidance: false,
                   ),
                   const SizedBox(height: 12),
                   const Text(

@@ -11,6 +11,7 @@ import 'package:user/features/settings/pages/wallet_page.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:user/components/ui/app_page.dart';
+import 'package:user/components/ui/solid_file_upload.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/core/routes.dart';
@@ -19,6 +20,7 @@ import 'package:user/features/auth/app_mode.repo.dart';
 import 'package:user/features/settings/settings.repo.dart';
 
 import 'package:user/features/settings/widgets/settings_profile.dart';
+import 'package:user/features/driver_account/pages/driver_documents_page.dart';
 
 class SettingsPage extends StatefulWidget {
   final SettingsRepository? repository;
@@ -107,13 +109,14 @@ class _SettingsPageState extends State<SettingsPage> {
                 children: [
                   const Text(
                     'Profile photo',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w400),
                   ),
                   const SizedBox(height: 18),
                   SettingsMenuTile(
                     icon: Icons.camera_alt_outlined,
                     title: 'Take a photo',
                     subtitle: 'Use your camera',
+                    titleWeight: FontWeight.w400,
                     onTap: () => Navigator.pop(context, ImageSource.camera),
                   ),
                   const SizedBox(height: 10),
@@ -121,6 +124,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     icon: Icons.photo_library_outlined,
                     title: 'Choose from photos',
                     subtitle: 'JPEG, PNG or WebP · Up to 3 MB',
+                    titleWeight: FontWeight.w400,
                     onTap: () => Navigator.pop(context, ImageSource.gallery),
                   ),
                 ],
@@ -150,21 +154,20 @@ class _SettingsPageState extends State<SettingsPage> {
         context: context,
         builder: (context) => LiquidGlassDialog(
           title: const Text('Use this profile photo?'),
-          content: ClipRRect(
-            borderRadius: BorderRadius.circular(18),
-            child: Image.file(
-              file,
-              width: 240,
-              height: 240,
-              cacheWidth: 600,
-              fit: BoxFit.cover,
-              errorBuilder: (_, error, stack) => const SizedBox(
-                height: 180,
-                child: Center(
-                  child: Text('This image could not be previewed.'),
-                ),
+          content: SolidFileUpload(
+            files: [
+              SolidUploadFile(
+                name: photo.name,
+                path: photo.path,
+                onRemove: () => Navigator.pop(context, false),
               ),
-            ),
+            ],
+            image: true,
+            camera: false,
+            busy: false,
+            onChoose: null,
+            limitText: 'JPEG, PNG, or WebP · up to 3 MB',
+            showGuidance: false,
           ),
           actions: [
             TextButton(
@@ -316,6 +319,7 @@ class _SettingsPageState extends State<SettingsPage> {
         ProfileSection(
           title: 'Personal',
           children: [
+            row(Icons.person_outline, 'Edit Profile', () => _editProfile()),
             row(
               Icons.route_outlined,
               'My Rides',
@@ -331,7 +335,23 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
             ),
-            row(Icons.person_outline, 'Edit Profile', () => _editProfile()),
+            if (driver) ...[
+              row(
+                Icons.directions_car_outlined,
+                'My Vehicles',
+                () => _open(AppRoutes.driverVehicles),
+              ),
+              row(
+                Icons.folder_copy_outlined,
+                'My Documents',
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const DriverDocumentsPage(),
+                  ),
+                ),
+              ),
+            ],
             row(
               Icons.place_outlined,
               'Saved Places',
@@ -350,11 +370,23 @@ class _SettingsPageState extends State<SettingsPage> {
                 _controller.partnerInformation,
               ),
             ),
-            row(
-              Icons.handshake_outlined,
-              'Apply',
-              () => _open(AppRoutes.partnerProgram),
-            ),
+            if (driver) ...[
+              row(
+                Icons.verified_outlined,
+                'Confirmation',
+                () => _open(AppRoutes.partnerProgram),
+              ),
+              row(
+                Icons.exit_to_app_outlined,
+                'Exit and Dues',
+                () => _open(AppRoutes.driverExit),
+              ),
+            ] else
+              row(
+                Icons.handshake_outlined,
+                'Become our Driving Partner',
+                () => _open(AppRoutes.partnerProgram),
+              ),
           ],
         ),
         ProfileSection(
