@@ -21,6 +21,7 @@ class RideDemoHost extends StatefulWidget {
 
 class _RideDemoHostState extends State<RideDemoHost> {
   final _controller = RideDemoController();
+  final _home = GlobalKey<HomePageState>();
   final _navigator = GlobalKey<NavigatorState>();
   final _observer = RouteObserver<ModalRoute<dynamic>>();
   int _navigationRevision = 0;
@@ -37,46 +38,57 @@ class _RideDemoHostState extends State<RideDemoHost> {
     _navigationRevision = _controller.navigationRevision;
     final revision = _navigationRevision;
     final step = _controller.step;
-    final route = step == RideDemoStep.home
-        ? AppRoutes.home
-        : step == RideDemoStep.locations
-        ? '/demo/locations'
-        : step == RideDemoStep.vehicles
-        ? '/demo/vehicles'
-        : AppRoutes.rideDetail;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && revision == _navigationRevision) {
-        _navigator.currentState?.pushNamedAndRemoveUntil(
-          route,
-          (_) => false,
-          arguments: route == AppRoutes.rideDetail
-              ? const RideDetailIntent(
-                  RideDemoController.tripId,
-                  liveJourney: true,
-                )
-              : null,
-        );
+      if (!mounted || revision != _navigationRevision) return;
+      final home = _home.currentState;
+      if (home == null) return;
+      final current = _currentRoute;
+      if (step.index >= RideDemoStep.searching.index &&
+          current == AppRoutes.rideDetail) {
+        return;
+      }
+      _navigator.currentState?.popUntil((route) => route.isFirst);
+      home.closeDemoLocationPicker();
+      switch (step) {
+        case RideDemoStep.home:
+          break;
+        case RideDemoStep.locations:
+          home.showDemoLocationPicker(rideMap(_controller.endpoints['pickup']));
+        case RideDemoStep.vehicles:
+          home.showRideSheet(
+            (mapBuilder) => VehicleSelectionPage(
+              mapBuilder: mapBuilder,
+              input: _controller.endpoints,
+              initialQuote: _controller.quote,
+              points: rideGeometry(_controller.geometry),
+            ),
+            settings: const RouteSettings(name: '/demo/vehicles'),
+          );
+        default:
+          home.showRideSheet(
+            (mapBuilder) => RideDetailPage(mapBuilder: mapBuilder),
+            settings: const RouteSettings(
+              name: AppRoutes.rideDetail,
+              arguments: RideDetailIntent(
+                RideDemoController.tripId,
+                liveJourney: true,
+              ),
+            ),
+          );
       }
     });
   }
 
+  String? get _currentRoute => _stageObserver.current?.settings.name;
+  final _stageObserver = _DemoStageObserver();
+
   Route<dynamic> _route(RouteSettings settings) {
     final page = switch (settings.name) {
-      AppRoutes.home ||
-      '/' => HomePage(showDemoLauncher: false, mapBuilder: widget.mapBuilder),
-      '/demo/locations' => HomePage(
-        mapBuilder: widget.mapBuilder,
-        locationSelection: true,
-        endpoints: _controller.endpoints,
+      AppRoutes.home || '/' => HomePage(
+        key: _home,
         showDemoLauncher: false,
-      ),
-      '/demo/vehicles' => VehicleSelectionPage(
         mapBuilder: widget.mapBuilder,
-        input: _controller.endpoints,
-        initialQuote: _controller.quote,
-        points: rideGeometry(_controller.geometry),
       ),
-      AppRoutes.rideDetail => RideDetailPage(mapBuilder: widget.mapBuilder),
       AppRoutes.tripChat => const TripChatPage(),
       _ => const SolidPage(
         title: 'UI demo',
@@ -120,7 +132,7 @@ class _RideDemoHostState extends State<RideDemoHost> {
                       onGenerateInitialRoutes: (_, _) => [
                         _route(const RouteSettings(name: AppRoutes.home)),
                       ],
-                      observers: [_observer],
+                      observers: [_observer, _stageObserver],
                       onGenerateRoute: _route,
                     ),
                   ),
@@ -188,4 +200,13 @@ class _RideDemoHostState extends State<RideDemoHost> {
       ),
     ),
   );
+}
+
+class _DemoStageObserver extends NavigatorObserver {
+  Route<dynamic>? current;
+
+  @override
+  void didChangeTop(Route<dynamic> topRoute, Route<dynamic>? previousTopRoute) {
+    current = topRoute;
+  }
 }

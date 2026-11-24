@@ -19,7 +19,6 @@ class RiderLivePanel extends StatelessWidget {
   final String? error;
   final bool busy, locationFresh;
   final double? remainingDistance;
-  final ValueChanged<double>? onContentHeightChanged;
   final VoidCallback? onShowTripQr;
   const RiderLivePanel({
     super.key,
@@ -36,7 +35,6 @@ class RiderLivePanel extends StatelessWidget {
     required this.busy,
     required this.locationFresh,
     this.remainingDistance,
-    this.onContentHeightChanged,
     this.onShowTripQr,
   });
   @override
@@ -185,29 +183,13 @@ class RiderLivePanel extends StatelessWidget {
       ],
     ];
 
-    if (searching || arrivalLayout || moving) {
-      final primaryController = PrimaryScrollController.maybeOf(context);
-      return SingleChildScrollView(
-        controller: primaryController,
-        primary: primaryController == null,
-        child: RideContentSizeReporter(
-          key: ValueKey(status),
-          onSizeChanged: (size) => onContentHeightChanged?.call(size.height),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 6, 20, 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: children,
-            ),
-          ),
-        ),
-      );
-    }
-
-    return ListView(
+    return Padding(
       padding: const EdgeInsets.fromLTRB(20, 6, 20, 20),
-      children: children,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: children,
+      ),
     );
   }
 }
@@ -296,7 +278,6 @@ class RiderCompletionPanel extends StatefulWidget {
   final VoidCallback onHome, onReceipt;
   final Widget actions;
   final bool busy;
-  final ScrollController? scrollController;
   final GlobalKey? captureKey;
   final bool driverView, receiptOnly;
   const RiderCompletionPanel({
@@ -307,7 +288,6 @@ class RiderCompletionPanel extends StatefulWidget {
     required this.onReceipt,
     required this.actions,
     required this.busy,
-    this.scrollController,
     this.captureKey,
     this.driverView = false,
     this.receiptOnly = false,
@@ -588,46 +568,11 @@ class _CompletionState extends State<RiderCompletionPanel> {
       const SizedBox(height: 12),
       widget.actions,
     ];
-    final footer = SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(18, 10, 18, 12),
-        child: Row(
-          children: [
-            Expanded(
-              child: OutlinedButton(
-                onPressed: widget.onHome,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: RideTokens.accent,
-                  side: const BorderSide(color: RideTokens.accent),
-                  minimumSize: const Size(0, 52),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(28),
-                  ),
-                ),
-                child: const Text('Back to home'),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: FilledButton(
-                onPressed: widget.busy ? null : widget.onReceipt,
-                style: FilledButton.styleFrom(
-                  backgroundColor: RideTokens.accent,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(0, 52),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(28),
-                  ),
-                ),
-                child: Text(
-                  widget.driverView ? 'View receipt' : 'Download bill',
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+    final footer = RiderCompletionActions(
+      onHome: widget.onHome,
+      onReceipt: widget.onReceipt,
+      busy: widget.busy,
+      driverView: widget.driverView,
     );
     final capture = Container(
       width: MediaQuery.sizeOf(context).width,
@@ -702,21 +647,72 @@ class _CompletionState extends State<RiderCompletionPanel> {
     return Stack(
       children: [
         Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: ListView(
-                controller: widget.scrollController,
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: content,
               ),
             ),
-            footer,
           ],
         ),
         if (widget.captureKey != null) Positioned.fill(child: receiptPreview),
       ],
     );
   }
+}
+
+class RiderCompletionActions extends StatelessWidget {
+  final VoidCallback onHome, onReceipt;
+  final bool busy, driverView;
+
+  const RiderCompletionActions({
+    super.key,
+    required this.onHome,
+    required this.onReceipt,
+    required this.busy,
+    this.driverView = false,
+  });
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(18, 10, 18, 12),
+    child: Row(
+      children: [
+        Expanded(
+          child: OutlinedButton(
+            onPressed: onHome,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: RideTokens.accent,
+              side: const BorderSide(color: RideTokens.accent),
+              minimumSize: const Size(0, 52),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(28),
+              ),
+            ),
+            child: const Text('Back to home'),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: FilledButton(
+            onPressed: busy ? null : onReceipt,
+            style: FilledButton.styleFrom(
+              backgroundColor: RideTokens.accent,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(0, 52),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(28),
+              ),
+            ),
+            child: Text(driverView ? 'View receipt' : 'Download bill'),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _PaymentReceiverStamp extends StatelessWidget {

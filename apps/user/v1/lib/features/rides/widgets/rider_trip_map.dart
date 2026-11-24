@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
@@ -10,6 +11,7 @@ class RiderTripMap extends StatefulWidget {
   final LatLng pickup, dropoff;
   final LatLng? driver;
   final String driverLabel;
+  final String? phase;
   final List<LatLng> points;
   final int recenter;
   const RiderTripMap({
@@ -18,6 +20,7 @@ class RiderTripMap extends StatefulWidget {
     required this.dropoff,
     this.driver,
     this.driverLabel = 'Driver',
+    this.phase,
     required this.points,
     this.recenter = 0,
   });
@@ -34,6 +37,7 @@ class _RiderMapState extends State<RiderTripMap> {
     super.didUpdateWidget(oldWidget);
     unawaited(_sync());
     if (oldWidget.recenter != widget.recenter ||
+        oldWidget.phase != widget.phase ||
         (oldWidget.driver == null && widget.driver != null)) {
       unawaited(_fit());
     }
@@ -214,7 +218,7 @@ class _RiderMapState extends State<RiderTripMap> {
       if (p.longitude > maxLon) maxLon = p.longitude;
     }
     try {
-      await c.moveCamera(
+      await c.animateCamera(
         CameraUpdate.newLatLngBounds(
           LatLngBounds(
             southwest: LatLng(minLat - .0002, minLon - .0002),
@@ -225,6 +229,7 @@ class _RiderMapState extends State<RiderTripMap> {
           right: 34,
           bottom: 38,
         ),
+        duration: const Duration(milliseconds: 900),
       );
     } catch (_) {
       /* Controls remain usable while a map is unavailable. */
@@ -245,6 +250,7 @@ class _RiderMapState extends State<RiderTripMap> {
         onStyleLoadedCallback: _style,
         tiltGesturesEnabled: true,
         attributionButtonPosition: AttributionButtonPosition.topRight,
+        attributionButtonMargins: const math.Point<double>(-1000, -1000),
       ),
       if (_failed)
         const Positioned(

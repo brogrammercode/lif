@@ -4,84 +4,124 @@ import 'package:flutter/rendering.dart';
 
 import 'package:user/components/ui/app_skeleton.dart';
 import 'package:user/features/rides/ride_display.dart';
+import 'package:user/features/rides/widgets/ride_sheet_route.dart';
 
 /// Common map-first composition used by selection, search and live ride stages.
 class RiderFlowScaffold extends StatefulWidget {
   final Widget map, panel;
-  final Widget? statusStrip;
+  final Widget? statusStrip, completionHeader, footer;
   final Widget? topLeading;
   final Widget? topTrailing;
   final String title;
   final VoidCallback? onBack, onRecenter, onRefresh;
-  final double? panelContentHeight;
-  final double initialPanelFraction, maximumPanelFraction;
-  final bool showBackButton, fitPanelToContent;
+  final Object? phase;
+  final bool showBackButton;
+  final bool mapOnly;
   const RiderFlowScaffold({
     super.key,
     required this.map,
     required this.panel,
     required this.title,
     this.statusStrip,
+    this.completionHeader,
+    this.footer,
     this.topLeading,
     this.topTrailing,
     this.onBack,
     this.onRecenter,
     this.onRefresh,
-    this.panelContentHeight,
-    this.initialPanelFraction = .30,
-    this.maximumPanelFraction = .86,
+    this.phase,
     this.showBackButton = true,
-    this.fitPanelToContent = false,
+    this.mapOnly = false,
   });
   @override
   State<RiderFlowScaffold> createState() => _RiderFlowScaffoldState();
 }
 
 class _RiderFlowScaffoldState extends State<RiderFlowScaffold> {
-  double? _fraction;
+  double? _contentHeight, _footerHeight, _dragExtent;
+  final _sheet = DraggableScrollableController();
+
   @override
   void didUpdateWidget(covariant RiderFlowScaffold oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialPanelFraction != widget.initialPanelFraction ||
-        (widget.fitPanelToContent &&
-            oldWidget.panelContentHeight != widget.panelContentHeight)) {
-      _fraction = null;
+    if (oldWidget.phase != widget.phase) {
+      _dragExtent = null;
+      _resetSheetAfterLayout();
     }
   }
 
   @override
-  Widget build(BuildContext context) => SolidScope(
-    child: Scaffold(
-      backgroundColor: RideTokens.canvas,
-      body: LayoutBuilder(
-        builder: (context, bounds) {
-          final stripHeight = RideArrivalStrip.heightFor(context);
-          const dragHandleHeight = 21.0;
-          const panelVerticalMargin = 20.0;
-          final contentExtent = widget.panelContentHeight == null
-              ? null
-              : ((stripHeight +
-                            dragHandleHeight +
-                            panelVerticalMargin +
-                            MediaQuery.paddingOf(context).bottom +
-                            widget.panelContentHeight!) /
-                        bounds.maxHeight)
-                    .clamp(.30, widget.maximumPanelFraction)
-                    .toDouble();
-          final initial = widget.fitPanelToContent && contentExtent != null
-              ? contentExtent
-              : widget.initialPanelFraction;
-          final measuredMax = widget.panelContentHeight == null
-              ? widget.maximumPanelFraction
-              : contentExtent!
-                    .clamp(initial, widget.maximumPanelFraction)
-                    .toDouble();
-          final height = bounds.maxHeight * (_fraction ?? initial);
-          final header =
-              widget.statusStrip ??
-              RideArrivalStrip(label: widget.title, value: '');
-          return Stack(
-            children: [
+  void dispose() {
+    _sheet.dispose();
+    super.dispose();
+  }
+
+  void _measureContent(Size size) {
+    if (!mounted || _contentHeight == size.height) return;
+    setState(() {
+      _contentHeight = size.height;
+      _dragExtent = null;
+    });
+    _resetSheetAfterLayout();
+  }
+
+  void _measureFooter(Size size) {
+    if (!mounted || _footerHeight == size.height) return;
+    setState(() {
+      _footerHeight = size.height;
+      _dragExtent = null;
+    });
+    _resetSheetAfterLayout();
+  }
+
+  void _resetSheetAfterLayout() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _sheet.isAttached) _sheet.reset();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final overlay = RideSheetRoute.isSheet(context);
+    final body = LayoutBuilder(
+      builder: (context, bounds) {
+        final stripHeight = RideArrivalStrip.heightFor(context);
+        final completion = widget.completionHeader;
+        const handleHeight = 21.0;
+        final safe = MediaQuery.paddingOf(context);
+        final keyboard = MediaQuery.viewInsetsOf(context).bottom;
+        final viewport = (bounds.maxHeight - keyboard).clamp(
+          0.0,
+          bounds.maxHeight,
+        );
+        final maxHeight = (viewport - safe.top - 12).clamp(0.0, viewport);
+        final chromeHeight =
+            (completion == null ? stripHeight + handleHeight + 22 : 72) +
+            safe.bottom;
+        final footer = widget.footer;
+        final footerHeight = footer == null ? 0.0 : _footerHeight ?? 74.0;
+        final pinFooter =
+            footer != null && maxHeight > chromeHeight + footerHeight + 48;
+        final height =
+            (_contentHeight == null
+                    ? maxHeight
+                    : _contentHeight! + chromeHeight + footerHeight)
+                .clamp(0.0, maxHeight);
+        final extent = viewport > 0 ? height / viewport : 0.0;
+        final minimum = viewport > 0
+            ? ((chromeHeight + (pinFooter ? footerHeight : 0) + 48) / viewport)
+                  .clamp(.30, 1.0)
+                  .clamp(0.0, extent)
+            : 0.0;
+        final visibleHeight =
+            viewport * (_dragExtent ?? extent).clamp(0, extent);
+        final header =
+            widget.statusStrip ??
+            RideArrivalStrip(label: widget.title, value: '');
+        return Stack(
+          children: [
+            if (!overlay)
               Positioned(
                 top: 0,
                 left: 0,
@@ -89,6 +129,7 @@ class _RiderFlowScaffoldState extends State<RiderFlowScaffold> {
                 height: bounds.maxHeight * .80,
                 child: widget.map,
               ),
+            if (!widget.mapOnly) ...[
               if (widget.showBackButton)
                 Positioned(
                   top: MediaQuery.paddingOf(context).top + 12,
@@ -122,61 +163,128 @@ class _RiderFlowScaffoldState extends State<RiderFlowScaffold> {
                     onPressed: widget.onRefresh!,
                   ),
                 ),
-              if (widget.onRecenter != null)
+              if (widget.onRecenter != null &&
+                  visibleHeight + safe.top + 60 < viewport)
                 Positioned(
                   right: 16,
-                  bottom: height + 10,
+                  bottom: keyboard + visibleHeight + 10,
                   child: SolidIconButton(
                     icon: Icons.my_location,
                     tooltip: 'Show route',
                     onPressed: widget.onRecenter!,
                   ),
                 ),
-              NotificationListener<DraggableScrollableNotification>(
-                onNotification: (notice) {
-                  if ((_fraction ?? initial) != notice.extent) {
-                    setState(() => _fraction = notice.extent);
-                  }
-                  return false;
-                },
-                child: DraggableScrollableSheet(
-                  key: ValueKey(initial),
-                  initialChildSize: initial,
-                  minChildSize: .30,
-                  maxChildSize: measuredMax,
-                  builder: (context, scroll) => RideStagePanel(
-                    key: const ValueKey('ride-stage-panel'),
-                    header: header,
-                    blackHeight: stripHeight,
-                    child: SafeArea(
-                      top: false,
-                      child: Column(
-                        children: [
-                          Container(
-                            width: 36,
-                            height: 3,
-                            margin: const EdgeInsets.symmetric(vertical: 9),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFCCCCCC),
-                              borderRadius: BorderRadius.circular(2),
-                            ),
+              if (height > chromeHeight)
+                Positioned.fill(
+                  key: const ValueKey('ride-sheet-position'),
+                  bottom: keyboard,
+                  child: NotificationListener<DraggableScrollableNotification>(
+                    onNotification: (notice) {
+                      if (_dragExtent != notice.extent) {
+                        setState(() => _dragExtent = notice.extent);
+                      }
+                      return false;
+                    },
+                    child: DraggableScrollableSheet(
+                      controller: _sheet,
+                      initialChildSize: extent,
+                      minChildSize: minimum,
+                      maxChildSize: extent,
+                      builder: (context, scroll) {
+                        final measuredFooter = footer == null
+                            ? null
+                            : RideContentSizeReporter(
+                                onSizeChanged: _measureFooter,
+                                child: footer,
+                              );
+                        final content = SafeArea(
+                          top: false,
+                          bottom: true,
+                          maintainBottomViewPadding: true,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (completion == null)
+                                const RideSheetHandle()
+                              else
+                                SizedBox(height: 72, child: completion),
+                              Expanded(
+                                child: SingleChildScrollView(
+                                  controller: scroll,
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      RideContentSizeReporter(
+                                        key: ValueKey(widget.phase),
+                                        onSizeChanged: _measureContent,
+                                        child: widget.panel,
+                                      ),
+                                      if (!pinFooter && measuredFooter != null)
+                                        measuredFooter,
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              if (pinFooter) measuredFooter!,
+                            ],
                           ),
-                          Expanded(
-                            child: PrimaryScrollController(
-                              controller: scroll,
-                              child: widget.panel,
-                            ),
-                          ),
-                        ],
-                      ),
+                        );
+                        return Visibility(
+                          visible: _contentHeight != null,
+                          maintainState: true,
+                          maintainAnimation: true,
+                          maintainSize: true,
+                          child: completion == null
+                              ? RideStagePanel(
+                                  key: const ValueKey('ride-stage-panel'),
+                                  header: header,
+                                  blackHeight: stripHeight,
+                                  child: content,
+                                )
+                              : Material(
+                                  color: Colors.white,
+                                  borderRadius: const BorderRadius.vertical(
+                                    top: Radius.circular(24),
+                                  ),
+                                  clipBehavior: Clip.antiAlias,
+                                  child: content,
+                                ),
+                        );
+                      },
                     ),
                   ),
                 ),
-              ),
             ],
-          );
-        },
-      ),
+            if (overlay) widget.map,
+          ],
+        );
+      },
+    );
+    return SolidScope(
+      child: overlay
+          ? body
+          : Scaffold(
+              resizeToAvoidBottomInset: false,
+              backgroundColor: RideTokens.canvas,
+              body: body,
+            ),
+    );
+  }
+}
+
+class RideSheetHandle extends StatelessWidget {
+  const RideSheetHandle({super.key});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 36,
+    height: 3,
+    margin: const EdgeInsets.symmetric(vertical: 9),
+    decoration: BoxDecoration(
+      color: const Color(0xFFCCCCCC),
+      borderRadius: BorderRadius.circular(2),
     ),
   );
 }

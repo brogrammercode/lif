@@ -13,6 +13,9 @@ import 'package:user/features/driver_vehicles/widgets/driver_vehicle_gate.dart';
 import 'package:user/features/partner_program/controllers/driver_home_controller.dart';
 import 'package:user/features/rides/ride_display.dart';
 import 'package:user/features/driver_vehicles/pages/driver_request_page.dart';
+import 'package:user/features/driver_vehicles/pages/driver_trip_page.dart';
+import 'package:user/features/driver_operations/widgets/driver_map.dart';
+import 'package:user/features/rides/widgets/ride_sheet_route.dart';
 
 class DriverHomePage extends StatelessWidget {
   const DriverHomePage({super.key});
@@ -35,6 +38,15 @@ class _DriverHomeState extends State<DriverHomeContent>
     ..addListener(_controllerChanged);
   Timer? _poll;
   ModalRoute<dynamic>? _route;
+  bool _rideSheetOpen = false;
+  DriverMap? _rideSheetMap;
+
+  Widget _rideMapBuilder(Widget map) {
+    if (map is! DriverMap) return const SizedBox.shrink();
+    return reportRideSheetMap(map, (next) {
+      if (mounted && _rideSheetOpen) setState(() => _rideSheetMap = next);
+    });
+  }
 
   DriverOperationsRepository get _repo => _controller.repo;
   DriverTrackingService get _tracking => _controller.tracking;
@@ -72,10 +84,15 @@ class _DriverHomeState extends State<DriverHomeContent>
 
   Future<void> _openRequest(Map<String, dynamic> offer) async {
     _opening = true;
+    setState(() => _rideSheetOpen = true);
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => DriverRequestPage(offer: offer, repository: _repo),
+      RideSheetRoute<void>(
+        builder: (_) => DriverRequestPage(
+          offer: offer,
+          repository: _repo,
+          mapBuilder: _rideMapBuilder,
+        ),
       ),
     );
     if (mounted) {
@@ -109,6 +126,11 @@ class _DriverHomeState extends State<DriverHomeContent>
 
   @override
   void didPopNext() {
+    setState(() {
+      _rideSheetOpen = false;
+      _rideSheetMap = null;
+      _opening = false;
+    });
     unawaited(_load());
     unawaited(_controller.loadOwnedVehicles(force: true));
   }
@@ -128,11 +150,18 @@ class _DriverHomeState extends State<DriverHomeContent>
         !_opening &&
         _route?.isCurrent == true) {
       _opening = true;
+      setState(() => _rideSheetOpen = true);
       unawaited(
-        Navigator.pushReplacementNamed(
+        Navigator.push(
           context,
-          AppRoutes.driverRideDetail,
-          arguments: current['id'],
+          RideSheetRoute<void>(
+            settings: RouteSettings(
+              name: AppRoutes.driverRideDetail,
+              arguments: '${current['id']}',
+            ),
+            builder: (_) =>
+                DriverTripPage(repository: _repo, mapBuilder: _rideMapBuilder),
+          ),
         ),
       );
     }
@@ -254,6 +283,8 @@ class _DriverHomeState extends State<DriverHomeContent>
   Widget build(BuildContext context) {
     final online = _data?['availability'] == 'AVAILABLE';
     return DriverGoOnlineStage(
+      mapOnly: _rideSheetOpen,
+      mapBuilder: (map) => _rideSheetMap ?? map,
       vehicles: _controller.ownedVehicles,
       selectedVehicleId: _controller.selectedVehicleId,
       loading: _data == null || _controller.vehiclesLoading,

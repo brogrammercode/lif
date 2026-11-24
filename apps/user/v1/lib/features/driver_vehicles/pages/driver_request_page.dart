@@ -11,6 +11,8 @@ import 'package:user/features/driver_operations/widgets/driver_map.dart';
 import 'package:user/features/driver_vehicles/controllers/driver_request_controller.dart';
 import 'package:user/features/rides/ride_display.dart';
 import 'package:user/features/rides/widgets/rider_flow_components.dart';
+import 'package:user/features/rides/widgets/ride_sheet_route.dart';
+import 'package:user/features/driver_vehicles/pages/driver_trip_page.dart';
 
 class DriverRequestPage extends StatefulWidget {
   final Map<String, dynamic> offer;
@@ -32,7 +34,6 @@ class _DriverRequestState extends State<DriverRequestPage> {
   late DriverRequestController _controller;
   Timer? _poll;
   bool _initialized = false;
-  double? _height;
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -74,6 +75,23 @@ class _DriverRequestState extends State<DriverRequestPage> {
     final id = await _controller.respond(accept);
     if (!mounted || id == null) return;
     if (accept) {
+      if (RideSheetRoute.isSheet(context) &&
+          DataSourceScope.of(context)?.isDemo != true) {
+        Navigator.pushReplacement(
+          context,
+          RideSheetRoute<void>(
+            settings: RouteSettings(
+              name: AppRoutes.driverRideDetail,
+              arguments: id,
+            ),
+            builder: (_) => DriverTripPage(
+              repository: widget.repository,
+              mapBuilder: widget.mapBuilder,
+            ),
+          ),
+        );
+        return;
+      }
       Navigator.pushReplacementNamed(
         context,
         AppRoutes.driverRideDetail,
@@ -110,6 +128,7 @@ class _DriverRequestState extends State<DriverRequestPage> {
             pickup.longitude,
           );
     final map = DriverMap(
+      phase: 'REQUEST',
       pickup: ridePoint(trip['pickup_latitude'], trip['pickup_longitude']),
       dropoff: ridePoint(trip['dropoff_latitude'], trip['dropoff_longitude']),
     );
@@ -123,98 +142,85 @@ class _DriverRequestState extends State<DriverRequestPage> {
           label: _controller.valid ? 'New ride request' : 'Request unavailable',
           value: rideMoney(trip['estimated_fare']),
         ),
-        panelContentHeight: _height,
         onRefresh: () => _controller.refresh(),
-        panel: SingleChildScrollView(
-          child: RideContentSizeReporter(
-            onSizeChanged: (size) {
-              if (mounted &&
-                  (_height == null || (_height! - size.height).abs() > 1)) {
-                setState(() => _height = size.height);
-              }
-            },
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                mainAxisSize: MainAxisSize.min,
+        panel: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RideVehicleDriverCard(
+                vehicle: rideMap(
+                  _controller.offer['vehicle'] ?? trip['vehicle'],
+                ),
+                driver: {'user': rideMap(trip['rider'])},
+                personLabel: 'Ride request',
+                showRating: false,
+                personBadge: _passengerBadge('${trip['passenger_count'] ?? 1}'),
+                vehicleSubtitle:
+                    '${rideDistance(trip['estimated_distance_m'])} · ${rideDuration(trip['estimated_duration_s'])} trip\n${pickupDistance == null ? 'Pickup distance unavailable' : '${rideDistance(pickupDistance)} from you to pickup'}',
+              ),
+              const SizedBox(height: 16),
+              RideRouteTimeline(trip),
+              const SizedBox(height: 16),
+              if ('${trip['rider_note'] ?? ''}'.isNotEmpty)
+                Text('${trip['rider_note']}'),
+              if (_controller.error != null)
+                Text(
+                  _controller.error!,
+                  style: const TextStyle(color: Colors.red),
+                ),
+              const SizedBox(height: 16),
+              Row(
                 children: [
-                  RideVehicleDriverCard(
-                    vehicle: rideMap(
-                      _controller.offer['vehicle'] ?? trip['vehicle'],
+                  Expanded(
+                    child: SizedBox(
+                      height: 60,
+                      child: FilledButton(
+                        onPressed: _controller.busy || !_controller.valid
+                            ? null
+                            : () => _respond(true),
+                        style: FilledButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        child: Text(
+                          _controller.busy ? 'Updating…' : 'Accept ride',
+                        ),
+                      ),
                     ),
-                    driver: {'user': rideMap(trip['rider'])},
-                    personLabel: 'Ride request',
-                    showRating: false,
-                    personBadge: _passengerBadge(
-                      '${trip['passenger_count'] ?? 1}',
-                    ),
-                    vehicleSubtitle:
-                        '${rideDistance(trip['estimated_distance_m'])} · ${rideDuration(trip['estimated_duration_s'])} trip\n${pickupDistance == null ? 'Pickup distance unavailable' : '${rideDistance(pickupDistance)} from you to pickup'}',
                   ),
-                  const SizedBox(height: 16),
-                  RideRouteTimeline(trip),
-                  const SizedBox(height: 16),
-                  if ('${trip['rider_note'] ?? ''}'.isNotEmpty)
-                    Text('${trip['rider_note']}'),
-                  if (_controller.error != null)
-                    Text(
-                      _controller.error!,
-                      style: const TextStyle(color: Colors.red),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SizedBox(
+                      height: 60,
+                      child: CustomPaint(
+                        foregroundPainter: _ButtonCountdownPainter(
+                          _controller.remainingFraction,
+                        ),
+                        child: FilledButton(
+                          onPressed: _controller.busy || !_controller.valid
+                              ? null
+                              : () => _respond(false),
+                          style: FilledButton.styleFrom(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            backgroundColor: Colors.white,
+                            foregroundColor: Colors.black,
+                            elevation: 0,
+                          ),
+                          child: Text(
+                            'Decline ? ${_controller.secondsRemaining}s',
+                          ),
+                        ),
+                      ),
                     ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SizedBox(
-                          height: 60,
-                          child: FilledButton(
-                            onPressed: _controller.busy || !_controller.valid
-                                ? null
-                                : () => _respond(true),
-                            style: FilledButton.styleFrom(
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                            ),
-                            child: Text(
-                              _controller.busy ? 'Updating…' : 'Accept ride',
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: SizedBox(
-                          height: 60,
-                          child: CustomPaint(
-                            foregroundPainter: _ButtonCountdownPainter(
-                              _controller.remainingFraction,
-                            ),
-                            child: FilledButton(
-                              onPressed: _controller.busy || !_controller.valid
-                                  ? null
-                                  : () => _respond(false),
-                              style: FilledButton.styleFrom(
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                backgroundColor: Colors.white,
-                                foregroundColor: Colors.black,
-                                elevation: 0,
-                              ),
-                              child: Text(
-                                'Decline ? ${_controller.secondsRemaining}s',
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
                   ),
                 ],
               ),
-            ),
+            ],
           ),
         ),
       ),

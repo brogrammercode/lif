@@ -102,7 +102,7 @@ void main() {
             key: ValueKey('stage-map'),
             color: Colors.blueGrey,
           ),
-          panel: ListView(children: const [Text('Stage content')]),
+          panel: const Text('Stage content'),
         ),
       ),
     );
@@ -110,6 +110,8 @@ void main() {
     final stage = find.byKey(const ValueKey('ride-stage-panel'));
     final map = find.byKey(const ValueKey('stage-map'));
     expect(stage, findsOneWidget);
+    expect(find.text('Stage content').hitTestable(), findsOneWidget);
+    expect(tester.getSize(stage).height, lessThan(140));
     expect(
       tester.getSize(map).height,
       closeTo(tester.getSize(find.byType(Scaffold)).height * .80, .1),
@@ -244,7 +246,7 @@ void main() {
       ),
     );
     final swipe = find.byKey(const ValueKey('ride-swipe-button'));
-    expect(tester.getSize(swipe).height, 48);
+    expect(tester.getSize(swipe).height, 60);
     expect(find.text('Slide to continue'), findsOneWidget);
     expect(find.byKey(const ValueKey('ride-swipe-car')), findsNothing);
     await tester.tap(swipe);

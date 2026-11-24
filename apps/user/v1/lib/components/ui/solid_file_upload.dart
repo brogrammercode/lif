@@ -72,42 +72,63 @@ class SolidFileUpload extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final Widget content;
     if (files.isEmpty) {
-      return _UploadDropZone(
+      content = _UploadDropZone(
         camera: camera,
         busy: busy,
         onChoose: onChoose,
         guidance: showGuidance ? limitText : null,
       );
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (final file in files)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: _SelectedUpload(
-              file: file,
-              image: image && !_isPdf(file.name),
-              busy: busy,
+    } else {
+      content = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final file in files)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _SelectedUpload(
+                file: file,
+                image: image && !_isPdf(file.name),
+                busy: busy,
+              ),
             ),
-          ),
-        if (allowAdditional && onChoose != null)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: busy ? null : onChoose,
-              icon: const Icon(Icons.add_rounded, size: 19),
-              label: Text(camera ? 'Add another photo' : 'Add another file'),
-              style: TextButton.styleFrom(
-                foregroundColor: RideTokens.ink,
-                textStyle: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w400,
+          if (allowAdditional && onChoose != null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: busy ? null : onChoose,
+                icon: const Icon(Icons.add_rounded, size: 19),
+                label: Text(camera ? 'Add another photo' : 'Add another file'),
+                style: TextButton.styleFrom(
+                  foregroundColor: RideTokens.ink,
+                  textStyle: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w400,
+                  ),
                 ),
               ),
             ),
+        ],
+      );
+    }
+    if (label == null || label!.trim().isEmpty) return content;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 2, bottom: 8),
+          child: Text(
+            label!,
+            style: const TextStyle(
+              fontSize: 13,
+              height: 1.2,
+              color: RideTokens.ink,
+              fontWeight: FontWeight.w500,
+            ),
           ),
+        ),
+        content,
       ],
     );
   }

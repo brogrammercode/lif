@@ -211,32 +211,34 @@ class _SupportTicketPageState extends State<SupportTicketPage> {
                         borderSide: BorderSide.none,
                       ),
                     ),
+                    onChanged: (_) => setState(() {}),
                     onSubmitted: (_) => _send(),
                   ),
                 ),
                 const SizedBox(width: 8),
-                SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: FilledButton(
-                    onPressed: _sending ? null : _send,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: RideTokens.accent,
-                      foregroundColor: Colors.white,
-                      padding: EdgeInsets.zero,
-                      shape: const CircleBorder(),
+                if (_message.text.trim().isNotEmpty)
+                  SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: FilledButton(
+                      onPressed: _sending ? null : _send,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: RideTokens.accent,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.zero,
+                        shape: const CircleBorder(),
+                      ),
+                      child: _sending
+                          ? const SizedBox.square(
+                              dimension: 19,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.send_rounded, size: 20),
                     ),
-                    child: _sending
-                        ? const SizedBox.square(
-                            dimension: 19,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.send_rounded, size: 20),
                   ),
-                ),
               ],
             ),
           ),

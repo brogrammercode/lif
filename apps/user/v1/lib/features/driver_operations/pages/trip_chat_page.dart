@@ -145,17 +145,21 @@ class _TripChatPageState extends State<TripChatPage> {
                   maxLength: 1000,
                   minLines: 1,
                   maxLines: 4,
+                  onChanged: (_) => setState(() {}),
                   decoration: const InputDecoration(
                     hintText: 'Message',
                     counterText: '',
                   ),
                 ),
               ),
-              SolidIconButton(
-                onPressed: _sending ? null : _send,
-                tooltip: _sending ? 'Sending message' : 'Send message',
-                icon: _sending ? Icons.more_horiz_rounded : Icons.send_rounded,
-              ),
+              if (_text.text.trim().isNotEmpty)
+                SolidIconButton(
+                  onPressed: _sending ? null : _send,
+                  tooltip: _sending ? 'Sending message' : 'Send message',
+                  icon: _sending
+                      ? Icons.more_horiz_rounded
+                      : Icons.send_rounded,
+                ),
             ],
           ),
         ),

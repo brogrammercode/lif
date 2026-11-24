@@ -20,6 +20,7 @@ class DriverGoOnlineStage extends StatefulWidget {
   final String? avatarUrl;
   final VoidCallback? onRetry;
   final Widget Function(Widget)? mapBuilder;
+  final bool mapOnly;
 
   const DriverGoOnlineStage({
     super.key,
@@ -38,6 +39,7 @@ class DriverGoOnlineStage extends StatefulWidget {
     this.onRetry,
     this.error,
     this.mapBuilder,
+    this.mapOnly = false,
   });
 
   @override
@@ -46,8 +48,8 @@ class DriverGoOnlineStage extends StatefulWidget {
 
 class _DriverGoOnlineStageState extends State<DriverGoOnlineStage> {
   late final PageController _carousel = PageController(viewportFraction: .38);
-  double? _contentHeight;
   bool _follow = false;
+  int _recenter = 0;
   String? _visibleSelectedVehicleId;
 
   @override
@@ -187,113 +189,97 @@ class _DriverGoOnlineStageState extends State<DriverGoOnlineStage> {
     );
   }
 
-  Widget _panel() => SingleChildScrollView(
-    child: RideContentSizeReporter(
-      onSizeChanged: (size) {
-        if (mounted &&
-            (_contentHeight == null ||
-                (_contentHeight! - size.height).abs() > 1)) {
-          setState(() => _contentHeight = size.height);
-        }
-      },
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              widget.isOnline ? 'You are online' : 'Choose your vehicle',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              widget.isOnline
-                  ? 'Your selected vehicle is ready for nearby ride requests.'
-                  : 'Select the car you will use for your rides.',
-              style: TextStyle(fontSize: 13, color: RideTokens.muted),
-            ),
-            const SizedBox(height: 18),
-            if (widget.loading && widget.vehicles.isEmpty)
-              const SizedBox(
-                height: 142,
-                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-              )
-            else if (widget.vehicles.isEmpty)
-              SizedBox(
-                height: 142,
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        widget.error ?? 'No registered vehicles are available.',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: RideTokens.muted),
-                      ),
-                      if (widget.error != null && widget.onRetry != null)
-                        TextButton(
-                          onPressed: widget.onRetry,
-                          child: const Text('Retry'),
-                        ),
-                    ],
-                  ),
-                ),
-              )
-            else
-              SizedBox(
-                height: 146,
-                child: PageView.builder(
-                  controller: _carousel,
-                  physics: widget.isOnline
-                      ? const NeverScrollableScrollPhysics()
-                      : null,
-                  itemCount: widget.vehicles.length,
-                  onPageChanged: (index) {
-                    final id = '${widget.vehicles[index]['id']}';
-                    setState(() => _visibleSelectedVehicleId = id);
-                    if (!widget.isOnline) widget.onSelectVehicle(id);
-                  },
-                  itemBuilder: (context, index) =>
-                      _vehicleTile(widget.vehicles[index], index),
-                ),
-              ),
-            if (widget.error != null && widget.vehicles.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                widget.error!,
-                style: const TextStyle(fontSize: 12, color: Colors.red),
-              ),
-            ],
-            if (!widget.canGoOnline && !widget.loading && !widget.isOnline) ...[
-              const SizedBox(height: 8),
-              const Text(
-                'Choose a verified vehicle to go online.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: RideTokens.muted),
-              ),
-            ],
-            const SizedBox(height: 18),
-            RideSwipeButton(
-              label: widget.isOnline
-                  ? 'Slide to go offline'
-                  : 'Slide to go online',
-              accent: widget.isOnline
-                  ? const Color(0xFFE53935)
-                  : RideTokens.accent,
-              trackColor: widget.isOnline ? const Color(0xFFFFE6E6) : null,
-              thumbColor: widget.isOnline ? const Color(0xFFE53935) : null,
-              labelColor: widget.isOnline ? const Color(0xFFB42318) : null,
-              enabled:
-                  widget.isOnline || (widget.canGoOnline && !widget.loading),
-              busy: widget.busy,
-              onSwipe: widget.isOnline
-                  ? (widget.onGoOffline ?? () {})
-                  : widget.onGoOnline,
-            ),
-          ],
+  Widget _panel() => Padding(
+    padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          widget.isOnline ? 'You are online' : 'Choose your vehicle',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
         ),
-      ),
+        const SizedBox(height: 6),
+        Text(
+          widget.isOnline
+              ? 'Your selected vehicle is ready for nearby ride requests.'
+              : 'Select the car you will use for your rides.',
+          style: TextStyle(fontSize: 13, color: RideTokens.muted),
+        ),
+        const SizedBox(height: 18),
+        if (widget.loading && widget.vehicles.isEmpty)
+          const SizedBox(
+            height: 142,
+            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          )
+        else if (widget.vehicles.isEmpty)
+          SizedBox(
+            height: 142,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    widget.error ?? 'No registered vehicles are available.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: RideTokens.muted),
+                  ),
+                  if (widget.error != null && widget.onRetry != null)
+                    TextButton(
+                      onPressed: widget.onRetry,
+                      child: const Text('Retry'),
+                    ),
+                ],
+              ),
+            ),
+          )
+        else
+          SizedBox(
+            height: 146,
+            child: PageView.builder(
+              controller: _carousel,
+              physics: widget.isOnline
+                  ? const NeverScrollableScrollPhysics()
+                  : null,
+              itemCount: widget.vehicles.length,
+              onPageChanged: (index) {
+                final id = '${widget.vehicles[index]['id']}';
+                setState(() => _visibleSelectedVehicleId = id);
+                if (!widget.isOnline) widget.onSelectVehicle(id);
+              },
+              itemBuilder: (context, index) =>
+                  _vehicleTile(widget.vehicles[index], index),
+            ),
+          ),
+        if (widget.error != null && widget.vehicles.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(
+            widget.error!,
+            style: const TextStyle(fontSize: 12, color: Colors.red),
+          ),
+        ],
+        if (!widget.canGoOnline && !widget.loading && !widget.isOnline) ...[
+          const SizedBox(height: 8),
+          const Text(
+            'Choose a verified vehicle to go online.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: RideTokens.muted),
+          ),
+        ],
+        const SizedBox(height: 18),
+        RideSwipeButton(
+          label: widget.isOnline ? 'Slide to go offline' : 'Slide to go online',
+          accent: widget.isOnline ? const Color(0xFFE53935) : RideTokens.accent,
+          trackColor: widget.isOnline ? const Color(0xFFFFE6E6) : null,
+          thumbColor: widget.isOnline ? const Color(0xFFE53935) : null,
+          labelColor: widget.isOnline ? const Color(0xFFB42318) : null,
+          enabled: widget.isOnline || (widget.canGoOnline && !widget.loading),
+          busy: widget.busy,
+          onSwipe: widget.isOnline
+              ? (widget.onGoOffline ?? () {})
+              : widget.onGoOnline,
+        ),
+      ],
     ),
   );
 
@@ -307,20 +293,19 @@ class _DriverGoOnlineStageState extends State<DriverGoOnlineStage> {
             : ridePoint(position.latitude, position.longitude),
         heading: position?.heading ?? 0,
         follow: _follow,
+        recenter: _recenter,
+        phase: widget.isOnline ? 'ONLINE' : 'OFFLINE',
       );
       return RiderFlowScaffold(
         title: 'Go online',
+        mapOnly: widget.mapOnly,
         statusStrip: RideArrivalStrip(
           label: 'Go online',
           value: widget.isOnline ? 'Online' : 'Choose vehicle',
         ),
         map: widget.mapBuilder?.call(map) ?? map,
         panel: _panel(),
-        panelContentHeight: _contentHeight,
-        initialPanelFraction: .50,
-        maximumPanelFraction: .82,
         showBackButton: false,
-        fitPanelToContent: true,
         topLeading: GestureDetector(
           onTap: widget.onProfile,
           child: Container(
@@ -361,7 +346,10 @@ class _DriverGoOnlineStageState extends State<DriverGoOnlineStage> {
           onPressed: () =>
               Navigator.pushNamed(context, AppRoutes.notifications),
         ),
-        onRecenter: () => setState(() => _follow = true),
+        onRecenter: () => setState(() {
+          _follow = true;
+          _recenter++;
+        }),
       );
     },
   );

@@ -232,23 +232,25 @@ class _WalletAddMoneyState extends State<WalletAddMoneyPage> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: Colors.black,
-            foregroundColor: Colors.white,
-            minimumSize: const Size.fromHeight(48),
+        if (_paise > 0) ...[
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.black,
+              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(48),
+            ),
+            onPressed: _submitted ? null : _continue,
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Continue'),
+                SizedBox(width: 8),
+                Icon(Icons.arrow_forward, size: 18),
+              ],
+            ),
           ),
-          onPressed: _paise == 0 || _submitted ? null : _continue,
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Continue'),
-              SizedBox(width: 8),
-              Icon(Icons.arrow_forward, size: 18),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
+          const SizedBox(height: 16),
+        ],
         for (final (index, row) in const [
           ['1', '2', '3'],
           ['4', '5', '6'],

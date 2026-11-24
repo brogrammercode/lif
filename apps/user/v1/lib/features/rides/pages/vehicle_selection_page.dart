@@ -8,6 +8,8 @@ import 'package:user/core/routes.dart';
 import 'package:user/features/rides/ride_display.dart';
 import 'package:user/features/rides/widgets/rider_flow_components.dart';
 import 'package:user/features/rides/widgets/rider_trip_map.dart';
+import 'package:user/features/rides/widgets/ride_sheet_route.dart';
+import 'package:user/features/rides/pages/ride_detail_page.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
 class VehicleSelectionPage extends StatefulWidget {
@@ -31,8 +33,6 @@ class _VehicleSelectionState extends State<VehicleSelectionPage>
     with WidgetsBindingObserver {
   late VehicleSelectionController _controller;
   bool _initialized = false;
-  final _panelContentKey = GlobalKey();
-  double? _panelContentHeight;
   int _recenter = 0;
   @override
   void didChangeDependencies() {
@@ -52,23 +52,22 @@ class _VehicleSelectionState extends State<VehicleSelectionPage>
     if (mounted) setState(() {});
   }
 
-  void _measurePanelContent() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final renderObject = _panelContentKey.currentContext?.findRenderObject();
-      if (renderObject is! RenderBox || !renderObject.hasSize) return;
-      final height = renderObject.size.height;
-      if (_panelContentHeight != null &&
-          (_panelContentHeight! - height).abs() < 1) {
-        return;
-      }
-      setState(() => _panelContentHeight = height);
-    });
-  }
-
   Future<void> _submit() async {
     final id = await _controller.submit();
     if (mounted && id != null) {
+      if (RideSheetRoute.isSheet(context)) {
+        await Navigator.pushReplacement(
+          context,
+          RideSheetRoute<void>(
+            settings: RouteSettings(name: AppRoutes.rideDetail, arguments: id),
+            builder: (_) => RideDetailPage(
+              repository: widget.repository,
+              mapBuilder: widget.mapBuilder,
+            ),
+          ),
+        );
+        return;
+      }
       await Navigator.pushReplacementNamed(
         context,
         AppRoutes.rideDetail,
@@ -106,7 +105,6 @@ class _VehicleSelectionState extends State<VehicleSelectionPage>
 
   @override
   Widget build(BuildContext context) {
-    _measurePanelContent();
     final pickup = rideMap(widget.input['pickup']),
         dropoff = rideMap(widget.input['dropoff']);
     final map = RiderTripMap(
@@ -114,6 +112,7 @@ class _VehicleSelectionState extends State<VehicleSelectionPage>
       dropoff: ridePoint(dropoff['latitude'], dropoff['longitude'])!,
       points: widget.points,
       recenter: _recenter,
+      phase: 'VEHICLE_SELECTION',
     );
     return PopScope(
       canPop: !_controller.booking.busy && !_controller.booking.attempted,
@@ -131,171 +130,132 @@ class _VehicleSelectionState extends State<VehicleSelectionPage>
         map: widget.mapBuilder?.call(map) ?? map,
         onRecenter: () => setState(() => _recenter++),
         onBack: _back,
-        panelContentHeight: _panelContentHeight,
-        panel: SingleChildScrollView(
-          child: SizedBox(
-            key: const ValueKey('vehicle-selection-content'),
-            child: Column(
-              key: _panelContentKey,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (_controller.loading)
-                        const RideFlowSkeleton()
-                      else ...[
-                        SizedBox(
-                          height: 94,
-                          child: ListView.separated(
-                            scrollDirection: Axis.horizontal,
-                            itemCount: _controller.quotes.length,
-                            separatorBuilder: (_, _) =>
-                                const SizedBox(width: 10),
-                            itemBuilder: (_, index) {
-                              final category = rideMap(
-                                _controller.quotes[index]['category_snapshot'],
-                              );
-                              return Semantics(
-                                selected: index == _controller.selected,
-                                button: true,
-                                child: InkWell(
-                                  onTap: _controller.locked
-                                      ? null
-                                      : () => _controller.select(index),
-                                  borderRadius: BorderRadius.circular(20),
-                                  child: SolidSurface(
-                                    dark: index == _controller.selected,
-                                    padding: const EdgeInsets.all(10),
-                                    child: SizedBox(
-                                      width: 60,
-                                      height: 60,
-                                      child: Column(
-                                        children: [
-                                          Expanded(
-                                            child: RideFlowImage(
-                                              url:
-                                                  category['image_url']
-                                                      as String?,
-                                              size: 30,
-                                              iconColor:
-                                                  index == _controller.selected
-                                                  ? Colors.white
-                                                  : RideTokens.ink,
-                                              fallback:
-                                                  ['BIKE', 'SCOOTER'].contains(
-                                                    _controller
-                                                        .quotes[index]['vehicle_type'],
-                                                  )
-                                                  ? Icons.two_wheeler
-                                                  : Icons
-                                                        .directions_car_outlined,
-                                            ),
-                                          ),
-                                          Text(
-                                            '${category['name'] ?? 'Ride'}',
-                                            maxLines: 2,
-                                            textAlign: TextAlign.center,
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color:
-                                                  index == _controller.selected
-                                                  ? Colors.white
-                                                  : RideTokens.ink,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        if (_controller.previewLoading)
-                          const RideFlowSkeleton()
-                        else if (_controller.previews.isEmpty)
-                          const SizedBox.shrink()
-                        else ...[
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              for (final preview in _controller.previews)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 8),
+        panel: SizedBox(
+          key: const ValueKey('vehicle-selection-content'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_controller.loading)
+                      const RideFlowSkeleton()
+                    else ...[
+                      SizedBox(
+                        height: 94,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _controller.quotes.length,
+                          separatorBuilder: (_, _) => const SizedBox(width: 10),
+                          itemBuilder: (_, index) {
+                            final category = rideMap(
+                              _controller.quotes[index]['category_snapshot'],
+                            );
+                            return Semantics(
+                              selected: index == _controller.selected,
+                              button: true,
+                              child: InkWell(
+                                onTap: _controller.locked
+                                    ? null
+                                    : () => _controller.select(index),
+                                borderRadius: BorderRadius.circular(20),
+                                child: SolidSurface(
+                                  dark: index == _controller.selected,
+                                  padding: const EdgeInsets.all(10),
                                   child: SizedBox(
-                                    width: double.infinity,
-                                    child: RideVehicleDriverCard(
-                                      vehicle: rideMap(preview['vehicle']),
-                                      driver: rideMap(preview['driver']),
-                                      preview: true,
-                                      distanceLabel: _controller
-                                          .driverDistanceLabel(preview),
+                                    width: 60,
+                                    height: 60,
+                                    child: Column(
+                                      children: [
+                                        Expanded(
+                                          child: RideFlowImage(
+                                            url:
+                                                category['image_url']
+                                                    as String?,
+                                            size: 30,
+                                            iconColor:
+                                                index == _controller.selected
+                                                ? Colors.white
+                                                : RideTokens.ink,
+                                            fallback:
+                                                ['BIKE', 'SCOOTER'].contains(
+                                                  _controller
+                                                      .quotes[index]['vehicle_type'],
+                                                )
+                                                ? Icons.two_wheeler
+                                                : Icons.directions_car_outlined,
+                                          ),
+                                        ),
+                                        Text(
+                                          '${category['name'] ?? 'Ride'}',
+                                          maxLines: 2,
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: index == _controller.selected
+                                                ? Colors.white
+                                                : RideTokens.ink,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),
-                            ],
-                          ),
-                        ],
-                        const SizedBox(height: 14),
-                        Row(
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      if (_controller.previewLoading)
+                        const RideFlowSkeleton()
+                      else if (_controller.previews.isEmpty)
+                        const SizedBox.shrink()
+                      else ...[
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            const Expanded(child: Text('Passengers')),
-                            IconButton(
-                              onPressed:
-                                  _controller.locked ||
-                                      _controller.passengers <= 1
-                                  ? null
-                                  : () {
-                                      _controller.changePassengers(-1);
-                                    },
-                              icon: const Icon(Icons.remove_circle_outline),
-                            ),
-                            Text('${_controller.passengers}'),
-                            IconButton(
-                              onPressed:
-                                  _controller.locked ||
-                                      _controller.passengers >=
-                                          (rideNumber(
-                                                _controller
-                                                    .category['capacity'],
-                                              ) ??
-                                              1)
-                                  ? null
-                                  : () {
-                                      _controller.changePassengers(1);
-                                    },
-                              icon: const Icon(Icons.add_circle_outline),
-                            ),
+                            for (final preview in _controller.previews)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: SizedBox(
+                                  width: double.infinity,
+                                  child: RideVehicleDriverCard(
+                                    vehicle: rideMap(preview['vehicle']),
+                                    driver: rideMap(preview['driver']),
+                                    preview: true,
+                                    distanceLabel: _controller
+                                        .driverDistanceLabel(preview),
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
-                        if (_controller.error != null ||
-                            _controller.booking.error != null)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            child: Text(
-                              _controller.booking.error ?? _controller.error!,
-                              style: const TextStyle(color: Colors.red),
-                            ),
-                          ),
                       ],
+                      if (_controller.error != null ||
+                          _controller.booking.error != null)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          child: Text(
+                            _controller.booking.error ?? _controller.error!,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                        ),
                     ],
-                  ),
+                  ],
                 ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: 60,
-                    child: _bookingAction(),
-                  ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 60,
+                  child: _bookingAction(),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),

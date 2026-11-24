@@ -146,6 +146,7 @@ class _PlaceDetailState extends State<PlaceDetailPage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   SolidFileUpload(
+                    label: 'Place photo',
                     files: [
                       SolidUploadFile(
                         name: file.name,
@@ -705,6 +706,9 @@ class _ReviewEditorState extends State<PlaceReviewEditor> {
   set _busy(bool value) => _controller.busy = value;
   String? get _error => _controller.error;
   set _error(String? value) => _controller.error = value;
+  bool get _hasReviewChanges =>
+      _score != (rideNumber(widget.initial['score']) ?? 0).toInt() ||
+      _comment.text.trim() != '${widget.initial['comment'] ?? ''}'.trim();
   @override
   void dispose() {
     _controller.removeListener(_controllerChanged);
@@ -768,6 +772,7 @@ class _ReviewEditorState extends State<PlaceReviewEditor> {
               maxLength: 2000,
               minLines: 3,
               maxLines: 5,
+              onChanged: (_) => setState(() {}),
               decoration: const InputDecoration(
                 labelText: 'Share your experience',
               ),
@@ -789,10 +794,11 @@ class _ReviewEditorState extends State<PlaceReviewEditor> {
           onPressed: _busy ? null : () => Navigator.pop(context),
           child: const Text('Cancel'),
         ),
-        FilledButton(
-          onPressed: _busy ? null : _save,
-          child: Text(_busy ? 'Saving…' : 'Save review'),
-        ),
+        if (_hasReviewChanges)
+          FilledButton(
+            onPressed: _busy ? null : _save,
+            child: Text(_busy ? 'Saving…' : 'Save review'),
+          ),
       ],
     ),
   );

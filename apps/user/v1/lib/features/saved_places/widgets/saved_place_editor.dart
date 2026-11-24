@@ -45,6 +45,22 @@ class _PlaceEditorState extends State<SavedPlaceEditor> {
   set _error(String? value) => _controller.error = value;
   List<Map<String, dynamic>> get _results => _controller.results;
   set _results(List<Map<String, dynamic>> value) => _controller.results = value;
+  bool get _hasChangesOrInput {
+    final initial = widget.initial;
+    final point = _selected;
+    if (initial == null) {
+      return _label.text.trim().isNotEmpty ||
+          _address.text.trim().isNotEmpty ||
+          point != null;
+    }
+    return _label.text.trim() != '${initial['label'] ?? ''}'.trim() ||
+        _address.text.trim() != '${initial['address'] ?? ''}'.trim() ||
+        _type != '${initial['place_type'] ?? 'OTHER'}' ||
+        (point != null &&
+            (point.latitude != rideNumber(initial['latitude']) ||
+                point.longitude != rideNumber(initial['longitude'])));
+  }
+
   void _change(String value) {
     _debounce?.cancel();
     final generation = ++_generation;
@@ -89,6 +105,7 @@ class _PlaceEditorState extends State<SavedPlaceEditor> {
             TextFormField(
               controller: _label,
               maxLength: 80,
+              onChanged: (_) => setState(() {}),
               decoration: const InputDecoration(labelText: 'Label'),
               validator: (v) =>
                   v == null || v.trim().isEmpty ? 'Enter a label' : null,
@@ -186,23 +203,24 @@ class _PlaceEditorState extends State<SavedPlaceEditor> {
         onPressed: () => Navigator.pop(context),
         child: const Text('Cancel'),
       ),
-      SizedBox(
-        width: 160,
-        child: LiquidGlassButton(
-          text: 'Save place',
-          icon: const Icon(Icons.check_rounded),
-          onPressed: () {
-            if (!_form.currentState!.validate()) return;
-            Navigator.pop(context, {
-              'label': _label.text.trim(),
-              'address': _address.text.trim(),
-              'latitude': _selected!.latitude,
-              'longitude': _selected!.longitude,
-              'place_type': _type,
-            });
-          },
+      if (_hasChangesOrInput)
+        SizedBox(
+          width: 160,
+          child: LiquidGlassButton(
+            text: 'Save place',
+            icon: const Icon(Icons.check_rounded),
+            onPressed: () {
+              if (!_form.currentState!.validate()) return;
+              Navigator.pop(context, {
+                'label': _label.text.trim(),
+                'address': _address.text.trim(),
+                'latitude': _selected!.latitude,
+                'longitude': _selected!.longitude,
+                'place_type': _type,
+              });
+            },
+          ),
         ),
-      ),
     ],
   );
 }

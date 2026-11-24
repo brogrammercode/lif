@@ -296,17 +296,20 @@ class RideHistoryDetails extends StatelessWidget {
   final Map<String, dynamic> trip, payment;
   final VoidCallback? onRate;
   final Widget? contactActions;
+  final bool driverView;
   const RideHistoryDetails({
     super.key,
     required this.trip,
     required this.payment,
     this.onRate,
     this.contactActions,
+    this.driverView = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final driver = rideMap(trip['driver']);
+    final driver = rideMap(trip[driverView ? 'rider' : 'driver']);
+    final person = driverView && driver.isNotEmpty ? {'user': driver} : driver;
     final vehicle = rideMap(trip['vehicle']);
     final review = rideMap(trip['review']);
     final score = rideNumber(review['score']);
@@ -361,8 +364,10 @@ class RideHistoryDetails extends StatelessWidget {
         if (driver.isNotEmpty || vehicle.isNotEmpty) ...[
           RideVehicleDriverCard(
             vehicle: vehicle,
-            driver: driver,
+            driver: person,
             contactActions: contactActions,
+            personLabel: driverView ? 'Passenger' : null,
+            showRating: !driverView,
           ),
           const SizedBox(height: 24),
         ],

@@ -23,6 +23,7 @@ import 'package:user/features/rides/ride_detail_intent.dart';
 import 'package:user/features/rides/ride_fare_summary.dart';
 import 'package:user/features/rides/widgets/ride_outcome.dart';
 import 'package:user/features/rides/widgets/rider_trip_map.dart';
+import 'package:user/features/rides/widgets/ride_sheet_route.dart';
 import 'package:user/features/rides/widgets/trip_cancellation_dialog.dart';
 import 'package:user/features/rides/widgets/trip_safety_sheet.dart';
 import 'package:user/features/rides/widgets/trip_start_qr_sheet.dart';
@@ -40,6 +41,7 @@ Future<bool?> showRideHistorySheet(
   UserAppRepository? repository,
   DriverOperationsRepository? operationsRepository,
   bool preview = false,
+  bool driverHistory = false,
 }) => showModalBottomSheet<bool>(
   context: context,
   isScrollControlled: true,
@@ -52,6 +54,7 @@ Future<bool?> showRideHistorySheet(
       repository: repository,
       operationsRepository: operationsRepository,
       previewHistory: preview,
+      driverHistory: driverHistory,
     ),
   ),
 );
@@ -62,6 +65,7 @@ class RideDetailPage extends StatefulWidget {
   final Widget Function(Widget)? mapBuilder;
   final String? historyRideId;
   final bool previewHistory;
+  final bool driverHistory;
   const RideDetailPage({
     super.key,
     this.repository,
@@ -69,6 +73,7 @@ class RideDetailPage extends StatefulWidget {
     this.mapBuilder,
     this.historyRideId,
     this.previewHistory = false,
+    this.driverHistory = false,
   });
   @override
   State<RideDetailPage> createState() => _RiderTripState();
@@ -81,24 +86,9 @@ class _RiderTripState extends State<RideDetailPage>
   bool _initialized = false, _receiptOpen = false, _initialReceipt = false;
   final GlobalKey _billCaptureKey = GlobalKey();
   final ScrollController _historyScroll = ScrollController();
-  double? _rideStageContentHeight;
-  String? _rideStageContentStatus;
   ModalRoute<dynamic>? _route;
   int _recenter = 0;
   bool _historyEntry = false, _showHistoryMap = false;
-
-  void _updateRideStageContentHeight(String status, double height) {
-    if (!mounted ||
-        (_rideStageContentStatus == status &&
-            _rideStageContentHeight != null &&
-            (_rideStageContentHeight! - height).abs() < 1)) {
-      return;
-    }
-    setState(() {
-      _rideStageContentStatus = status;
-      _rideStageContentHeight = height;
-    });
-  }
 
   void _updated() {
     if (!mounted) return;
@@ -149,6 +139,7 @@ class _RiderTripState extends State<RideDetailPage>
             (args is RideDetailIntent ? args.id : (args is String ? args : '')),
         source: source?.changes,
         livePresentation: args is RideDetailIntent && args.liveJourney,
+        driverHistory: widget.driverHistory,
       );
     }
   }
@@ -313,7 +304,9 @@ class _RiderTripState extends State<RideDetailPage>
       final trip = rideMap(_controller.data!['trip']);
       final vehicle = rideMap(trip['vehicle']);
       final brand = rideMap(vehicle['brand']);
-      final user = rideMap(rideMap(trip['driver'])['user']);
+      final user = widget.driverHistory
+          ? rideMap(trip['rider'])
+          : rideMap(rideMap(trip['driver'])['user']);
       final imageUrls = [
         '${brand['logo_url'] ?? vehicle['brand_logo_url'] ?? ''}',
         '${user['avatar_url'] ?? ''}',
@@ -381,8 +374,15 @@ class _RiderTripState extends State<RideDetailPage>
     }
   }
 
-  void _home() =>
-      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.gate, (_) => false);
+  void _home() {
+    if (RideSheetRoute.isSheet(context) &&
+        DataSourceScope.read(context)?.isDemo == true) {
+      Navigator.pop(context);
+      return;
+    }
+    Navigator.pushNamedAndRemoveUntil(context, AppRoutes.gate, (_) => false);
+  }
+
   void _rebook() => Navigator.pushNamedAndRemoveUntil(
     context,
     AppRoutes.home,
@@ -406,6 +406,18 @@ class _RiderTripState extends State<RideDetailPage>
     if (_controller.data != null &&
         (_controller.active || _controller.status == 'COMPLETED')) {
       return _referenceJourney();
+    }
+    if (RideSheetRoute.isSheet(context)) {
+      return RiderFlowScaffold(
+        title: 'Trip details',
+        phase: _controller.status,
+        map: const SizedBox.shrink(),
+        panel: _controller.data == null
+            ? (_controller.error == null
+                  ? const RidesSkeleton(detail: true)
+                  : AppLoadError(message: _controller.error!, onRetry: _load))
+            : _content(embedded: true),
+      );
     }
     return SolidPage(
       title: 'Trip details',
@@ -444,8 +456,10 @@ class _RiderTripState extends State<RideDetailPage>
     final mapMode = hasMap && _showHistoryMap;
     final completed = _controller.status == 'COMPLETED';
     final canContactDriver =
-        _controller.active ||
-        (completed && [null, 'PENDING', 'FAILED'].contains(payment['status']));
+        !widget.driverHistory &&
+        (_controller.active ||
+            (completed &&
+                [null, 'PENDING', 'FAILED'].contains(payment['status'])));
     final status = switch (_controller.status) {
       'COMPLETED' => 'Completed',
       'CANCELLED' => 'Cancelled',
@@ -463,7 +477,7 @@ class _RiderTripState extends State<RideDetailPage>
         rideMap(trip['review']).isEmpty &&
         rideMap(trip['driver'])['user_id'] != null;
     final title = mapMode ? 'Ride map' : 'Ride details';
-    final action = data == null
+    final action = data == null || widget.driverHistory
         ? null
         : IconButton(
             tooltip: 'Trip support',
@@ -528,7 +542,11 @@ class _RiderTripState extends State<RideDetailPage>
                     RideHistoryDetails(
                       trip: trip,
                       payment: payment,
-                      onRate: canRate && !_controller.busy ? _rate : null,
+                      onRate:
+                          !widget.driverHistory && canRate && !_controller.busy
+                          ? _rate
+                          : null,
+                      driverView: widget.driverHistory,
                       contactActions: canContactDriver
                           ? TripActionsPanel(
                               rideId: _controller.id!,
@@ -542,8 +560,10 @@ class _RiderTripState extends State<RideDetailPage>
                     ),
                     if (_controller.error != null)
                       AppLoadError(message: _controller.error!, onRetry: _load),
-                    if (data['review'] != null ||
-                        (completed && payment['status'] != 'CAPTURED')) ...[
+                    if (!widget.driverHistory &&
+                        (data['review'] != null ||
+                            (completed &&
+                                payment['status'] != 'CAPTURED'))) ...[
                       const SizedBox(height: 24),
                       TripActionsPanel(
                         rideId: _controller.id!,
@@ -564,6 +584,10 @@ class _RiderTripState extends State<RideDetailPage>
                       child: FilledButton(
                         onPressed: _controller.busy
                             ? null
+                            : widget.driverHistory
+                            ? _controller.active
+                                  ? () => Navigator.pop(context, true)
+                                  : () => Navigator.pop(context)
                             : widget.previewHistory
                             ? () => Navigator.pop(context)
                             : _controller.active
@@ -577,7 +601,11 @@ class _RiderTripState extends State<RideDetailPage>
                           minimumSize: const Size.fromHeight(48),
                         ),
                         child: Text(
-                          widget.previewHistory
+                          widget.driverHistory && _controller.active
+                              ? 'Open live ride'
+                              : widget.driverHistory
+                              ? 'Close'
+                              : widget.previewHistory
                               ? 'Back to wallet'
                               : _controller.active
                               ? 'Open live ride'
@@ -640,6 +668,7 @@ class _RiderTripState extends State<RideDetailPage>
                   onReceipt: _receipt,
                   onRate: _rateCompletion,
                   captureKey: _billCaptureKey,
+                  driverView: widget.driverHistory,
                   receiptOnly: true,
                 ),
               ),
@@ -728,101 +757,64 @@ class _RiderTripState extends State<RideDetailPage>
                 ? _controller.remainingPoints
                 : _controller.basePoints,
             recenter: _recenter,
+            phase: _controller.status,
           );
     if (_controller.status == 'COMPLETED') {
-      return SolidScope(
-        child: Scaffold(
-          backgroundColor: Colors.white,
-          body: Stack(
-            children: [
-              Positioned.fill(child: widget.mapBuilder?.call(map) ?? map),
-              DraggableScrollableSheet(
-                initialChildSize: .90,
-                minChildSize: .68,
-                maxChildSize: .94,
-                builder: (context, scrollController) => Container(
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.vertical(
-                      top: Radius.circular(24),
+      return RiderFlowScaffold(
+        title: "You've arrived",
+        map: widget.mapBuilder?.call(map) ?? map,
+        showBackButton: false,
+        phase: _controller.status,
+        completionHeader: Column(
+          children: [
+            const RideSheetHandle(),
+            Expanded(
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Back',
+                    onPressed: () {
+                      if (Navigator.of(context).canPop()) {
+                        Navigator.of(context).maybePop();
+                      } else {
+                        _home();
+                      }
+                    },
+                    icon: const Icon(Icons.arrow_back_ios_new),
+                  ),
+                  const Expanded(
+                    child: Text(
+                      "You've arrived",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Color(0x18000000),
-                        blurRadius: 12,
-                        offset: Offset(0, -3),
-                      ),
-                    ],
                   ),
-                  clipBehavior: Clip.antiAlias,
-                  child: Column(
-                    children: [
-                      SizedBox(
-                        height: 72,
-                        child: Column(
-                          children: [
-                            Container(
-                              width: 36,
-                              height: 4,
-                              margin: const EdgeInsets.only(top: 8, bottom: 4),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFCCCCCC),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                            ),
-                            Expanded(
-                              child: Row(
-                                children: [
-                                  IconButton(
-                                    tooltip: 'Back',
-                                    onPressed: () {
-                                      if (Navigator.of(context).canPop()) {
-                                        Navigator.of(context).maybePop();
-                                      } else {
-                                        _home();
-                                      }
-                                    },
-                                    icon: const Icon(Icons.arrow_back_ios_new),
-                                  ),
-                                  const Expanded(
-                                    child: Text(
-                                      "You've arrived",
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                                  IconButton(
-                                    tooltip: 'Safety and sharing',
-                                    onPressed: _safety,
-                                    icon: const Icon(Icons.ios_share_rounded),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Expanded(
-                        child: RiderCompletionPanel(
-                          data: _controller.data!,
-                          actions: actions,
-                          busy: _controller.busy,
-                          scrollController: scrollController,
-                          captureKey: _billCaptureKey,
-                          onHome: _home,
-                          onReceipt: _receipt,
-                          onRate: _rateCompletion,
-                        ),
-                      ),
-                    ],
+                  IconButton(
+                    tooltip: 'Safety and sharing',
+                    onPressed: _safety,
+                    icon: const Icon(Icons.ios_share_rounded),
                   ),
-                ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
+        ),
+        footer: RiderCompletionActions(
+          onHome: _home,
+          onReceipt: _receipt,
+          busy: _controller.busy,
+        ),
+        panel: RiderCompletionPanel(
+          data: _controller.data!,
+          actions: actions,
+          busy: _controller.busy,
+          captureKey: _billCaptureKey,
+          onHome: _home,
+          onReceipt: _receipt,
+          onRate: _rateCompletion,
         ),
       );
     }
@@ -865,18 +857,7 @@ class _RiderTripState extends State<RideDetailPage>
             : null,
       ),
       onRefresh: _load,
-      panelContentHeight:
-          [
-                'SEARCHING',
-                'REQUESTED',
-                'DRIVER_ASSIGNED',
-                'DRIVER_ARRIVING',
-                'DRIVER_WAITING',
-                'IN_PROGRESS',
-              ].contains(_controller.status) &&
-              _rideStageContentStatus == _controller.status
-          ? _rideStageContentHeight
-          : null,
+      phase: _controller.status,
       map: widget.mapBuilder?.call(map) ?? map,
       onRecenter: () => setState(() => _recenter++),
       panel: RiderLivePanel(
@@ -896,8 +877,6 @@ class _RiderTripState extends State<RideDetailPage>
         onCancel: _cancel,
         onSafety: _safety,
         onRefresh: _load,
-        onContentHeightChanged: (height) =>
-            _updateRideStageContentHeight(_controller.status, height),
         onShowTripQr: _showTripStartQr,
         error: _controller.error ?? _controller.routeError,
         busy: _controller.busy,
@@ -909,7 +888,7 @@ class _RiderTripState extends State<RideDetailPage>
     );
   }
 
-  Widget _content() {
+  Widget _content({bool embedded = false}) {
     final pickup = ridePoint(
           _controller.trip['pickup_latitude'],
           _controller.trip['pickup_longitude'],
@@ -948,6 +927,9 @@ class _RiderTripState extends State<RideDetailPage>
           )
         : null;
     final body = ListView(
+      shrinkWrap: embedded,
+      primary: embedded ? false : null,
+      physics: embedded ? const NeverScrollableScrollPhysics() : null,
       padding: const EdgeInsets.only(bottom: 20),
       children: [
         Padding(
@@ -1293,6 +1275,7 @@ class _RatingState extends State<_RatingDialog> {
             maxLength: 500,
             minLines: 2,
             maxLines: 4,
+            onChanged: (_) => setState(() {}),
             decoration: const InputDecoration(labelText: 'Comment (optional)'),
           ),
           const Text(
@@ -1306,17 +1289,18 @@ class _RatingState extends State<_RatingDialog> {
         onPressed: () => Navigator.pop(context),
         child: const Text('Cancel'),
       ),
-      FilledButton(
-        onPressed: _score == null
-            ? null
-            : () => Navigator.pop(context, {
-                'score': _score,
-                'comment': _comment.text.trim().isEmpty
-                    ? null
-                    : _comment.text.trim(),
-              }),
-        child: const Text('Submit rating'),
-      ),
+      if (_score != null || _comment.text.trim().isNotEmpty)
+        FilledButton(
+          onPressed: _score == null
+              ? null
+              : () => Navigator.pop(context, {
+                  'score': _score,
+                  'comment': _comment.text.trim().isEmpty
+                      ? null
+                      : _comment.text.trim(),
+                }),
+          child: const Text('Submit rating'),
+        ),
     ],
   );
 }

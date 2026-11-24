@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
+import 'package:user/components/ui/country_picker_widget.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/core/network/api_result.dart';
@@ -107,20 +108,31 @@ class _ProfilePageState extends State<ProfilePage> {
       return;
     }
 
+    final updates = <String, dynamic>{};
+    if (!widget.phoneOnly && _firstName.text.trim() != user.firstName?.trim()) {
+      updates['first_name'] = _firstName.text.trim();
+    }
+    if (!widget.phoneOnly && _lastName.text.trim() != user.lastName?.trim()) {
+      updates['last_name'] = _lastName.text.trim();
+    }
+    if (phone.isNotEmpty && phone != user.phoneE164?.trim()) {
+      updates['phone_e164'] = phone;
+    }
+    if (updates.isEmpty) {
+      _notice('There are no profile changes to save.');
+      return;
+    }
+
     setState(() => _saving = true);
     try {
-      await _repository.updateProfile({
-        if (!widget.phoneOnly) 'first_name': _firstName.text.trim(),
-        if (!widget.phoneOnly) 'last_name': _lastName.text.trim(),
-        if (phone.isNotEmpty && phone != user.phoneE164) 'phone_e164': phone,
-      });
+      final updatedProfile = await _repository.updateProfile(updates);
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text(UserAppCopy.PROFILE_SAVED)));
       setState(() {
+        _profile = Future.value(updatedProfile);
         _fieldsLoaded = false;
-        _profile = _repository.profile();
       });
     } catch (error) {
       if (mounted) _notice(ApiResult.errorMessage(error));
@@ -158,12 +170,17 @@ class _ProfilePageState extends State<ProfilePage> {
         }
 
         final displayName = [
-          user.firstName,
-          user.lastName,
-        ].whereType<String>().where((part) => part.isNotEmpty).join(' ');
+          _firstName.text.trim(),
+          _lastName.text.trim(),
+        ].where((part) => part.isNotEmpty).join(' ');
         final accountType = user.role.toLowerCase() == 'driver'
             ? 'Driver account'
             : 'Rider account';
+        final hasChanges = widget.phoneOnly
+            ? _phone.text.trim() != (user.phoneE164 ?? '').trim()
+            : _firstName.text.trim() != (user.firstName ?? '').trim() ||
+                  _lastName.text.trim() != (user.lastName ?? '').trim() ||
+                  _phone.text.trim() != (user.phoneE164 ?? '').trim();
 
         return Column(
           children: [
@@ -227,23 +244,24 @@ class _ProfilePageState extends State<ProfilePage> {
                 ],
               ),
             ),
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 60,
-                  child: SolidButton(
-                    text: widget.phoneOnly
-                        ? 'Save phone number'
-                        : 'Save changes',
-                    onPressed: _saving ? null : () => _save(user),
-                    busy: _saving,
+            if (hasChanges)
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 60,
+                    child: SolidButton(
+                      text: widget.phoneOnly
+                          ? 'Save phone number'
+                          : 'Save changes',
+                      onPressed: _saving ? null : () => _save(user),
+                      busy: _saving,
+                    ),
                   ),
                 ),
               ),
-            ),
           ],
         );
       },
@@ -362,21 +380,31 @@ class _ProfileValueDialogState extends State<_ProfileValueDialog> {
       'Edit ${widget.title}',
       style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w500),
     ),
-    content: TextField(
-      controller: _value,
-      autofocus: true,
-      keyboardType: widget.keyboardType,
-      textCapitalization: widget.keyboardType == TextInputType.name
-          ? TextCapitalization.words
-          : TextCapitalization.none,
-      decoration: InputDecoration(hintText: widget.hint),
-    ),
+    content: widget.keyboardType == TextInputType.phone
+        ? CountryPickerWidget(
+            controller: _value,
+            label: '',
+            hint: 'Phone number',
+            defaultCountryCode: 'IN',
+            onChanged: (_) => setState(() {}),
+          )
+        : TextField(
+            controller: _value,
+            autofocus: true,
+            keyboardType: widget.keyboardType,
+            textCapitalization: widget.keyboardType == TextInputType.name
+                ? TextCapitalization.words
+                : TextCapitalization.none,
+            decoration: InputDecoration(hintText: widget.hint),
+            onChanged: (_) => setState(() {}),
+          ),
     actions: [
       TextButton(onPressed: widget.onCancel, child: const Text('Cancel')),
-      TextButton(
-        onPressed: () => widget.onSave(_value.text),
-        child: const Text('Save'),
-      ),
+      if (_value.text.trim() != widget.initialValue.trim())
+        TextButton(
+          onPressed: () => widget.onSave(_value.text),
+          child: const Text('Save'),
+        ),
     ],
   );
 }

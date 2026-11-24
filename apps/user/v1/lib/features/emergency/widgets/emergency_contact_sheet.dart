@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:user/components/ui/country_picker_widget.dart';
 import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/features/rides/widgets/rider_flow_components.dart'
@@ -32,6 +32,20 @@ class _EmergencyContactSheetState extends State<EmergencyContactSheet> {
   );
   bool _saving = false;
   String? _error;
+
+  bool get _hasChangesOrInput {
+    final name = _name.text.trim();
+    final phone = _phone.text.replaceAll(RegExp(r'\s+'), '');
+    final relationship = _relationship.text.trim();
+    final original = widget.contact;
+    if (original == null) {
+      return name.isNotEmpty || phone.isNotEmpty || relationship.isNotEmpty;
+    }
+    return name != '${original['name'] ?? ''}'.trim() ||
+        phone !=
+            '${original['phone_e164'] ?? ''}'.replaceAll(RegExp(r'\s+'), '') ||
+        relationship != '${original['relationship'] ?? ''}'.trim();
+  }
 
   @override
   void dispose() {
@@ -129,36 +143,26 @@ class _EmergencyContactSheetState extends State<EmergencyContactSheet> {
                                         TextCapitalization.words,
                                     textInputAction: TextInputAction.next,
                                     maxLength: 100,
+                                    onChanged: (_) => setState(() {}),
                                     validator: (value) =>
                                         (value?.trim().isEmpty ?? true)
                                         ? 'Enter the contact name'
                                         : null,
                                   ),
                                   const SizedBox(height: 14),
-                                  SolidTextFormField(
+                                  CountryPickerWidget(
                                     controller: _phone,
                                     enabled: !_saving,
-                                    label: 'Phone with country code',
-                                    hint: '+91 98765 43210',
-                                    keyboardType: TextInputType.phone,
+                                    label: 'Phone number',
+                                    hint: '98765 43210',
+                                    onChanged: (_) => setState(() {}),
                                     textInputAction: TextInputAction.next,
-                                    inputFormatters: [
-                                      FilteringTextInputFormatter.allow(
-                                        RegExp(r'[+0-9 ]'),
-                                      ),
-                                      LengthLimitingTextInputFormatter(18),
-                                    ],
-                                    validator: (value) {
-                                      final compact = (value ?? '').replaceAll(
-                                        RegExp(r'\s+'),
-                                        '',
-                                      );
-                                      return RegExp(
-                                            r'^\+[1-9]\d{7,14}$',
-                                          ).hasMatch(compact)
-                                          ? null
-                                          : 'Use + followed by 8 to 15 digits';
-                                    },
+                                    validator: (value) =>
+                                        RegExp(
+                                          r'^\+[1-9]\d{7,14}$',
+                                        ).hasMatch(value?.trim() ?? '')
+                                        ? null
+                                        : 'Enter a valid phone number.',
                                   ),
                                   const SizedBox(height: 14),
                                   SolidTextFormField(
@@ -170,6 +174,7 @@ class _EmergencyContactSheetState extends State<EmergencyContactSheet> {
                                         TextCapitalization.words,
                                     textInputAction: TextInputAction.done,
                                     maxLength: 80,
+                                    onChanged: (_) => setState(() {}),
                                     onFieldSubmitted: (_) => _submit(),
                                   ),
                                   if (_error != null) ...[
@@ -186,25 +191,27 @@ class _EmergencyContactSheetState extends State<EmergencyContactSheet> {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 10),
-                          SizedBox(
-                            height: 56,
-                            child: SolidButton(
-                              text: _saving
-                                  ? (isEditing ? 'Saving...' : 'Adding...')
-                                  : (isEditing
-                                        ? 'Save changes'
-                                        : 'Add contact'),
-                              onPressed: _saving ? null : _submit,
-                              busy: _saving,
-                              icon: Icon(
-                                isEditing
-                                    ? Icons.check_rounded
-                                    : Icons.person_add_alt_1_outlined,
-                                size: 18,
+                          if (_hasChangesOrInput) ...[
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              height: 56,
+                              child: SolidButton(
+                                text: _saving
+                                    ? (isEditing ? 'Saving...' : 'Adding...')
+                                    : (isEditing
+                                          ? 'Save changes'
+                                          : 'Add contact'),
+                                onPressed: _saving ? null : _submit,
+                                busy: _saving,
+                                icon: Icon(
+                                  isEditing
+                                      ? Icons.check_rounded
+                                      : Icons.person_add_alt_1_outlined,
+                                  size: 18,
+                                ),
                               ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                     ),

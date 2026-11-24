@@ -271,6 +271,7 @@ class _DriverExitPageState extends State<DriverExitPage>
                     child: TextFormField(
                       controller: _reason,
                       enabled: !_saving,
+                      onChanged: (_) => setState(() {}),
                       maxLines: 5,
                       maxLength: 2000,
                       decoration: const InputDecoration(
@@ -285,13 +286,14 @@ class _DriverExitPageState extends State<DriverExitPage>
                     ),
                   ),
                   const SizedBox(height: 20),
-                  AppButton(
-                    text: _request == null
-                        ? 'Request partner exit'
-                        : 'Resubmit request',
-                    onPressed: _saving ? null : _submit,
-                    isLoading: _saving,
-                  ),
+                  if (_reason.text.trim().isNotEmpty)
+                    AppButton(
+                      text: _request == null
+                          ? 'Request partner exit'
+                          : 'Resubmit request',
+                      onPressed: _saving ? null : _submit,
+                      isLoading: _saving,
+                    ),
                 ],
               ],
             ),

@@ -8,6 +8,7 @@ class VehicleRegistrationController extends FeatureController {
   final VehicleVerificationRepository repo;
   Map<String, dynamic>? vehicle;
   final documents = <String, String>{};
+  final missingDocuments = <String>{};
   final local = <String, Uint8List>{};
   final paths = <String, String>{};
   final names = <String, String>{};

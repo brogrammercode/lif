@@ -39,7 +39,7 @@ void main() {
     },
   );
   testWidgets(
-    'all driver phases reuse the ride shell and show rider identity',
+    'driver phases keep one map mounted and show the rider during a trip',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(320, 740));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -54,14 +54,20 @@ void main() {
               child: child!,
             ),
             home: DriverDemoHost(
-              mapBuilder: (_) => const ColoredBox(color: Colors.grey),
+              mapBuilder: (_) => const ColoredBox(
+                key: ValueKey('persistent-driver-map'),
+                color: Colors.grey,
+              ),
             ),
           ),
         ),
       );
       await tester.pumpAndSettle();
       expect(find.byType(RiderFlowScaffold), findsOneWidget);
-      expect(find.text('Aarav Sharma'), findsOneWidget);
+      expect(find.text('Go online'), findsWidgets);
+      expect(find.text('Slide to go online').hitTestable(), findsOneWidget);
+      final map = find.byKey(const ValueKey('persistent-driver-map'));
+      final mountedMap = tester.element(map);
       for (final phase in DriverDemoPhase.values.skip(1)) {
         tester
             .widget<PopupMenuButton<DriverDemoPhase>>(
@@ -69,7 +75,11 @@ void main() {
             )
             .onSelected!(phase);
         await tester.pumpAndSettle();
-        expect(find.byType(RiderFlowScaffold), findsOneWidget);
+        expect(tester.element(map), same(mountedMap));
+        final sheet = tester.widget<DraggableScrollableSheet>(
+          find.byType(DraggableScrollableSheet),
+        );
+        expect(sheet.initialChildSize, sheet.maxChildSize);
         expect(find.text('Aarav Sharma'), findsOneWidget);
         expect(find.text('Handoko Mulyono'), findsNothing);
         expect(

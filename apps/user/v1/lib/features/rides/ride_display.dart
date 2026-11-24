@@ -59,9 +59,18 @@ String rideMoney(dynamic amount, {String currency = 'INR'}) {
 String rideDistance(dynamic metres) => rideNumber(metres) == null
     ? 'Unavailable'
     : '${(rideNumber(metres)! / 1000).toStringAsFixed(1)} km';
-String rideDuration(dynamic seconds) => rideNumber(seconds) == null
-    ? 'Unavailable'
-    : '${(rideNumber(seconds)! / 60).ceil().clamp(1, 9999)} min';
+String rideDuration(dynamic seconds) {
+  final value = rideNumber(seconds);
+  if (value == null || value < 0) return 'Unavailable';
+
+  final totalMinutes = (value / 60).ceil().clamp(1, 9999);
+  if (totalMinutes < 60) return '$totalMinutes min';
+
+  final hours = totalMinutes ~/ 60;
+  final minutes = totalMinutes % 60;
+  return '$hours hr $minutes mins';
+}
+
 String rideTime(dynamic value) {
   final date = DateTime.tryParse('$value')?.toLocal();
   return date == null

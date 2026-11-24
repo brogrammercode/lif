@@ -275,6 +275,7 @@ class _TripSupportState extends State<TripSupportDialog> {
                 controller: _subject,
                 enabled: !_attempted,
                 maxLength: 160,
+                onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(labelText: 'Subject'),
                 validator: (v) =>
                     v == null || v.trim().isEmpty ? 'Enter a subject' : null,
@@ -285,6 +286,7 @@ class _TripSupportState extends State<TripSupportDialog> {
                 maxLength: 5000,
                 minLines: 3,
                 maxLines: 6,
+                onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(labelText: 'What happened?'),
                 validator: (v) =>
                     v == null || v.trim().isEmpty ? 'Enter details' : null,
@@ -304,16 +306,19 @@ class _TripSupportState extends State<TripSupportDialog> {
           onPressed: _busy ? null : () => Navigator.pop(context),
           child: const Text('Close'),
         ),
-        FilledButton(
-          onPressed: _busy ? null : _send,
-          child: Text(
-            _busy
-                ? 'Sending…'
-                : _attempted
-                ? 'Retry request'
-                : 'Send request',
+        if (_attempted ||
+            _subject.text.trim().isNotEmpty ||
+            _body.text.trim().isNotEmpty)
+          FilledButton(
+            onPressed: _busy ? null : _send,
+            child: Text(
+              _busy
+                  ? 'Sending…'
+                  : _attempted
+                  ? 'Retry request'
+                  : 'Send request',
+            ),
           ),
-        ),
       ],
     ),
   );

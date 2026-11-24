@@ -33,6 +33,7 @@ Ride action slider exception (11 November 2026): rider Home after both endpoints
 - Cards use a fine neutral border and, only where needed, an almost imperceptible neutral shadow.
 - The map remains clear and fills the space above the sheet. Sheets are edge to edge with rounded top corners.
 - Reuse `components/ui/solid_ui.dart`: `SolidScope`, `SolidSurface`, `SolidButton`, `SolidIconButton`, `SolidTextFormField`, `SolidDropdownFormField`, `SolidSheet`, `SolidPage` and `RideTokens`.
+- Phone entry uses `components/ui/country_picker_widget.dart`, built on `SolidTextFormField`. It provides the complete offline country/calling-code list and flags, while the supplied controller always contains canonical `+`-prefixed international digits (E.164) for API submissions. Dynamic Partner Program fields are treated as phone or email inputs when their key or label identifies those values; client and API validation enforce the corresponding format.
 - `SolidTheme` is captured by dialogs/sheets. Legacy shared trip controls must render solid when hosted within this scope. They must not reintroduce their old glass renderer inside a ride.
 - Do not add a glass package or duplicate a visual primitive per feature.
 
@@ -167,7 +168,9 @@ Home's Pickup and Drop-off rows open the same location-selection stage for one e
 
 Use the shared pin artwork in `assets/images/ride_map_pin.png` for ride endpoints across Home, rider trip maps and driver trip maps. Do not add a second custom marker for the rider's current position; retain the existing MapLibre location puck. Keep actual assigned-driver tracking and its vehicle marker. Remove redundant saved-place pins from Home and candidate-vehicle map markers. The assigned-driver map uses `assets/images/ride_car_marker.png`, a top-down car whose front points up. Keep its rotation zero and viewport aligned so it stays facing upward. These asset changes require a new Shorebird base release because bundled assets cannot be delivered as a Dart patch.
 
-Map-first booking stages use a fixed map viewport at 80% of screen height. The shared bottom sheet starts at 30% of screen height and overlays the lower part of the map; expanding it does not resize the map viewport. Home uses the same 80% map height. Keep the map viewport at or below 80% on shorter, landscape or large-text layouts.
+Map-first booking stages use a fixed map viewport at 80% of screen height. Rider and driver sheets open at the height of their current content, including the header and safe area. The sheet can be dragged back up to that height after collapsing it. Content scrolls when it exceeds the space available on screen. The sheet does not resize the map viewport.
+
+Keep the same MapLibre view mounted through rider pickup, drop-off, vehicle selection and live trip stages, and through driver availability, requests and live trips. In-flow navigation changes the sheet and updates the map layers and animated camera in place. The endpoint picker stays on Home and keeps the map visible when the search field opens the keyboard. Apply the same map lifetime to the rider and driver demos.
 
 ## Driver ride stages — 11 November 2026
 
@@ -191,6 +194,8 @@ Use the supplied three-panel order-history reference for the rider history, summ
 Rebooking starts a fresh quote. Display rupee amounts with ₹.
 
 ## My Wallet
+
+Driver My Rides uses the same `SolidPage`, section order, route cards, spacing, loading/empty/error states, refresh behavior and scroll pagination described above. It reads driver-owned rows from `/driver/rides`; the shared history sheet reads the selected ride from `/driver/rides/:id` and presents the passenger in the profile slot while retaining the vehicle, route, fare, map and receipt layout. Active driver rides can continue into the existing driver ride flow.
 
 My Wallet uses the same header as Profile and extends the black background through the balance, gradient card, and actions. The card uses the existing 1More logo and its own wallet artwork. The action row includes Add money, Payment methods, and Activity.
 

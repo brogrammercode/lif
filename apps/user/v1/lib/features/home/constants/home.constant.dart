@@ -9,7 +9,6 @@ class HomeConstants {
   static const double DEFAULT_ZOOM = 16.5;
   static const double MAP_TILT = 48;
 
-  static const String TEXT_LOCATING_YOU = 'Locating you...';
   static const String TEXT_CANCEL = 'Cancel';
   static const String TEXT_EMOJI = '\u{1F914}';
   static const String TEXT_FAKE_CAR = '...';

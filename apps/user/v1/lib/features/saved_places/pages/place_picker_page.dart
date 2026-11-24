@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:user/components/ui/app_skeleton.dart';
+import 'package:user/components/ui/country_picker_widget.dart';
 import 'package:user/components/ui/button.dart';
 import 'package:user/components/ui/glass_dropdown.dart';
 import 'package:user/components/ui/liquid_glass.dart';
@@ -244,6 +245,7 @@ class _PickerState extends State<PlacePickerPage> {
                       ),
                     ),
                   SolidFileUpload(
+                    label: 'Place photos (optional)',
                     files: [
                       for (final url in placePhotos(_selected))
                         SolidUploadFile(name: 'Place photo', imageUrl: url),
@@ -360,6 +362,20 @@ class _SaveFormState extends State<PlaceSaveForm> {
   set _attempted(bool value) => _controller.attempted = value;
   int get _uploaded => _controller.uploaded;
   set _uploaded(int value) => _controller.uploaded = value;
+
+  bool get _hasChangesOrPhotos =>
+      _savedId != null ||
+      widget.photos.isNotEmpty ||
+      (widget.initial['version'] == null &&
+          widget.initial['latitude'] != null &&
+          widget.initial['longitude'] != null) ||
+      _name.text.trim() != placeName(widget.initial).trim() ||
+      _address.text.trim() != '${widget.initial['address'] ?? ''}'.trim() ||
+      _description.text.trim() !=
+          '${widget.initial['description'] ?? ''}'.trim() ||
+      _phone.text.trim() != '${widget.initial['phone'] ?? ''}'.trim() ||
+      _website.text.trim() != '${widget.initial['website'] ?? ''}'.trim() ||
+      _type != '${widget.initial['place_type'] ?? 'OTHER'}';
   @override
   void dispose() {
     _controller.removeListener(_controllerChanged);
@@ -440,6 +456,7 @@ class _SaveFormState extends State<PlaceSaveForm> {
         maxLength: max,
         maxLines: lines,
         keyboardType: keyboard,
+        onChanged: (_) => setState(() {}),
         decoration: InputDecoration(labelText: label),
         validator: validator,
       ),
@@ -530,14 +547,16 @@ class _SaveFormState extends State<PlaceSaveForm> {
                   2000,
                   lines: 3,
                 ),
-                _field(
-                  _phone,
-                  'Public contact number (optional)',
-                  25,
-                  keyboard: TextInputType.phone,
-                  validator: (v) =>
-                      v!.trim().isEmpty ||
-                          RegExp(r'^\+?[\d ()-]{7,25}$').hasMatch(v.trim())
+                CountryPickerWidget(
+                  controller: _phone,
+                  label: 'Public contact number (optional)',
+                  hint: '98765 43210',
+                  defaultCountryCode: 'IN',
+                  enabled: !_busy && !_attempted,
+                  onChanged: (_) => setState(() {}),
+                  validator: (value) => value?.isEmpty ?? true
+                      ? null
+                      : RegExp(r'^\+[1-9]\d{6,14}$').hasMatch(value!)
                       ? null
                       : 'Enter a valid contact number',
                 ),
@@ -586,13 +605,14 @@ class _SaveFormState extends State<PlaceSaveForm> {
                       style: const TextStyle(color: Colors.red, fontSize: 13),
                     ),
                   ),
-                AppButton(
-                  text: _savedId == null
-                      ? 'Save shared place'
-                      : 'Retry remaining photos',
-                  isLoading: _busy,
-                  onPressed: _busy ? null : _save,
-                ),
+                if (_hasChangesOrPhotos)
+                  AppButton(
+                    text: _savedId == null
+                        ? 'Save shared place'
+                        : 'Retry remaining photos',
+                    isLoading: _busy,
+                    onPressed: _busy ? null : _save,
+                  ),
                 TextButton(
                   onPressed: _busy
                       ? null

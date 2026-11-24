@@ -26,9 +26,14 @@ export function input_kind(field: Field) {
   if (!['STRING', 'TEXT', 'NUMBER', 'DATE'].includes(field.field_type))
     return 'DEFAULT';
   const names = [field.key ?? '', field.label].map((value) =>
-    value.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+    value
+      .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_'),
   );
   const has = (pattern: RegExp) => names.some((value) => pattern.test(value));
+  if (has(/(^|_)(e_?mail)(_|$)/)) return 'EMAIL';
+  if (has(/(^|_)(phone|mobile|whats?_?app|telephone|tel)(_|$)/)) return 'PHONE';
   if (has(/city.*state.*(pin|postal)/)) return 'ADDRESS';
   if (has(/(^|_)(date_of_birth|birth_date|dob)(_|$)/)) return 'DOB';
   if (has(/(^|_)gender(_|$)/)) return 'GENDER';
@@ -132,6 +137,10 @@ export function field_value_error(field: Field, value: unknown): string | null {
     )
       return 'Choose a valid date of birth on or before today.';
   }
+  if (kind === 'PHONE' && !/^\+[1-9]\d{7,14}$/.test(text))
+    return 'Enter a valid phone number with its country calling code.';
+  if (kind === 'EMAIL' && !is_valid_email(text))
+    return 'Enter a valid email address.';
   if (
     kind === 'GENDER' &&
     !gender_options.some(
@@ -175,4 +184,15 @@ export function field_value_error(field: Field, value: unknown): string | null {
       return 'Choose a matching state, city / district and PIN code from the dropdowns.';
   }
   return null;
+}
+
+function is_valid_email(value: string) {
+  if (value.length > 254 || value.includes('..')) return false;
+  const at = value.lastIndexOf('@');
+  if (at < 1 || at > 64 || at === value.length - 1) return false;
+  const local = value.slice(0, at);
+  if (local.startsWith('.') || local.endsWith('.')) return false;
+  return /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/.test(
+    value,
+  );
 }

@@ -28,6 +28,9 @@ class _SupportRequestSheetState extends State<SupportRequestSheet> {
   final _subject = TextEditingController();
   final _details = TextEditingController();
 
+  bool get _hasRequestContent =>
+      _subject.text.trim().isNotEmpty || _details.text.trim().isNotEmpty;
+
   void _changed() {
     if (mounted) setState(() {});
   }
@@ -133,6 +136,7 @@ class _SupportRequestSheetState extends State<SupportRequestSheet> {
                                     label: 'Subject',
                                     hint: 'What is the complaint about?',
                                     maxLength: 160,
+                                    onChanged: (_) => setState(() {}),
                                     validator: (value) =>
                                         (value?.trim().isEmpty ?? true)
                                         ? 'Enter a subject'
@@ -182,6 +186,7 @@ class _SupportRequestSheetState extends State<SupportRequestSheet> {
                                     maxLines: 7,
                                     maxLength: 5000,
                                     alignLabelWithHint: true,
+                                    onChanged: (_) => setState(() {}),
                                     validator: (value) =>
                                         (value?.trim().isEmpty ?? true)
                                         ? 'Add the complaint details'
@@ -201,18 +206,20 @@ class _SupportRequestSheetState extends State<SupportRequestSheet> {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 10),
-                          SizedBox(
-                            height: 56,
-                            child: SolidButton(
-                              text: _controller.sending
-                                  ? 'Sending...'
-                                  : 'Send complaint',
-                              onPressed: _controller.sending ? null : _submit,
-                              busy: _controller.sending,
-                              icon: const Icon(Icons.send_rounded, size: 17),
+                          if (_hasRequestContent) ...[
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              height: 56,
+                              child: SolidButton(
+                                text: _controller.sending
+                                    ? 'Sending...'
+                                    : 'Send complaint',
+                                onPressed: _controller.sending ? null : _submit,
+                                busy: _controller.sending,
+                                icon: const Icon(Icons.send_rounded, size: 17),
+                              ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                     ),

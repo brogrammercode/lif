@@ -2,6 +2,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:user/constants/app.constant.dart';
 import 'package:user/core/routes.dart';
 import 'package:user/core/route_observer.dart';
@@ -12,6 +13,9 @@ import 'package:user/features/auth/pages/session_gate.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // Ride maps render behind Flutter sheets, search fields and route
+  // transitions. Use Android hybrid composition for its native map surface.
+  MapLibreMap.useHybridComposition = true;
   runApp(const MyApp(initialize: _initialize));
 }
 

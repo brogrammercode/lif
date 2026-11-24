@@ -270,6 +270,7 @@ class SolidTextFormField extends StatelessWidget {
   final TextAlign textAlign;
   final int? minLines, maxLines, maxLength;
   final Widget? prefixIcon, suffixIcon;
+  final BoxConstraints? prefixIconConstraints;
   final bool enabled, alignLabelWithHint, readOnly, showLabel;
 
   const SolidTextFormField({
@@ -292,6 +293,7 @@ class SolidTextFormField extends StatelessWidget {
     this.maxLength,
     this.prefixIcon,
     this.suffixIcon,
+    this.prefixIconConstraints,
     this.enabled = true,
     this.alignLabelWithHint = false,
     this.readOnly = false,
@@ -343,6 +345,7 @@ class SolidTextFormField extends StatelessWidget {
         decoration: InputDecoration(
           hintText: hint,
           prefixIcon: prefixIcon,
+          prefixIconConstraints: prefixIconConstraints,
           suffixIcon: suffixIcon,
           alignLabelWithHint: alignLabelWithHint,
           counterText: '',

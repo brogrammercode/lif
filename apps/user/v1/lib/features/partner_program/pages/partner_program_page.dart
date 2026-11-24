@@ -18,6 +18,8 @@ import 'package:user/features/partner_program/partner_draft_store.dart';
 import 'package:user/features/auth/models/user.model.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/solid_ui.dart';
+import 'package:user/components/ui/country_picker_widget.dart';
+import 'package:user/components/ui/front_camera_capture_page.dart';
 import 'package:user/components/ui/button.dart';
 import 'package:user/core/color.dart';
 import 'package:user/core/network/api_result.dart';
@@ -100,6 +102,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
   bool get _acceptConfirmation => _controller.acceptConfirmation;
   set _acceptConfirmation(bool value) => _controller.acceptConfirmation = value;
   bool _showForm = false;
+  bool _stepEdited = false;
   bool get _dirty => _controller.dirty;
   set _dirty(bool value) => _controller.dirty = value;
   bool get _submissionCommitted => _controller.submissionCommitted;
@@ -419,7 +422,12 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
   }
 
   void _markDirty() {
-    if (!_dirty && mounted) setState(() => _dirty = true);
+    if (mounted) {
+      setState(() {
+        _dirty = true;
+        _stepEdited = true;
+      });
+    }
     _scheduleDraft();
   }
 
@@ -584,6 +592,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     FocusManager.instance.primaryFocus?.unfocus();
     if (_scroll.hasClients) _scroll.jumpTo(0);
     setState(() {
+      if (_stepIndex != index) _stepEdited = false;
       _stepKey = _steps[index].key;
       _error = error;
       _dirty = true;
@@ -701,7 +710,9 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           final text = _controllers[id]?.text.trim() ?? '';
           value = text.isEmpty
               ? null
-              : type == 'NUMBER'
+              : type == 'NUMBER' &&
+                    !_isPhoneRequirement(definition) &&
+                    !_isEmailRequirement(definition)
               ? num.tryParse(text)
               : text;
         }
@@ -897,6 +908,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           setState(() {
             _files[fieldId!] = selected;
             _dirty = true;
+            _stepEdited = true;
             _error = null;
           });
           _tracePicker('LOST_RESULT_RECOVERED', mode: mode);
@@ -998,6 +1010,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     setState(() {
       _files[id] = [selected];
       _dirty = true;
+      _stepEdited = true;
       _error = null;
     });
     try {
@@ -1028,17 +1041,11 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         mode: 'camera',
         label: 'Opening the front camera...',
       );
+      if (!mounted) return;
       _tracePicker('NATIVE_OPEN', mode: 'camera');
       final image =
           await (widget.captureSelfie?.call() ??
-              ImagePicker().pickImage(
-                source: ImageSource.camera,
-                preferredCameraDevice: CameraDevice.front,
-                maxWidth: 1024,
-                maxHeight: 1024,
-                imageQuality: 80,
-                requestFullMetadata: false,
-              ));
+              showFrontCameraCapture(context));
       if (image != null && mounted) {
         _pendingPickerStage = 'NATIVE_RETURN';
         _tracePicker('NATIVE_RETURN', mode: 'camera');
@@ -1155,6 +1162,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       setState(() {
         _files['${definition['id']}'] = selected;
         _dirty = true;
+        _stepEdited = true;
         _error = null;
       });
       await _clearPendingPicker();
@@ -1206,6 +1214,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     setState(() {
       files.removeAt(index);
       _dirty = true;
+      _stepEdited = true;
       _error = null;
     });
     try {
@@ -1331,7 +1340,10 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         if (clear && !approved) _controllers['${field['id']}']?.clear();
       }
     }
-    setState(() => _dirty = true);
+    setState(() {
+      _dirty = true;
+      _stepEdited = true;
+    });
     _scheduleDraft();
   }
 
@@ -1350,6 +1362,14 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     return '$formats\nUp to $limit MB';
   }
 
+  bool _isPhoneRequirement(Map<String, dynamic> definition) {
+    return isPhonePartnerRequirement(definition);
+  }
+
+  bool _isEmailRequirement(Map<String, dynamic> definition) {
+    return isEmailPartnerRequirement(definition);
+  }
+
   Widget _field(
     Map<String, dynamic> definition,
     bool editing, {
@@ -1358,6 +1378,8 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     final id = '${definition['id']}';
     final type = '${definition['field_type']}';
     final kind = '${definition['input_kind'] ?? 'DEFAULT'}';
+    final isPhone = _isPhoneRequirement(definition);
+    final isEmail = _isEmailRequirement(definition);
     final required = definition['is_required'] == true;
     final answer = _answers
         .where((item) => item['requirement_id'] == id)
@@ -1396,7 +1418,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         SolidFileUpload(
           key: ValueKey('partner-upload-$id'),
           compact: compact,
-          label: label,
+          label: compact ? label : null,
           showGuidance: true,
           allowAdditional: definition['allow_multiple'] == true,
           files: files
@@ -1497,6 +1519,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
             onChanged: (value) => setState(() {
               _controllers[id]!.text = value ?? '';
               _dirty = true;
+              _stepEdited = true;
               _scheduleDraft();
             }),
             validator: (value) =>
@@ -1524,6 +1547,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
               ? (value) => setState(() {
                   _values[id] = value;
                   _dirty = true;
+                  _stepEdited = true;
                   _scheduleDraft();
                 })
               : null,
@@ -1555,7 +1579,9 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
                 ]
               : null,
           maxLines: type == 'TEXT' ? 4 : 1,
-          keyboardType: type == 'NUMBER'
+          keyboardType: isEmail
+              ? TextInputType.emailAddress
+              : type == 'NUMBER'
               ? const TextInputType.numberWithOptions(
                   decimal: true,
                   signed: true,
@@ -1592,6 +1618,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
                         10,
                       );
                       _dirty = true;
+                      _stepEdited = true;
                       _scheduleDraft();
                     });
                   }
@@ -1623,12 +1650,15 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
                 ).hasMatch(text)) {
               return 'Enter a valid UPI ID, for example name@bank.';
             }
+            if (enabled && isEmail && !isValidEmailAddress(text)) {
+              return 'Enter a valid email address.';
+            }
             final maxLength =
                 (definition['max_length'] as num?)?.toInt() ?? 10000;
             if (text.length > maxLength) {
               return 'Maximum $maxLength characters.';
             }
-            if (type == 'NUMBER') {
+            if (type == 'NUMBER' && !isPhone && !isEmail) {
               final number = num.tryParse(text);
               if (number == null || !number.isFinite) {
                 return 'Enter a valid number.';
@@ -1646,6 +1676,25 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           },
         ),
       );
+      if (isPhone) {
+        children[children.length - 1] = CountryPickerWidget(
+          key: ValueKey('partner-dynamic-phone-$id'),
+          label: '',
+          showLabel: false,
+          hint: '${definition['placeholder'] ?? 'Phone number'}',
+          controller: _controllers[id]!,
+          enabled: enabled,
+          defaultCountryCode: 'IN',
+          textInputAction: TextInputAction.next,
+          onChanged: (_) => _markDirty(),
+          validator: (value) {
+            if ((value == null || value.isEmpty) && !required) return null;
+            return RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(value ?? '')
+                ? null
+                : 'Enter a valid phone number with country code.';
+          },
+        );
+      }
     }
     if (answer?['status'] == 'REJECTED') {
       children.add(
@@ -1695,22 +1744,19 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
             keyboardType: TextInputType.emailAddress,
             textInputAction: TextInputAction.next,
             onChanged: (_) => _markDirty(),
-            validator: (value) =>
-                RegExp(
-                  r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
-                ).hasMatch(value?.trim() ?? '')
+            validator: (value) => isValidEmailAddress(value ?? '')
                 ? null
                 : 'Enter a valid email address.',
           ),
           const SizedBox(height: 20),
-          SolidTextFormField(
+          CountryPickerWidget(
             key: const ValueKey('partner-contact-phone'),
-            label: 'WhatsApp number with country code *',
+            label: 'WhatsApp number *',
             controller: _phone,
             enabled: editing && !_saving && !_pickingFiles && !_capturingSelfie,
-            keyboardType: TextInputType.phone,
             textInputAction: TextInputAction.done,
-            hint: '+919876543210',
+            hint: '98765 43210',
+            defaultCountryCode: 'IN',
             onChanged: (_) => _markDirty(),
             validator: (value) =>
                 RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(value?.trim() ?? '')
@@ -1859,7 +1905,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           icon: const Icon(Icons.refresh),
           label: const Text('Sign in again'),
         )
-      else
+      else if (_stepEdited)
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
@@ -2139,24 +2185,25 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
             }),
           ),
           const SizedBox(height: 8),
-          AppButton(
-            height: 60,
-            text: 'Submit confirmation',
-            isLoading: _saving,
-            onPressed: !_acceptConfirmation || _saving
-                ? null
-                : () {
-                    if (!(_form.currentState?.validate() ?? false)) return;
-                    _run(
-                      () => _repository.confirm({
-                        'version': _application!['version'],
-                        'document_version': confirmation?['version'],
-                        'signature_name': _signature.text.trim(),
-                        'accepted': true,
-                      }),
-                    );
-                  },
-          ),
+          if (_acceptConfirmation && _signature.text.trim().isNotEmpty)
+            AppButton(
+              height: 60,
+              text: 'Submit confirmation',
+              isLoading: _saving,
+              onPressed: _saving
+                  ? null
+                  : () {
+                      if (!(_form.currentState?.validate() ?? false)) return;
+                      _run(
+                        () => _repository.confirm({
+                          'version': _application!['version'],
+                          'document_version': confirmation?['version'],
+                          'signature_name': _signature.text.trim(),
+                          'accepted': true,
+                        }),
+                      );
+                    },
+            ),
         ],
       ];
     }
@@ -2180,22 +2227,23 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           text: 'I agree to the Partner Program policy.',
           onChanged: (value) => setState(() => _acceptPolicy = value),
         ),
-        const SizedBox(height: 8),
-        AppButton(
-          height: 60,
-          text: 'Continue to application',
-          onPressed: _acceptPolicy
-              ? () {
-                  setState(() {
-                    _showForm = true;
-                    _stepKey = 'contact';
-                    _dirty = true;
-                  });
-                  if (_scroll.hasClients) _scroll.jumpTo(0);
-                  _scheduleDraft();
-                }
-              : null,
-        ),
+        if (_acceptPolicy) ...[
+          const SizedBox(height: 8),
+          AppButton(
+            height: 60,
+            text: 'Continue to application',
+            onPressed: () {
+              setState(() {
+                _showForm = true;
+                _stepKey = 'contact';
+                _dirty = true;
+                _stepEdited = false;
+              });
+              if (_scroll.hasClients) _scroll.jumpTo(0);
+              _scheduleDraft();
+            },
+          ),
+        ],
       ];
     }
     return _formContents();

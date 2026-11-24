@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:user/features/rides/widgets/ride_sheet_route.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/solid_ui.dart';
@@ -36,8 +37,7 @@ class _DriverTripPageState extends State<DriverTripPage>
   Listenable? _source;
   Timer? _poll;
   bool _initialized = false;
-  double? _height;
-  String? _measuredPhase;
+  int _recenter = 0;
   String get _status => '${_controller.trip?['status']}';
   bool get _payment =>
       _status == 'COMPLETED' &&
@@ -156,8 +156,15 @@ class _DriverTripPageState extends State<DriverTripPage>
     }
   }
 
-  void _home() =>
-      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.gate, (_) => false);
+  void _home() {
+    if (RideSheetRoute.isSheet(context) &&
+        DataSourceScope.read(context)?.isDemo == true) {
+      Navigator.pop(context);
+      return;
+    }
+    Navigator.pushNamedAndRemoveUntil(context, AppRoutes.gate, (_) => false);
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _controller.foreground = state == AppLifecycleState.resumed;
@@ -193,12 +200,14 @@ class _DriverTripPageState extends State<DriverTripPage>
     final data = _controller.context;
     final fix = _controller.tracking.position.value;
     final map = DriverMap(
+      phase: _phase,
+      recenter: _recenter,
       location: fix == null ? null : ridePoint(fix.latitude, fix.longitude),
       heading: fix?.heading ?? 0,
       pickup: ridePoint(trip?['pickup_latitude'], trip?['pickup_longitude']),
       dropoff: ridePoint(trip?['dropoff_latitude'], trip?['dropoff_longitude']),
       route: _controller.points,
-      follow: _controller.follow,
+      follow: _controller.follow && !_payment && _status != 'COMPLETED',
     );
     final moving = _status == 'IN_PROGRESS';
     final completed = _status == 'COMPLETED' && !_payment;
@@ -214,13 +223,32 @@ class _DriverTripPageState extends State<DriverTripPage>
     final summary = trip == null
         ? ''
         : rideMoney(trip['final_fare'] ?? trip['estimated_fare']);
+    void openReceipt() {
+      if (data == null) return;
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        builder: (_) => FractionallySizedBox(
+          heightFactor: .86,
+          child: TripReceiptSheet(data: data),
+        ),
+      );
+    }
+
     return PopScope(
       canPop: !_controller.active,
       child: RiderFlowScaffold(
         map: widget.mapBuilder?.call(map) ?? map,
         title: title,
-        initialPanelFraction: completed ? .90 : .30,
-        maximumPanelFraction: completed ? .94 : .86,
+        phase: _phase,
+        footer: completed && data != null
+            ? RiderCompletionActions(
+                onHome: _home,
+                onReceipt: openReceipt,
+                busy: _controller.busy,
+                driverView: true,
+              )
+            : null,
         statusStrip: RideArrivalStrip(
           label: title,
           value: _payment || completed
@@ -238,19 +266,14 @@ class _DriverTripPageState extends State<DriverTripPage>
             : () => Navigator.maybePop(context),
         onRecenter: () => setState(() {
           _controller.follow = true;
+          _recenter++;
         }),
-        panelContentHeight: _measuredPhase == _phase ? _height : null,
         panel: Builder(
           builder: (context) {
             if (trip == null || data == null) {
-              return SingleChildScrollView(
-                child: _controller.error == null
-                    ? const RideFlowSkeleton()
-                    : AppLoadError(
-                        message: _controller.error!,
-                        onRetry: _reload,
-                      ),
-              );
+              return _controller.error == null
+                  ? const RideFlowSkeleton()
+                  : AppLoadError(message: _controller.error!, onRetry: _reload);
             }
             if (completed) {
               return RiderCompletionPanel(
@@ -258,17 +281,9 @@ class _DriverTripPageState extends State<DriverTripPage>
                 driverView: true,
                 actions: const SizedBox.shrink(),
                 busy: _controller.busy,
-                scrollController: PrimaryScrollController.of(context),
                 onRate: (_, _) async {},
                 onHome: _home,
-                onReceipt: () => showModalBottomSheet<void>(
-                  context: context,
-                  isScrollControlled: true,
-                  builder: (_) => FractionallySizedBox(
-                    heightFactor: .86,
-                    child: TripReceiptSheet(data: data),
-                  ),
-                ),
+                onReceipt: openReceipt,
               );
             }
             final actions = TripActionsPanel(
@@ -279,140 +294,117 @@ class _DriverTripPageState extends State<DriverTripPage>
               driverCollectionSlider: true,
               onChanged: _controller.load,
             );
-            return SingleChildScrollView(
-              child: RideContentSizeReporter(
-                onSizeChanged: (size) {
-                  if (mounted &&
-                      (_measuredPhase != _phase ||
-                          _height == null ||
-                          (_height! - size.height).abs() > 1)) {
-                    setState(() {
-                      _height = size.height;
-                      _measuredPhase = _phase;
-                    });
-                  }
-                },
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_controller.error != null)
-                        AppLoadError(
-                          message: _controller.error!,
-                          onRetry: _reload,
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_controller.error != null)
+                    AppLoadError(message: _controller.error!, onRetry: _reload),
+                  if (moving && _controller.navError != null)
+                    Text(
+                      _controller.navError!,
+                      style: const TextStyle(color: RideTokens.muted),
+                    ),
+                  RideVehicleDriverCard(
+                    vehicle: rideMap(trip['vehicle']),
+                    driver: {'user': rideMap(trip['rider'])},
+                    compact: moving,
+                    personLabel: 'Your passenger',
+                    showRating: false,
+                    personBadge: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.people_alt_outlined, size: 10),
+                        const SizedBox(width: 2),
+                        Text(
+                          '${trip['passenger_count'] ?? 1}',
+                          style: const TextStyle(
+                            fontSize: 10,
+                            height: 1.2,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      if (moving && _controller.navError != null)
+                      ],
+                    ),
+                    contactActions: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TripActionsPanel(
+                          rideId: _controller.id!,
+                          externalContext: data,
+                          repository: _controller.ops,
+                          contactsOnly: true,
+                          showSupport: moving || _payment,
+                          onChanged: _controller.load,
+                        ),
+                        if (!_payment && !moving)
+                          SolidIconButton(
+                            dark: true,
+                            icon: Icons.qr_code_scanner_rounded,
+                            tooltip: 'Scan rider QR code',
+                            onPressed: _controller.busy ? null : _scan,
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  if (moving) ...[
+                    RideDestinationProgressBar(
+                      remainingDistance: _controller.progress?.remainingMetres,
+                      totalDistance: rideNumber(trip['estimated_distance_m']),
+                    ),
+                    if (_controller.canComplete) ...[
+                      const SizedBox(height: 14),
+                      _button('Complete ride', _complete),
+                    ],
+                  ] else ...[
+                    RideRouteTimeline(trip),
+                    const SizedBox(height: 16),
+                    if (_payment)
+                      actions
+                    else if (_status != 'DRIVER_WAITING') ...[
+                      if (_controller.navError != null)
                         Text(
                           _controller.navError!,
                           style: const TextStyle(color: RideTokens.muted),
                         ),
-                      RideVehicleDriverCard(
-                        vehicle: rideMap(trip['vehicle']),
-                        driver: {'user': rideMap(trip['rider'])},
-                        compact: moving,
-                        personLabel: 'Your passenger',
-                        showRating: false,
-                        personBadge: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.people_alt_outlined, size: 10),
-                            const SizedBox(width: 2),
-                            Text(
-                              '${trip['passenger_count'] ?? 1}',
-                              style: const TextStyle(
-                                fontSize: 10,
-                                height: 1.2,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
+                      if (_controller.progress != null)
+                        Text(_controller.progress!.instruction),
+                      if (_controller.tracking.error.value != null)
+                        Text('Location: ${_controller.tracking.error.value}'),
+                      const SizedBox(height: 12),
+                      if (_status != 'DRIVER_WAITING')
+                        _button(
+                          'I have arrived at pickup',
+                          () => _act(_arrive),
                         ),
-                        contactActions: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            TripActionsPanel(
-                              rideId: _controller.id!,
-                              externalContext: data,
-                              repository: _controller.ops,
-                              contactsOnly: true,
-                              showSupport: moving || _payment,
-                              onChanged: _controller.load,
-                            ),
-                            if (!_payment && !moving)
-                              SolidIconButton(
-                                dark: true,
-                                icon: Icons.qr_code_scanner_rounded,
-                                tooltip: 'Scan rider QR code',
-                                onPressed: _controller.busy ? null : _scan,
-                              ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      if (moving) ...[
-                        RideDestinationProgressBar(
-                          remainingDistance:
-                              _controller.progress?.remainingMetres,
-                          totalDistance: rideNumber(
-                            trip['estimated_distance_m'],
-                          ),
-                        ),
-                        if (_controller.canComplete) ...[
-                          const SizedBox(height: 14),
-                          _button('Complete ride', _complete),
-                        ],
-                      ] else ...[
-                        RideRouteTimeline(trip),
-                        const SizedBox(height: 16),
-                        if (_payment)
-                          actions
-                        else if (_status != 'DRIVER_WAITING') ...[
-                          if (_controller.navError != null)
-                            Text(
-                              _controller.navError!,
-                              style: const TextStyle(color: RideTokens.muted),
-                            ),
-                          if (_controller.progress != null)
-                            Text(_controller.progress!.instruction),
-                          if (_controller.tracking.error.value != null)
-                            Text(
-                              'Location: ${_controller.tracking.error.value}',
-                            ),
-                          const SizedBox(height: 12),
-                          if (_status != 'DRIVER_WAITING')
-                            _button(
-                              'I have arrived at pickup',
-                              () => _act(_arrive),
-                            ),
-                        ],
-                      ],
-                      if (moving && _controller.offers.isNotEmpty)
-                        ExpansionTile(
-                          title: Text(
-                            '${_controller.offers.length} nearby offers · view only',
-                          ),
-                          subtitle: const Text(
-                            'Finish this ride before accepting another.',
-                          ),
-                          children: [
-                            for (final offer in _controller.offers)
-                              ListTile(
-                                title: Text(
-                                  '${rideMap(offer['ride'])['pickup_address'] ?? 'Nearby pickup'}',
-                                ),
-                                subtitle: Text(
-                                  '${rideMap(offer['ride'])['dropoff_address'] ?? ''}',
-                                ),
-                              ),
-                          ],
-                        ),
-                      if (!_controller.active && _status != 'COMPLETED')
-                        _button('Return to driver home', _home),
                     ],
-                  ),
-                ),
+                  ],
+                  if (moving && _controller.offers.isNotEmpty)
+                    ExpansionTile(
+                      title: Text(
+                        '${_controller.offers.length} nearby offers · view only',
+                      ),
+                      subtitle: const Text(
+                        'Finish this ride before accepting another.',
+                      ),
+                      children: [
+                        for (final offer in _controller.offers)
+                          ListTile(
+                            title: Text(
+                              '${rideMap(offer['ride'])['pickup_address'] ?? 'Nearby pickup'}',
+                            ),
+                            subtitle: Text(
+                              '${rideMap(offer['ride'])['dropoff_address'] ?? ''}',
+                            ),
+                          ),
+                      ],
+                    ),
+                  if (!_controller.active && _status != 'COMPLETED')
+                    _button('Return to driver home', _home),
+                ],
               ),
             );
           },

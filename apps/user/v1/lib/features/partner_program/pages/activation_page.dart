@@ -93,17 +93,19 @@ class _PartnerActivationPageState extends State<PartnerActivationPage> {
             ),
           ),
         ],
-        const SizedBox(height: 20),
-        SizedBox(
-          height: 60,
-          child: SolidButton(
-            text: 'Activate account',
-            icon: const Icon(Icons.arrow_forward_rounded, size: 18),
-            busy: _busy,
-            minHeight: 60,
-            onPressed: _busy || _code.text.length != 6 ? null : _activate,
+        if (_code.text.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          SizedBox(
+            height: 60,
+            child: SolidButton(
+              text: 'Activate account',
+              icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+              busy: _busy,
+              minHeight: 60,
+              onPressed: _busy || _code.text.length != 6 ? null : _activate,
+            ),
           ),
-        ),
+        ],
         const SizedBox(height: 12),
         const Text(
           'Five incorrect attempts lock activation. Contact your administrator if the code is missing or locked.',

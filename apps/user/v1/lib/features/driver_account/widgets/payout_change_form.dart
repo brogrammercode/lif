@@ -32,6 +32,12 @@ class _PayoutFormState extends State<PayoutChangeForm> {
   set _attempted(bool value) => _controller.attempted = value;
   String? get _error => _controller.error;
   set _error(String? value) => _controller.error = value;
+  bool get _hasPayoutInput =>
+      _attempted ||
+      _holder.text.trim().isNotEmpty ||
+      _upi.text.trim().isNotEmpty ||
+      _bank.text.isNotEmpty ||
+      _ifsc.text.trim().isNotEmpty;
   @override
   void dispose() {
     _controller.removeListener(_controllerChanged);
@@ -99,6 +105,7 @@ class _PayoutFormState extends State<PayoutChangeForm> {
                 controller: _holder,
                 enabled: !_attempted,
                 maxLength: 120,
+                onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(labelText: 'Account holder'),
                 validator: (v) => (v ?? '').trim().length < 2
                     ? 'Enter the account holder'
@@ -110,6 +117,7 @@ class _PayoutFormState extends State<PayoutChangeForm> {
                 controller: _upi,
                 enabled: !_attempted,
                 maxLength: 320,
+                onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(
                   labelText: 'UPI ID (optional)',
                 ),
@@ -128,6 +136,7 @@ class _PayoutFormState extends State<PayoutChangeForm> {
                 controller: _bank,
                 enabled: !_attempted,
                 maxLength: 18,
+                onChanged: (_) => setState(() {}),
                 keyboardType: TextInputType.number,
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 obscureText: true,
@@ -152,6 +161,7 @@ class _PayoutFormState extends State<PayoutChangeForm> {
                   if (upper != v) {
                     _ifsc.value = _ifsc.value.copyWith(text: upper);
                   }
+                  setState(() {});
                 },
                 decoration: const InputDecoration(
                   labelText: 'IFSC (required with bank)',
@@ -183,11 +193,12 @@ class _PayoutFormState extends State<PayoutChangeForm> {
                   error: true,
                 ),
               ),
-            LiquidGlassButton(
-              onPressed: _busy ? null : _submit,
-              busy: _busy,
-              text: _attempted ? 'Retry same request' : 'Submit for review',
-            ),
+            if (_hasPayoutInput)
+              LiquidGlassButton(
+                onPressed: _busy ? null : _submit,
+                busy: _busy,
+                text: _attempted ? 'Retry same request' : 'Submit for review',
+              ),
             const SizedBox(height: 24),
           ],
         ),

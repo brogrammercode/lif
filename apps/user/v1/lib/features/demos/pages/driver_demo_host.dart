@@ -7,6 +7,8 @@ import 'package:user/features/demos/controllers/ride_demo_controller.dart';
 import 'package:user/features/driver_operations/driver_operations.repo.dart';
 import 'package:user/features/driver_operations/pages/trip_chat_page.dart';
 import 'package:user/features/driver_operations/widgets/driver_go_online_stage.dart';
+import 'package:user/features/driver_operations/widgets/driver_map.dart';
+import 'package:user/features/rides/widgets/ride_sheet_route.dart';
 import 'package:user/features/driver_vehicles/pages/driver_request_page.dart';
 import 'package:user/features/driver_vehicles/pages/driver_trip_page.dart';
 
@@ -20,6 +22,16 @@ class DriverDemoHost extends StatefulWidget {
 class _DriverDemoHostState extends State<DriverDemoHost> {
   final _controller = DriverDemoController();
   final _navigator = GlobalKey<NavigatorState>();
+  final _observer = _DriverDemoRouteObserver();
+  final _stageMap = ValueNotifier<DriverMap?>(null);
+
+  Widget _reportMap(Widget map) {
+    if (map is! DriverMap) return const SizedBox.shrink();
+    return reportRideSheetMap(map, (next) {
+      if (mounted) _stageMap.value = next;
+    });
+  }
+
   late final _repo = DriverOperationsRepository(client: _controller.transport);
   @override
   void initState() {
@@ -33,10 +45,18 @@ class _DriverDemoHostState extends State<DriverDemoHost> {
 
   void _preview(DriverDemoPhase phase) {
     _controller.previewDriver(phase);
-    _navigator.currentState?.pushNamedAndRemoveUntil(
-      _routeName(phase),
-      (_) => false,
-      arguments: RideDemoController.tripId,
+    _showPhase(phase);
+  }
+
+  void _showPhase(DriverDemoPhase phase) {
+    final navigator = _navigator.currentState;
+    if (navigator == null) return;
+    final name = _routeName(phase);
+    if (_observer.current?.settings.name == name) return;
+    navigator.popUntil((route) => route.isFirst);
+    if (phase == DriverDemoPhase.goOnline) return;
+    navigator.push(
+      _route(RouteSettings(name: name, arguments: RideDemoController.tripId)),
     );
   }
 
@@ -48,55 +68,77 @@ class _DriverDemoHostState extends State<DriverDemoHost> {
 
   void _goOnline() {
     _controller.goOnline();
-    _navigator.currentState?.pushNamedAndRemoveUntil(
-      '/demo/driver/request',
-      (_) => false,
-      arguments: RideDemoController.tripId,
-    );
+    _showPhase(DriverDemoPhase.request);
   }
 
-  Route<dynamic> _route(RouteSettings settings) => MaterialPageRoute(
-    settings: settings,
-    builder: (_) => switch (settings.name) {
-      '/demo/driver/go-online' => DriverGoOnlineStage(
-        vehicles: _controller.ownedVehicles,
-        selectedVehicleId: _controller.selectedVehicleId,
-        loading: false,
-        busy: false,
-        canGoOnline: true,
-        position: _controller.tracking.position,
-        onSelectVehicle: _controller.selectVehicle,
-        onGoOnline: _goOnline,
-        mapBuilder: widget.mapBuilder,
-      ),
-      '/demo/driver/request' => DriverRequestPage(
-        offer: _controller.offer,
-        repository: _repo,
-        mapBuilder: widget.mapBuilder,
-        currentPosition: _controller.tracking.position,
-      ),
-      AppRoutes.driverRideDetail => DriverTripPage(
-        repository: _repo,
-        tracking: _controller.tracking,
-        mapBuilder: widget.mapBuilder,
-      ),
-      AppRoutes.tripChat => const TripChatPage(),
-      AppRoutes.gate => const SolidPage(
-        title: 'Demo complete',
-        child: Center(child: Text('Use Restart below to try the flow again.')),
-      ),
-      _ => const SolidPage(
-        title: 'Demo',
-        child: Center(
-          child: Text('External actions are unavailable in this demo.'),
-        ),
-      ),
-    },
-  );
+  Route<dynamic> _route(RouteSettings settings) {
+    switch (settings.name) {
+      case '/demo/driver/go-online':
+        return MaterialPageRoute(
+          settings: settings,
+          builder: (context) => ListenableBuilder(
+            listenable: Listenable.merge([_controller, _stageMap]),
+            builder: (context, _) {
+              final covered = ModalRoute.isCurrentOf(context) == false;
+              return DriverGoOnlineStage(
+                vehicles: _controller.ownedVehicles,
+                selectedVehicleId: _controller.selectedVehicleId,
+                loading: false,
+                busy: false,
+                canGoOnline: true,
+                position: _controller.tracking.position,
+                onSelectVehicle: _controller.selectVehicle,
+                onGoOnline: _goOnline,
+                mapOnly: covered,
+                mapBuilder: (map) {
+                  final effective = covered ? _stageMap.value ?? map : map;
+                  return widget.mapBuilder?.call(effective) ?? effective;
+                },
+              );
+            },
+          ),
+        );
+      case '/demo/driver/request':
+        return RideSheetRoute<void>(
+          settings: settings,
+          builder: (_) => DriverRequestPage(
+            offer: _controller.offer,
+            repository: _repo,
+            mapBuilder: _reportMap,
+            currentPosition: _controller.tracking.position,
+          ),
+        );
+      case AppRoutes.driverRideDetail:
+        return RideSheetRoute<void>(
+          settings: settings,
+          builder: (_) => DriverTripPage(
+            repository: _repo,
+            tracking: _controller.tracking,
+            mapBuilder: _reportMap,
+          ),
+        );
+      default:
+        return MaterialPageRoute(
+          settings: settings,
+          builder: (_) => settings.name == AppRoutes.tripChat
+              ? const TripChatPage()
+              : const SolidPage(
+                  title: 'Demo',
+                  child: Center(
+                    child: Text(
+                      'External actions are unavailable in this demo.',
+                    ),
+                  ),
+                ),
+        );
+    }
+  }
+
   @override
   void dispose() {
     _controller.removeListener(_changed);
     _controller.dispose();
+    _stageMap.dispose();
     super.dispose();
   }
 
@@ -119,6 +161,7 @@ class _DriverDemoHostState extends State<DriverDemoHost> {
                     _route(const RouteSettings(name: '/demo/driver/go-online')),
                   ],
                   onGenerateRoute: _route,
+                  observers: [_observer],
                 ),
               ),
               Container(
@@ -175,4 +218,13 @@ class _DriverDemoHostState extends State<DriverDemoHost> {
       ),
     ),
   );
+}
+
+class _DriverDemoRouteObserver extends NavigatorObserver {
+  Route<dynamic>? current;
+
+  @override
+  void didChangeTop(Route<dynamic> topRoute, Route<dynamic>? previousTopRoute) {
+    current = topRoute;
+  }
 }

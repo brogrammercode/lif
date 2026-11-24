@@ -161,12 +161,18 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
+      var mapTaps = 0;
       await tester.pumpWidget(
         ScreenUtilInit(
           designSize: const Size(390, 844),
           builder: (_, _) => MaterialApp(
             home: RideDemoHost(
-              mapBuilder: (_) => const ColoredBox(color: Colors.grey),
+              mapBuilder: (_) => GestureDetector(
+                key: ValueKey('persistent-rider-map'),
+                behavior: HitTestBehavior.opaque,
+                onTap: () => mapTaps++,
+                child: const ColoredBox(color: Colors.grey),
+              ),
             ),
           ),
         ),
@@ -174,11 +180,22 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(HomePage), findsOneWidget);
       expect(tester.takeException(), isNull, reason: 'Home layout');
+      final map = find.byKey(const ValueKey('persistent-rider-map'));
+      final mountedMap = tester.element(map);
+      await tester.tap(find.text('Drop-off'));
+      await tester.pumpAndSettle();
+      expect(tester.element(map), same(mountedMap));
+      expect(find.text('Choose drop-off'), findsOneWidget);
+      await tester.tap(find.byTooltip('Back to ride planning'));
+      await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('Choose demo stage'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Vehicles').last);
       await tester.pumpAndSettle();
       expect(find.byType(VehicleSelectionPage), findsOneWidget);
+      expect(tester.element(map), same(mountedMap));
+      await tester.tapAt(const Offset(170, 120));
+      expect(mapTaps, 1);
       expect(find.text('Comfort'), findsOneWidget);
       expect(tester.takeException(), isNull, reason: 'Vehicle layout');
       expect(find.text('Passengers'), findsOneWidget);
@@ -190,14 +207,11 @@ void main() {
       );
       final naturalContentHeight = tester.getSize(panelContent).height;
       final initialPanelHeight = tester.getSize(panel).height;
-      await tester.drag(panel, const Offset(0, -600));
-      await tester.pumpAndSettle();
-      final expandedPanelHeight = tester.getSize(panel).height;
-      expect(expandedPanelHeight, greaterThan(initialPanelHeight));
       expect(
-        expandedPanelHeight,
-        lessThanOrEqualTo(naturalContentHeight + 110),
+        initialPanelHeight,
+        inInclusiveRange(naturalContentHeight, naturalContentHeight + 110),
       );
+      expect(find.text('Continue').hitTestable(), findsOneWidget);
       expect(find.text('620 m away'), findsOneWidget);
       final bookingAction = find.text('Continue');
       await tester.ensureVisible(bookingAction);
@@ -210,15 +224,11 @@ void main() {
       await tester.tap(bookingAction);
       await tester.pumpAndSettle();
       expect(find.byType(RideDetailPage), findsOneWidget);
+      expect(tester.element(map), same(mountedMap));
       expect(find.text('Finding your driver'), findsOneWidget);
-      await tester.drag(
-        find.byKey(const ValueKey('ride-stage-panel')),
-        const Offset(0, -500),
-      );
-      await tester.pumpAndSettle();
       expect(find.text('Searching nearby driver'), findsOneWidget);
       expect(find.text('Search area · 2 km'), findsOneWidget);
-      expect(find.text('Cancel'), findsOneWidget);
+      expect(find.text('Cancel').hitTestable(), findsOneWidget);
       expect(find.textContaining('We expand the search'), findsNothing);
       expect(find.byType(RideEndpoints), findsNothing);
       final cancelButton = find.ancestor(
@@ -232,6 +242,7 @@ void main() {
       await tester.tap(find.text('Driver assigned').last);
       await tester.pumpAndSettle();
       expect(find.byType(RideDetailPage), findsOneWidget);
+      expect(tester.element(map), same(mountedMap));
       expect(find.text('The driver will arrive in'), findsOneWidget);
       expect(find.text('Your driver'), findsOneWidget);
       final driverName = tester.widget<Text>(find.text('Rohan Kumar'));
@@ -246,9 +257,10 @@ void main() {
       await tester.tap(find.text('Completed').last);
       await tester.pumpAndSettle();
       expect(find.byType(DraggableScrollableSheet), findsOneWidget);
-      expect(find.text("You've arrived"), findsOneWidget);
-      expect(find.text('Trip Details'), findsOneWidget);
-      expect(find.text('Download bill'), findsOneWidget);
+      expect(find.text("You've arrived").hitTestable(), findsOneWidget);
+      expect(tester.element(map), same(mountedMap));
+      expect(find.text('Trip Details'), findsWidgets);
+      expect(find.text('Download bill').hitTestable(), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     },

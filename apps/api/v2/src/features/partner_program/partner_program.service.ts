@@ -30,6 +30,7 @@ import type {
   ReviewInput,
 } from './partner_program.type.js';
 import {
+  input_kind,
   field_value_error,
   address_values_error,
   normalize_field_value,
@@ -488,7 +489,10 @@ export class PartnerProgramService {
         throw fail(
           `The file types for ${label} changed. Upload a permitted file.`,
         );
-    } else if (definition.field_type === 'NUMBER') {
+    } else if (
+      definition.field_type === 'NUMBER' &&
+      !['PHONE', 'EMAIL'].includes(input_kind(definition))
+    ) {
       if (
         typeof value !== 'number' ||
         !Number.isFinite(value) ||

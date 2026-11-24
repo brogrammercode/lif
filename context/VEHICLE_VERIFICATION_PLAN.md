@@ -134,3 +134,12 @@ Backend changes are limited to `apps/api/v2`; the matching screens are in `apps/
 - [x] Record the patch commands, version distinction, and publication in the user-app README.
 
 The OTA patch updates existing Shorebird installations of `0.1.1+1`. No new `0.1.2+2` base APK was published. Shorebird compiled the Android app bundle as part of producing and validating the patch; this was a publication build.
+
+## Required document validation follow-up — 2026-11-24
+
+- [x] Mark every vehicle and registration document as required in the form and show an inline error beside each missing upload after submission is attempted.
+- [x] Validate vehicle fields and required files in the same submit attempt, and reject empty local files or empty uploaded asset IDs before upload/submission starts.
+- [x] Retain API enforcement: the submission schema requires all six document IDs, and the service verifies each asset belongs to the submitting driver and matching document field before saving.
+- [x] Run Flutter analysis and repository diff checks.
+
+The API already required the six assets; this follow-up makes the missing-file validation visible in the form and tightens the client-side guard. Real-device submission remains unverified in this change.

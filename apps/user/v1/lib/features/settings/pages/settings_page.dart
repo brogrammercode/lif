@@ -83,6 +83,25 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _signOut() async {
     if (_controller.signingOut) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => LiquidGlassDialog(
+        title: const Text('Log out?'),
+        content: const Text('Are you sure you want to log out of 1More?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.black),
+            child: const Text('Log out'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
     try {
       await _controller.signOut();
       if (!mounted) return;
@@ -155,6 +174,7 @@ class _SettingsPageState extends State<SettingsPage> {
         builder: (context) => LiquidGlassDialog(
           title: const Text('Use this profile photo?'),
           content: SolidFileUpload(
+            label: 'Profile photo',
             files: [
               SolidUploadFile(
                 name: photo.name,

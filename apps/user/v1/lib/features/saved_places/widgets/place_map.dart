@@ -346,7 +346,7 @@ class _PlaceMapState extends State<PlaceMap> {
           if (_camera != null) widget.onPicked?.call(_camera!);
         },
         attributionButtonPosition: AttributionButtonPosition.topRight,
-        attributionButtonMargins: math.Point(8, widget.topInset + 8),
+        attributionButtonMargins: const math.Point<double>(-1000, -1000),
       ),
       if (widget.onPicked != null)
         IgnorePointer(

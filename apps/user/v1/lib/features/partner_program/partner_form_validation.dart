@@ -1,3 +1,41 @@
+bool isEmailPartnerRequirement(Map<String, dynamic> definition) {
+  final kind = '${definition['input_kind'] ?? 'DEFAULT'}';
+  final semanticName = '${definition['key'] ?? ''} ${definition['label']}'
+      .replaceAllMapped(
+        RegExp(r'([a-z0-9])([A-Z])'),
+        (match) => '${match[1]}_${match[2]}',
+      )
+      .toLowerCase();
+  return kind == 'EMAIL' ||
+      RegExp(r'(^|[^a-z])(e_?mail)([^a-z]|$)').hasMatch(semanticName);
+}
+
+bool isValidEmailAddress(String value) {
+  final email = value.trim();
+  if (email.length > 254 || email.contains('..')) return false;
+  final at = email.lastIndexOf('@');
+  if (at < 1 || at > 64 || at == email.length - 1) return false;
+  final local = email.substring(0, at);
+  if (local.startsWith('.') || local.endsWith('.')) return false;
+  return RegExp(
+    r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$",
+  ).hasMatch(email);
+}
+
+bool isPhonePartnerRequirement(Map<String, dynamic> definition) {
+  final kind = '${definition['input_kind'] ?? 'DEFAULT'}';
+  final semanticName = '${definition['key'] ?? ''} ${definition['label']}'
+      .replaceAllMapped(
+        RegExp(r'([a-z0-9])([A-Z])'),
+        (match) => '${match[1]}_${match[2]}',
+      )
+      .toLowerCase();
+  return kind == 'PHONE' ||
+      RegExp(
+        r'(^|[^a-z])(phone|mobile|whats_?app|telephone|tel)([^a-z]|$)',
+      ).hasMatch(semanticName);
+}
+
 /// Validates supplied draft values, including fields outside the mounted step.
 /// Final submission must include all categories; FormState sees mounted fields.
 String? validatePartnerDraft(
@@ -7,8 +45,7 @@ String? validatePartnerDraft(
   required String phone,
   bool validateContacts = true,
 }) {
-  if (validateContacts &&
-      !RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email.trim())) {
+  if (validateContacts && !isValidEmailAddress(email)) {
     return 'Enter a valid contact email address.';
   }
   if (validateContacts &&
@@ -27,6 +64,8 @@ String? validatePartnerDraft(
     }
     final type = definition['field_type'];
     final kind = definition['input_kind'];
+    final phoneField = isPhonePartnerRequirement(definition);
+    final emailField = isEmailPartnerRequirement(definition);
     if (['FILE', 'IMAGE', 'PDF'].contains(type)) {
       if (value is! List ||
           value.length > (definition['allow_multiple'] == true ? 10 : 1)) {
@@ -39,11 +78,17 @@ String? validatePartnerDraft(
       continue;
     }
     final text = '$value'.trim();
+    if (phoneField && !RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(text)) {
+      return 'Enter a valid phone number with its country calling code for $label.';
+    }
+    if (emailField && !isValidEmailAddress(text)) {
+      return 'Enter a valid email address for $label.';
+    }
     final maxLength = (definition['max_length'] as num?)?.toInt() ?? 10000;
     if (text.length > maxLength) {
       return '$label allows at most $maxLength characters.';
     }
-    if (type == 'NUMBER') {
+    if (type == 'NUMBER' && !phoneField && !emailField) {
       final number = num.tryParse(text);
       if (number == null || !number.isFinite) {
         return 'Enter a valid number for $label.';

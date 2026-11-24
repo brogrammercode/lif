@@ -10,6 +10,8 @@ class DriverMap extends StatefulWidget {
   final List<LatLng> route;
   final double heading;
   final bool follow;
+  final String? phase;
+  final int recenter;
   const DriverMap({
     super.key,
     this.location,
@@ -18,6 +20,8 @@ class DriverMap extends StatefulWidget {
     this.route = const [],
     this.heading = 0,
     this.follow = true,
+    this.phase,
+    this.recenter = 0,
   });
   @override
   State<DriverMap> createState() => _DriverMapState();
@@ -31,7 +35,11 @@ class _DriverMapState extends State<DriverMap> {
       _didCenter = false,
       _markersSynced = false;
   List<LatLng>? _renderedRoute;
-  LatLng? _renderedPickup, _renderedDropoff;
+  LatLng? _renderedPickup, _renderedDropoff, _cameraTarget;
+  double? _cameraHeading;
+  String? _cameraPhase;
+  LatLng? _cameraEndpoint;
+  int? _cameraRecenter;
   @override
   void didUpdateWidget(covariant DriverMap oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -111,6 +119,7 @@ class _DriverMapState extends State<DriverMap> {
       return;
     }
     _syncing = true;
+    final phase = widget.phase;
     final pickup = widget.pickup,
         dropoff = widget.dropoff,
         location = widget.location;
@@ -162,19 +171,57 @@ class _DriverMapState extends State<DriverMap> {
       }
       if (location != null) {
         await c.updateManualLocation(ManualLocationUpdate(target: location));
-        if (follow || !_didCenter) {
-          _didCenter = true;
-          await c.animateCamera(
-            CameraUpdate.newCameraPosition(
-              CameraPosition(
-                target: location,
-                zoom: 16.5,
-                bearing: heading,
-                tilt: 48,
-              ),
-            ),
-          );
-        }
+      }
+      final destination =
+          phase == 'IN_PROGRESS' || phase == 'PAYMENT' || phase == 'COMPLETED';
+      final stageTarget = destination ? dropoff : pickup;
+      final frameStage =
+          _cameraPhase != phase ||
+          _cameraEndpoint != stageTarget ||
+          _cameraRecenter != widget.recenter;
+      final target = frameStage ? (stageTarget ?? location) : location;
+      if (target != null &&
+          (frameStage ||
+              !_didCenter ||
+              (follow &&
+                  (target != _cameraTarget || heading != _cameraHeading)))) {
+        _cameraPhase = phase;
+        _cameraEndpoint = stageTarget;
+        _cameraRecenter = widget.recenter;
+        _cameraTarget = location ?? target;
+        _cameraHeading = heading;
+        _didCenter = true;
+        await c.animateCamera(
+          frameStage &&
+                  stageTarget != null &&
+                  location != null &&
+                  location != target
+              ? CameraUpdate.newLatLngBounds(
+                  LatLngBounds(
+                    southwest: LatLng(
+                      math.min(target.latitude, location.latitude) - .0002,
+                      math.min(target.longitude, location.longitude) - .0002,
+                    ),
+                    northeast: LatLng(
+                      math.max(target.latitude, location.latitude) + .0002,
+                      math.max(target.longitude, location.longitude) + .0002,
+                    ),
+                  ),
+                  left: 32,
+                  right: 32,
+                  top: 65,
+                  bottom: 100,
+                )
+              : CameraUpdate.newCameraPosition(
+                  CameraPosition(
+                    target: target,
+                    zoom: frameStage && stageTarget != null ? 15 : 16.5,
+                    bearing: frameStage && stageTarget != null ? 0 : heading,
+                    tilt: frameStage && stageTarget != null ? 25 : 48,
+                  ),
+                ),
+          duration: const Duration(milliseconds: 900),
+        );
       }
     } catch (_) {
       /* A style reload may temporarily invalidate a layer. */
@@ -188,21 +235,28 @@ class _DriverMapState extends State<DriverMap> {
   }
 
   @override
-  Widget build(BuildContext context) => MapLibreMap(
-    initialCameraPosition: CameraPosition(
-      target:
-          widget.location ?? widget.pickup ?? HomeConstants.DEFAULT_LOCATION,
-      zoom: 16,
-      tilt: 48,
-    ),
-    styleString: HomeConstants.MAP_STYLE_URL,
-    locationSource: const ManualLocationSource(),
-    myLocationEnabled: true,
-    myLocationRenderMode: MyLocationRenderMode.normal,
-    onMapCreated: (c) => _controller = c,
-    onStyleLoadedCallback: _style,
-    tiltGesturesEnabled: true,
-    attributionButtonPosition: AttributionButtonPosition.topRight,
-    attributionButtonMargins: const math.Point<double>(12, 125),
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.expand,
+    children: [
+      MapLibreMap(
+        initialCameraPosition: CameraPosition(
+          target:
+              widget.location ??
+              widget.pickup ??
+              HomeConstants.DEFAULT_LOCATION,
+          zoom: 16,
+          tilt: 48,
+        ),
+        styleString: HomeConstants.MAP_STYLE_URL,
+        locationSource: const ManualLocationSource(),
+        myLocationEnabled: true,
+        myLocationRenderMode: MyLocationRenderMode.normal,
+        onMapCreated: (c) => _controller = c,
+        onStyleLoadedCallback: _style,
+        tiltGesturesEnabled: true,
+        attributionButtonPosition: AttributionButtonPosition.topRight,
+        attributionButtonMargins: const math.Point<double>(-1000, -1000),
+      ),
+    ],
   );
 }

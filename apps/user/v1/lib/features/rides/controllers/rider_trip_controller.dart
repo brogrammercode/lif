@@ -45,6 +45,7 @@ class RiderTripController extends FeatureController {
       ['DRIVER_ASSIGNED', 'DRIVER_ARRIVING', 'IN_PROGRESS'].contains(status);
   bool reading = false, busy = false, routing = false;
   bool liveJourney = false;
+  bool driverHistory = false;
   Completer<void>? readDone;
   DateTime? checked, serverTime, lastRouteRequest;
   final clock = Stopwatch();
@@ -73,18 +74,22 @@ class RiderTripController extends FeatureController {
     String tripId, {
     Listenable? source,
     bool livePresentation = false,
+    bool driverHistory = false,
   }) {
     if (id != null) return;
     id = tripId;
     liveJourney = livePresentation;
+    this.driverHistory = driverHistory;
     _source = source;
     source?.addListener(_sourceChanged);
-    _poll = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (_visible && !busy && pollNeeded) unawaited(load());
-    });
-    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_visible && active) changed();
-    });
+    if (!driverHistory) {
+      _poll = Timer.periodic(const Duration(seconds: 5), (_) {
+        if (_visible && !busy && pollNeeded) unawaited(load());
+      });
+      _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (_visible && active) changed();
+      });
+    }
     unawaited(load());
   }
 
@@ -102,14 +107,31 @@ class RiderTripController extends FeatureController {
     update(() => reading = true);
     final done = readDone = Completer<void>();
     try {
-      final data = await ops.context(id!);
-      if (data['is_driver'] != false ||
-          data['trip'] is! Map ||
-          !riderTripStatuses.contains(data['status']) ||
-          rideMap(data['trip'])['id'] != id ||
-          rideMap(data['trip'])['status'] != data['status'] ||
-          '${data['ride_id']}' != id) {
-        throw StateError('This ride is not available to your rider account.');
+      final Map<String, dynamic> data;
+      if (driverHistory) {
+        final ride = await repository.driverRide(id!);
+        if ('${ride['id']}' != id || ride['status'] == null) {
+          throw StateError(
+            'This ride is not available to your driver account.',
+          );
+        }
+        data = {
+          'trip': ride,
+          'status': ride['status'],
+          'payment': rideMap(ride['payment']),
+          'review': ride['review'],
+          'driver_history': true,
+        };
+      } else {
+        data = await ops.context(id!);
+        if (data['is_driver'] != false ||
+            data['trip'] is! Map ||
+            !riderTripStatuses.contains(data['status']) ||
+            rideMap(data['trip'])['id'] != id ||
+            rideMap(data['trip'])['status'] != data['status'] ||
+            '${data['ride_id']}' != id) {
+          throw StateError('This ride is not available to your rider account.');
+        }
       }
       if (isDisposed) return;
       update(() {

@@ -115,31 +115,31 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
     final input = TextEditingController();
     final value = await showDialog<String>(
       context: context,
-      builder: (ctx) => LiquidGlassDialog(
-        title: Text(title),
-        content: TextField(
-          controller: input,
-          minLines: 2,
-          maxLines: 5,
-          maxLength: 1000,
-          decoration: const InputDecoration(
-            labelText: 'Reason (at least 5 characters)',
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => LiquidGlassDialog(
+          title: Text(title),
+          content: TextField(
+            controller: input,
+            minLines: 2,
+            maxLines: 5,
+            maxLength: 1000,
+            onChanged: (_) => setDialogState(() {}),
+            decoration: const InputDecoration(
+              labelText: 'Reason (at least 5 characters)',
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            if (input.text.trim().length >= 5)
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, input.text.trim()),
+                child: const Text('Submit'),
+              ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              if (input.text.trim().length >= 5) {
-                Navigator.pop(ctx, input.text.trim());
-              }
-            },
-            child: const Text('Submit'),
-          ),
-        ],
       ),
     );
     input.dispose();

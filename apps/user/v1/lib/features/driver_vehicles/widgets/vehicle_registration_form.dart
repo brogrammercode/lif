@@ -57,6 +57,7 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
   final _color = TextEditingController();
   final _storage = const FlutterSecureStorage();
   Map<String, String> get _documents => _controller.documents;
+  Set<String> get _missingDocuments => _controller.missingDocuments;
   Map<String, Uint8List> get _local => _controller.local;
   Map<String, String> get _paths => _controller.paths;
   Map<String, String> get _names => _controller.names;
@@ -91,6 +92,7 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
   bool get _loadFailed => _controller.loadFailed;
   set _loadFailed(bool value) => _controller.loadFailed = value;
   bool _disposed = false;
+  String? _initialFormSnapshot;
   Timer? _draftTimer;
   Future<void> _draftWrites = Future<void>.value();
   int get _version => _controller.version;
@@ -153,6 +155,7 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
       final vehicle = _vehicle;
       _draftKey = 'vehicle_registration_${user['id']}_${requestedId ?? 'new'}';
       _documents.clear();
+      _missingDocuments.clear();
       _paths.clear();
       _names.clear();
       _local.clear();
@@ -286,6 +289,7 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
         _pendingCapture = null;
         await _saveDraft();
       }
+      _initialFormSnapshot = _formSnapshot();
     } catch (error) {
       if (mounted) {
         setState(() {
@@ -300,6 +304,22 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
 
   List<Map<String, dynamic>> get _fieldList =>
       vehicleMaps(_vehicle?['verification_fields']);
+
+  String _formSnapshot() => jsonEncode({
+    'brand': _brand?['id'],
+    'model': _model?['id'],
+    'category': _categoryId,
+    'plate': _plate.text.trim().toUpperCase(),
+    'color': _color.text.trim(),
+    'documents': _documents,
+    'local': {for (final key in _local.keys) key: _names[key]},
+    'custom': {
+      for (final field in _fieldList) '${field['key']}': field['value'],
+    },
+  });
+
+  bool get _hasFormChanges =>
+      _initialFormSnapshot != null && _formSnapshot() != _initialFormSnapshot;
 
   Future<void> _saveDraft() async {
     if (_draftKey == null || _disposed) return;
@@ -349,6 +369,7 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
     _paths[key] = file.path;
     _names[key] = file.name;
     _documents.remove(key);
+    _missingDocuments.remove(key);
   }
 
   void _discardPendingImage(String key) {
@@ -372,6 +393,7 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
         _local.remove(key);
         _paths.remove(key);
         _names.remove(key);
+        if (_missingDocuments.isNotEmpty) _missingDocuments.add(key);
       });
       await _saveDraft();
     } catch (error) {
@@ -552,13 +574,23 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
   }
 
   Future<void> _submit() async {
-    if (_busy || _needsReload || !_form.currentState!.validate()) return;
-    if (vehicleDocuments.keys.any(
-      (key) => !_local.containsKey(key) && !_documents.containsKey(key),
-    )) {
-      setState(
-        () => _error = 'Add all six required vehicle and document images.',
-      );
+    if (_busy || _needsReload) return;
+    final fieldsValid = _form.currentState!.validate();
+    final missing = vehicleDocuments.keys.where((key) {
+      final localBytes = _local[key];
+      final uploadedId = _documents[key]?.trim();
+      return (localBytes == null || localBytes.isEmpty) &&
+          (uploadedId == null || uploadedId.isEmpty);
+    }).toSet();
+    setState(() {
+      _missingDocuments
+        ..clear()
+        ..addAll(missing);
+      _error = missing.isEmpty
+          ? null
+          : 'Add all required vehicle and document images before submitting.';
+    });
+    if (missing.isNotEmpty || !fieldsValid) {
       return;
     }
     setState(() {
@@ -882,7 +914,10 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
                       enabled: !_busy && !_locked('plate_number'),
                       textCapitalization: TextCapitalization.characters,
                       maxLength: 30,
-                      onChanged: (_) => _scheduleDraft(),
+                      onChanged: (_) {
+                        setState(() {});
+                        _scheduleDraft();
+                      },
                       validator: (v) =>
                           RegExp(r'^[A-Z0-9]{3,20}$').hasMatch(
                             (v ?? '')
@@ -899,7 +934,10 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
                       label: 'Color',
                       enabled: !_busy && !_locked('color'),
                       maxLength: 40,
-                      onChanged: (_) => _scheduleDraft(),
+                      onChanged: (_) {
+                        setState(() {});
+                        _scheduleDraft();
+                      },
                       validator: (v) => (v?.trim().isEmpty ?? true)
                           ? 'Enter the vehicle color'
                           : null,
@@ -908,13 +946,26 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
                   ]),
                   _section('Photos and documents', [
                     for (final entry in vehicleDocuments.entries) ...[
-                      Text(
-                        entry.value,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: RideTokens.ink,
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              entry.value,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                                color: RideTokens.ink,
+                              ),
+                            ),
+                          ),
+                          const Text(
+                            'Required',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: RideTokens.muted,
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 8),
                       SolidFileUpload(
@@ -950,6 +1001,20 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
                         limitText:
                             'Photos or PDF for documents, up to 3 MB. Uploaded on submission.',
                       ),
+                      if (_missingDocuments.contains(entry.key))
+                        const Padding(
+                          padding: EdgeInsets.only(left: 4, top: 6),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'This image or document is required.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.googleRed,
+                              ),
+                            ),
+                          ),
+                        ),
                       _reviewNote(entry.key),
                       const SizedBox(height: 16),
                     ],
@@ -979,23 +1044,24 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
                 ],
               ),
             ),
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 60,
-                  child: SolidButton(
-                    text: _vehicle == null
-                        ? 'Submit for review'
-                        : 'Save changes',
-                    busy: _busy,
-                    onPressed: _busy || _needsReload ? null : _submit,
+            if (_hasFormChanges)
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 60,
+                    child: SolidButton(
+                      text: _vehicle == null
+                          ? 'Submit for review'
+                          : 'Save changes',
+                      busy: _busy,
+                      onPressed: _busy || _needsReload ? null : _submit,
+                    ),
                   ),
                 ),
               ),
-            ),
           ],
         ),
       ),

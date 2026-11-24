@@ -49,6 +49,23 @@ class _CatalogSuggestionFormState extends State<CatalogSuggestionForm> {
   bool get _busy => _controller.busy;
   set _busy(bool value) => _controller.busy = value;
   bool get _model => widget.brand != null;
+  bool get _hasChangesOrInput {
+    final initial = widget.initial;
+    if (initial == null) {
+      return _controllers.values.any(
+            (controller) => controller.text.trim().isNotEmpty,
+          ) ||
+          _logo != null;
+    }
+    return _controllers.entries.any(
+          (entry) =>
+              entry.value.text.trim() != '${initial[entry.key] ?? ''}'.trim(),
+        ) ||
+        _type != '${initial['vehicle_type'] ?? 'BIKE'}' ||
+        _fuel != '${initial['fuel_type'] ?? 'PETROL'}' ||
+        _logo != null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -175,6 +192,7 @@ class _CatalogSuggestionFormState extends State<CatalogSuggestionForm> {
       maxLength: max,
       minLines: lines == 1 ? null : lines,
       maxLines: lines,
+      onChanged: (_) => setState(() {}),
       validator: (value) {
         final text = value?.trim() ?? '';
         if (required && text.isEmpty) return 'This field is required';
@@ -412,25 +430,26 @@ class _CatalogSuggestionFormState extends State<CatalogSuggestionForm> {
                 ],
               ),
             ),
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 60,
-                  child: SolidButton(
-                    text: _busy
-                        ? 'Submitting suggestion'
-                        : widget.initial == null
-                        ? 'Submit suggestion'
-                        : 'Save changes',
-                    busy: _busy,
-                    onPressed: _busy ? null : _submit,
+            if (_hasChangesOrInput)
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 60,
+                    child: SolidButton(
+                      text: _busy
+                          ? 'Submitting suggestion'
+                          : widget.initial == null
+                          ? 'Submit suggestion'
+                          : 'Save changes',
+                      busy: _busy,
+                      onPressed: _busy ? null : _submit,
+                    ),
                   ),
                 ),
               ),
-            ),
           ],
         ),
       ),

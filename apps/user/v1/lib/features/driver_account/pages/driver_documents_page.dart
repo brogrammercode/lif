@@ -117,6 +117,7 @@ class _DocumentsState extends State<DriverDocumentsPage> {
                 '${(bytes.length / 1024).ceil()} KB. The current document remains until you submit. This vehicle will then need approval.',
               ),
               SolidFileUpload(
+                label: '${field['label']}',
                 files: [
                   SolidUploadFile(
                     name: selected.name,

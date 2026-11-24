@@ -50,6 +50,7 @@ const driver_ride = {
   final_fare: true,
   currency: true,
   rider_note: true,
+  collection_preference: true,
   rider: {
     select: { id: true, first_name: true, last_name: true, avatar_url: true },
   },
@@ -64,7 +65,16 @@ const driver_ride = {
     },
   },
   route: true,
-  payment: { select: { status: true } },
+  payment: {
+    select: {
+      status: true,
+      amount: true,
+      collection_method: true,
+      paid_at: true,
+      refunded_at: true,
+      provider: true,
+    },
+  },
   events: {
     select: { id: true, event_type: true, created_at: true },
     orderBy: { created_at: 'asc' },
@@ -287,6 +297,15 @@ export class TravelContextService {
           final_fare: true,
           estimated_fare: true,
           currency: true,
+          actual_distance_m: true,
+          estimated_distance_m: true,
+          payment: {
+            select: {
+              status: true,
+              amount: true,
+              collection_method: true,
+            },
+          },
         },
         orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * page_size,
