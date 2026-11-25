@@ -106,6 +106,12 @@ const conflict = () =>
   );
 const fail = (message: string) =>
   new AppError(422, 'PARTNER_VALIDATION_ERROR', message);
+const editable_application = (status: string) =>
+  ['SUBMITTED', 'CHANGES_REQUESTED'].includes(status);
+const latest_exit = (user_id: string) => ({
+  where: { user_id, status: 'EXITED' as const },
+  orderBy: [{ created_at: 'desc' as const }, { id: 'desc' as const }],
+});
 const safe_application = (app: Application | null) => {
   if (!app) return null;
   const { activation_hash, activation_salt, activation_ciphertext, ...safe } =
@@ -148,6 +154,16 @@ export class PartnerProgramService {
     title: string,
     body: string,
   ) {
+    const app = await tx.partnerApplication.findUnique({
+      where: { current_user_id: user_id },
+      select: {
+        id: true,
+        user_id: true,
+        contact_email: true,
+        version: true,
+        status: true,
+      },
+    });
     await tx.notification.create({
       data: {
         user_id,
@@ -155,17 +171,10 @@ export class PartnerProgramService {
         channel: 'IN_APP',
         title,
         body,
-        data: { route: '/partner-program' },
-      },
-    });
-    const app = await tx.partnerApplication.findUnique({
-      where: { user_id },
-      select: {
-        id: true,
-        user_id: true,
-        contact_email: true,
-        version: true,
-        status: true,
+        data: {
+          route: '/partner-program',
+          ...(app ? { application_id: app.id } : {}),
+        },
       },
     });
     if (app) await queue_partner_email(tx, app, 'STATUS_UPDATED', title, body);
@@ -199,85 +208,150 @@ export class PartnerProgramService {
     return app;
   }
   async workflow(user_id: string) {
-    const [app, policy, confirmation, requirements, assets] = await Promise.all(
-      [
-        this.database.client.partnerApplication.findUnique({
-          where: { user_id },
-          include: application_include,
-        }),
-        this.database.client.partnerDocument.findUnique({
-          where: { kind: 'POLICY' },
-        }),
-        this.database.client.partnerDocument.findUnique({
-          where: { kind: 'CONFIRMATION' },
-        }),
-        this.database.client.partnerRequirement.findMany({
-          where: { is_active: true, category: { is_active: true } },
-          include: { category: true },
-          orderBy: [
-            { category: { sort_order: 'asc' } },
-            { sort_order: 'asc' },
-            { id: 'asc' },
+    return this.database.client.$transaction(
+      async (tx) => {
+        const [current, policy, confirmation, requirements] = await Promise.all(
+          [
+            tx.partnerApplication.findUnique({
+              where: { current_user_id: user_id },
+              include: application_include,
+            }),
+            tx.partnerDocument.findUnique({
+              where: { kind: 'POLICY' },
+            }),
+            tx.partnerDocument.findUnique({
+              where: { kind: 'CONFIRMATION' },
+            }),
+            tx.partnerRequirement.findMany({
+              where: { is_active: true, category: { is_active: true } },
+              include: { category: true },
+              orderBy: [
+                { category: { sort_order: 'asc' } },
+                { sort_order: 'asc' },
+                { id: 'asc' },
+              ],
+            }),
           ],
-        }),
-        this.database.client.partnerAsset.findMany({
-          where: { owner_id: user_id },
-          select: asset_select,
-          orderBy: { created_at: 'desc' },
-        }),
-      ],
-    );
-    return {
-      application: app
-        ? {
-            id: app.id,
-            status: app.status,
-            version: app.version,
-            contact_email: app.contact_email,
-            whatsapp_phone: app.whatsapp_phone,
-            submitted_at: app.submitted_at,
-            completed_at: app.completed_at,
-            final_pdf_id: app.final_pdf_id,
-            fields: app.fields.map((field) => ({
-              id: field.id,
-              requirement_id: field.requirement_id,
-              value: field.value,
-              status: field.status,
-              rejection_reason: field.rejection_reason,
-            })),
-            confirmation: app.confirmation
-              ? {
-                  signature_name: app.confirmation.signature_name,
-                  status: app.confirmation.status,
-                  rejection_reason: app.confirmation.rejection_reason,
-                  accepted_at: app.confirmation.accepted_at,
-                }
-              : null,
+        );
+        const app = current?.status === 'EXITED' ? null : current;
+        const [assets, previous] = await Promise.all([
+          tx.partnerAsset.findMany({
+            where: {
+              owner_id: user_id,
+              application_id: app?.id ?? null,
+              purpose: {
+                in: ['APPLICATION_DOCUMENT', 'APPLICATION_SELFIE', 'FINAL_PDF'],
+              },
+            },
+            select: asset_select,
+            orderBy: { created_at: 'desc' },
+          }),
+          app
+            ? null
+            : (current ??
+              tx.partnerApplication.findFirst({
+                ...latest_exit(user_id),
+                include: { fields: true },
+              })),
+        ]);
+        const prefill = new Map<string, unknown>();
+        if (previous) {
+          const prior = new Map(
+            previous.fields.map((field) => [field.requirement_id, field]),
+          );
+          for (const definition of requirements) {
+            const field = prior.get(definition.id);
+            const value = field?.value;
+            if (
+              field?.status !== 'APPROVED' ||
+              empty(value) ||
+              !['string', 'number', 'boolean'].includes(typeof value) ||
+              ['FILE', 'IMAGE', 'PDF'].includes(definition.field_type) ||
+              /bank|ifsc|upi|aadhaar|aadhar|pan_number|password|passcode/i.test(
+                definition.key,
+              )
+            )
+              continue;
+            const snapshot = field.definition as unknown as Definition;
+            if (
+              snapshot.field_type !== definition.field_type ||
+              input_kind(snapshot) !== input_kind(definition)
+            )
+              continue;
+            const normalized = normalize_field_value(definition, value);
+            try {
+              await this.validate_answer(tx, user_id, definition, normalized);
+              prefill.set(definition.id, normalized);
+            } catch (error) {
+              if (!(error instanceof AppError)) throw error;
+            }
           }
-        : null,
-      policy: app?.policy_snapshot ?? published_document(policy),
-      confirmation:
-        app?.confirmation_document ?? published_document(confirmation),
-      requirements: app
-        ? [
-            ...app.fields
-              .map((f) => f.definition as unknown as Definition)
-              .sort(definition_order)
-              .map(with_field_rules),
-            ...(['SUBMITTED', 'CHANGES_REQUESTED'].includes(app.status) &&
-            !app.fields.some((f) => f.requirement_id === LIVE_SELFIE_ID)
-              ? [LIVE_SELFIE]
-              : []),
-          ]
-        : [
-            ...requirements.sort(definition_order).map(with_field_rules),
-            LIVE_SELFIE,
-          ],
-      assets,
-      activation_required:
-        app?.status === 'COMPLETED' && !!app.activation_issued_at,
-      driver_active: app?.status === 'ACTIVATED',
-    };
+        }
+        return {
+          application: app
+            ? {
+                id: app.id,
+                status: app.status,
+                version: app.version,
+                contact_email: app.contact_email,
+                whatsapp_phone: app.whatsapp_phone,
+                submitted_at: app.submitted_at,
+                completed_at: app.completed_at,
+                final_pdf_id: app.final_pdf_id,
+                fields: app.fields.map((field) => ({
+                  id: field.id,
+                  requirement_id: field.requirement_id,
+                  value: field.value,
+                  status: field.status,
+                  rejection_reason: field.rejection_reason,
+                })),
+                confirmation: app.confirmation
+                  ? {
+                      signature_name: app.confirmation.signature_name,
+                      status: app.confirmation.status,
+                      rejection_reason: app.confirmation.rejection_reason,
+                      accepted_at: app.confirmation.accepted_at,
+                    }
+                  : null,
+              }
+            : null,
+          reapplication: previous
+            ? {
+                previous_application_id: previous.id,
+                contact_email: previous.contact_email,
+                whatsapp_phone: previous.whatsapp_phone,
+                fields: Object.fromEntries(prefill),
+              }
+            : null,
+          policy: app?.policy_snapshot ?? published_document(policy),
+          confirmation:
+            app?.confirmation_document ?? published_document(confirmation),
+          requirements: app
+            ? [
+                ...app.fields
+                  .map((f) => f.definition as unknown as Definition)
+                  .sort(definition_order)
+                  .map(with_field_rules),
+                ...(['SUBMITTED', 'CHANGES_REQUESTED'].includes(app.status) &&
+                !app.fields.some((f) => f.requirement_id === LIVE_SELFIE_ID)
+                  ? [LIVE_SELFIE]
+                  : []),
+              ]
+            : [
+                ...requirements.sort(definition_order).map(with_field_rules),
+                LIVE_SELFIE,
+              ],
+          assets,
+          activation_required:
+            app?.status === 'COMPLETED' && !!app.activation_issued_at,
+          driver_active: app?.status === 'ACTIVATED',
+        };
+      },
+      {
+        ...transaction_options,
+        isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+      },
+    );
   }
   async list(input: ListInput) {
     schedule_new_user_emails();
@@ -354,7 +428,7 @@ export class PartnerProgramService {
         'Application not found.',
       );
     const assets = await this.database.client.partnerAsset.findMany({
-      where: { owner_id: app.user_id },
+      where: { owner_id: app.user_id, application_id: app.id },
       select: asset_select,
     });
     const emails = await this.database.client.notification.findMany({
@@ -398,6 +472,7 @@ export class PartnerProgramService {
       file_name: string;
       size: number;
     }[],
+    application_id?: string,
   ) {
     const label = definition.label;
     if (empty(value)) {
@@ -430,6 +505,7 @@ export class PartnerProgramService {
             where: {
               id: { in: value as string[] },
               owner_id: user_id,
+              application_id,
               purpose:
                 definition.id === LIVE_SELFIE_ID
                   ? 'APPLICATION_SELFIE'
@@ -523,8 +599,9 @@ export class PartnerProgramService {
   }
   async submit(user_id: string, input: ApplicationInput) {
     return this.mail_transaction(async (tx) => {
-      const user = await require_active_account(tx, user_id);
+      await require_active_account(tx, user_id);
       await partner_lock(tx, user_id);
+      const user = await require_active_account(tx, user_id);
       // Staff use the same personal account in the rider app. Their staff role
       // must not prevent onboarding or be replaced by a driver role later.
       if (user.role === 'DRIVER')
@@ -533,13 +610,14 @@ export class PartnerProgramService {
           'PARTNER_NOT_ELIGIBLE',
           'This account is already a driver and cannot submit a new partner application.',
         );
-      const old = await tx.partnerApplication.findUnique({
-        where: { user_id },
+      const current = await tx.partnerApplication.findUnique({
+        where: { current_user_id: user_id },
         include: application_include,
       });
+      const previous = current?.status === 'EXITED' ? current : null;
+      const old = previous ? null : current;
       if ((old?.version ?? 0) !== input.version) throw conflict();
-      if (old && !['SUBMITTED', 'CHANGES_REQUESTED'].includes(old.status))
-        throw conflict();
+      if (old && !editable_application(old.status)) throw conflict();
       const published = published_document(
         await tx.partnerDocument.findUnique({ where: { kind: 'POLICY' } }),
       );
@@ -613,7 +691,11 @@ export class PartnerProgramService {
       ];
       const cached_assets = asset_ids.length
         ? await tx.partnerAsset.findMany({
-            where: { owner_id: user_id, id: { in: asset_ids } },
+            where: {
+              owner_id: user_id,
+              application_id: old?.id ?? null,
+              id: { in: asset_ids },
+            },
             select: {
               id: true,
               field_id: true,
@@ -658,6 +740,12 @@ export class PartnerProgramService {
         ),
       );
       if (address_error) throw fail(address_error);
+      if (previous) {
+        await tx.partnerApplication.update({
+          where: { id: previous.id },
+          data: { current_user_id: null },
+        });
+      }
       const app = old
         ? await tx.partnerApplication.update({
             where: { id: old.id },
@@ -672,11 +760,22 @@ export class PartnerProgramService {
         : await tx.partnerApplication.create({
             data: {
               user_id,
+              current_user_id: user_id,
               contact_email: input.contact_email,
               whatsapp_phone: input.whatsapp_phone,
               policy_snapshot: json(policy),
             },
           });
+      if (!old) {
+        await tx.partnerAsset.updateMany({
+          where: {
+            owner_id: user_id,
+            application_id: null,
+            purpose: { in: ['APPLICATION_DOCUMENT', 'APPLICATION_SELFIE'] },
+          },
+          data: { application_id: app.id },
+        });
+      }
       if (!old && definitions.length) {
         await tx.partnerApplicationField.createMany({
           data: definitions.map((definition) => {
@@ -773,6 +872,9 @@ export class PartnerProgramService {
           app.user_id,
           field.definition as unknown as Definition,
           field.value,
+          true,
+          undefined,
+          app.id,
         );
       await tx.partnerApplicationField.update({
         where: { id: field_id },
@@ -881,6 +983,9 @@ export class PartnerProgramService {
           allowed_extensions: [...LIVE_SELFIE.allowed_extensions],
         },
         selfie.value,
+        true,
+        undefined,
+        app.id,
       );
       const confirmation = published_document(
         await tx.partnerDocument.findUnique({
@@ -918,7 +1023,7 @@ export class PartnerProgramService {
   async confirm(user_id: string, input: ConfirmationInput) {
     return this.mail_transaction(async (tx) => {
       const found = await tx.partnerApplication.findUnique({
-        where: { user_id },
+        where: { current_user_id: user_id },
         select: { id: true },
       });
       if (!found) throw fail('Submit an application first.');
@@ -981,6 +1086,7 @@ export class PartnerProgramService {
               where: {
                 id: input.final_pdf_id,
                 owner_id: app.user_id,
+                application_id: app.id,
                 purpose: 'FINAL_PDF',
                 mime_type: 'application/pdf',
               },
@@ -1054,6 +1160,7 @@ export class PartnerProgramService {
     if (!owner_id)
       throw fail('Select an application before uploading its final PDF.');
     let definition: Definition | null = null;
+    let expected_current_id: string | null = null;
     if (!admin) {
       if (!input.field_id)
         throw fail('Choose the requirement this upload belongs to.');
@@ -1062,14 +1169,13 @@ export class PartnerProgramService {
         input.capture_source !== 'CAMERA'
       )
         throw fail('Take your live selfie using the application camera.');
-      const existing = await this.database.client.partnerApplication.findUnique(
-        { where: { user_id: actor_id }, include: { fields: true } },
-      );
-      if (
-        existing &&
-        !['SUBMITTED', 'CHANGES_REQUESTED'].includes(existing.status)
-      )
-        throw conflict();
+      const current = await this.database.client.partnerApplication.findUnique({
+        where: { current_user_id: actor_id },
+        include: { fields: true },
+      });
+      expected_current_id = current?.id ?? null;
+      const existing = current?.status === 'EXITED' ? null : current;
+      if (existing && !editable_application(existing.status)) throw conflict();
       const previous = existing?.fields.find(
         (f) => f.requirement_id === input.field_id,
       );
@@ -1188,26 +1294,34 @@ export class PartnerProgramService {
       if (admin) await require_active_admin(tx, actor_id);
       await require_active_account(tx, owner_id);
       await partner_lock(tx, owner_id);
-      const current = await tx.partnerApplication.findUnique({
-        where: { user_id: owner_id },
+      const latest = await tx.partnerApplication.findUnique({
+        where: { current_user_id: owner_id },
         include: { fields: { select: { requirement_id: true, status: true } } },
       });
-      if (admin && current?.status !== 'CONFIRMATION_SUBMITTED')
+      const current = latest?.status === 'EXITED' ? null : latest;
+      if (
+        admin &&
+        (current?.id !== input.application_id ||
+          current?.status !== 'CONFIRMATION_SUBMITTED')
+      )
         throw conflict();
       if (
         !admin &&
-        current &&
-        (!['SUBMITTED', 'CHANGES_REQUESTED'].includes(current.status) ||
-          current.fields.some(
-            (f) =>
-              f.requirement_id === input.field_id && f.status === 'APPROVED',
-          ))
+        ((latest?.id ?? null) !== expected_current_id ||
+          (current &&
+            (!editable_application(current.status) ||
+              current.fields.some(
+                (f) =>
+                  f.requirement_id === input.field_id &&
+                  f.status === 'APPROVED',
+              ))))
       )
         throw conflict();
       const digest = createHash('sha256').update(bytes).digest('hex');
       const duplicate = await tx.partnerAsset.findFirst({
         where: {
           owner_id,
+          application_id: current?.id ?? null,
           purpose: admin
             ? 'FINAL_PDF'
             : input.field_id === LIVE_SELFIE_ID
@@ -1235,6 +1349,7 @@ export class PartnerProgramService {
       const asset = await tx.partnerAsset.create({
         data: {
           owner_id,
+          application_id: current?.id ?? null,
           purpose: admin
             ? 'FINAL_PDF'
             : input.field_id === LIVE_SELFIE_ID
@@ -1276,15 +1391,15 @@ export class PartnerProgramService {
     )
       throw new AppError(404, 'FILE_NOT_FOUND', 'File not found.');
     if (actor.role !== 'ADMIN' && asset.purpose === 'FINAL_PDF') {
-      const app = await this.database.client.partnerApplication.findUnique({
-        where: { user_id: actor_id },
-        select: { final_pdf_id: true, status: true },
+      const app = await this.database.client.partnerApplication.findFirst({
+        where: {
+          user_id: actor_id,
+          final_pdf_id: id,
+          status: { in: ['COMPLETED', 'ACTIVATED', 'EXITED'] },
+        },
+        select: { id: true },
       });
-      if (
-        app?.final_pdf_id !== id ||
-        !['COMPLETED', 'ACTIVATED', 'EXITED'].includes(app.status)
-      )
-        throw new AppError(404, 'FILE_NOT_FOUND', 'File not found.');
+      if (!app) throw new AppError(404, 'FILE_NOT_FOUND', 'File not found.');
     }
     if (actor.role !== 'ADMIN' && asset.purpose === 'EXIT_PDF') {
       const exit = await this.database.client.partnerExitRequest.findFirst({
@@ -1453,7 +1568,7 @@ export class PartnerProgramService {
       await partner_lock(tx, user_id);
       const user = await require_active_account(tx, user_id);
       const app = await tx.partnerApplication.findUnique({
-        where: { user_id },
+        where: { current_user_id: user_id },
       });
       if (app?.status === 'ACTIVATED') return { status: 'ACTIVATED' };
       if (
@@ -1486,6 +1601,7 @@ export class PartnerProgramService {
             'Incorrect activation code. Please check the code sent by your administrator.',
         };
       }
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
       const promoted = await tx.user.updateMany({
         where: {
           id: user_id,
@@ -1502,6 +1618,10 @@ export class PartnerProgramService {
         return {
           error: 'This account changed. Sign in again before continuing.',
         };
+      const returning = await tx.partnerApplication.findFirst({
+        ...latest_exit(user_id),
+        select: { id: true },
+      });
       await tx.driverProfile.upsert({
         where: { user_id },
         create: {
@@ -1511,6 +1631,12 @@ export class PartnerProgramService {
         },
         update: { verification_status: 'VERIFIED', verified_at: new Date() },
       });
+      if (returning) {
+        await tx.driverProfile.updateMany({
+          where: { user_id, availability: 'SUSPENDED' },
+          data: { availability: 'OFFLINE' },
+        });
+      }
       await tx.partnerApplication.update({
         where: { id: app.id },
         data: {

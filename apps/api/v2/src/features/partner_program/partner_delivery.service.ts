@@ -103,7 +103,7 @@ export class PartnerDeliveryService {
         text: is_activation
           ? `Hello ${app.user.first_name ?? 'there'},\n\nYour 1More driver activation code is ${reveal_activation(app.activation_ciphertext!)}.\n\nEnter this code in the 1More app after signing in. This code has no expiry and can be used once. Do not share it with anyone. Your approved confirmation PDF is attached for reference.\n\n1More Partner Program`
           : is_exit
-            ? `Hello ${app.user.first_name ?? 'there'},\n\nYour Partner Program exit is complete. Your settlement PDF is attached and available in the 1More app under Exit Request & Dues. Driver operations are now disabled. Your account and history remain available. Please refer to the attached document for dues and settlement details.\n\n1More Partner Program`
+            ? `Hello ${app.user.first_name ?? 'there'},\n\nYour Partner Program exit is complete. You can continue using the same account as a rider. Your settlement PDF is attached and is also available in the app under Past Driver Settlements. Please refer to the attached document for dues and settlement details.\n\n1More Partner Program`
             : `Hello ${app.user.first_name ?? 'there'},\n\nYour Partner Program confirmation has been approved. Your final document is attached and is also available in the 1More app.\n\nSign out and sign in again to begin driver activation. Your administrator will send your activation code separately.\n\n1More Partner Program`,
         attachments: [
           {

@@ -67,7 +67,7 @@ export class DriverAccessGuard implements CanActivate {
     if (!req.auth)
       throw new AppError(401, 'UNAUTHORIZED', UNAUTHORIZED_ERROR_MESSAGE);
     const app = await this.database.client.partnerApplication.findUnique({
-      where: { user_id: req.auth.user_id },
+      where: { current_user_id: req.auth.user_id },
       select: { status: true },
     });
     if (app?.status === 'EXITED')
@@ -75,6 +75,12 @@ export class DriverAccessGuard implements CanActivate {
         403,
         'DRIVER_EXITED',
         'Your partner exit is complete. Driver operations are disabled.',
+      );
+    if (app && app.status !== 'ACTIVATED')
+      throw new AppError(
+        403,
+        'DRIVER_ACTIVATION_REQUIRED',
+        'Complete driver activation before using driver operations.',
       );
     return true;
   }

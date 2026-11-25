@@ -193,7 +193,7 @@ export class DriverOperationsService {
           deleted_at: null,
           OR: [
             { partner_application: null },
-            { partner_application: { status: { not: 'EXITED' } } },
+            { partner_application: { status: 'ACTIVATED' } },
           ],
         },
       },
@@ -439,7 +439,7 @@ export class DriverOperationsService {
             deleted_at: null,
             OR: [
               { partner_application: null },
-              { partner_application: { status: { not: 'EXITED' } } },
+              { partner_application: { status: 'ACTIVATED' } },
             ],
           },
         },

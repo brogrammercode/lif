@@ -106,7 +106,7 @@ Never show Top Rated Driver, trophies, unread-message badges, exact ETAs or phot
 
 | Stage | Required composition |
 | --- | --- |
-| Home | Clear map, small profile/control buttons, actual place-photo strip, shared black-header/white-content panel with pickup/drop-off and Continue |
+| Home | Clear map, small profile/control buttons, current account's saved-place photo strip, shared black-header/white-content panel with pickup/drop-off and Continue |
 | Location selection | Map above the same joined black-header/white-content panel; compact gray input wells; readable suggestions; explicit map selection and confirmation |
 | Vehicle selection | Route map, shared stage panel, dynamic category tiles, white vehicle/driver previews, passenger control, payment/note and booking action |
 | Finding driver | Route map and shared stage panel; bounded blue radar illustration, elapsed/search status, cancellation below |
@@ -154,7 +154,11 @@ Home's Demo sheet is backed by DemoRegistryController. RideDemoController suppli
 
 ## Home route panel and place strip — 9 November 2026
 
-Home's compact `PlaceCard(compact: true)` carousel floats above, and outside, the route panel. Keep the map visible between independent cards; do not put the place carousel inside the white route-entry surface. Card height accommodates two scaled caption lines, with a bounded photo/placeholder.
+Home's compact `PlaceCard(compact: true)` carousel floats above, and outside, the route panel. It includes only the signed-in account's personal saved places and shared places that account bookmarked; never render the global community feed in Home. Keep the map visible between independent cards; do not put the place carousel inside the white route-entry surface. Show a full-bleed place photo behind a compact tilted white information tile with saved-place name, address, category and an actual rating only when one exists.
+
+The Saved Places page uses a full-screen map with a floating destination search field and filter control, coordinate-anchored place markers, a compact selected-photo card carousel, a map/list toggle and a simple place-count footer. Keep the map as the dominant canvas. The add/edit place flow uses the shared solid name/address fields, place-type selector, and shared image upload widget; show selected photos as compact previews. Keep the form limited to place name, address, type and photos while preserving existing optional metadata during edits.
+
+Place details use the shared solid page header and surfaces. Keep one compact summary, photo gallery, two primary place actions, and a clean review list. Put less frequent contact, sharing, copying and owner actions in one solid options sheet; avoid repeating the same action in multiple sections.
 
 Home's route panel uses `SolidSurface.upperChild` with `RideArrivalStrip`: a solid black rounded header, hourglass, white label and gray value pill, followed by the rounded white body and handle. Before booking, label the value as a trip estimate or prompt to select a route; never claim a driver arrival time without assignment data.
 

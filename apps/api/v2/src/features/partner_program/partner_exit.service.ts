@@ -50,9 +50,36 @@ export class PartnerExitService {
   constructor(private readonly database: PrismaService) {}
   async mine(user_id: string) {
     return this.database.client.partnerExitRequest.findFirst({
-      where: { application: { user_id } },
-      include: { application },
+      where: { application: { current_user_id: user_id } },
     });
+  }
+  async history(user_id: string, after?: string) {
+    const where = { application: { user_id }, status: 'COMPLETED' as const };
+    if (
+      after &&
+      !(await this.database.client.partnerExitRequest.findFirst({
+        where: { ...where, id: after },
+        select: { id: true },
+      }))
+    )
+      return { items: [], next_cursor: null };
+    const rows = await this.database.client.partnerExitRequest.findMany({
+      where,
+      orderBy: [{ completed_at: 'desc' }, { id: 'desc' }],
+      take: 21,
+      ...(after ? { cursor: { id: after }, skip: 1 } : {}),
+      select: {
+        id: true,
+        completed_at: true,
+        dues_amount: true,
+        dues_direction: true,
+        currency: true,
+        settlement_pdf_id: true,
+        application: { select: { final_pdf_id: true } },
+      },
+    });
+    const items = rows.slice(0, 20);
+    return { items, next_cursor: rows.length > 20 ? items.at(-1)!.id : null };
   }
   async create(
     actor_id: string,
@@ -63,7 +90,9 @@ export class PartnerExitService {
       if (application_id) await require_active_admin(tx, actor_id);
       else await require_active_account(tx, actor_id);
       const app = await tx.partnerApplication.findUnique({
-        where: application_id ? { id: application_id } : { user_id: actor_id },
+        where: application_id
+          ? { id: application_id }
+          : { current_user_id: actor_id },
       });
       if (!app)
         throw new AppError(
@@ -273,7 +302,7 @@ export class PartnerExitService {
       if (!initial)
         throw new AppError(404, 'EXIT_NOT_FOUND', 'Exit request not found.');
       const user_id = initial.application.user_id;
-      await require_active_account(tx, user_id);
+      const user = await require_active_account(tx, user_id);
       await partner_lock(tx, user_id);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
       const before = await tx.partnerExitRequest.findUnique({ where: { id } });
@@ -349,6 +378,13 @@ export class PartnerExitService {
             activation_ciphertext: null,
           },
         });
+        await tx.user.update({
+          where: { id: user_id },
+          data: {
+            ...(user.role === 'DRIVER' ? { role: 'RIDER' as const } : {}),
+            partner_activated_at: null,
+          },
+        });
         await tx.partnerDelivery.upsert({
           where: {
             application_id_channel: {
@@ -403,11 +439,15 @@ export class PartnerExitService {
               : 'Partner exit request updated',
           body:
             input.status === 'COMPLETED'
-              ? 'Your settlement PDF is ready. Driver operations are disabled.'
+              ? 'Your settlement PDF is ready. You can continue using 1More as a rider.'
               : input.status === 'REJECTED'
                 ? input.rejection_reason
                 : 'Your exit request is being reviewed.',
-          data: { route: '/driver/exit' },
+          data: {
+            route: '/driver/exit',
+            exit_request_id: row.id,
+            exit_completed: input.status === 'COMPLETED',
+          },
         },
       });
       return row;

@@ -60,7 +60,7 @@ export async function approved_driver_upi(
   });
   if (change) return current_upi(change.details_ciphertext);
   const app = await tx.partnerApplication.findUnique({
-    where: { user_id },
+    where: { current_user_id: user_id },
     select: {
       fields: approved_fields,
     },
@@ -80,7 +80,7 @@ export async function approved_driver_upis(
     select: { user_id: true, details_ciphertext: true },
   });
   const apps = await tx.partnerApplication.findMany({
-    where: { user_id: { in: user_ids } },
+    where: { current_user_id: { in: user_ids } },
     select: { user_id: true, fields: approved_fields },
   });
   const result = new Map<string, string>();

@@ -57,7 +57,7 @@ export class DriverAccountService {
       async (tx) => {
         const profile = await this.driver(tx, user_id);
         const app = await tx.partnerApplication.findUnique({
-          where: { user_id },
+          where: { current_user_id: user_id },
           select: {
             id: true,
             status: true,

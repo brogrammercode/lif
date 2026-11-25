@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { PrismaService } from '../infra/database/prisma.service.js';
 import { PartnerProgramService } from '../features/partner_program/partner_program.service.js';
+import { PartnerExitService } from '../features/partner_program/partner_exit.service.js';
 import { clean_document } from '../features/partner_program/partner_document.service.js';
 import {
   create_activation,
@@ -38,12 +39,19 @@ function fixture() {
     assetReads: 0,
     losePromotion: false,
     publishedConfirmation: false,
+    returning: false,
+    requirements: [] as Answer['definition'][],
+    resumedOffline: false,
+    newApplication: null as Record<string, unknown> | null,
+    newFields: [] as Record<string, unknown>[],
     onPartnerLock: () => {},
   };
   const app = {
     id: 'fixture-application',
     user_id: 'fixture-rider',
+    current_user_id: 'fixture-rider' as string | null,
     contact_email: 'rider@example.test',
+    whatsapp_phone: '+919876543210',
     status: 'COMPLETED',
     version: 1,
     policy_snapshot: {
@@ -61,6 +69,7 @@ function fixture() {
   let assetRows: {
     id: string;
     owner_id: string;
+    application_id?: string | null;
     purpose: string;
     field_id: string;
     file_name: string;
@@ -92,6 +101,28 @@ function fixture() {
     session: { create: async () => ({ id: 'fixture-session' }) },
     partnerApplication: {
       findUnique: async () => ({ ...app }),
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        state.newApplication = {
+          ...data,
+          id: 'fresh-application',
+          status: 'SUBMITTED',
+          version: 1,
+        };
+        return state.newApplication;
+      },
+      findFirst: async ({
+        where,
+      }: {
+        where: { final_pdf_id?: string; status?: { in: string[] } };
+      }) => {
+        if (where.final_pdf_id !== undefined) {
+          return app.final_pdf_id === where.final_pdf_id &&
+            where.status?.in.includes(app.status)
+            ? app
+            : null;
+        }
+        return state.returning ? { id: 'previous-exit' } : null;
+      },
       update: async ({ data }: { data: Record<string, unknown> }) => {
         const version = data.version as { increment?: number } | undefined;
         if (version?.increment)
@@ -107,6 +138,12 @@ function fixture() {
         return app;
       },
     },
+    partnerApplicationField: {
+      createMany: async ({ data }: { data: Record<string, unknown>[] }) => {
+        state.newFields = data;
+      },
+    },
+    partnerRequirement: { findMany: async () => state.requirements },
     partnerDocument: {
       findUnique: async () =>
         state.publishedConfirmation
@@ -133,7 +170,8 @@ function fixture() {
       }: {
         where: {
           owner_id: string;
-          purpose?: string;
+          application_id?: string | null;
+          purpose?: string | { in: string[] };
           field_id?: string;
           id?: { in: string[] };
         };
@@ -142,17 +180,32 @@ function fixture() {
         return assetRows.filter(
           (asset) =>
             asset.owner_id === where.owner_id &&
-            (!where.purpose || asset.purpose === where.purpose) &&
+            (asset.application_id === undefined ||
+              asset.application_id === where.application_id) &&
+            (!where.purpose ||
+              (typeof where.purpose === 'string'
+                ? asset.purpose === where.purpose
+                : where.purpose.in.includes(asset.purpose))) &&
             (!where.field_id || asset.field_id === where.field_id) &&
             (!where.id || where.id.in.includes(asset.id)),
         );
       },
       findUnique: async () => assetRows[0] ?? null,
+      updateMany: async ({ data }: { data: { application_id: string } }) => {
+        for (const asset of assetRows) {
+          if (asset.application_id === null)
+            asset.application_id = data.application_id;
+        }
+      },
     },
     driverProfile: {
       upsert: async () => {
         state.driverWrites++;
         return {};
+      },
+      updateMany: async ({ data }: { data: { availability: string } }) => {
+        state.resumedOffline = data.availability === 'OFFLINE';
+        return { count: 1 };
       },
     },
     userLog: {
@@ -187,6 +240,205 @@ function fixture() {
 }
 const errorCode = (code: string) => (error: unknown) =>
   error instanceof AppError && error.error_code === code;
+
+it('returns a fresh onboarding form with only compatible approved values from the previous exit', async () => {
+  const f = fixture();
+  f.app.status = 'EXITED';
+  f.state.publishedConfirmation = true;
+  const fields = [
+    { id: 'name', field_type: 'STRING', value: 'Driver Name' },
+    { id: 'selfie', field_type: 'IMAGE', value: ['private-old-selfie'] },
+    { id: 'updated', field_type: 'STRING', value: 'previous text' },
+    { id: 'restricted', field_type: 'STRING', value: 'too long' },
+  ];
+  for (const field of fields) {
+    const definition = {
+      id: field.id,
+      label: field.id,
+      field_type: field.field_type,
+      is_required: true,
+    };
+    f.app.fields.push({
+      id: field.id,
+      requirement_id: field.id,
+      status: 'APPROVED',
+      value: field.value,
+      definition,
+    });
+    f.state.requirements.push({
+      ...definition,
+      ...(field.id === 'updated' ? { field_type: 'DATE' } : {}),
+      ...(field.id === 'restricted' ? { max_length: 2 } : {}),
+    });
+  }
+  f.app.policy_snapshot.version = 7;
+  const workflow = await f.service.workflow('fixture-rider');
+  assert.equal(workflow.application, null);
+  assert.ok(
+    workflow.policy &&
+      typeof workflow.policy === 'object' &&
+      'version' in workflow.policy,
+  );
+  assert.equal(workflow.policy.version, 1);
+  assert.equal(workflow.reapplication?.previous_application_id, f.app.id);
+  assert.equal(workflow.reapplication?.whatsapp_phone, '+919876543210');
+  assert.deepEqual(workflow.reapplication?.fields, { name: 'Driver Name' });
+  assert.ok(
+    workflow.requirements.some((field) => field.id === '__live_selfie__'),
+  );
+  assert.equal(workflow.driver_active, false);
+});
+
+it('keeps the exited application and rejects its old selfie when creating a new application', async () => {
+  const f = fixture();
+  f.app.status = 'EXITED';
+  f.state.publishedConfirmation = true;
+  f.app.policy_snapshot.version = 7;
+  const oldSelfie = {
+    id: 'selfie-old',
+    application_id: f.app.id,
+    owner_id: f.app.user_id,
+    field_id: '__live_selfie__',
+    purpose: 'APPLICATION_SELFIE',
+    file_name: 'selfie.webp',
+    mime_type: 'image/webp',
+    size: 800,
+  };
+  const freshSelfie = {
+    ...oldSelfie,
+    id: 'selfie-new',
+    application_id: null as string | null,
+  };
+  f.setAssets([oldSelfie, freshSelfie]);
+  const input = {
+    version: 0,
+    policy_version: 1,
+    accepted: true as const,
+    contact_email: f.app.contact_email,
+    whatsapp_phone: f.app.whatsapp_phone,
+    answers: [{ requirement_id: '__live_selfie__', value: [oldSelfie.id] }],
+  };
+  await assert.rejects(
+    f.service.submit(f.app.user_id, input),
+    errorCode('PARTNER_VALIDATION_ERROR'),
+  );
+  assert.equal(f.app.current_user_id, f.app.user_id);
+  assert.equal(f.state.newApplication, null);
+  input.answers[0]!.value = [freshSelfie.id];
+  const receipt = await f.service.submit(f.app.user_id, input);
+  assert.deepEqual(receipt, {
+    id: 'fresh-application',
+    status: 'SUBMITTED',
+    version: 1,
+  });
+  assert.equal(f.app.status, 'EXITED');
+  assert.equal(f.app.current_user_id, null);
+  assert.equal(f.app.policy_snapshot.version, 7);
+  assert.equal(oldSelfie.application_id, f.app.id);
+  assert.equal(freshSelfie.application_id, receipt.id);
+  assert.equal(f.state.newFields[0]?.status, undefined);
+});
+
+it('starts a returning driver offline only after the new activation code succeeds', async () => {
+  const f = fixture();
+  f.state.returning = true;
+  const code = reveal_activation(f.app.activation_ciphertext!);
+  await assert.rejects(
+    f.service.activate(
+      'fixture-rider',
+      code === '000000' ? '111111' : '000000',
+    ),
+    errorCode('ACTIVATION_FAILED'),
+  );
+  assert.equal(f.state.resumedOffline, false);
+  await f.service.activate('fixture-rider', code);
+  assert.equal(f.state.resumedOffline, true);
+  assert.equal(f.app.status, 'ACTIVATED');
+});
+
+for (const role of ['DRIVER', 'ADMIN', 'SUPPORT'] as const) {
+  it(`completes an exit and clears driving access for a ${role} account`, async () => {
+    const updates: unknown[] = [];
+    let active = true;
+    const exit = {
+      id: 'exit',
+      application_id: 'application',
+      status: 'REVIEWING',
+      version: 2,
+    };
+    const tx = {
+      $executeRaw: async () => {},
+      user: {
+        findUnique: async ({ where }: { where: { id: string } }) => ({
+          status: 'ACTIVE',
+          deleted_at: null,
+          role: where.id === 'admin' ? 'ADMIN' : role,
+        }),
+        update: async (value: unknown) => {
+          updates.push(value);
+        },
+      },
+      partnerApplication: {
+        findUnique: async () => ({
+          id: 'application',
+          user_id: 'owner',
+          status: 'ACTIVATED',
+        }),
+        update: async () => {},
+      },
+      partnerAsset: { findFirst: async () => ({ id: 'pdf' }) },
+      partnerExitRequest: {
+        findUnique: async () => ({
+          ...exit,
+          application: { user_id: 'owner' },
+        }),
+        update: async () => ({ ...exit, status: 'COMPLETED' }),
+      },
+      driverProfile: {
+        findUnique: async () => ({ id: 'profile' }),
+        updateMany: async () => {},
+      },
+      ride: { count: async () => Number(active) },
+      rideOffer: { updateMany: async () => {} },
+      partnerDelivery: { upsert: async () => {} },
+      userLog: { create: async () => {} },
+      notification: { create: async () => {} },
+    };
+    const service = new PartnerExitService({
+      client: {
+        $transaction: (work: (client: typeof tx) => unknown) => work(tx),
+      },
+    } as unknown as PrismaService);
+    const input = {
+      version: 2,
+      status: 'COMPLETED',
+      admin_notes: '',
+      rejection_reason: '',
+      dues_amount: '0',
+      dues_direction: 'SETTLED',
+      settlement_pdf_id: 'pdf',
+    } as const;
+    await assert.rejects(
+      service.review('admin', 'exit', input),
+      errorCode('DRIVER_ON_TRIP'),
+    );
+    assert.deepEqual(updates, []);
+    active = false;
+    assert.equal(
+      (await service.review('admin', 'exit', input)).status,
+      'COMPLETED',
+    );
+    assert.deepEqual(updates, [
+      {
+        where: { id: 'owner' },
+        data: {
+          partner_activated_at: null,
+          ...(role === 'DRIVER' ? { role: 'RIDER' } : {}),
+        },
+      },
+    ]);
+  });
+}
 
 it('confirmation alerts use the committed status rather than the pre-submit snapshot', async () => {
   const f = fixture();

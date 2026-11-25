@@ -45,8 +45,8 @@ const notification_filter = (app: {
 }): Prisma.NotificationWhereInput => ({
   OR: [
     { data: { path: ['application_id'], equals: app.id } },
-    // Older in-app status notices did not carry application_id. There is one
-    // application per owner, so only this application's time window is included.
+    // Older in-app status notices did not carry application_id. They predate
+    // reapplication, and this fallback is scoped to the current time window.
     {
       user_id: app.user_id,
       type: 'ACCOUNT',
@@ -76,7 +76,11 @@ export class PartnerApplicationDeletionService {
     const [uploads, notification_count, sending_mail, sending_pdf] =
       await Promise.all([
         tx.partnerAsset.aggregate({
-          where: { owner_id: app.user_id, purpose: { in: purposes } },
+          where: {
+            owner_id: app.user_id,
+            application_id: app.id,
+            purpose: { in: purposes },
+          },
           _count: { _all: true },
           _sum: { size: true },
         }),
@@ -189,11 +193,29 @@ export class PartnerApplicationDeletionService {
             'Enter the applicant email exactly as displayed to confirm deletion.',
           );
         await tx.notification.deleteMany({ where: notifications });
+        await tx.partnerAsset.deleteMany({
+          where: {
+            owner_id: app.user_id,
+            application_id: app.id,
+            purpose: { in: purposes },
+          },
+        });
         // Fields, confirmation and delivery records use FK ON DELETE CASCADE.
         await tx.partnerApplication.delete({ where: { id } });
-        await tx.partnerAsset.deleteMany({
-          where: { owner_id: app.user_id, purpose: { in: purposes } },
+        const previous = await tx.partnerApplication.findFirst({
+          where: {
+            user_id: app.user_id,
+            status: 'EXITED',
+            current_user_id: null,
+          },
+          orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+          select: { id: true },
         });
+        if (previous)
+          await tx.partnerApplication.update({
+            where: { id: previous.id },
+            data: { current_user_id: app.user_id },
+          });
         await create_user_log(tx, {
           actor_id,
           entity_type: 'PartnerApplication',

@@ -29,6 +29,17 @@ export class PartnerExitController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
+    if (req.query.history === 'true') {
+      const after =
+        req.query.after === undefined
+          ? undefined
+          : id_input.parse(req.query.after);
+      return send_success(
+        res,
+        await this.service.history(req.auth!.user_id, after),
+        'Partner exit history loaded',
+      );
+    }
     const row = await this.service.mine(req.auth!.user_id);
     // Internal review notes and reviewer identities stay in the admin workspace.
     return send_success(

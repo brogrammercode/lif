@@ -111,14 +111,13 @@ export class TravelContextService {
             orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
           }),
         ]);
+        const driver_access =
+          (!user.partner_application ||
+            user.partner_application.status === 'ACTIVATED') &&
+          (user.role === 'DRIVER' || !!user.partner_activated_at);
         return {
-          can_enter_driver_mode:
-            user.role === 'DRIVER' ||
-            !!user.partner_activated_at ||
-            user.partner_application?.status === 'EXITED',
-          driver_operations_allowed:
-            user.partner_application?.status !== 'EXITED' &&
-            (user.role === 'DRIVER' || !!user.partner_activated_at),
+          can_enter_driver_mode: driver_access,
+          driver_operations_allowed: driver_access,
           driver_availability: user.driver_profile?.availability ?? null,
           active_rider_ride: rider_ride,
           active_driver_ride: driver_trip,

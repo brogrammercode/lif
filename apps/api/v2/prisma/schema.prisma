@@ -175,7 +175,8 @@ model User {
   brand_reviews            VehicleBrand[]       @relation("brand_reviewer")
   model_requests           VehicleModel[]       @relation("model_requester")
   model_reviews            VehicleModel[]       @relation("model_reviewer")
-  partner_application      PartnerApplication?
+  partner_application      PartnerApplication? @relation("CurrentPartnerApplication")
+  partner_applications     PartnerApplication[] @relation("OwnedPartnerApplications")
   partner_assets           PartnerAsset[]
   partner_activated_at     DateTime?            @db.Timestamptz(3)
   payout_changes           DriverPayoutChange[]
@@ -1068,7 +1069,8 @@ model PartnerDocument {
 
 model PartnerApplication {
   id                    String                    @id @default(uuid())
-  user_id               String                    @unique
+  user_id               String
+  current_user_id       String?                   @unique
   status                PartnerApplicationStatus  @default(SUBMITTED)
   version               Int                       @default(1)
   contact_email         String
@@ -1088,13 +1090,16 @@ model PartnerApplication {
   activation_issued_at  DateTime?                 @db.Timestamptz(3)
   created_at            DateTime                  @default(now()) @db.Timestamptz(3)
   updated_at            DateTime                  @updatedAt @db.Timestamptz(3)
-  user                  User                      @relation(fields: [user_id], references: [id], onDelete: Restrict)
+  user                  User                      @relation("OwnedPartnerApplications", fields: [user_id], references: [id], onDelete: Restrict)
+  current_user          User?                     @relation("CurrentPartnerApplication", fields: [current_user_id], references: [id], onDelete: Restrict)
   fields                PartnerApplicationField[]
+  assets                PartnerAsset[]
   confirmation          PartnerConfirmation?
   deliveries            PartnerDelivery[]
   exit_request          PartnerExitRequest?
 
   @@index([status, submitted_at])
+  @@index([user_id, status, created_at, id])
   @@map("partner_applications")
 }
 
@@ -1137,6 +1142,7 @@ model PartnerConfirmation {
 model PartnerAsset {
   id         String   @id @default(uuid())
   owner_id   String
+  application_id String?
   purpose    String
   field_id   String?
   file_name  String
@@ -1147,8 +1153,10 @@ model PartnerAsset {
   created_at DateTime @default(now()) @db.Timestamptz(3)
   updated_at DateTime @updatedAt @db.Timestamptz(3)
   owner      User     @relation(fields: [owner_id], references: [id], onDelete: Restrict)
+  application PartnerApplication? @relation(fields: [application_id], references: [id], onDelete: Restrict)
 
   @@index([owner_id, purpose])
+  @@index([application_id])
   @@map("partner_assets")
 }
 

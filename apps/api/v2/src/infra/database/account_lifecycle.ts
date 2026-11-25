@@ -9,7 +9,7 @@ export const require_driver_participation = async (
   user_id: string,
 ) => {
   const app = await tx.partnerApplication.findUnique({
-    where: { user_id },
+    where: { current_user_id: user_id },
     select: { status: true },
   });
   if (app?.status === 'EXITED')
@@ -17,6 +17,12 @@ export const require_driver_participation = async (
       403,
       'DRIVER_EXITED',
       'Your partner exit is complete. Driver operations are disabled; your settlement document remains available.',
+    );
+  if (app && app.status !== 'ACTIVATED')
+    throw new AppError(
+      403,
+      'DRIVER_ACTIVATION_REQUIRED',
+      'Complete driver activation before using driver operations.',
     );
 };
 export const require_active_account = async (

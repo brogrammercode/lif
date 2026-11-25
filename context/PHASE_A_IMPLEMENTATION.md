@@ -102,7 +102,7 @@ The user's answers and the PDF are product inputs. Operational settings, credent
 - Vehicle RC/insurance/PUC and related evidence: validated image/PDF/Office/text document support, MIME/size metadata, private preview/download and appropriate file controls. Executables are not document types.
 - Rejected own brand/model requests: ownership and REJECTED-state checks; corrections return to REQUESTED, keep IDs/audit, and never self-verify. Duplicate merges require explicit admin review of affected references.
 - Payout account edits: reviewed changes with masked identifiers, immutable prior approved details and audit; collection must use the currently approved UPI destination.
-- Rejoining after exit/restriction: manual reviewed workflow preserving the old application/settlement and consumed activation history. Do not reuse an old consumed code or silently reset EXITED.
+- Rejoining after a completed exit starts from Rider Profile with a new application and editable prefilled answers. Review and activation are required again. Prior applications, settlements and consumed activation history are preserved. See [Partner exit and reapplication](PARTNER_EXIT_REAPPLICATION.md).
 - Scheduling, app-wide legal/language/account closure: next release.
 
 ## Phase A work packages

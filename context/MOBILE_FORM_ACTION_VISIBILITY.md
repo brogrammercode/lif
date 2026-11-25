@@ -19,7 +19,7 @@ remain visible according to their own state and preconditions.
 | --- | --- | --- |
 | Profile | Edit Profile and Change Phone Number | Save appears when name or phone differs from the loaded account. Field-level Save appears only after its value changes. |
 | Emergency | Add or edit emergency contact sheet | Add appears after any contact field has input; Save appears only when a field differs from the existing contact. |
-| Partner Program | Policy, dynamic application steps, final confirmation | Continue appears after policy acceptance or a current-step edit. Final confirmation appears after acceptance and signature input. |
+| Partner Program | Policy, dynamic application steps, final confirmation | Policy Continue appears after acceptance. Step actions use the current draft, including prefilled or restored values, and stay visible at the bottom of the page. Optional-only steps can be skipped. Correction submission appears after a change in any step. Final confirmation appears after acceptance and signature input. |
 | Partner Program | Driver exit request | Request or resubmit appears after a reason is entered. The follow-up confirmation is shown only after submitting that form. |
 | Partner Program | Driver activation | Activate appears after code input and remains enabled only for a complete six-digit code. |
 | Driver vehicles | Vehicle registration and verification | Submit or Save appears when vehicle fields, verification values, or uploaded documents differ from their initial state. |

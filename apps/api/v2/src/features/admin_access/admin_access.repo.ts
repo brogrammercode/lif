@@ -254,6 +254,7 @@ export class AdminAccessRepository {
         include: {
           admin_access: true,
           driver_profile: { select: { id: true } },
+          partner_application: { select: { status: true } },
         },
       });
       if (!user) return { changed: false, id: user_id, role: null };
@@ -284,7 +285,7 @@ export class AdminAccessRepository {
           'ADMIN_ACCESS_CONFLICT',
           ADMIN_ACCESS_MESSAGES.CONFLICT,
         );
-      const role =
+      const previous_or_driver =
         previous &&
         previous !== 'ADMIN' &&
         !(previous === 'RIDER' && user.driver_profile)
@@ -292,6 +293,12 @@ export class AdminAccessRepository {
           : user.driver_profile
             ? 'DRIVER'
             : 'RIDER';
+      const role =
+        previous_or_driver === 'DRIVER' &&
+        user.partner_application &&
+        user.partner_application.status !== 'ACTIVATED'
+          ? 'RIDER'
+          : previous_or_driver;
       const changed = await tx.user.updateMany({
         where: {
           id: user_id,

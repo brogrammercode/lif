@@ -39,7 +39,7 @@ Only the pre-Phase-D snapshot has been pushed. Track completion and release acce
 
 This is a reconciliation statement over authoritative completed rides, payment receipts and reviewed obligations in one Repeatable Read snapshot, not a new wallet/provider accounting ledger. Trip ranges use completion date; charge ranges use last review-update date. Pending reports never count as received money. Unpaid-fare reviews are excluded from the separate charge total to avoid counting the same debt twice. Unrecorded receipts and missing final fares are reported separately. Platform commission and payouts are zero under the agreed direct-collection model.
 
-Automated withdrawals, settlement providers, payout batches, expenses/incentives, immutable double-entry accounting, bank ownership verification providers, automatic expiry enforcement and catalog merges are not invented. Legal/language/closure workflows remain the user's next-release decision. Reviewed KYC identity changes and rejoining remain operator-assisted through Support.
+Automated withdrawals, settlement providers, payout batches, expenses/incentives, immutable double-entry accounting, bank ownership verification providers, automatic expiry enforcement and catalog merges are not implemented. Legal and language workflows remain open. Reviewed KYC identity changes remain operator-assisted. After a completed partner exit, rejoining starts with a new application in Rider Profile. See [Partner exit and reapplication](PARTNER_EXIT_REAPPLICATION.md).
 
 ## Data and rollout
 

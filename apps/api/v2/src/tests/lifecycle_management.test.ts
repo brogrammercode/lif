@@ -52,6 +52,7 @@ function fixture() {
     },
     partnerApplication: {
       findUnique: async () => (state.exists ? app : null),
+      findFirst: async () => null,
       delete: async () => {
         state.writes.push('application');
         return app;
@@ -62,9 +63,14 @@ function fixture() {
       deleteMany: async ({
         where,
       }: {
-        where: { owner_id: string; purpose: { in: string[] } };
+        where: {
+          owner_id: string;
+          application_id: string;
+          purpose: { in: string[] };
+        };
       }) => {
         assert.equal(where.owner_id, 'applicant');
+        assert.equal(where.application_id, 'application');
         assert.deepEqual(where.purpose.in, [
           'APPLICATION_DOCUMENT',
           'APPLICATION_SELFIE',
@@ -124,8 +130,8 @@ it('previews exact application counts and removes only its owned scope while ret
   assert.equal(result.deleted.confirmations, 1);
   assert.deepEqual(f.state.writes, [
     'notifications',
-    'application',
     'uploads',
+    'application',
     'audit',
   ]);
 });

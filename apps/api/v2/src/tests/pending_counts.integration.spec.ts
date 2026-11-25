@@ -29,7 +29,7 @@ it('PostgreSQL counts and drill-downs agree across review, email and activation 
           vehicle_brands: 'id text,status text',
           vehicle_models: 'id text,status text',
           partner_applications:
-            'id text,user_id text,status text,activation_attempts int DEFAULT 0,contact_email text,whatsapp_phone text,submitted_at timestamptz DEFAULT NOW()',
+            'id text,user_id text,current_user_id text,status text,activation_attempts int DEFAULT 0,contact_email text,whatsapp_phone text,submitted_at timestamptz DEFAULT NOW()',
           partner_application_fields:
             'application_id text,status text,value jsonb',
           partner_deliveries:

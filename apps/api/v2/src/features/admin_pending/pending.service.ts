@@ -23,7 +23,7 @@ type Numbers = {
   activation_locked: number;
 };
 const active_owner = Prisma.sql`u.deleted_at IS NULL AND u.status = 'ACTIVE'`;
-const driver_owner = Prisma.sql`${active_owner} AND (u.role='DRIVER' OR u.partner_activated_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM partner_applications excluded WHERE excluded.user_id=u.id AND excluded.status='EXITED')`;
+const driver_owner = Prisma.sql`${active_owner} AND (u.role='DRIVER' OR u.partner_activated_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM partner_applications excluded WHERE excluded.current_user_id=u.id AND excluded.status='EXITED')`;
 
 @Injectable()
 export class PendingService {

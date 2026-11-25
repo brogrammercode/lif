@@ -32,6 +32,7 @@ export class AuthService {
       toNumber(): number;
     } | null;
     driver_profile?: unknown;
+    _count?: { partner_applications: number };
     partner_application?: {
       status: string;
       activation_issued_at: Date | null;
@@ -49,6 +50,9 @@ export class AuthService {
     last_known_longitude: user.last_known_longitude?.toNumber() ?? null,
     driver_profile: user.driver_profile,
     partner_status: user.partner_application?.status ?? null,
+    has_partner_exit:
+      (user._count?.partner_applications ?? 0) > 0 ||
+      user.partner_application?.status === 'EXITED',
     partner_activation_required:
       user.role !== 'DRIVER' &&
       user.partner_application?.status === 'COMPLETED' &&

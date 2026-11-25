@@ -26,6 +26,9 @@ export class AuthRepository {
       where: { id: user_id },
       include: {
         driver_profile: true,
+        _count: {
+          select: { partner_applications: { where: { status: 'EXITED' } } },
+        },
         partner_application: {
           select: { status: true, activation_issued_at: true },
         },
@@ -178,7 +181,7 @@ export class AuthRepository {
           data: { last_login_at: new Date() },
         });
         const application = await tx.partnerApplication.findUnique({
-          where: { user_id },
+          where: { current_user_id: user_id },
         });
         if (
           login_user.role !== 'DRIVER' &&
