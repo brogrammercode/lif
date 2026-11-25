@@ -94,6 +94,16 @@ class PartnerProgramRepository {
     return data is Map ? Map<String, dynamic>.from(data) : null;
   }
 
+  Future<Map<String, dynamic>> exitHistory({String? after}) async {
+    final data = ApiResult.unwrap(
+      await _client.getData(
+        '$base/exit-request',
+        queryParameters: {'history': 'true', 'after': ?after},
+      ),
+    );
+    return Map<String, dynamic>.from(data as Map);
+  }
+
   Future<void> requestExit(String reason, int version) async {
     await _client.postData(
       '$base/exit-request',

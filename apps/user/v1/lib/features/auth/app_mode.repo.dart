@@ -6,9 +6,8 @@ enum AppMode { rider, driver }
 class AppModeRepository {
   final _storage = const FlutterSecureStorage();
   bool canEnterDriver(UserModel user) =>
-      user.role == 'DRIVER' ||
       user.partnerStatus == 'ACTIVATED' ||
-      user.partnerStatus == 'EXITED';
+      (user.partnerStatus == null && user.role == 'DRIVER');
 
   Future<AppMode> preferred(UserModel user) async {
     if (!canEnterDriver(user)) return AppMode.rider;

@@ -119,7 +119,7 @@ Shorebird's default updater checks for patches in the background on launch and u
 
 1. Run `flutter pub get` and `flutter analyze`.
 2. Set the local `.env` to the intended environment. For production, use `API_BASE_URL=https://apionemore.vercel.app/api/v2` and the matching public Google web client ID. This file is bundled into the app; it must contain only public client configuration.
-3. Check the version in `pubspec.yaml` (`0.1.5+5` currently). Each new base release needs a new version/build number; this release increments `0.1.4+4` once to `0.1.5+5`.
+3. Check the version in `pubspec.yaml` (`0.1.16+16` currently). The latest published Android base is `0.1.14+14`; a Dart patch targets an installed base and does not change its Android version metadata.
 4. Build and publish the Shorebird base release:
 
 ```powershell
@@ -153,21 +153,23 @@ adb install -r build/app/outputs/flutter-apk/app-release.apk
 
 ### Publish a Dart fix to an existing release
 
-Use the target release's original environment/build settings. To patch the latest published Android base `0.1.5+5`, explicitly set both build values:
+Use the target release's original environment/build settings. Shorebird currently lists Android base `0.1.14+14` as active. Set both build values to that installed base when creating a patch:
 
 ```powershell
-shorebird patch android --release-version 0.1.5+5 --build-name 0.1.5 --build-number 5 --track stable
+shorebird patch android --release-version 0.1.14+14 --build-name 0.1.14 --build-number 14 --track staging
 ```
 
 This publishes to installed users of that release. Use the actual released version in all three version arguments. A Dart-only patch keeps the installed base version unchanged and receives its own Shorebird patch number; bumping `pubspec.yaml` does not upgrade installed APK metadata. Changes to native plugins, Gradle, permissions, assets (including `.env`), or Flutter itself need a new base release and APK. Follow [Shorebird patch guidance](https://docs.shorebird.dev/code-push/patch/).
 
 The project version is now `0.1.5+5`, incrementing the version and build once from `0.1.4+4` for the new base APK release. Devices still running `0.1.3+3` must install the new APK to receive this new base and its assets; a patch cannot change an installed APK's Android version name/code.
 
-When a patch depends on new API endpoints, publish it to `--track staging` first, deploy the matching API V2 changes, and verify those routes before promoting the patch with `shorebird patches set-track --release-version 0.1.5+5 --patch-number <number> --track stable`.
+When a patch depends on new API behavior, publish it to `--track staging` first, deploy the matching API V2 changes, and verify those routes before promoting it with `shorebird patches set-track --release-version 0.1.14+14 --patch-number <number> --track stable`.
 
 ### Published updates
 
-**Latest Android base: `0.1.5+5`, published on 30 October 2026.** Shorebird release `939190` is active for Android, built from source commit `f6f41a1` with Flutter `3.47.7` (revision `01aea2ee0626578b6b30ebbb2605f195833464fa`). It includes the liquid-glass mobile rework and updated assets. The APK's version, existing signing identity, production API configuration and three Android architectures were verified.
+**Latest Android base: `0.1.14+14`, published on 24 November 2026.** Shorebird release `1008988` is active for Android and uses Flutter `3.47.7` (revision `5bef02a16146a0effc07da4acccaafe90a2739ce`).
+
+The earlier Android base `0.1.5+5` was published on 30 October 2026. Shorebird release `939190` was built from source commit `f6f41a1` and includes the liquid-glass mobile rework and updated assets. Its APK version, signing identity, production API configuration and three Android architectures were verified.
 
 - Versioned APK: `build/releases/0.1.5+5/onemore-user-0.1.5+5.apk` (104,009,789 bytes, approximately 99.2 MiB).
 - APK SHA-256: `5b6b567c32b87f2cdc2d76199584a7dcd69e6eaac85d0fa2237a2f3c30663d9e`.

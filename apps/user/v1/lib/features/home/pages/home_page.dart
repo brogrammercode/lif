@@ -111,8 +111,8 @@ class HomePageState extends State<HomePage>
   String? get _routeError => _controller.routeError;
   set _routeError(String? value) => _controller.routeError = value;
 
-  List<Map<String, dynamic>> get _communityPlaces =>
-      _controller.communityPlaces;
+  List<Map<String, dynamic>> get _homeSavedPlaces =>
+      _controller.homeSavedPlaces;
   bool _isProgrammaticTextChange = false;
   late RouteObserver<ModalRoute<dynamic>> _routeObserver;
   late HomeController _controller;
@@ -1610,7 +1610,7 @@ class HomePageState extends State<HomePage>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (!_isLocationSelection && _communityPlaces.isNotEmpty) ...[
+              if (!_isLocationSelection && _homeSavedPlaces.isNotEmpty) ...[
                 _buildPlaceStrip(context),
                 const SizedBox(height: 12),
               ],
@@ -1754,20 +1754,21 @@ class HomePageState extends State<HomePage>
     child: ListView.separated(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       scrollDirection: Axis.horizontal,
-      itemCount: _communityPlaces.length.clamp(0, 8),
+      itemCount: _homeSavedPlaces.length.clamp(0, 8),
       separatorBuilder: (_, _) => const SizedBox(width: 10),
       itemBuilder: (_, i) => SizedBox(
-        width: 200,
+        width: 236,
         child: PlaceCard(
           compact: true,
-          place: _communityPlaces[i],
+          place: _homeSavedPlaces[i],
           onTap: () async {
-            final place = _communityPlaces[i];
+            final place = _homeSavedPlaces[i];
             final point = ridePoint(place['latitude'], place['longitude']);
             if (point == null) return;
             await _chooseLocations(
               selectionOverride: {
-                'address': '${place['name'] ?? place['address']}',
+                'address':
+                    '${place['name'] ?? place['label'] ?? place['address']}',
                 'latitude': point.latitude,
                 'longitude': point.longitude,
               },

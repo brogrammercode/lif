@@ -18,7 +18,8 @@ class GlassWorkflow extends PartnerProgramRepository {
   String? status;
   Map<String, dynamic>? confirmationInput;
   int downloads = 0;
-  GlassWorkflow(this.status);
+  final bool returning;
+  GlassWorkflow(this.status, {this.returning = false});
   @override
   Future<Map<String, dynamic>> workflow() async => {
     'policy': {
@@ -63,6 +64,13 @@ class GlassWorkflow extends PartnerProgramRepository {
               },
             ],
           },
+    if (returning)
+      'reapplication': {
+        'previous_application_id': 'archived-application',
+        'contact_email': 'returning@example.test',
+        'whatsapp_phone': '+919876543210',
+        'fields': {'name': 'Returning Partner'},
+      },
     'requirements': [
       {
         'id': 'name',
@@ -103,6 +111,20 @@ class GlassWorkflow extends PartnerProgramRepository {
   }
 
   @override
+  Future<Map<String, dynamic>> exitHistory({String? after}) async => {
+    'items': [
+      {
+        'id': 'archived-exit',
+        'completed_at': '2026-10-20T12:00:00Z',
+        'dues_direction': 'SETTLED',
+        'settlement_pdf_id': 'old-settlement',
+        'application': {'final_pdf_id': 'old-agreement'},
+      },
+    ],
+    'next_cursor': null,
+  };
+
+  @override
   Future<Map<String, dynamic>?> exitRequest() async => {
     'id': 'fixture-exit',
     'version': 1,
@@ -128,19 +150,51 @@ Widget shell(Widget child) => ScreenUtilInit(
     home: RepaintBoundary(key: preview, child: child),
   ),
 );
-Widget program(GlassWorkflow repo) => PartnerProgramPage(
-  repository: repo,
-  currentUser: () async => const UserModel(
-    id: 'fixture',
-    role: 'RIDER',
-    status: 'ACTIVE',
-    firstName: 'Alex',
-    lastName: 'Morgan',
-    email: 'alex@example.test',
-    phoneE164: '+919999999999',
-  ),
-  createDraftStore: (_) async => fixtures.MemoryDraft(),
-);
+Widget program(GlassWorkflow repo, {fixtures.MemoryDraft? draft}) =>
+    PartnerProgramPage(
+      repository: repo,
+      currentUser: () async => const UserModel(
+        id: 'fixture',
+        role: 'RIDER',
+        status: 'ACTIVE',
+        firstName: 'Alex',
+        lastName: 'Morgan',
+        email: 'alex@example.test',
+        phoneE164: '+919999999999',
+      ),
+      createDraftStore: (_) async => draft ?? fixtures.MemoryDraft(),
+    );
+
+class StepActionWorkflow extends GlassWorkflow {
+  StepActionWorkflow() : super(null);
+
+  @override
+  Future<Map<String, dynamic>> workflow() async {
+    final data = await super.workflow();
+    final requirements = data['requirements'] as List;
+    return {
+      ...data,
+      'requirements': [
+        requirements.first,
+        for (var i = 0; i < 12; i++)
+          {
+            'id': 'extra-$i',
+            'label': 'Extra field $i',
+            'field_type': 'STRING',
+            'category': {'name': 'Personal details'},
+          },
+        {
+          'id': 'notes',
+          'label': 'Notes',
+          'field_type': 'TEXT',
+          'category': {'name': 'Optional notes'},
+        },
+        ...requirements.skip(1),
+      ],
+    };
+  }
+}
+
 Future<void> capture(WidgetTester tester, String name) async {
   if (!const bool.fromEnvironment('SETTINGS_PREVIEW')) return;
   await tester.runAsync(() async {
@@ -172,6 +226,99 @@ void main() {
       await face.load();
     }
   });
+
+  testWidgets(
+    'a returning rider accepts the current policy and can review prefilled steps',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        shell(program(GlassWorkflow(null, returning: true))),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Continue to application'), findsNothing);
+      await fixtures.press(tester, find.byType(Checkbox));
+      await fixtures.press(tester, find.text('Continue to application'));
+      expect(find.text('returning@example.test'), findsOneWidget);
+      await fixtures.press(tester, find.text('Continue'));
+      expect(find.text('Returning Partner'), findsOneWidget);
+      await fixtures.press(tester, find.text('Continue'));
+      expect(find.text('licence.pdf'), findsNothing);
+      expect(find.text('Submit application'), findsNothing);
+    },
+  );
+
+  testWidgets('past settlements keep both documents available in rider mode', (
+    tester,
+  ) async {
+    final repo = GlassWorkflow(null, returning: true);
+    await tester.pumpWidget(
+      shell(DriverExitPage(repository: repo, historyOnly: true)),
+    );
+    await tester.pumpAndSettle();
+    await fixtures.press(tester, find.text('Download settlement PDF'));
+    await fixtures.press(tester, find.text('Download partner agreement'));
+    expect(repo.downloads, 2);
+    expect(find.text('Request partner exit'), findsNothing);
+  });
+
+  testWidgets(
+    'Continue stays visible on a long step and on returning to completed steps',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 700);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(shell(program(StepActionWorkflow())));
+      await tester.pumpAndSettle();
+      await fixtures.press(tester, find.byType(Checkbox));
+      await fixtures.press(tester, find.text('Continue to application'));
+      final next = find.text('Continue');
+      await tester.tap(next);
+      await tester.pumpAndSettle();
+      expect(find.text('Personal details'), findsOneWidget);
+      expect(next, findsNothing);
+      await tester.enterText(find.byType(TextField).first, 'Alex Morgan');
+      await tester.pumpAndSettle();
+      expect(next.hitTestable(), findsOneWidget);
+      await tester.tap(next);
+      await tester.pumpAndSettle();
+      expect(find.text('Optional notes'), findsOneWidget);
+      expect(next.hitTestable(), findsOneWidget);
+      await tester.tap(find.byTooltip('Previous category'));
+      await tester.pumpAndSettle();
+      expect(find.text('Alex Morgan'), findsOneWidget);
+      expect(next.hitTestable(), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'restored corrections show Submit without editing the step again',
+    (tester) async {
+      final draft = fixtures.MemoryDraft()
+        ..value = {
+          'application_id': 'fixture-app',
+          'application_version': 7,
+          'policy_version': 2,
+          'form_step': 'name:Documents',
+          'email': 'alex@example.test',
+          'phone': '+919999999999',
+          'files': {
+            'licence': [
+              {'name': 'replacement.pdf', 'path': '/fixture/replacement.pdf'},
+            ],
+          },
+        };
+      await tester.pumpWidget(
+        shell(program(GlassWorkflow('CHANGES_REQUESTED'), draft: draft)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('replacement.pdf'), findsOneWidget);
+      expect(find.text('Submit corrections').hitTestable(), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'nested glass shares one blur and shimmer does not mask backdrop surfaces',

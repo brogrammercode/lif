@@ -1,4 +1,4 @@
-import 'package:user/features/rides/ride_display.dart' show rideMoney;
+import 'package:user/features/rides/ride_display.dart' show rideMoney, rideTime;
 import 'package:user/features/partner_program/controllers/driver_exit_controller.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:async';
@@ -9,10 +9,12 @@ import 'package:user/core/color.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/features/partner_program/partner_program.repo.dart';
 import 'package:user/features/driver_operations/widgets/driver_glass.dart';
+import 'package:user/core/routes.dart';
 
 class DriverExitPage extends StatefulWidget {
   final PartnerProgramRepository? repository;
-  const DriverExitPage({super.key, this.repository});
+  final bool historyOnly;
+  const DriverExitPage({super.key, this.repository, this.historyOnly = false});
   @override
   State<DriverExitPage> createState() => _DriverExitPageState();
 }
@@ -43,6 +45,10 @@ class _DriverExitPageState extends State<DriverExitPage>
   @override
   void initState() {
     super.initState();
+    if (widget.historyOnly) {
+      unawaited(_controller.loadSettlements());
+      return;
+    }
     WidgetsBinding.instance.addObserver(this);
     unawaited(_load());
     _poll = Timer.periodic(const Duration(seconds: 20), (_) {
@@ -129,14 +135,14 @@ class _DriverExitPageState extends State<DriverExitPage>
     }
   }
 
-  Future<void> _download() async {
+  Future<void> _download(String id) async {
     if (_saving) return;
     setState(() {
       _saving = true;
       _error = null;
     });
     try {
-      await _repo.download('${_request!['settlement_pdf_id']}');
+      await _repo.download(id);
     } catch (error) {
       if (mounted) setState(() => _error = ApiResult.errorMessage(error));
     } finally {
@@ -144,8 +150,75 @@ class _DriverExitPageState extends State<DriverExitPage>
     }
   }
 
+  Widget _history() => AppPage(
+    title: 'Past Driver Settlements',
+    child: ListView(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      children: [
+        if (_controller.loadingSettlements && _controller.settlements.isEmpty)
+          const LiquidGlassFormSkeleton(),
+        if (_controller.settlementError case final error?)
+          AppLoadError(message: error, onRetry: _controller.loadSettlements),
+        if (_error case final error?)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: DriverNotice(
+              icon: Icons.error_outline,
+              message: error,
+              error: true,
+            ),
+          ),
+        if (!_controller.loadingSettlements &&
+            _controller.settlements.isEmpty &&
+            _controller.settlementError == null)
+          const Text('No completed settlements yet.'),
+        for (final row in _controller.settlements)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(rideTime(row['completed_at'])),
+                  const SizedBox(height: 8),
+                  Text(switch (row['dues_direction']) {
+                    'DRIVER_OWES' =>
+                      '${rideMoney(row['dues_amount'])} payable by you',
+                    'PAYABLE_TO_DRIVER' =>
+                      '${rideMoney(row['dues_amount'])} payable to you',
+                    _ => 'No outstanding dues',
+                  }),
+                  if (row['settlement_pdf_id'] case final String id)
+                    TextButton(
+                      onPressed: _saving ? null : () => _download(id),
+                      child: const Text('Download settlement PDF'),
+                    ),
+                  if ((row['application'] as Map?)?['final_pdf_id']
+                      case final String id)
+                    TextButton(
+                      onPressed: _saving ? null : () => _download(id),
+                      child: const Text('Download partner agreement'),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        if (_controller.nextSettlementCursor != null)
+          TextButton(
+            onPressed: _controller.loadingSettlements
+                ? null
+                : () => _controller.loadSettlements(more: true),
+            child: const Text('Load older settlements'),
+          ),
+      ],
+    ),
+  );
+
   @override
-  Widget build(BuildContext context) => AppPage(
+  Widget build(BuildContext context) =>
+      widget.historyOnly ? _history() : _exitRequest();
+
+  Widget _exitRequest() => AppPage(
     glass: true,
     title: 'Exit Request & Dues',
     action: IconButton(
@@ -202,7 +275,7 @@ class _DriverExitPageState extends State<DriverExitPage>
                       const SizedBox(height: 8),
                       Text(
                         _request?['status'] == 'COMPLETED'
-                            ? 'Driver operations are disabled. Your account, ride history and settlement document remain available.'
+                            ? 'You can keep using this account as a rider. Your driver ride history and settlement document remain available.'
                             : 'We will review your exit request and share a settlement document after recording your dues.',
                         style: const TextStyle(
                           color: AppColors.textSecondary,
@@ -253,8 +326,23 @@ class _DriverExitPageState extends State<DriverExitPage>
                   AppButton(
                     text: 'Download settlement PDF',
                     icon: const Icon(Icons.download),
-                    onPressed: _saving ? null : _download,
+                    onPressed: _saving
+                        ? null
+                        : () => _download(
+                            _request!['settlement_pdf_id'] as String,
+                          ),
                     isLoading: _saving,
+                  ),
+                if (_request?['status'] == 'COMPLETED')
+                  TextButton(
+                    onPressed: _saving
+                        ? null
+                        : () => Navigator.pushNamedAndRemoveUntil(
+                            context,
+                            AppRoutes.gate,
+                            (_) => false,
+                          ),
+                    child: const Text('Return to Rider Home'),
                   ),
                 if (_request == null || _request?['status'] == 'REJECTED') ...[
                   if (_request?['rejection_reason'] != null)

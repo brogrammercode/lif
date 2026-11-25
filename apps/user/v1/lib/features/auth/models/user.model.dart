@@ -11,6 +11,7 @@ class UserModel {
   final double? lastKnownLongitude;
   final String? partnerStatus;
   final bool partnerActivationRequired;
+  final bool hasPartnerExit;
 
   const UserModel({
     required this.id,
@@ -25,6 +26,7 @@ class UserModel {
     this.lastKnownLongitude,
     this.partnerStatus,
     this.partnerActivationRequired = false,
+    this.hasPartnerExit = false,
   });
 
   String get displayName => [
@@ -45,6 +47,8 @@ class UserModel {
     lastKnownLongitude: (json['last_known_longitude'] as num?)?.toDouble(),
     partnerStatus: json['partner_status'] as String?,
     partnerActivationRequired: json['partner_activation_required'] == true,
+    hasPartnerExit:
+        json['has_partner_exit'] == true || json['partner_status'] == 'EXITED',
   );
 
   Map<String, dynamic> toJson() => {
@@ -60,5 +64,6 @@ class UserModel {
     'last_known_longitude': lastKnownLongitude,
     'partner_status': partnerStatus,
     'partner_activation_required': partnerActivationRequired,
+    'has_partner_exit': hasPartnerExit,
   };
 }

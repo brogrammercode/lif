@@ -1,9 +1,7 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
-import 'package:user/components/ui/app_skeleton.dart';
 import 'package:user/components/ui/glass_chip.dart';
 import 'package:user/components/ui/liquid_glass.dart';
+import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/features/rides/ride_display.dart';
 import 'package:user/features/saved_places/place_display.dart';
 
@@ -32,13 +30,23 @@ class PlacePhoto extends StatelessWidget {
               cacheHeight: 600,
               loadingBuilder: (_, child, progress) => progress == null
                   ? child
-                  : const AppSkeleton(child: SkeletonBox(height: 130)),
+                  : Container(
+                      color: const Color(0xFFF2F2F2),
+                      alignment: Alignment.center,
+                      child: const SizedBox.square(
+                        dimension: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
               errorBuilder: (_, error, stack) => _empty(failed: true),
             ),
     ),
   );
-  Widget _empty({bool failed = false}) => LiquidGlassSurface(
-    radius: 18,
+  Widget _empty({bool failed = false}) => Container(
+    decoration: BoxDecoration(
+      color: const Color(0xFFF3F3F3),
+      borderRadius: BorderRadius.circular(18),
+    ),
     padding: const EdgeInsets.all(8),
     child: LayoutBuilder(
       builder: (context, bounds) {
@@ -53,7 +61,7 @@ class PlacePhoto extends StatelessWidget {
             children: [
               Icon(
                 Icons.photo_outlined,
-                color: GlassTokens.accent,
+                color: RideTokens.muted,
                 size: bounds.biggest.shortestSide.clamp(0, 28).toDouble(),
               ),
               if (showLabel && labelFits) ...[
@@ -66,7 +74,7 @@ class PlacePhoto extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 12,
                     height: 1.35,
-                    color: GlassTokens.muted,
+                    color: RideTokens.muted,
                   ),
                 ),
               ],
@@ -119,7 +127,7 @@ class _GalleryState extends State<PlaceGallery> {
           padding: const EdgeInsets.only(top: 8),
           child: Text(
             '${(_page + 1).clamp(1, widget.photos.length)} / ${widget.photos.length} photos',
-            style: const TextStyle(fontSize: 12, color: GlassTokens.muted),
+            style: const TextStyle(fontSize: 12, color: RideTokens.muted),
           ),
         ),
     ],
@@ -129,96 +137,246 @@ class _GalleryState extends State<PlaceGallery> {
 class PlaceCard extends StatelessWidget {
   final Map<String, dynamic> place;
   final VoidCallback? onTap;
+  final VoidCallback? onEdit;
   final bool compact;
+  final bool tilted;
   const PlaceCard({
     super.key,
     required this.place,
     this.onTap,
+    this.onEdit,
     this.compact = false,
+    this.tilted = true,
   });
   static double compactHeight(BuildContext context) {
-    final scaler = MediaQuery.textScalerOf(context);
-    final titleHeight = scaler.scale(13) * 1.25 * 2;
-    final categoryHeight = math.max(15.0, scaler.scale(10) * 1.2 + 2);
-    return 131 + titleHeight + categoryHeight;
+    return 146;
   }
 
   @override
   Widget build(BuildContext context) {
     final photos = placePhotos(place);
     if (compact) {
-      return LiquidGlassSurface(
-        padding: EdgeInsets.zero,
-        radius: 16,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+      final rating = double.tryParse('${place['rating'] ?? ''}');
+      final reviewCount = int.tryParse('${place['review_count'] ?? ''}') ?? 0;
+      return SizedBox(
+        height: compactHeight(context),
+        child: Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: Stack(
+              fit: StackFit.expand,
               children: [
                 PlacePhoto(
                   url: photos.firstOrNull,
-                  height: 100,
+                  height: compactHeight(context),
                   showLabel: false,
                 ),
-                const SizedBox(height: 10),
-                Text(
-                  placeName(place),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    height: 1.25,
-                    fontWeight: FontWeight.w500,
-                    color: GlassTokens.ink,
+                Positioned(
+                  left: tilted ? 34 : MediaQuery.sizeOf(context).width * .36,
+                  right: 7,
+                  top: tilted ? 8 : 66,
+                  bottom: 8,
+                  child: Transform.rotate(
+                    angle: tilted ? -.055 : 0,
+                    child: Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: tilted ? 12 : 10,
+                        vertical: tilted ? 10 : 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(15),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x26000000),
+                            blurRadius: 12,
+                            offset: Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: tilted
+                            ? CrossAxisAlignment.start
+                            : CrossAxisAlignment.stretch,
+                        mainAxisAlignment: tilted
+                            ? MainAxisAlignment.center
+                            : MainAxisAlignment.end,
+                        children: tilted
+                            ? [
+                                Row(
+                                  children: [
+                                    Icon(
+                                      placeIcon(place),
+                                      size: 14,
+                                      color: const Color(0xFF78933A),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        placeType(place),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w500,
+                                          color: RideTokens.muted,
+                                        ),
+                                      ),
+                                    ),
+                                    if (rating != null && rating > 0) ...[
+                                      const Icon(
+                                        Icons.star_rounded,
+                                        size: 14,
+                                        color: Color(0xFF9EBB3B),
+                                      ),
+                                      Text(
+                                        '${rating.toStringAsFixed(1)}${reviewCount > 0 ? ' ($reviewCount)' : ''}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.clip,
+                                        style: const TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w500,
+                                          color: RideTokens.ink,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  placeName(place),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    height: 1.15,
+                                    fontWeight: FontWeight.w500,
+                                    color: RideTokens.ink,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  '${place['address'] ?? ''}',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    height: 1.2,
+                                    color: RideTokens.muted,
+                                  ),
+                                ),
+                              ]
+                            : [
+                                Text(
+                                  placeName(place),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    height: 1.12,
+                                    fontWeight: FontWeight.w500,
+                                    color: RideTokens.ink,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '${place['address'] ?? ''}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    height: 1.1,
+                                    color: RideTokens.muted,
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      Icon(
+                                        placeIcon(place),
+                                        size: 12,
+                                        color: const Color(0xFF78933A),
+                                      ),
+                                      const SizedBox(width: 3),
+                                      Text(
+                                        placeType(place),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 10,
+                                          height: 1,
+                                          fontWeight: FontWeight.w500,
+                                          color: RideTokens.muted,
+                                        ),
+                                      ),
+                                      if (rating != null && rating > 0) ...[
+                                        const SizedBox(width: 8),
+                                        const Icon(
+                                          Icons.star_rounded,
+                                          size: 12,
+                                          color: Color(0xFF9EBB3B),
+                                        ),
+                                        Text(
+                                          rating.toStringAsFixed(1),
+                                          style: const TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w500,
+                                            color: RideTokens.ink,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ],
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 5),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 15,
-                      height: 15,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF176B3A),
-                        borderRadius: BorderRadius.circular(5),
-                      ),
-                      child: Icon(
-                        placeIcon(place),
-                        size: 10,
-                        color: Colors.white,
-                      ),
+                Positioned(
+                  left: 7,
+                  bottom: 9,
+                  child: Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: RideTokens.line),
                     ),
-                    const SizedBox(width: 5),
-                    Flexible(
-                      child: Container(
-                        constraints: const BoxConstraints(minHeight: 15),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                          vertical: 1,
-                        ),
-                        decoration: BoxDecoration(
-                          color: GlassTokens.muted,
-                          borderRadius: BorderRadius.circular(5),
-                        ),
-                        child: Text(
-                          placeType(place),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
+                    child: Icon(
+                      placeIcon(place),
+                      size: 15,
+                      color: RideTokens.ink,
                     ),
-                  ],
+                  ),
                 ),
+                if (onEdit != null)
+                  Positioned(
+                    top: 7,
+                    right: 7,
+                    child: Material(
+                      color: Colors.white,
+                      shape: const CircleBorder(),
+                      child: SizedBox.square(
+                        dimension: 36,
+                        child: IconButton(
+                          tooltip: 'Edit place',
+                          onPressed: onEdit,
+                          padding: EdgeInsets.zero,
+                          icon: const Icon(Icons.edit_outlined, size: 17),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -309,31 +467,29 @@ class PlaceAvatar extends StatelessWidget {
   final Map<String, dynamic> person;
   const PlaceAvatar(this.person, {super.key});
   @override
-  Widget build(BuildContext context) => SizedBox(
+  Widget build(BuildContext context) => Container(
     width: 32,
     height: 32,
-    child: LiquidGlassSurface(
-      radius: 99,
-      padding: EdgeInsets.zero,
+    padding: const EdgeInsets.all(1.5),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      shape: BoxShape.circle,
+      border: Border.all(color: RideTokens.line),
+    ),
+    child: ClipOval(
       child: person['avatar_url'] is String
-          ? ClipOval(
-              child: Image.network(
-                '${person['avatar_url']}',
-                fit: BoxFit.cover,
-                cacheWidth: 96,
-                cacheHeight: 96,
-                errorBuilder: (_, error, stack) => const Icon(
-                  Icons.person_outline,
-                  size: 18,
-                  color: GlassTokens.accent,
-                ),
+          ? Image.network(
+              '${person['avatar_url']}',
+              fit: BoxFit.cover,
+              cacheWidth: 96,
+              cacheHeight: 96,
+              errorBuilder: (_, error, stack) => const Icon(
+                Icons.person_outline,
+                size: 18,
+                color: RideTokens.muted,
               ),
             )
-          : const Icon(
-              Icons.person_outline,
-              size: 18,
-              color: GlassTokens.accent,
-            ),
+          : const Icon(Icons.person_outline, size: 18, color: RideTokens.muted),
     ),
   );
 }
@@ -349,7 +505,7 @@ class PlaceVisitors extends StatelessWidget {
         .take(2)
         .map((v) => placePerson(rideMap(v['user'])))
         .join(', ');
-    return LiquidGlassSurface(
+    return SolidSurface(
       child: Row(
         children: [
           if (visitors.isNotEmpty) ...[
@@ -368,7 +524,7 @@ class PlaceVisitors extends StatelessWidget {
             ),
             const SizedBox(width: 12),
           ] else ...[
-            const Icon(Icons.check_circle_outline, color: GlassTokens.accent),
+            const Icon(Icons.check_circle_outline, color: RideTokens.muted),
             const SizedBox(width: 10),
           ],
           Expanded(
@@ -379,7 +535,7 @@ class PlaceVisitors extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 13,
                 height: 1.5,
-                color: GlassTokens.muted,
+                color: RideTokens.muted,
               ),
             ),
           ),
@@ -393,7 +549,7 @@ class PlaceReviewCard extends StatelessWidget {
   final Map<String, dynamic> review;
   const PlaceReviewCard(this.review, {super.key});
   @override
-  Widget build(BuildContext context) => LiquidGlassSurface(
+  Widget build(BuildContext context) => SolidSurface(
     margin: const EdgeInsets.only(bottom: 12),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -408,7 +564,7 @@ class PlaceReviewCard extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: GlassTokens.ink,
+                  color: RideTokens.ink,
                 ),
               ),
             ),
@@ -424,12 +580,12 @@ class PlaceReviewCard extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
-                color: GlassTokens.accent,
+                color: RideTokens.ink,
               ),
             ),
             Text(
               rideTime(review['updated_at'] ?? review['created_at']),
-              style: const TextStyle(fontSize: 12, color: GlassTokens.muted),
+              style: const TextStyle(fontSize: 12, color: RideTokens.muted),
             ),
           ],
         ),
@@ -439,7 +595,7 @@ class PlaceReviewCard extends StatelessWidget {
           style: const TextStyle(
             fontSize: 14,
             height: 1.5,
-            color: GlassTokens.ink,
+            color: RideTokens.ink,
           ),
         ),
       ],
@@ -450,22 +606,17 @@ class PlaceReviewCard extends StatelessWidget {
 class PlaceCardSkeleton extends StatelessWidget {
   const PlaceCardSkeleton({super.key});
   @override
-  Widget build(BuildContext context) => const LiquidGlassSurface(
-    child: AppSkeleton(
-      label: 'Loading places',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SkeletonBox(height: 114),
-          SizedBox(height: 16),
-          SkeletonBox(width: 170, height: 18),
-          SizedBox(height: 10),
-          SkeletonBox(height: 14),
-          SizedBox(height: 16),
-          SkeletonBox(width: 130, height: 38),
-        ],
-      ),
+  Widget build(BuildContext context) => const SolidSurface(
+    padding: EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+    child: Row(
+      children: [
+        SizedBox.square(
+          dimension: 20,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        SizedBox(width: 10),
+        Text('Loading places', style: TextStyle(fontSize: 13)),
+      ],
     ),
   );
 }

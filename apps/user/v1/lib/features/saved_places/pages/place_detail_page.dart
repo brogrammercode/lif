@@ -2,19 +2,13 @@ import 'package:user/features/saved_places/controllers/place_review_controller.d
 import 'package:user/features/saved_places/controllers/place_detail_controller.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:user/components/ui/app_page.dart';
+import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/components/ui/solid_file_upload.dart';
-import 'package:user/components/ui/button.dart';
-import 'package:user/components/ui/glass_chip.dart';
-import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/features/rides/ride_display.dart';
 import 'package:user/features/saved_places/places.repo.dart';
 import 'package:user/features/saved_places/place_display.dart';
-import 'package:user/features/saved_places/pages/place_picker_page.dart';
 import 'package:user/features/saved_places/pages/place_directions_page.dart';
 import 'package:user/features/saved_places/widgets/place_components.dart';
 import 'package:user/features/saved_places/widgets/place_map.dart';
@@ -45,13 +39,9 @@ class _PlaceDetailState extends State<PlaceDetailPage> {
   Map<String, dynamic>? get _reviews => _controller.reviews;
   String? get _error => _controller.error;
   String? get _reviewError => _controller.reviewError;
-  String? get _userId => _controller.userId;
-  bool get _loading => _controller.loading;
   bool get _busy => _controller.busy;
   set _busy(bool value) => _controller.busy = value;
   bool get _reviewsLoading => _controller.reviewsLoading;
-  int get _recenter => _controller.recenter;
-  set _recenter(int value) => _controller.recenter = value;
   int get _reviewPage => _controller.reviewPage;
   @override
   void initState() {
@@ -93,20 +83,12 @@ class _PlaceDetailState extends State<PlaceDetailPage> {
     }
   }
 
-  Future<void> _open(Uri uri) async {
-    try {
-      if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
-    } catch (_) {}
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This action could not be opened.')),
-      );
-    }
-  }
-
   Future<void> _review() async {
-    final changed = await showDialog<bool>(
+    final changed = await showModalBottomSheet<bool>(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
       builder: (_) => PlaceReviewEditor(
         id: widget.id,
         repository: widget.repository,
@@ -140,7 +122,7 @@ class _PlaceDetailState extends State<PlaceDetailPage> {
         builder: (dialog) => StatefulBuilder(
           builder: (_, update) => PopScope(
             canPop: !uploading,
-            child: LiquidGlassDialog(
+            child: AlertDialog(
               title: const Text('Share this place photo?'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -175,6 +157,10 @@ class _PlaceDetailState extends State<PlaceDetailPage> {
                   child: const Text('Cancel'),
                 ),
                 FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.black,
+                    foregroundColor: Colors.white,
+                  ),
                   onPressed: uploading
                       ? null
                       : () async {
@@ -215,124 +201,26 @@ class _PlaceDetailState extends State<PlaceDetailPage> {
     }
   }
 
-  Future<void> _edit() async {
-    await Navigator.push<String>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => PlacePickerPage(
-          repository: widget.repository,
-          initial: _place,
-          mapBuilder: widget.mapBuilder,
-        ),
-      ),
-    );
-    if (mounted) await _load(replace: true);
-  }
-
-  Future<void> _managePhotos() async {
-    final own = rideMaps(_place?['photos'])
-        .where((photo) => _userId != null && photo['author_id'] == _userId)
-        .toList();
-    final remove = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheet) => FractionallySizedBox(
-        heightFactor: .65,
-        child: LiquidGlassSheet(
-          child: ListView(
-            padding: const EdgeInsets.all(20),
-            children: [
-              const Text(
-                'Your place photos',
-                style: TextStyle(
-                  fontSize: 21,
-                  fontWeight: FontWeight.w500,
-                  color: GlassTokens.ink,
-                ),
-              ),
-              const SizedBox(height: 16),
-              if (own.isEmpty)
-                const Text('You have not added any photos here.'),
-              for (final photo in own)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: LiquidGlassSurface(
-                    child: Column(
-                      children: [
-                        PlacePhoto(url: '${photo['url']}'),
-                        TextButton.icon(
-                          onPressed: () =>
-                              Navigator.pop(sheet, '${photo['id']}'),
-                          icon: const Icon(Icons.delete_outline),
-                          label: const Text('Remove photo'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (remove == null || !mounted) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialog) => LiquidGlassDialog(
-        title: const Text('Remove this photo?'),
-        content: const Text(
-          'It will be removed from this shared place for everyone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialog),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialog, true),
-            child: const Text('Remove photo'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true && mounted) {
-      await _change(() => widget.repository.removePhoto(widget.id, remove));
-    }
-  }
-
-  void _plot() {
-    setState(() => _recenter++);
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _scroll.jumpTo(0);
-      return;
-    }
-    unawaited(
-      _scroll.animateTo(
-        0,
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
-      ),
-    );
-  }
-
   @override
-  Widget build(BuildContext context) => AppPage(
-    glass: true,
+  Widget build(BuildContext context) => SolidPage(
     title: 'Place details',
-    scrollable: true,
-    action: IconButton(
-      tooltip: 'Refresh place',
-      onPressed: _loading || _busy ? null : _load,
-      icon: const Icon(Icons.refresh),
-    ),
     child: _place == null
-        ? SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: _error != null
-                ? AppLoadError(message: _error!, onRetry: _load)
-                : const PlaceCardSkeleton(),
+        ? Center(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: _error == null
+                  ? const CircularProgressIndicator.adaptive()
+                  : SolidSurface(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(_error!, textAlign: TextAlign.center),
+                          const SizedBox(height: 12),
+                          SolidButton(text: 'Retry', onPressed: _load),
+                        ],
+                      ),
+                    ),
+            ),
           )
         : _content(),
   );
@@ -341,167 +229,167 @@ class _PlaceDetailState extends State<PlaceDetailPage> {
     final map = PlaceMap(
       places: [place],
       selectedId: widget.id,
-      recenter: _recenter,
+      onSelected: (_) {},
     );
     final point = ridePoint(place['latitude'], place['longitude']);
     final photos = placePhotos(place);
-    final website = Uri.tryParse('${place['website'] ?? ''}');
+    final reviewTotal = (rideNumber(_reviews?['total']) ?? 0).toInt();
+    final ownReview = place['own_review'] != null;
+    final visited = place['visited_at'] != null;
+    final rating = rideNumber(place['rating']);
+    final visitorCount = (rideNumber(place['visitor_count']) ?? 0).toInt();
+
     return RefreshIndicator(
+      color: Colors.black,
       onRefresh: _load,
       child: ListView(
         controller: _scroll,
-        padding: const EdgeInsets.only(bottom: 24),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: LiquidGlassSurface(
-              padding: const EdgeInsets.all(7),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
-                child: SizedBox(
-                  height: 200,
-                  child: widget.mapBuilder?.call(map) ?? map,
-                ),
-              ),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: SizedBox(
+              height: 172,
+              child: widget.mapBuilder?.call(map) ?? map,
             ),
           ),
           const SizedBox(height: 14),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: LiquidGlassSurface(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    placeName(place),
-                    style: const TextStyle(
-                      fontSize: 23,
-                      fontWeight: FontWeight.w500,
-                      color: GlassTokens.ink,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    '${place['address']}',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      height: 1.5,
-                      color: GlassTokens.muted,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      LiquidGlassChip(
-                        label: placeType(place),
-                        icon: placeIcon(place),
-                      ),
-                      if ((rideNumber(place['review_count']) ?? 0) > 0 &&
-                          rideNumber(place['rating']) != null)
-                        LiquidGlassChip(
-                          label:
-                              '${rideNumber(place['rating'])!.toStringAsFixed(1)} · ${place['review_count']} reviews',
-                          icon: Icons.star_outline,
+          SolidSurface(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        placeName(place),
+                        style: const TextStyle(
+                          fontSize: 21,
+                          height: 1.2,
+                          fontWeight: FontWeight.w500,
+                          color: RideTokens.ink,
                         ),
-                      LiquidGlassChip(
-                        label: place['saved'] == true ? 'Saved' : 'Save place',
-                        selected: place['saved'] == true,
-                        icon: Icons.bookmark_outline,
-                        onPressed: _busy
-                            ? null
-                            : () => _change(
-                                () => widget.repository.bookmark(
-                                  widget.id,
-                                  place['saved'] != true,
-                                ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      tooltip: place['saved'] == true
+                          ? 'Remove from saved places'
+                          : 'Save this place',
+                      onPressed: _busy
+                          ? null
+                          : () => _change(
+                              () => widget.repository.bookmark(
+                                widget.id,
+                                place['saved'] != true,
                               ),
+                            ),
+                      icon: Icon(
+                        place['saved'] == true
+                            ? Icons.bookmark
+                            : Icons.bookmark_border,
+                        color: RideTokens.ink,
+                      ),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${place['address'] ?? ''}',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    height: 1.4,
+                    color: RideTokens.muted,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Icon(placeIcon(place), size: 16, color: RideTokens.ink),
+                    const SizedBox(width: 5),
+                    Text(
+                      placeType(place),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: RideTokens.ink,
+                      ),
+                    ),
+                    if (rating != null && rating > 0) ...[
+                      const SizedBox(width: 14),
+                      const Icon(
+                        Icons.star_rounded,
+                        size: 17,
+                        color: Color(0xFFB18A00),
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        '${rating.toStringAsFixed(1)}${reviewTotal > 0 ? ' ($reviewTotal)' : ''}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: RideTokens.ink,
+                        ),
                       ),
                     ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          PlaceGallery(photos: photos),
-          if (_userId != null &&
-              rideMaps(
-                place['photos'],
-              ).any((photo) => photo['author_id'] == _userId))
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  onPressed: _busy ? null : _managePhotos,
-                  child: const Text('Manage your photos'),
+                    const Spacer(),
+                    if (visitorCount > 0)
+                      Text(
+                        '$visitorCount ${visitorCount == 1 ? 'visit' : 'visits'}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: RideTokens.muted,
+                        ),
+                      ),
+                  ],
                 ),
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: _busy || photos.length >= 10 ? null : _photo,
-                icon: const Icon(Icons.add_photo_alternate_outlined),
-                label: const Text('Add a photo'),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: PlaceVisitors(place),
-          ),
-          const SizedBox(height: 16),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: LayoutBuilder(
-              builder: (context, size) => Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  SizedBox(
-                    width: MediaQuery.textScalerOf(context).scale(14) > 20
-                        ? size.maxWidth
-                        : (size.maxWidth - 10) / 2,
-                    child: AppButton(
-                      text: 'Plot on map',
-                      onPressed: point == null ? null : _plot,
-                      icon: const Icon(Icons.place_outlined, size: 19),
+                if ('${place['description'] ?? ''}'.trim().isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  const Divider(height: 1),
+                  const SizedBox(height: 10),
+                  Text(
+                    '${place['description']}',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      height: 1.45,
+                      color: RideTokens.ink,
                     ),
                   ),
-                  LiquidGlassChip(
-                    label: place['visited_at'] != null
-                        ? 'Visited'
-                        : 'Mark visited',
-                    selected: place['visited_at'] != null,
-                    icon: Icons.check_circle_outline,
-                    onPressed: _busy
-                        ? null
-                        : () => _change(
-                            () => widget.repository.visit(
-                              widget.id,
-                              place['visited_at'] == null,
-                            ),
-                          ),
-                  ),
                 ],
-              ),
+              ],
             ),
           ),
-          const SizedBox(height: 12),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 10,
-              children: [
-                LiquidGlassChip(
-                  label: 'Directions',
-                  icon: Icons.directions_outlined,
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Photos',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w500,
+                    color: RideTokens.ink,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: _busy || photos.length >= 10 ? null : _photo,
+                icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
+                label: const Text('Add'),
+              ),
+            ],
+          ),
+          PlaceGallery(photos: photos),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: SolidButton(
+                  text: 'Directions',
+                  icon: const Icon(Icons.directions_outlined, size: 19),
+                  minHeight: 52,
                   onPressed: point == null
                       ? null
                       : () => Navigator.push(
@@ -514,160 +402,146 @@ class _PlaceDetailState extends State<PlaceDetailPage> {
                           ),
                         ),
                 ),
-                if ('${place['phone'] ?? ''}'.isNotEmpty)
-                  LiquidGlassChip(
-                    label: 'Call',
-                    icon: Icons.call_outlined,
-                    onPressed: () =>
-                        _open(Uri(scheme: 'tel', path: '${place['phone']}')),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _busy
+                      ? null
+                      : () => _change(
+                          () => widget.repository.visit(widget.id, !visited),
+                        ),
+                  icon: Icon(
+                    visited ? Icons.check_circle_outline : Icons.place_outlined,
+                    size: 19,
                   ),
-                if (website != null &&
-                    ['http', 'https'].contains(website.scheme) &&
-                    website.host.isNotEmpty)
-                  LiquidGlassChip(
-                    label: 'Website',
-                    icon: Icons.language,
-                    onPressed: () => _open(website),
-                  ),
-                LiquidGlassChip(
-                  label: 'Copy address',
-                  icon: Icons.copy_outlined,
-                  onPressed: () async {
-                    await Clipboard.setData(
-                      ClipboardData(text: '${place['address']}'),
-                    );
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Address copied.')),
-                      );
-                    }
-                  },
-                ),
-                if (point != null)
-                  LiquidGlassChip(
-                    label: 'Share',
-                    icon: Icons.share_outlined,
-                    onPressed: () => _open(
-                      Uri.https('wa.me', '/', {
-                        'text':
-                            '${placeName(place)}\n${place['address']}\nhttps://www.openstreetmap.org/?mlat=${point.latitude}&mlon=${point.longitude}#map=16/${point.latitude}/${point.longitude}',
-                      }),
+                  label: Text(visited ? 'Visited' : 'Mark visited'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: RideTokens.ink,
+                    minimumSize: const Size(0, 52),
+                    side: const BorderSide(color: RideTokens.line),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
                     ),
-                  ),
-                if (_userId != null && _userId == place['created_by_id'])
-                  LiquidGlassChip(
-                    label: 'Edit place',
-                    icon: Icons.edit_outlined,
-                    onPressed: _busy ? null : _edit,
-                  ),
-              ],
-            ),
-          ),
-          if ('${place['description'] ?? ''}'.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
-              child: LiquidGlassSurface(
-                child: Text(
-                  '${place['description']}',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    height: 1.6,
-                    color: GlassTokens.ink,
+                    textStyle: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
               ),
-            ),
+            ],
+          ),
           if (_error != null)
             Padding(
-              padding: const EdgeInsets.all(20),
-              child: LiquidGlassSurface(
-                child: TextButton(
-                  onPressed: _load,
-                  child: Text('Showing the last loaded place. $_error · Retry'),
+              padding: const EdgeInsets.only(top: 12),
+              child: SolidSurface(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Showing saved details. $_error',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: RideTokens.muted,
+                        ),
+                      ),
+                    ),
+                    TextButton(onPressed: _load, child: const Text('Retry')),
+                  ],
                 ),
               ),
             ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
-            child: Wrap(
-              alignment: WrapAlignment.spaceBetween,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 10,
+            padding: const EdgeInsets.fromLTRB(0, 26, 0, 10),
+            child: Row(
               children: [
-                const Text(
-                  'Reviews',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w500,
-                    color: GlassTokens.ink,
+                Expanded(
+                  child: Text(
+                    'Reviews${reviewTotal > 0 ? ' ($reviewTotal)' : ''}',
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w500,
+                      color: RideTokens.ink,
+                    ),
                   ),
                 ),
                 TextButton(
                   onPressed: _busy ? null : _review,
-                  child: Text(
-                    place['own_review'] == null
-                        ? 'Write a review'
-                        : 'Edit your review',
-                  ),
+                  child: Text(ownReview ? 'Edit review' : 'Write review'),
                 ),
               ],
             ),
           ),
           if (_reviewsLoading && _reviews == null)
             const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 20),
-              child: PlaceCardSkeleton(),
+              padding: EdgeInsets.symmetric(vertical: 18),
+              child: Center(
+                child: SizedBox.square(
+                  dimension: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
             ),
           if (_reviewError != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: TextButton(
-                onPressed: _loadReviews,
-                child: Text('$_reviewError · Retry reviews'),
+            SolidSurface(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _reviewError!,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _loadReviews,
+                    child: const Text('Retry'),
+                  ),
+                ],
               ),
             ),
           if (_reviews != null && rideMaps(_reviews!['rows']).isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 20),
-              child: LiquidGlassSurface(
-                child: Text(
-                  'No reviews yet. Share your experience after visiting.',
-                  style: TextStyle(fontSize: 13, color: GlassTokens.muted),
-                ),
+            const SolidSurface(
+              child: Text(
+                'No reviews yet. Be the first to share your experience.',
+                style: TextStyle(fontSize: 13, color: RideTokens.muted),
               ),
             ),
           for (final review in rideMaps(_reviews?['rows']))
+            PlaceReviewCard(review),
+          if (reviewTotal > 20)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: PlaceReviewCard(review),
-            ),
-          if ((rideNumber(_reviews?['total']) ?? 0) > 0)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                TextButton(
-                  onPressed: _reviewPage <= 1 || _reviewsLoading
-                      ? null
-                      : () => _loadReviews(page: _reviewPage - 1),
-                  child: const Text('Previous'),
-                ),
-                Text(
-                  'Page $_reviewPage',
-                  style: const TextStyle(
-                    color: GlassTokens.muted,
-                    fontSize: 13,
+              padding: const EdgeInsets.only(top: 4),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  TextButton(
+                    onPressed: _reviewPage <= 1 || _reviewsLoading
+                        ? null
+                        : () => _loadReviews(page: _reviewPage - 1),
+                    child: const Text('Previous'),
                   ),
-                ),
-                TextButton(
-                  onPressed:
-                      _reviewPage * 20 >=
-                              (rideNumber(_reviews?['total']) ?? 0) ||
-                          _reviewsLoading
-                      ? null
-                      : () => _loadReviews(page: _reviewPage + 1),
-                  child: const Text('Next'),
-                ),
-              ],
+                  Text(
+                    '$_reviewPage / ${(reviewTotal / 20).ceil()}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: RideTokens.muted,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed:
+                        _reviewPage * 20 >= reviewTotal || _reviewsLoading
+                        ? null
+                        : () => _loadReviews(page: _reviewPage + 1),
+                    child: const Text('Next'),
+                  ),
+                ],
+              ),
             ),
         ],
       ),
@@ -743,63 +617,115 @@ class _ReviewEditorState extends State<PlaceReviewEditor> {
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: !_busy,
-    child: LiquidGlassDialog(
-      title: const Text('Your place review'),
-      content: Form(
-        key: _form,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Wrap(
-              children: [
-                for (var score = 1; score <= 5; score++)
-                  IconButton(
-                    tooltip: '$score out of 5',
-                    onPressed: _busy
-                        ? null
-                        : () => setState(() => _score = score),
-                    icon: Icon(
-                      score <= _score ? Icons.star : Icons.star_outline,
-                      color: GlassTokens.accent,
+    child: SolidSheet(
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            4,
+            20,
+            18 + MediaQuery.viewInsetsOf(context).bottom,
+          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight:
+                  (MediaQuery.sizeOf(context).height -
+                      MediaQuery.viewInsetsOf(context).bottom -
+                      72) *
+                  .84,
+            ),
+            child: SingleChildScrollView(
+              child: Form(
+                key: _form,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 14),
+                      child: Text(
+                        'Your place review',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w500,
+                          color: RideTokens.ink,
+                        ),
+                      ),
                     ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _comment,
-              readOnly: _busy,
-              maxLength: 2000,
-              minLines: 3,
-              maxLines: 5,
-              onChanged: (_) => setState(() {}),
-              decoration: const InputDecoration(
-                labelText: 'Share your experience',
+                    Center(
+                      child: Wrap(
+                        children: [
+                          for (var score = 1; score <= 5; score++)
+                            IconButton(
+                              tooltip: '$score out of 5',
+                              onPressed: _busy
+                                  ? null
+                                  : () => setState(() => _score = score),
+                              icon: Icon(
+                                score <= _score
+                                    ? Icons.star_rounded
+                                    : Icons.star_outline_rounded,
+                                color: Colors.black,
+                                size: 30,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SolidTextFormField(
+                      controller: _comment,
+                      label: 'Your experience',
+                      enabled: !_busy,
+                      maxLength: 2000,
+                      minLines: 3,
+                      maxLines: 5,
+                      onChanged: (_) => setState(() {}),
+                      textInputAction: TextInputAction.newline,
+                      validator: (v) => v?.trim().isEmpty != false
+                          ? 'Write a short review'
+                          : null,
+                    ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _error!,
+                        style: const TextStyle(color: Color(0xFFB3261E)),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    SolidButton(
+                      text: 'Save review',
+                      busy: _busy,
+                      onPressed: _busy || !_hasReviewChanges ? null : _save,
+                      minHeight: 54,
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        if (widget.initial.isNotEmpty)
+                          TextButton(
+                            onPressed: _busy ? null : () => _save(remove: true),
+                            child: const Text('Remove review'),
+                          )
+                        else
+                          const SizedBox.shrink(),
+                        TextButton(
+                          onPressed: _busy
+                              ? null
+                              : () => Navigator.pop(context),
+                          child: const Text('Cancel'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-              validator: (v) =>
-                  v?.trim().isEmpty != false ? 'Write a short review' : null,
             ),
-            if (_error != null)
-              Text(_error!, style: const TextStyle(color: Colors.red)),
-          ],
+          ),
         ),
       ),
-      actions: [
-        if (widget.initial.isNotEmpty)
-          TextButton(
-            onPressed: _busy ? null : () => _save(remove: true),
-            child: const Text('Remove review'),
-          ),
-        TextButton(
-          onPressed: _busy ? null : () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        if (_hasReviewChanges)
-          FilledButton(
-            onPressed: _busy ? null : _save,
-            child: Text(_busy ? 'Saving…' : 'Save review'),
-          ),
-      ],
     ),
   );
 }

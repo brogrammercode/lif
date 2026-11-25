@@ -9,6 +9,7 @@ import 'package:user/features/partner_program/partner_form_validation.dart';
 import 'package:user/features/partner_program/partner_application_step.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:user/features/partner_program/widgets/partner_address_input.dart';
@@ -102,7 +103,6 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
   bool get _acceptConfirmation => _controller.acceptConfirmation;
   set _acceptConfirmation(bool value) => _controller.acceptConfirmation = value;
   bool _showForm = false;
-  bool _stepEdited = false;
   bool get _dirty => _controller.dirty;
   set _dirty(bool value) => _controller.dirty = value;
   bool get _submissionCommitted => _controller.submissionCommitted;
@@ -256,9 +256,12 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         _acceptPolicy = false;
         _showForm = false;
       }
-      _email.text = '${_application?['contact_email'] ?? email ?? _email.text}';
+      final reapplication = _map(data['reapplication']);
+      final prefill = _map(reapplication?['fields']);
+      _email.text =
+          '${_application?['contact_email'] ?? reapplication?['contact_email'] ?? email ?? _email.text}';
       _phone.text =
-          '${_application?['whatsapp_phone'] ?? phone ?? _phone.text}';
+          '${_application?['whatsapp_phone'] ?? reapplication?['whatsapp_phone'] ?? phone ?? _phone.text}';
       _signature.text =
           '${_map(_application?['confirmation'])?['signature_name'] ?? legalName ?? _signature.text}';
       _values.clear();
@@ -275,7 +278,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         final answer = _answers
             .where((item) => item['requirement_id'] == id)
             .firstOrNull;
-        final value = answer?['value'];
+        final value = answer?['value'] ?? prefill?[id];
         _values[id] = value;
         final type = '${definition['field_type']}';
         if (['FILE', 'IMAGE', 'PDF'].contains(type)) {
@@ -422,12 +425,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
   }
 
   void _markDirty() {
-    if (mounted) {
-      setState(() {
-        _dirty = true;
-        _stepEdited = true;
-      });
-    }
+    if (mounted) setState(() => _dirty = true);
     _scheduleDraft();
   }
 
@@ -451,6 +449,10 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     final snapshot = <String, dynamic>{
       'format': 1,
       'application_version': _application?['version'] ?? 0,
+      'application_id': _application?['id'],
+      'reapplication_source': _map(
+        _workflow?['reapplication'],
+      )?['previous_application_id'],
       'policy_version': _map(_workflow?['policy'])?['version'],
       'email': _email.text,
       'phone': _phone.text,
@@ -494,6 +496,10 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     }
     final draft = await store.read();
     if (draft == null ||
+        (draft.containsKey('application_id') &&
+            draft['application_id'] != app?['id']) ||
+        draft['reapplication_source'] !=
+            _map(data['reapplication'])?['previous_application_id'] ||
         draft['application_version'] != (app?['version'] ?? 0) ||
         draft['policy_version'] != _map(data['policy'])?['version']) {
       return null;
@@ -561,7 +567,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     for (final definition in _definitions)
       '${definition['id']}':
           ['FILE', 'IMAGE', 'PDF'].contains(definition['field_type'])
-          ? _files['${definition['id']}'] ?? []
+          ? _files['${definition['id']}'] ?? const <PartnerLocalFile>[]
           : definition['field_type'] == 'BOOLEAN'
           ? _values['${definition['id']}']
           : _controllers['${definition['id']}']?.text.trim(),
@@ -578,21 +584,68 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           )
           .toList();
 
-  String? _stepError(PartnerApplicationStep step) => validatePartnerDraft(
+  String? _stepError(
+    PartnerApplicationStep step, {
+    Map<String, dynamic>? values,
+  }) => validatePartnerDraft(
     _editableFields(step),
-    _draftValues,
+    values ?? _draftValues,
     // Contacts are checked only in their own step; final submission checks all.
     email: _email.text,
     phone: _phone.text,
     validateContacts: step.key == 'contact',
   );
 
+  bool _showStepAction(PartnerApplicationStep step, {required bool last}) {
+    final values = _draftValues;
+    final application = _application;
+    if (last && application != null) {
+      // A correction can be made in any category. Compare against the saved
+      // application so revisiting the last step or restoring a draft works.
+      if (_email.text.trim() !=
+              '${application['contact_email'] ?? ''}'.trim() ||
+          _phone.text.trim() !=
+              '${application['whatsapp_phone'] ?? ''}'.trim()) {
+        return true;
+      }
+      final answers = {
+        for (final answer in _answers) answer['requirement_id']: answer,
+      };
+      return values.entries.any((entry) {
+        final answer = answers[entry.key];
+        if (answer?['status'] == 'APPROVED') return false;
+        final saved = answer?['value'];
+        final value = entry.value;
+        if (value is List<PartnerLocalFile>) {
+          return !listEquals<Object?>(
+            value.map((file) => file.assetId ?? file.path).toList(),
+            saved is List ? saved.cast<Object?>() : const [],
+          );
+        }
+        if (saved is num && num.tryParse('$value') == saved) return false;
+        return '${value ?? ''}'.trim() != '${saved ?? ''}'.trim();
+      });
+    }
+    // A complete step needs no extra edit. Partial inputs still allow a user
+    // to tap Continue and see the existing input validation feedback.
+    return _stepError(step, values: values) == null ||
+        (step.key == 'contact' &&
+            (_email.text.trim().isNotEmpty || _phone.text.trim().isNotEmpty)) ||
+        step.fields.any(
+          (field) => switch (values[field['id']]) {
+            null => false,
+            final String text => text.isNotEmpty,
+            final List files => files.isNotEmpty,
+            _ => true,
+          },
+        );
+  }
+
   void _goToStep(int index, {String? error}) {
     if (_busy || index < 0 || index >= _steps.length) return;
     FocusManager.instance.primaryFocus?.unfocus();
     if (_scroll.hasClients) _scroll.jumpTo(0);
     setState(() {
-      if (_stepIndex != index) _stepEdited = false;
       _stepKey = _steps[index].key;
       _error = error;
       _dirty = true;
@@ -908,7 +961,6 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           setState(() {
             _files[fieldId!] = selected;
             _dirty = true;
-            _stepEdited = true;
             _error = null;
           });
           _tracePicker('LOST_RESULT_RECOVERED', mode: mode);
@@ -1010,7 +1062,6 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     setState(() {
       _files[id] = [selected];
       _dirty = true;
-      _stepEdited = true;
       _error = null;
     });
     try {
@@ -1162,7 +1213,6 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
       setState(() {
         _files['${definition['id']}'] = selected;
         _dirty = true;
-        _stepEdited = true;
         _error = null;
       });
       await _clearPendingPicker();
@@ -1214,7 +1264,6 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     setState(() {
       files.removeAt(index);
       _dirty = true;
-      _stepEdited = true;
       _error = null;
     });
     try {
@@ -1342,7 +1391,6 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     }
     setState(() {
       _dirty = true;
-      _stepEdited = true;
     });
     _scheduleDraft();
   }
@@ -1519,7 +1567,6 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
             onChanged: (value) => setState(() {
               _controllers[id]!.text = value ?? '';
               _dirty = true;
-              _stepEdited = true;
               _scheduleDraft();
             }),
             validator: (value) =>
@@ -1547,7 +1594,6 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
               ? (value) => setState(() {
                   _values[id] = value;
                   _dirty = true;
-                  _stepEdited = true;
                   _scheduleDraft();
                 })
               : null,
@@ -1618,7 +1664,6 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
                         10,
                       );
                       _dirty = true;
-                      _stepEdited = true;
                       _scheduleDraft();
                     });
                   }
@@ -1772,7 +1817,6 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     final steps = _steps;
     final index = _stepIndex;
     final step = steps[index];
-    final last = index == steps.length - 1;
     final documents = step.fields
         .where(
           (field) => ['FILE', 'IMAGE', 'PDF'].contains(field['field_type']),
@@ -1884,59 +1928,69 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         ),
         const SizedBox(height: 12),
       ],
-      if (_needsSignIn)
-        OutlinedButton.icon(
-          onPressed: _busy
-              ? null
-              : () async {
-                  try {
-                    await _saveDraft(required: true);
-                  } catch (_) {
-                    return;
-                  }
-                  if (mounted) {
-                    Navigator.pushNamedAndRemoveUntil(
-                      context,
-                      AppRoutes.login,
-                      (_) => false,
-                    );
-                  }
-                },
-          icon: const Icon(Icons.refresh),
-          label: const Text('Sign in again'),
-        )
-      else if (_stepEdited)
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            if (index > 0) ...[
-              SolidIconButton(
-                icon: Icons.arrow_back,
-                tooltip: 'Previous category',
-                onPressed: _busy ? null : () => _goToStep(index - 1),
-              ),
-              const SizedBox(width: 12),
-            ],
-            Expanded(
-              child: AppButton(
-                height: 60,
-                text: last
-                    ? (_application == null
-                          ? 'Submit application'
-                          : 'Submit corrections')
-                    : 'Continue',
-                icon: last ? null : const Icon(Icons.arrow_forward, size: 20),
-                onPressed: _busy
-                    ? null
-                    : last
-                    ? _submit
-                    : _nextStep,
-                isLoading: _saving,
-              ),
-            ),
-          ],
-        ),
     ];
+  }
+
+  Widget? _stepActions() {
+    if (!_editingApplication) return null;
+    final steps = _steps;
+    final index = _stepIndex;
+    final last = index == steps.length - 1;
+    final showPrimary = _saving || _showStepAction(steps[index], last: last);
+    if (_needsSignIn) {
+      return OutlinedButton.icon(
+        onPressed: _busy
+            ? null
+            : () async {
+                try {
+                  await _saveDraft(required: true);
+                } catch (_) {
+                  return;
+                }
+                if (mounted) {
+                  Navigator.pushNamedAndRemoveUntil(
+                    context,
+                    AppRoutes.login,
+                    (_) => false,
+                  );
+                }
+              },
+        icon: const Icon(Icons.refresh),
+        label: const Text('Sign in again'),
+      );
+    }
+    if (!showPrimary && index == 0) return null;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        if (index > 0) ...[
+          SolidIconButton(
+            icon: Icons.arrow_back,
+            tooltip: 'Previous category',
+            onPressed: _busy ? null : () => _goToStep(index - 1),
+          ),
+          if (showPrimary) const SizedBox(width: 12),
+        ],
+        if (showPrimary)
+          Expanded(
+            child: AppButton(
+              height: 60,
+              text: last
+                  ? (_application == null
+                        ? 'Submit application'
+                        : 'Submit corrections')
+                  : 'Continue',
+              icon: last ? null : const Icon(Icons.arrow_forward, size: 20),
+              onPressed: _busy
+                  ? null
+                  : last
+                  ? _submit
+                  : _nextStep,
+              isLoading: _saving,
+            ),
+          ),
+      ],
+    );
   }
 
   List<Widget> _formContents() {
@@ -2237,7 +2291,6 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
                 _showForm = true;
                 _stepKey = 'contact';
                 _dirty = true;
-                _stepEdited = false;
               });
               if (_scroll.hasClients) _scroll.jumpTo(0);
               _scheduleDraft();
@@ -2310,6 +2363,45 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
     ),
   );
 
+  Widget _workflowContent() {
+    final actions = _stepActions();
+    return Form(
+      key: _form,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final pinActions = actions != null && constraints.maxHeight >= 200;
+          final content = ListView(
+            controller: _scroll,
+            padding: EdgeInsets.only(top: 12, bottom: pinActions ? 8 : 32),
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+              if (_error != null && !_editingApplication)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Text(
+                    _error!,
+                    style: const TextStyle(color: AppColors.googleRed),
+                  ),
+                ),
+              ..._contents(),
+              if (actions != null && !pinActions) actions,
+            ],
+          );
+          return Column(
+            children: [
+              Expanded(child: content),
+              if (pinActions)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8, bottom: 12),
+                  child: actions,
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // Remove the complete glass form and its image previews from the render
@@ -2344,25 +2436,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
                   }
                 },
                 color: RideTokens.accent,
-                child: Form(
-                  key: _form,
-                  child: ListView(
-                    controller: _scroll,
-                    padding: const EdgeInsets.only(top: 12, bottom: 32),
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    children: [
-                      if (_error != null && !_editingApplication)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 16),
-                          child: Text(
-                            _error!,
-                            style: const TextStyle(color: AppColors.googleRed),
-                          ),
-                        ),
-                      ..._contents(),
-                    ],
-                  ),
-                ),
+                child: _workflowContent(),
               ),
       ),
     );

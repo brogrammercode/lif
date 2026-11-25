@@ -18,7 +18,14 @@ class PlacePickerController extends FeatureController {
   List<Map<String, dynamic>> results = [];
   int searchGeneration = 0, reverseGeneration = 0;
   bool searching = false, resolving = false, picking = false;
-  String? error;
+  String? error, userId;
+
+  Future<void> loadProfile() async {
+    try {
+      final profile = await repository.profile();
+      if (!isDisposed) update(() => userId = '${profile['id']}');
+    } catch (_) {}
+  }
 
   void find(String value) {
     _searchTimer?.cancel();

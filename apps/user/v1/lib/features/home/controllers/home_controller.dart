@@ -51,7 +51,11 @@ class HomeController extends FeatureController {
   double? routeDistance, routeDuration;
   String? routeError, profileAvatarUrl;
   bool isRequestingQuote = false;
-  List<Map<String, dynamic>> savedPlaces = [], communityPlaces = [];
+  List<Map<String, dynamic>> savedPlaces = [], bookmarkedPlaces = [];
+  List<Map<String, dynamic>> get homeSavedPlaces => [
+    ...savedPlaces,
+    ...bookmarkedPlaces,
+  ];
   List<dynamic> suggestions = [];
   List<dynamic>? pendingSuggestions;
   String? pendingSuggestionQuery;
@@ -74,12 +78,17 @@ class HomeController extends FeatureController {
     },
   };
   Future<void> loadPlaces() async {
-    final rows = await repository.savedPlaces();
+    final rows = (await repository.savedPlaces())
+        .where((place) => place['community_place_id'] == null)
+        .toList();
     if (isDisposed) return;
     update(() => savedPlaces = rows);
     try {
-      final result = await places.list();
-      if (!isDisposed) update(() => communityPlaces = rideMaps(result['rows']));
+      // Home may show public places only when this account bookmarked them.
+      final result = await places.list(scope: 'saved');
+      if (!isDisposed) {
+        update(() => bookmarkedPlaces = rideMaps(result['rows']));
+      }
     } catch (_) {}
   }
 

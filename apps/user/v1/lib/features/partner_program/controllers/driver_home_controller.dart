@@ -109,7 +109,9 @@ class DriverHomeController extends FeatureController {
         }
       });
       if (!_avatarLoaded) unawaited(_loadAvatar());
-      if (!_vehiclesLoaded) unawaited(loadOwnedVehicles());
+      if (data['exited'] != true && !_vehiclesLoaded) {
+        unawaited(loadOwnedVehicles());
+      }
       if (data['availability'] == 'AVAILABLE' && data['eligible'] == true) {
         try {
           await tracking.ensureStarted();

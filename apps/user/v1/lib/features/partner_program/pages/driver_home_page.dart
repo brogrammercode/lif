@@ -39,6 +39,7 @@ class _DriverHomeState extends State<DriverHomeContent>
   Timer? _poll;
   ModalRoute<dynamic>? _route;
   bool _rideSheetOpen = false;
+  bool _returningToRider = false;
   DriverMap? _rideSheetMap;
 
   Widget _rideMapBuilder(Widget map) {
@@ -144,6 +145,17 @@ class _DriverHomeState extends State<DriverHomeContent>
   Future<void> _load() async {
     await _controller.load();
     if (!mounted) return;
+    if (_data?['exited'] == true) {
+      if (!_returningToRider && _route?.isCurrent == true) {
+        _returningToRider = true;
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          AppRoutes.gate,
+          (_) => false,
+        );
+      }
+      return;
+    }
     final current = rideMap(_data?['current_trip']);
     if (current.isNotEmpty &&
         current['id'] != null &&
@@ -289,7 +301,7 @@ class _DriverHomeState extends State<DriverHomeContent>
       selectedVehicleId: _controller.selectedVehicleId,
       loading: _data == null || _controller.vehiclesLoading,
       busy: _busy,
-      canGoOnline: _controller.canGoOnline,
+      canGoOnline: _data?['exited'] != true && _controller.canGoOnline,
       isOnline: online,
       error: _controller.vehiclesError ?? _controller.error,
       position: _tracking.position,

@@ -8,10 +8,18 @@ class SavedPlacesController extends FeatureController {
   SavedPlacesController(this.repo);
   final PlacesRepository repo;
   List<Map<String, dynamic>> places = [];
+  String? userId;
   String scope = 'all', query = '';
   String? selected, error, type;
   int page = 1, total = 0, generation = 0, recenter = 0;
   bool loading = false, loaded = false;
+
+  Future<void> loadProfile() async {
+    try {
+      final profile = await repo.profile();
+      if (!isDisposed) update(() => userId = '${profile['id']}');
+    } catch (_) {}
+  }
 
   Future<void> load({bool changed = false}) async {
     if (loading && !changed) return;

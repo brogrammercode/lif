@@ -4,6 +4,7 @@ import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/features/support/pages/complaint_chat_page.dart';
 import 'package:user/features/support/pages/faq_page.dart';
 import 'package:user/features/profile/pages/profile_page.dart';
+import 'package:user/features/partner_program/pages/driver_exit_page.dart';
 import 'package:user/features/settings/widgets/profile_overview.dart';
 import 'dart:async';
 import 'dart:io';
@@ -345,6 +346,12 @@ class _SettingsPageState extends State<SettingsPage> {
               'My Rides',
               () => _open(driver ? AppRoutes.driverRides : AppRoutes.rides),
             ),
+            if (!driver && account.user.hasPartnerExit)
+              row(
+                Icons.history_rounded,
+                'Past Driver Rides',
+                () => _open(AppRoutes.driverRides),
+              ),
             row(
               Icons.account_balance_wallet_outlined,
               'My Wallet',
@@ -406,6 +413,17 @@ class _SettingsPageState extends State<SettingsPage> {
                 Icons.handshake_outlined,
                 'Become our Driving Partner',
                 () => _open(AppRoutes.partnerProgram),
+              ),
+            if (account.user.hasPartnerExit)
+              row(
+                Icons.receipt_long_outlined,
+                'Past Driver Settlements',
+                () => Navigator.push<void>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const DriverExitPage(historyOnly: true),
+                  ),
+                ),
               ),
           ],
         ),

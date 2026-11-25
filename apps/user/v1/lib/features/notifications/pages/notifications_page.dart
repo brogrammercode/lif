@@ -4,6 +4,7 @@ import 'package:user/components/ui/app_skeleton.dart';
 import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/core/routes.dart';
+import 'package:user/features/partner_program/pages/driver_exit_page.dart';
 import 'package:user/features/driver_operations/driver_operations.repo.dart';
 import 'package:user/features/notifications/controllers/notifications_controller.dart';
 import 'package:user/features/rides/ride_display.dart';
@@ -81,6 +82,18 @@ class _NotificationsPageState extends State<NotificationsPage> {
       } else if (data['driver_account'] == true) {
         if (!mounted) return;
         await Navigator.pushNamed(context, AppRoutes.driverAccount);
+      } else if (data['route'] == AppRoutes.driverExit) {
+        if (!mounted) return;
+        await Navigator.push<void>(
+          context,
+          MaterialPageRoute(
+            builder: (_) => DriverExitPage(
+              historyOnly:
+                  data['exit_completed'] == true ||
+                  item['title'] == 'Partner exit completed',
+            ),
+          ),
+        );
       } else if (data['ticket_id'] is String) {
         if (!mounted) return;
         await Navigator.pushNamed(
