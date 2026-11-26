@@ -172,6 +172,7 @@ class _SavedPlacesState extends State<SavedPlacesPage>
     if (!mounted || id == null) return;
     _scope = 'saved';
     _query = '';
+    _type = null;
     _search.clear();
     _page = 1;
     _selected = id;
@@ -180,6 +181,18 @@ class _SavedPlacesState extends State<SavedPlacesPage>
   }
 
   Future<void> _edit(Map<String, dynamic> place) async {
+    Map<String, dynamic> fullPlace;
+    try {
+      fullPlace = await _controller.loadPlaceForEdit('${place['id']}');
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+      }
+      return;
+    }
+    if (!mounted) return;
     final id = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -187,13 +200,13 @@ class _SavedPlacesState extends State<SavedPlacesPage>
       backgroundColor: Colors.transparent,
       builder: (_) => PlaceSaveForm(
         repository: _repo,
-        initial: place,
+        initial: fullPlace,
         photos: [],
         userId: _userId,
       ),
     );
     if (!mounted || id == null) return;
-    _selected = id;
+    _selected = id.startsWith('deleted:') ? null : id;
     await _load(changed: true);
   }
 

@@ -26,6 +26,9 @@ export class PlacesService {
   update(user_id: string, id: string, input: PlaceInput & { version: number }) {
     return this.repository.update(user_id, id, input);
   }
+  remove(user_id: string, id: string, version: number) {
+    return this.repository.remove(user_id, id, version);
+  }
   bookmark(user_id: string, id: string, value: boolean) {
     return this.repository.bookmark(user_id, id, value);
   }

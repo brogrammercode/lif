@@ -17,6 +17,8 @@ import { WORKSPACE_PATH } from "../modules/auth/auth.constant";
 import { VehicleCategoriesPage } from "../modules/vehicle-categories/VehicleCategoriesPage";
 import { VehicleVerificationPage } from "../modules/users/VehicleVerificationPage";
 import { UserRidesPage } from "../modules/users/UserRidesPage";
+import { UserWalletLedgerPage } from "../modules/users/UserWalletLedgerPage";
+import { PayoutsPage } from "../modules/payouts/PayoutsPage";
 import { useUsers } from "../modules/users/UsersProvider";
 import { isDriverAccount } from "../modules/users/users.type";
 import { PersonalPage } from "../modules/users/PersonalPage";
@@ -47,6 +49,11 @@ const PartnerExitsPage = lazy(() =>
 function UserRidesRoute() {
   const { userId } = useParams();
   return <UserRidesPage key={userId} />;
+}
+
+function UserWalletLedgerRoute() {
+  const { userId } = useParams();
+  return <UserWalletLedgerPage key={userId} />;
 }
 
 export function App() {
@@ -110,8 +117,14 @@ export function App() {
           element={<VehicleModelsPage />}
         />
         <Route path="/users" element={<PersonalPage />} />
+        <Route path="/app/user/payouts" element={<PayoutsPage />} />
+        <Route path="/app/user/payouts/:cycleId" element={<PayoutsPage />} />
         <Route path="/users/:userId/personal" element={<PersonalPage />} />
         <Route path="/users/:userId/rides" element={<UserRidesRoute />} />
+        <Route
+          path="/users/:userId/wallet-ledger"
+          element={<UserWalletLedgerRoute />}
+        />
         <Route
           path="/users/:userId/driver-account"
           element={<DeferredDriverAccount />}

@@ -22,6 +22,10 @@ import {
 import { availability_after_trip } from '../driver/driver_eligibility.js';
 import { approved_driver_upi, approved_driver_upis } from './driver_payout.js';
 import { require_supported_ride_payment } from '../app_configuration/payment_policy.js';
+import {
+  payout_schedule_lock,
+  read_wallet_controls,
+} from '../wallet/wallet-controls.js';
 import { rider_vehicle_select } from '../ride/ride.presentation.js';
 import {
   ACTIVE_TRIP,
@@ -80,6 +84,15 @@ const object = (v: Prisma.JsonValue | undefined) =>
   v && typeof v === 'object' && !Array.isArray(v) ? v : {};
 const payment_policy = (trip: Trip) =>
   object(object(trip.quotes[0]?.category_snapshot).payment_policy);
+const wallet_available_for = (trip: Trip) =>
+  trip.status === 'COMPLETED' &&
+  trip.currency === 'INR' &&
+  Boolean(trip.final_fare?.gt(0) && trip.driver && !trip.settlement_review);
+const awaiting_wallet = (trip: Trip) =>
+  wallet_available_for(trip) &&
+  trip.payment?.status === 'PENDING' &&
+  trip.payment.collection_method === 'WALLET' &&
+  trip.payment.updated_at.getTime() + 120_000 > Date.now();
 const notify = (
   tx: TransactionClient,
   user_id: string,
@@ -684,6 +697,26 @@ export class DriverOperationsService {
       (trip.driver ? await this.approved_upi(trip.driver.user_id) : null);
     const contact = is_driver ? trip.rider : trip.driver?.user;
     const policy = payment_policy(trip);
+    const manageable_payment =
+      !trip.payment ||
+      (['PENDING', 'FAILED'].includes(trip.payment.status) &&
+        !trip.payment.provider &&
+        !trip.payment.provider_payment_id);
+    const pending_wallet_choice = awaiting_wallet(trip);
+    const wallet_active =
+      manageable_payment &&
+      wallet_available_for(trip) &&
+      (trip.rider_id === user_id || pending_wallet_choice) &&
+      (await read_wallet_controls(this.database.client))
+        .wallet_ride_collection_enabled;
+    const wallet_selected = wallet_active && pending_wallet_choice;
+    const wallet_enabled = trip.rider_id === user_id && wallet_active;
+    const wallet = wallet_enabled
+      ? await this.database.client.wallet.findUnique({
+          where: { user_id_kind: { user_id, kind: 'RIDER' } },
+          select: { available_paise: true },
+        })
+      : null;
     const free_wait_minutes =
       typeof policy.free_pickup_wait_minutes === 'number'
         ? policy.free_pickup_wait_minutes
@@ -705,10 +738,8 @@ export class DriverOperationsService {
       collection_preference: trip.collection_preference,
       direct_collection_allowed:
         trip.status === 'COMPLETED' &&
-        (!trip.payment ||
-          (['PENDING', 'FAILED'].includes(trip.payment.status) &&
-            !trip.payment.provider &&
-            !trip.payment.provider_payment_id)),
+        !(is_driver && wallet_selected) &&
+        manageable_payment,
       status: trip.status,
       trip: {
         id: trip.id,
@@ -858,7 +889,12 @@ export class DriverOperationsService {
             amount: trip.payment.amount,
             provider_managed:
               !!trip.payment.provider || !!trip.payment.provider_payment_id,
-            method: trip.payment.collection_method,
+            method:
+              manageable_payment &&
+              trip.payment.collection_method === 'WALLET' &&
+              !wallet_selected
+                ? null
+                : trip.payment.collection_method,
             recipient_upi: trip.payment.recipient_upi,
             unpaid_reason: trip.payment.unpaid_reason,
           }
@@ -866,8 +902,13 @@ export class DriverOperationsService {
       payment_options: {
         cash: policy.cash_enabled !== false,
         upi: policy.direct_upi_enabled === true && !!upi,
+        wallet: wallet_enabled,
+        wallet_available_paise: wallet_enabled
+          ? String(wallet?.available_paise ?? 0)
+          : null,
         upi_handle: trip.status === 'COMPLETED' ? upi : null,
       },
+      wallet_payment_selected: wallet_selected,
       review_payment_upi:
         trip.settlement_review?.status === 'APPROVED' &&
         trip.settlement_review.fee_amount.gt(0) &&
@@ -1204,7 +1245,7 @@ export class DriverOperationsService {
         trip.rider_id,
         ride_id,
         'Ride completed',
-        'Pay the displayed fare directly to the driver. Payment remains pending until the driver confirms receipt.',
+        'Choose an available method to pay the displayed fare.',
       );
       await create_user_log(tx, {
         actor_id: user_id,
@@ -1220,7 +1261,7 @@ export class DriverOperationsService {
   async payment(
     user_id: string,
     ride_id: string,
-    method: 'CASH' | 'UPI',
+    method: 'CASH' | 'UPI' | 'WALLET',
     receipt?: { received: boolean; reason?: string },
   ) {
     await this.write(user_id, ride_id, !!receipt, async (tx, trip) => {
@@ -1250,6 +1291,46 @@ export class DriverOperationsService {
           'PAYMENT_REVIEW_REQUIRED',
           'This payment is managed or already resolved through another payment flow. Contact Support.',
         );
+      const wallet_selected = awaiting_wallet(trip);
+      const check_wallet =
+        (method === 'WALLET' || (!!receipt && wallet_selected)) &&
+        wallet_available_for(trip);
+      if (check_wallet)
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${payout_schedule_lock}::int)`;
+      const wallet_active =
+        check_wallet &&
+        (await read_wallet_controls(tx)).wallet_ride_collection_enabled;
+      if (receipt && wallet_active && wallet_selected)
+        throw new AppError(
+          409,
+          'WALLET_PAYMENT_SELECTED',
+          'The rider selected Wallet. Wait for confirmation or ask the rider to change the payment method.',
+        );
+      if (method === 'WALLET') {
+        if (receipt || trip.rider_id !== user_id || !wallet_active)
+          throw new AppError(
+            409,
+            'WALLET_UNAVAILABLE',
+            'Wallet payment is unavailable for this ride.',
+          );
+        await tx.payment.upsert({
+          where: { ride_id },
+          create: {
+            ride_id,
+            amount: trip.final_fare,
+            currency: trip.currency,
+            collection_method: 'WALLET',
+            status: 'PENDING',
+          },
+          update: {
+            collection_method: 'WALLET',
+            status: 'PENDING',
+            recipient_upi: null,
+            failed_at: null,
+          },
+        });
+        return;
+      }
       require_supported_ride_payment(trip.quotes[0]?.category_snapshot, method);
       const upi =
         method === 'UPI'

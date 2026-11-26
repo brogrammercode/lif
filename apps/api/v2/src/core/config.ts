@@ -102,6 +102,13 @@ const CONFIG_SCHEMA = z.object({
     .string()
     .min(16)
     .default(DEVELOPMENT_WEBHOOK_SECRET),
+  RAZORPAY_WALLET_KEY_ID: z.string().trim().default(''),
+  RAZORPAY_WALLET_KEY_SECRET: z.string().trim().default(''),
+  RAZORPAY_WALLET_WEBHOOK_SECRET: z.string().trim().default(''),
+  RAZORPAY_X_KEY_ID: z.string().trim().default(''),
+  RAZORPAY_X_KEY_SECRET: z.string().trim().default(''),
+  RAZORPAY_X_SOURCE_ACCOUNT: z.string().trim().default(''),
+  CRON_SECRET: z.string().min(16).optional(),
 });
 const parsed_config = CONFIG_SCHEMA.safeParse(process.env);
 if (!parsed_config.success) {

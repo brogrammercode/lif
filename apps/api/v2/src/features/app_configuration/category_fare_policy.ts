@@ -151,9 +151,19 @@ export async function save_category_fares(
       }
       for (const rate of input.rates) {
         const category = byId.get(rate.category_id)!;
+        const fare =
+          rate.fare_policy === null
+            ? null
+            : {
+                ...rate.fare_policy,
+                commission_percent:
+                  rate.fare_policy.commission_percent ??
+                  category.commission_percent?.toNumber() ??
+                  0,
+              };
         if (
           JSON.stringify(category_fare_values(category)) ===
-          JSON.stringify(rate.fare_policy)
+          JSON.stringify(fare)
         )
           continue;
         const result = await tx.vehicleCategory.updateMany({
@@ -162,7 +172,7 @@ export async function save_category_fares(
             updated_at: new Date(rate.expected_updated_at),
           },
           data: {
-            ...category_fare_data(rate.fare_policy),
+            ...category_fare_data(fare),
             updated_at: new Date(
               Math.max(Date.now(), category.updated_at.getTime() + 1),
             ),
@@ -180,7 +190,7 @@ export async function save_category_fares(
           entity_id: category.id,
           action: 'UPDATE_CATEGORY_FARE_POLICY',
           before_data: category_fare_values(category),
-          after_data: rate.fare_policy,
+          after_data: fare,
         });
       }
       const { expected_version: _, rates: __, ...settings } = input;

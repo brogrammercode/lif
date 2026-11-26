@@ -9,10 +9,11 @@ export const trip_message_input = z
   })
   .strict();
 export const trip_payment_input = z
-  .object({ method: z.enum(['CASH', 'UPI']) })
+  .object({ method: z.enum(['CASH', 'UPI', 'WALLET']) })
   .strict();
 export const trip_collection_input = trip_payment_input
   .extend({
+    method: z.enum(['CASH', 'UPI']),
     received: z.boolean(),
     reason: z.string().trim().min(5).max(1000).optional(),
   })

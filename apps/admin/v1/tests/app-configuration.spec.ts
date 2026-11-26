@@ -18,6 +18,111 @@ const categories = [
   { id: "disabled", name: "Disabled Sedan" },
 ];
 
+test("persists payment controls through payout settings", async ({ page }) => {
+  await mockConfiguration(page);
+  const settings = {
+    enabled: false,
+    frequency: "WEEKLY",
+    minute_of_day_ist: 0,
+    weekday_ist: 1,
+    month_day_ist: 1,
+    minimum_paise: "0",
+    require_approval: true,
+    version: 1,
+    next_run_at: null,
+    transfers_enabled: false,
+    submission_state: "schedule_paused",
+    wallet_ride_collection_enabled: false,
+    wallet_topup_mode: "disabled",
+    wallet_live_topup_approved: false,
+    razorpay_x_upi_setup_enabled: false,
+    razorpay_x_transfers_enabled: false,
+    provider_readiness: {
+      gateway_mode: "live",
+      topup_active: false,
+      razorpay_x_ready: true,
+    },
+  };
+  await page.route("**/api/v2/admin/payouts/**", (route) => {
+    if (!new URL(route.request().url()).pathname.endsWith("/settings"))
+      return route.fulfill({
+        json: { status: "success", data: { rows: [], has_more: false } },
+      });
+    if (route.request().method() === "PUT") {
+      const { expected_version, ...values } = route.request().postDataJSON();
+      expect(expected_version).toBe(settings.version);
+      expect(values).not.toHaveProperty("provider_readiness");
+      expect(values).not.toHaveProperty("transfers_enabled");
+      expect(values).not.toHaveProperty("submission_state");
+      Object.assign(settings, values, { version: settings.version + 1 });
+    }
+    return route.fulfill({ json: { status: "success", data: settings } });
+  });
+  await page.goto("/app/user/payouts");
+  await expect(
+    page.getByText("The payout schedule is paused.", { exact: true }),
+  ).toBeVisible();
+  const open = page.getByRole("button", { name: "Settings", exact: true });
+  await open.click();
+  const dialog = page.getByRole("dialog", { name: "Payout settings" });
+  await dialog.getByLabel("Allow wallet payment for rides").check();
+  await dialog.getByLabel("Allow drivers to verify a payout UPI ID").check();
+  await dialog.getByLabel("Submit payouts to RazorpayX").check();
+  await dialog.getByLabel("Wallet top-ups").selectOption("live");
+  await dialog
+    .getByLabel("Confirm the live wallet arrangement is approved")
+    .check();
+  await dialog.getByRole("button", { name: "Save settings" }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(settings).toMatchObject({
+    wallet_ride_collection_enabled: true,
+    razorpay_x_upi_setup_enabled: true,
+    razorpay_x_transfers_enabled: true,
+    wallet_topup_mode: "live",
+    wallet_live_topup_approved: true,
+  });
+});
+
+test("previews gross, commission and net for the next payout", async ({
+  page,
+}) => {
+  await mockConfiguration(page);
+  const next = "2027-02-28T03:30:00.000Z";
+  await page.route("**/api/v2/admin/payouts/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const data = path.endsWith("/upcoming")
+      ? {
+          next_run_at: next,
+          has_more: false,
+          rows: [
+            {
+              driver_id: "driver",
+              driver_name: "Payout Driver",
+              gross_paise: "10000",
+              commission_paise: "1000",
+              net_paise: "9000",
+              eligibility: "Eligible",
+            },
+          ],
+        }
+      : path.endsWith("/settings")
+        ? { next_run_at: next, enabled: true, transfers_enabled: false }
+        : { rows: [], has_more: false };
+    return route.fulfill({ json: { status: "success", data } });
+  });
+  await page.goto("/app/user/payouts");
+  await page.getByRole("button", { name: "Upcoming payouts" }).click();
+  const preview = page.getByRole("dialog", { name: "Upcoming payouts" });
+  await expect(
+    preview.getByRole("link", { name: "Payout Driver" }),
+  ).toHaveAttribute("href", "/users/driver/wallet-ledger?kind=DRIVER");
+  for (const value of ["₹100.00", "₹10.00", "₹90.00", "Eligible"]) {
+    await expect(
+      preview.getByRole("cell", { name: value, exact: true }),
+    ).toBeVisible();
+  }
+});
+
 for (const entry of [
   {
     name: "fare policy",

@@ -17,6 +17,27 @@ class SettingsAccount {
 }
 
 class SettingsRepository {
+  SettingsRepository({DioClient? walletClient}) : _walletClient = walletClient;
+  final DioClient? _walletClient;
+  DioClient get walletClient => _walletClient ?? DioClient();
+
+  Future<int> walletProfileAmount({required bool driver}) async {
+    final data =
+        ApiResult.unwrap(
+              await walletClient.getData(
+                '/wallet',
+                queryParameters: {
+                  'kind': driver ? 'DRIVER' : 'RIDER',
+                  'page_size': 1,
+                },
+              ),
+            )
+            as Map;
+    return int.parse(
+      data[driver ? 'earnings_paise' : 'available_paise'] as String,
+    );
+  }
+
   Future<SettingsAccount> load() async {
     final user = await AuthRepository().currentUser();
     // Resolve the account-scoped mode before enabling mode-dependent shortcuts.

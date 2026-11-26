@@ -18,6 +18,7 @@ export const category_fare_input = z
     max_profit_km: fare_number(3, 100000),
     normal_fare_per_km: fare_number(2, 1000000),
     profit_fare_per_km: fare_number(2, 1000000),
+    commission_percent: fare_number(2, 100).optional(),
   })
   .strict();
 export type CategoryFare = z.infer<typeof category_fare_input>;
@@ -25,11 +26,13 @@ export function category_fare_values(category: {
   max_profit_km?: Prisma.Decimal | null;
   normal_fare_per_km?: Prisma.Decimal | null;
   profit_fare_per_km?: Prisma.Decimal | null;
+  commission_percent?: Prisma.Decimal | null;
 }): CategoryFare | null {
   const parsed = category_fare_input.safeParse({
     max_profit_km: category.max_profit_km?.toNumber(),
     normal_fare_per_km: category.normal_fare_per_km?.toNumber(),
     profit_fare_per_km: category.profit_fare_per_km?.toNumber(),
+    commission_percent: category.commission_percent?.toNumber() ?? 0,
   });
   return parsed.success ? parsed.data : null;
 }
@@ -37,6 +40,9 @@ export const category_fare_data = (fare: CategoryFare | null) => ({
   max_profit_km: fare?.max_profit_km ?? null,
   normal_fare_per_km: fare?.normal_fare_per_km ?? null,
   profit_fare_per_km: fare?.profit_fare_per_km ?? null,
+  ...(fare?.commission_percent !== undefined
+    ? { commission_percent: fare.commission_percent }
+    : {}),
 });
 
 /** Round money once after adding both distance bands; duration is not priced. */

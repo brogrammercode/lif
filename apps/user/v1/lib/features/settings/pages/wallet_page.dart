@@ -4,15 +4,18 @@ import 'package:user/core/routes.dart';
 import 'package:user/features/rides/ride_display.dart' show rideMoney;
 import 'package:user/features/rides/widgets/ride_history_layout.dart';
 import 'package:user/features/rides/pages/ride_detail_page.dart';
-import 'package:user/features/driver_operations/driver_operations.repo.dart';
-import 'package:user/features/user_app/user_app.repo.dart';
 import 'wallet_transaction_flow.dart';
 import 'package:user/features/settings/controllers/settings_controller.dart';
+import 'package:user/features/settings/controllers/wallet_controller.dart';
 import 'package:user/features/settings/widgets/wallet_identity_card.dart';
+import 'package:user/features/settings/widgets/wallet_checkout_form.dart';
+import 'package:user/features/settings/widgets/wallet_sheet.dart';
+import 'package:user/features/settings/widgets/payout_setup_form.dart';
 
 class WalletPage extends StatefulWidget {
   final SettingsController controller;
-  const WalletPage({super.key, required this.controller});
+  final bool driver;
+  const WalletPage({super.key, required this.controller, required this.driver});
 
   @override
   State<WalletPage> createState() => _WalletPageState();
@@ -20,50 +23,135 @@ class WalletPage extends StatefulWidget {
 
 class _WalletPageState extends State<WalletPage> {
   final _history = GlobalKey();
-
-  void _addMoney() => Navigator.push(
-    context,
-    MaterialPageRoute<void>(
-      builder: (_) => WalletAddMoneyPage(controller: widget.controller),
-    ),
+  late final _wallet = WalletController(
+    driver: widget.driver,
+    client: widget.controller.repository.walletClient,
   );
 
+  @override
+  void initState() {
+    super.initState();
+    _wallet.load();
+    if (widget.driver) {
+      _wallet.loadPayoutMethods();
+    } else {
+      _wallet.loadTopUps();
+    }
+  }
+
+  @override
+  void dispose() {
+    _wallet.dispose();
+    super.dispose();
+  }
+
   Future<void> _showTransaction(WalletTransaction transaction) async {
-    final rideId = transaction.rideId;
-    if (transaction.processing || rideId == null) {
-      await Navigator.push(
-        context,
-        MaterialPageRoute<void>(
-          builder: (_) => WalletProgressPage(
-            controller: widget.controller,
-            reference: transaction.reference,
-          ),
+    if (transaction.payoutId case final id?) {
+      await _showWalletSheet(
+        title: 'Payout details',
+        content: FutureBuilder<DriverPayoutDetail>(
+          future: _wallet.payoutDetail(id),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return const Text(
+                'Could not load this payout. Reopen it to try again.',
+              );
+            }
+            final detail = snapshot.data;
+            if (detail == null) {
+              return const Center(child: CircularProgressIndicator.adaptive());
+            }
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              spacing: 8,
+              children: [
+                Text('Payout amount · ${rideMoney(detail.amountPaise / 100)}'),
+                Text('Status · ${detail.status}'),
+                if (detail.grossPaise case final gross?)
+                  Text('Gross fares · ${rideMoney(gross / 100)}'),
+                if (detail.commissionPaise case final commission?)
+                  Text('Commission · −${rideMoney(commission / 100)}'),
+                if (detail.netPaise case final net?)
+                  Text('Net ride earnings · ${rideMoney(net / 100)}'),
+                if (detail.adjustmentsPaise != 0)
+                  Text(
+                    'Adjustments · ${rideMoney(detail.adjustmentsPaise / 100)}',
+                  ),
+                if (detail.maskedDestination case final label?)
+                  Text('Destination · $label'),
+                if (detail.utr case final utr?) SelectableText('UTR · $utr'),
+              ],
+            );
+          },
         ),
       );
       return;
     }
-    final demo = widget.controller.walletRidePreview(transaction);
-    try {
+    final rideId = transaction.rideId;
+    final gross = transaction.grossPaise;
+    final commission = transaction.commissionPaise;
+    if (gross != null && commission != null) {
+      await _showWalletSheet(
+        title: 'Ride earnings',
+        value: rideMoney(transaction.paise / 100),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Gross fare · ${rideMoney(gross / 100)}'),
+            const SizedBox(height: 8),
+            Text(
+              'Commission (${transaction.commissionPercent ?? '0'}%) · −${rideMoney(commission / 100)}',
+            ),
+            const SizedBox(height: 8),
+            Text('Net earnings · ${rideMoney(transaction.paise / 100)}'),
+            if (rideId != null) ...[
+              const SizedBox(height: 16),
+              SolidButton(
+                text: 'View ride',
+                onPressed: () {
+                  Navigator.pop(context);
+                  showRideHistorySheet(
+                    context,
+                    rideId: rideId,
+                    driverHistory: true,
+                  );
+                },
+              ),
+            ],
+          ],
+        ),
+      );
+      return;
+    }
+    if (rideId != null) {
       await showRideHistorySheet(
         context,
         rideId: rideId,
-        repository: UserAppRepository(client: demo.transport),
-        operationsRepository: DriverOperationsRepository(
-          client: demo.transport,
-        ),
-        preview: true,
+        driverHistory: widget.driver,
       );
-    } finally {
-      demo.dispose();
+      return;
     }
+    await _showWalletSheet(
+      title: transaction.title,
+      value: rideMoney(transaction.paise / 100),
+      content: SelectableText('Reference: ${transaction.reference}'),
+    );
   }
+
+  Future<void> _showWalletSheet({
+    required String title,
+    required Widget content,
+    String? value,
+  }) => showWalletSheet(context, title: title, content: content, value: value);
 
   @override
   Widget build(BuildContext context) => SolidPage(
     title: 'My Wallet',
     bodyColor: Colors.black,
     child: ListenableBuilder(
-      listenable: widget.controller,
+      listenable: _wallet,
       builder: (context, _) => CustomScrollView(
         slivers: [
           SliverToBoxAdapter(
@@ -72,13 +160,18 @@ class _WalletPageState extends State<WalletPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text(
-                    'Wallet balance',
-                    style: TextStyle(color: Color(0xFFBBC0CA), fontSize: 14),
+                  Text(
+                    widget.driver ? 'Available earnings' : 'Wallet balance',
+                    style: const TextStyle(
+                      color: Color(0xFFBBC0CA),
+                      fontSize: 14,
+                    ),
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    rideMoney(widget.controller.summary['wallet']),
+                    _wallet.loaded
+                        ? rideMoney(_wallet.availablePaise / 100)
+                        : '—',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 38,
@@ -86,54 +179,81 @@ class _WalletPageState extends State<WalletPage> {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: 22),
-                  WalletIdentityCard(
-                    walletId: widget.controller.walletId,
-                    cardholder: widget.controller.walletCardholder,
-                    expiry: widget.controller.walletExpiry,
-                  ),
+                  if (widget.driver && _wallet.loaded)
+                    Text(
+                      'Processing payout · ${rideMoney(_wallet.heldPaise / 100)}',
+                      style: const TextStyle(
+                        color: Color(0xFFBBC0CA),
+                        fontSize: 14,
+                      ),
+                    ),
+                  if (_wallet.walletId case final id?) ...[
+                    const SizedBox(height: 22),
+                    WalletIdentityCard(
+                      walletId: id.length > 12
+                          ? id.substring(id.length - 12)
+                          : id,
+                      cardholder: widget.controller.walletCardholder,
+                      expiry: '',
+                    ),
+                  ],
                   const SizedBox(height: 24),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: _WalletAction(
-                          icon: Icons.add,
-                          label: 'Add money',
-                          onPressed: _addMoney,
+                  if (widget.driver)
+                    Center(
+                      child: _WalletAction(
+                        icon: Icons.account_balance_outlined,
+                        label: 'Setup payout',
+                        onPressed: () => _showWalletSheet(
+                          title: 'Setup payout',
+                          content: PayoutSetupForm(wallet: _wallet),
                         ),
                       ),
-                      Expanded(
-                        child: _WalletAction(
-                          icon: Icons.credit_card_outlined,
-                          label: 'Payment methods',
-                          onPressed: () => Navigator.pushNamed(
-                            context,
-                            AppRoutes.paymentMethods,
+                    )
+                  else
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: _WalletAction(
+                            icon: Icons.add,
+                            label: 'Add money',
+                            onPressed: () => _showWalletSheet(
+                              title: 'Add money',
+                              content: WalletCheckoutForm(wallet: _wallet),
+                            ),
                           ),
                         ),
-                      ),
-                      Expanded(
-                        child: _WalletAction(
-                          icon: Icons.history_rounded,
-                          label: 'Activity',
-                          onPressed: () {
-                            final history = _history.currentContext;
-                            if (history != null) {
-                              Scrollable.ensureVisible(
-                                history,
-                                alignment: 0,
-                                duration:
-                                    MediaQuery.disableAnimationsOf(context)
-                                    ? Duration.zero
-                                    : const Duration(milliseconds: 250),
-                              );
-                            }
-                          },
+                        Expanded(
+                          child: _WalletAction(
+                            icon: Icons.credit_card_outlined,
+                            label: 'Payment methods',
+                            onPressed: () => Navigator.pushNamed(
+                              context,
+                              AppRoutes.paymentMethods,
+                            ),
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
+                        Expanded(
+                          child: _WalletAction(
+                            icon: Icons.history_rounded,
+                            label: 'Activity',
+                            onPressed: () {
+                              final history = _history.currentContext;
+                              if (history != null) {
+                                Scrollable.ensureVisible(
+                                  history,
+                                  alignment: 0,
+                                  duration:
+                                      MediaQuery.disableAnimationsOf(context)
+                                      ? Duration.zero
+                                      : const Duration(milliseconds: 250),
+                                );
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
                 ],
               ),
             ),
@@ -154,16 +274,54 @@ class _WalletPageState extends State<WalletPage> {
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: const RideHistoryHeading('Transaction history'),
                   ),
-                  if (widget.controller.walletTransactions.isEmpty)
+                  if (_wallet.loading && !_wallet.loaded)
+                    const Center(child: CircularProgressIndicator.adaptive()),
+                  if (_wallet.error case final message?)
+                    ListTile(
+                      title: Text(message),
+                      trailing: TextButton(
+                        onPressed: _wallet.loading
+                            ? null
+                            : () => _wallet.load(),
+                        child: const Text('Retry'),
+                      ),
+                    ),
+                  for (final topUp in _wallet.topUps.where(
+                    (item) => item.status != 'CAPTURED',
+                  ))
+                    ListTile(
+                      title: Text(topUp.label),
+                      subtitle: Text(
+                        MaterialLocalizations.of(
+                          context,
+                        ).formatShortDate(topUp.createdAt.toLocal()),
+                      ),
+                      trailing: Text(rideMoney(topUp.paise / 100)),
+                      onTap: topUp.pending
+                          ? () => _showWalletSheet(
+                              title: 'Top-up status',
+                              content: WalletCheckoutForm(wallet: _wallet),
+                            )
+                          : null,
+                    ),
+                  if (_wallet.loaded &&
+                      _wallet.transactions.isEmpty &&
+                      _wallet.topUps.isEmpty)
                     const _EmptyWalletHistory(),
-                  for (final transaction
-                      in widget.controller.walletTransactions)
+                  for (final transaction in _wallet.transactions)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 10),
                       child: WalletTransactionCard(
                         transaction,
                         onTap: () => _showTransaction(transaction),
                       ),
+                    ),
+                  if (_wallet.hasMore)
+                    TextButton(
+                      onPressed: _wallet.loading
+                          ? null
+                          : () => _wallet.load(more: true),
+                      child: const Text('Load more'),
                     ),
                 ],
               ),
@@ -236,12 +394,12 @@ class _EmptyWalletHistory extends StatelessWidget {
 class _WalletAction extends StatelessWidget {
   final IconData icon;
   final String label;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   const _WalletAction({
     required this.icon,
     required this.label,
-    required this.onPressed,
+    this.onPressed,
   });
 
   @override
@@ -264,7 +422,12 @@ class _WalletAction extends StatelessWidget {
             Text(
               label,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white, fontSize: 12),
+              style: TextStyle(
+                color: onPressed == null
+                    ? const Color(0xFFBBC0CA)
+                    : Colors.white,
+                fontSize: 12,
+              ),
             ),
           ],
         ),

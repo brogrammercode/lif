@@ -39,6 +39,9 @@ export const place_input = z
 export const place_update = place_input.extend({
   version: z.number().int().positive(),
 });
+export const place_remove = z
+  .object({ version: z.number().int().positive() })
+  .strict();
 export const place_list = z
   .object({
     page: z.coerce.number().int().min(1).max(100000).default(1),

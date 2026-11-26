@@ -1537,6 +1537,14 @@
   },
   {
     "feature": "places",
+    "handler": "remove",
+    "method": "delete",
+    "path": "places/:id",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "places",
     "handler": "bookmark",
     "method": "put",
     "path": "places/:id/bookmark",
@@ -1581,6 +1589,214 @@
     "method": "delete",
     "path": "places/:id/photos/:photo_id",
     "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "view",
+    "method": "get",
+    "path": "wallet",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "user_ledger",
+    "method": "get",
+    "path": "admin/users/:id/wallet-ledger",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "pay_ride",
+    "method": "post",
+    "path": "rides/:id/payments/wallet",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "cycles",
+    "method": "get",
+    "path": "admin/payouts/cycles",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "cycle_drivers",
+    "method": "get",
+    "path": "admin/payouts/cycles/:id/drivers",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "payout_lines",
+    "method": "get",
+    "path": "admin/payouts/drivers/:id/lines",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "schedule",
+    "method": "get",
+    "path": "admin/payouts/settings",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "save_schedule",
+    "method": "put",
+    "path": "admin/payouts/settings",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "payout_cron",
+    "handler": "tick",
+    "method": "get",
+    "path": "internal/payout-cycles",
+    "guards": [],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "list_topups",
+    "method": "get",
+    "path": "wallet/topups",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "start_topup",
+    "method": "post",
+    "path": "wallet/topups",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "check_topup",
+    "method": "post",
+    "path": "wallet/topups/:id/check",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet_webhook",
+    "handler": "receive",
+    "method": "post",
+    "path": "wallet/webhooks/razorpay",
+    "guards": [],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "edit_payout",
+    "method": "patch",
+    "path": "admin/payouts/drivers/:id",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "blocks",
+    "method": "get",
+    "path": "admin/payouts/blocks",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "block",
+    "method": "put",
+    "path": "admin/payouts/blocks",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "cycle_report",
+    "method": "get",
+    "path": "admin/payouts/cycles/:id/report",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "payout_methods_list",
+    "method": "get",
+    "path": "driver/wallet/payout-methods",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "payout_method_setup",
+    "method": "post",
+    "path": "driver/wallet/payout-methods",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "payout_method_check",
+    "method": "post",
+    "path": "driver/wallet/payout-methods/:id/check",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "approve_cycle",
+    "method": "post",
+    "path": "admin/payouts/cycles/:id/approve",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "driver_payout",
+    "method": "get",
+    "path": "driver/wallet/payouts/:id",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "upcoming",
+    "method": "get",
+    "path": "admin/payouts/upcoming",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "reconcile_payout",
+    "method": "post",
+    "path": "admin/payouts/drivers/:id/reconcile",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "reconcile_topup",
+    "method": "post",
+    "path": "admin/users/:id/wallet-ledger/topups/:topup_id/reconcile",
+    "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "refund_ride",
+    "method": "post",
+    "path": "admin/users/:id/wallet-ledger/rides/:ride_id/refund",
+    "guards": ["AuthGuard", "AdminGuard"],
     "idempotent": false
   }
 ]

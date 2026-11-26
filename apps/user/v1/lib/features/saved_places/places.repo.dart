@@ -50,6 +50,12 @@ class PlacesRepository {
     return savedId;
   }
 
+  Future<void> remove(String id, int version) async => ApiResult.unwrap(
+    await _client.dio
+        .delete('/places/${Uri.encodeComponent(id)}', data: {'version': version})
+        .then((response) => response.data),
+  );
+
   Future<void> bookmark(String id, bool value) async => ApiResult.unwrap(
     await _client.dio
         .put(

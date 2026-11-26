@@ -759,6 +759,35 @@ class _RiderTripState extends State<RideDetailPage>
             recenter: _recenter,
             phase: _controller.status,
           );
+    if (_controller.status == 'COMPLETED' &&
+        ![
+          'CAPTURED',
+          'CANCELLED',
+          'REFUNDED',
+          'PARTIALLY_REFUNDED',
+        ].contains(rideMap(_controller.data?['payment'])['status'])) {
+      return RiderFlowScaffold(
+        title: 'Payment',
+        phase: 'PAYMENT',
+        map: widget.mapBuilder?.call(map) ?? map,
+        onRefresh: _load,
+        statusStrip: RideArrivalStrip(
+          label: 'Ride payment',
+          value: rideMoney(_controller.trip['final_fare']),
+        ),
+        panel: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+          child: TripActionsPanel(
+            rideId: _controller.id!,
+            externalContext: _controller.data,
+            repository: _controller.ops,
+            onChanged: _changed,
+            compactRiderPayment: true,
+            hideContacts: true,
+          ),
+        ),
+      );
+    }
     if (_controller.status == 'COMPLETED') {
       return RiderFlowScaffold(
         title: "You've arrived",

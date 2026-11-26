@@ -213,14 +213,19 @@ it('category saves remain independent, support clearing one fare and reject rena
         Object.assign(category, {
           ...data,
           ...Object.fromEntries(
-            ['max_profit_km', 'normal_fare_per_km', 'profit_fare_per_km'].map(
-              (key) => [
+            [
+              'max_profit_km',
+              'normal_fare_per_km',
+              'profit_fare_per_km',
+              'commission_percent',
+            ]
+              .filter((key) => key in data)
+              .map((key) => [
                 key,
                 data[key] === null
                   ? null
                   : new Prisma.Decimal(data[key] as number),
-              ],
-            ),
+              ]),
           ),
         });
         return { count: 1 };
@@ -246,6 +251,7 @@ it('category saves remain independent, support clearing one fare and reject rena
           max_profit_km: 1,
           normal_fare_per_km: 33,
           profit_fare_per_km: 44,
+          commission_percent: 12.5,
         },
       },
     ],
@@ -261,6 +267,16 @@ it('category saves remain independent, support clearing one fare and reject rena
     10,
   );
   assert.equal(writes, 1);
+  assert.equal(
+    saved.rates.find((r) => r.category_id === 'economy')!.fare_policy!
+      .commission_percent,
+    12.5,
+  );
+  assert.equal(
+    saved.rates.find((r) => r.category_id === 'premium')!.fare_policy!
+      .commission_percent,
+    0,
+  );
   await assert.rejects(
     service.save_fare_policy('admin', { ...settings, expected_version: 2 }),
     { error_code: 'CATEGORY_FARE_CONFLICT' },

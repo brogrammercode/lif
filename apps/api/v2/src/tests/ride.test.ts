@@ -279,6 +279,7 @@ it('rounds the distance-only fare using saved profit and normal rates', async ()
     max_profit_km: new Prisma.Decimal(3),
     profit_fare_per_km: new Prisma.Decimal('2.01'),
     normal_fare_per_km: new Prisma.Decimal('2.01'),
+    commission_percent: new Prisma.Decimal('12.50'),
     is_active: true,
     sort_order: 0,
     created_at: new Date(),
@@ -292,6 +293,7 @@ it('rounds the distance-only fare using saved profit and normal rates', async ()
       id: 'premium',
       name: 'Premium Sedan',
       profit_fare_per_km: new Prisma.Decimal(20),
+      commission_percent: new Prisma.Decimal(5),
     },
     {
       ...category,
@@ -348,6 +350,22 @@ it('rounds the distance-only fare using saved profit and normal rates', async ()
     assert.equal(captured[1]?.total_fare, 10);
     assert.equal(captured[2]?.total_fare, 15);
     assert.equal(captured[1]?.vehicle_type, captured[0]?.vehicle_type);
+    assert.equal(
+      (
+        captured[0]?.category_snapshot.payment_policy as {
+          commission_percent?: number;
+        }
+      ).commission_percent,
+      12.5,
+    );
+    assert.equal(
+      (
+        captured[1]?.category_snapshot.payment_policy as {
+          commission_percent?: number;
+        }
+      ).commission_percent,
+      5,
+    );
     assert.equal(captured[1]?.category_snapshot.fare_category_id, 'premium');
     assert.equal(captured[2]?.category_snapshot.parent_name, 'Fixture');
     assert.equal('fare_group' in captured[0]!.category_snapshot, false);

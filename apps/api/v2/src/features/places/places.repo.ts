@@ -61,7 +61,14 @@ export class PlacesRepository {
       }),
     ]);
     return rows.map(
-      ({ dedupe_key: _, saved_places, _count, visits: recent, ...row }) => ({
+      ({
+        dedupe_key: _,
+        archived_at: __,
+        saved_places,
+        _count,
+        visits: recent,
+        ...row
+      }) => ({
         ...row,
         saved: saved_places.length > 0,
         visited_at:
@@ -95,6 +102,7 @@ export class PlacesRepository {
   }
   async list(user_id: string, input: PlaceList) {
     const where: Prisma.CommunityPlaceWhereInput = {
+      archived_at: null,
       ...(input.scope === 'saved'
         ? { saved_places: { some: { user_id } } }
         : {}),
@@ -126,7 +134,13 @@ export class PlacesRepository {
     };
   }
   async detail(user_id: string, id: string) {
-    const rows = await this.rows({ id }, user_id, 0, 1, true);
+    const rows = await this.rows(
+      { id, archived_at: null },
+      user_id,
+      0,
+      1,
+      true,
+    );
     if (!rows.length)
       throw new AppError(
         404,
@@ -206,7 +220,7 @@ export class PlacesRepository {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(720061, hashtext(${id}))`;
       if (
         !(await tx.communityPlace.findUnique({
-          where: { id },
+          where: { id, archived_at: null },
           select: { id: true },
         }))
       )
@@ -245,7 +259,7 @@ export class PlacesRepository {
           'This place already exists. Save the existing place instead.',
         );
       const result = await tx.communityPlace.updateMany({
-        where: { id, created_by_id: user_id, version },
+        where: { id, created_by_id: user_id, version, archived_at: null },
         data: {
           ...data,
           dedupe_key: key,
@@ -269,6 +283,25 @@ export class PlacesRepository {
         },
       });
       return { id };
+    });
+  }
+  async remove(user_id: string, id: string, version: number) {
+    return this.write(user_id, id, 'ARCHIVE_SHARED_PLACE', async (tx) => {
+      const result = await tx.communityPlace.updateMany({
+        where: { id, created_by_id: user_id, version, archived_at: null },
+        data: {
+          archived_at: new Date(),
+          dedupe_key: `archived:${id}`,
+          version: { increment: 1 },
+        },
+      });
+      if (!result.count)
+        throw new AppError(
+          409,
+          'PLACE_CHANGED',
+          'Only the contributor can delete this place. Refresh before trying again.',
+        );
+      return { removed: true };
     });
   }
   async bookmark(user_id: string, id: string, value: boolean) {
@@ -355,7 +388,7 @@ export class PlacesRepository {
   }
   async photo_capacity(id: string) {
     const place = await this.database.client.communityPlace.findUnique({
-      where: { id },
+      where: { id, archived_at: null },
       select: { _count: { select: { photos: true } } },
     });
     if (!place)

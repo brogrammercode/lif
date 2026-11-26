@@ -15,6 +15,8 @@ import 'package:user/core/routes.dart';
 import 'package:user/features/driver_operations/driver_operations.repo.dart';
 import 'package:user/features/driver_operations/widgets/driver_glass.dart';
 import 'package:user/features/driver_operations/pages/trip_start_qr_scanner_page.dart';
+import 'package:user/features/settings/widgets/wallet_checkout_form.dart';
+import 'package:user/features/settings/widgets/wallet_sheet.dart';
 
 class TripActionsPanel extends StatefulWidget {
   final String rideId;
@@ -82,6 +84,17 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
   }
 
   Future<void> _load() => _controller.load();
+
+  Future<void> _addWalletMoney() async {
+    await showWalletSheet(
+      context,
+      title: 'Add money',
+      content: const StandaloneWalletCheckoutForm(),
+    );
+    if (!mounted) return;
+    if (widget.externalContext == null) await _load();
+    if (mounted) await widget.onChanged();
+  }
 
   Future<void> _scanAndStart() async {
     if (_busy) return;
@@ -310,10 +323,19 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
     final start = data['start'] as Map? ?? {};
     final payment = data['payment'] as Map? ?? {};
     final paymentStatus = payment['status'];
+    final walletSelected = data['wallet_payment_selected'] == true;
     final collectionLocked =
         data['direct_collection_allowed'] == false ||
         ![null, 'PENDING', 'FAILED'].contains(paymentStatus);
     final options = data['payment_options'] as Map? ?? {};
+    final availablePaise = int.tryParse('${options['wallet_available_paise']}');
+    final fare = num.tryParse(
+      '${payment['amount'] ?? (data['trip'] as Map?)?['final_fare']}',
+    );
+    final walletShort =
+        availablePaise != null &&
+        fare != null &&
+        availablePaise < (fare * 100).round();
     final review = data['review'] as Map?;
     if (status == 'COMPLETED' &&
         widget.hideCompletedPayment &&
@@ -338,7 +360,14 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (_error != null)
+            TextButton(onPressed: _load, child: Text('$_error · Retry')),
           if (!collectionLocked && allowed.isNotEmpty) ...[
+            Text(
+              selected == 'UPI' ? 'Collect via direct UPI' : 'Collect cash',
+              style: const TextStyle(color: RideTokens.muted),
+            ),
+            const SizedBox(height: 12),
             RideSwipeButton(
               enabled: !_busy,
               busy: _busy,
@@ -348,7 +377,11 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
               ),
             ),
           ] else
-            const Text('Waiting for payment confirmation.'),
+            Text(
+              walletSelected
+                  ? 'Rider selected Wallet. Waiting for confirmation.'
+                  : 'Waiting for payment confirmation.',
+            ),
         ],
       );
     }
@@ -511,9 +544,11 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
             if (!collectionLocked) ...[
               if (compactPayment) ...[
                 const SizedBox(height: 6),
-                const Text(
-                  'Waiting for the driver to confirm receipt.',
-                  style: TextStyle(fontSize: 13, color: RideTokens.muted),
+                Text(
+                  walletSelected
+                      ? 'Confirm the Wallet payment or choose another method.'
+                      : 'Select how you want to pay.',
+                  style: const TextStyle(fontSize: 13, color: RideTokens.muted),
                 ),
                 if (allowed.isNotEmpty) const SizedBox(height: 14),
               ] else
@@ -595,6 +630,33 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
                 ),
               ],
               if (!driver) ...[
+                if (options['wallet'] == true) ...[
+                  if (availablePaise != null)
+                    Text('Wallet balance · ${rideMoney(availablePaise / 100)}'),
+                  const SizedBox(height: 8),
+                  if (walletShort)
+                    OutlinedButton(
+                      onPressed: _busy ? null : _addWalletMoney,
+                      child: const Text('Add money to Wallet'),
+                    )
+                  else
+                    SolidButton(
+                      text: walletSelected
+                          ? 'Confirm Wallet payment'
+                          : 'Pay with Wallet',
+                      busy: _busy,
+                      minHeight: 48,
+                      onPressed: _busy
+                          ? null
+                          : () => _run(() async {
+                              if (walletSelected) {
+                                await _repo.payWithWallet(widget.rideId);
+                              } else {
+                                await _repo.payment(widget.rideId, 'WALLET');
+                              }
+                            }),
+                    ),
+                ],
                 if (options['cash'] == true)
                   OutlinedButton(
                     style: compactPayment
@@ -635,7 +697,7 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
                       onPressed: _busy ? null : _payUpi,
                     ),
               ],
-              if (allowed.isEmpty)
+              if (allowed.isEmpty && (driver || options['wallet'] != true))
                 const Text(
                   'No supported collection method is available. Contact Support.',
                 ),

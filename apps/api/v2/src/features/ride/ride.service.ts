@@ -96,7 +96,7 @@ export class RideService {
             cash_enabled: fare_policy.cash_enabled,
             direct_upi_enabled: fare_policy.direct_upi_enabled,
             online_payment_enabled: false,
-            commission_percent: 0,
+            commission_percent: rate.commission_percent ?? 0,
             free_cancellation_minutes: fare_policy.free_cancellation_minutes,
             free_pickup_wait_minutes: fare_policy.free_pickup_wait_minutes,
             cancellation_fee_percent:

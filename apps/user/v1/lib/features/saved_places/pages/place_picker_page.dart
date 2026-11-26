@@ -315,8 +315,11 @@ class PlaceSaveForm extends StatefulWidget {
 }
 
 class _SaveFormState extends State<PlaceSaveForm> {
-  late final _controller = PlaceSaveController(widget.initial, widget.photos)
-    ..addListener(_controllerChanged);
+  late final _controller = PlaceSaveController(
+    widget.initial,
+    widget.photos,
+    widget.repository,
+  )..addListener(_controllerChanged);
   void _controllerChanged() {
     if (mounted) setState(() {});
   }
@@ -351,7 +354,7 @@ class _SaveFormState extends State<PlaceSaveForm> {
   Future<void> _addPhoto() async {
     if (_busy ||
         _pickingPhoto ||
-        _existingPhotos.length + widget.photos.length >= 3) {
+        _existingPhotos.length + widget.photos.length >= 10) {
       return;
     }
     setState(() => _pickingPhoto = true);
@@ -385,6 +388,10 @@ class _SaveFormState extends State<PlaceSaveForm> {
       _name.text.trim() != placeName(widget.initial).trim() ||
       _address.text.trim() != '${widget.initial['address'] ?? ''}'.trim() ||
       _type != '${widget.initial['place_type'] ?? 'OTHER'}';
+  bool get _canDelete =>
+      widget.userId != null &&
+      widget.initial['created_by_id'] == widget.userId &&
+      widget.initial['version'] is num;
   @override
   void dispose() {
     _controller.removeListener(_controllerChanged);
@@ -400,6 +407,11 @@ class _SaveFormState extends State<PlaceSaveForm> {
 
   Future<void> _save() async {
     if (_busy || !_form.currentState!.validate()) return;
+    if (widget.initial['latitude'] is! num ||
+        widget.initial['longitude'] is! num) {
+      setState(() => _error = 'Choose a map location before saving.');
+      return;
+    }
     setState(() {
       _busy = true;
       _attempted = true;
@@ -450,6 +462,35 @@ class _SaveFormState extends State<PlaceSaveForm> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _removePlace() async {
+    if (!_canDelete || _busy) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Delete this place?'),
+        content: const Text(
+          'It will no longer appear in Saved Places. Existing contribution history will be retained.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialog),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialog, true),
+            style: TextButton.styleFrom(foregroundColor: Color(0xFFB3261E)),
+            child: const Text('Delete place'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    try {
+      await _controller.removePlace();
+      if (mounted) Navigator.pop(context, 'deleted:${widget.initial['id']}');
+    } catch (_) {}
   }
 
   Widget _field(
@@ -638,12 +679,12 @@ class _SaveFormState extends State<PlaceSaveForm> {
                                 allowAdditional:
                                     _existingPhotos.length +
                                         widget.photos.length <
-                                    3,
+                                    10,
                                 onChoose: _busy || _attempted
                                     ? null
                                     : _addPhoto,
                                 limitText:
-                                    'JPEG, PNG, or WebP | Max 3 MB | Up to 3 photos',
+                                    'JPEG, PNG, or WebP | Max 3 MB | Up to 10 photos',
                               ),
                             ),
                             if (_error != null)
@@ -679,6 +720,17 @@ class _SaveFormState extends State<PlaceSaveForm> {
                     onPressed: () => Navigator.pop(context, _savedId),
                     minHeight: 54,
                   ),
+                if (_canDelete) ...[
+                  const SizedBox(height: 4),
+                  TextButton.icon(
+                    onPressed: _busy || _attempted ? null : _removePlace,
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    label: const Text('Delete place'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFFB3261E),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

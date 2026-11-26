@@ -13,6 +13,7 @@ export type CategoryFare = {
   max_profit_km: number;
   normal_fare_per_km: number;
   profit_fare_per_km: number;
+  commission_percent?: number;
 };
 export type VehicleCategory = {
   id: string;

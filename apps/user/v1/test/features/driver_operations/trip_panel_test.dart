@@ -9,6 +9,8 @@ Widget panel(
   String status = 'DRIVER_WAITING',
   String paymentStatus = 'PENDING',
   bool? directCollectionAllowed,
+  bool walletSelected = false,
+  int? walletPaise,
 }) => ScreenUtilInit(
   designSize: const Size(390, 844),
   builder: (_, child) => MaterialApp(
@@ -16,6 +18,8 @@ Widget panel(
       body: SingleChildScrollView(
         child: TripActionsPanel(
           rideId: 'ride',
+          driverCollectionSlider: driver && walletSelected,
+          compactRiderPayment: walletPaise != null,
           onChanged: () async {},
           externalContext: {
             'direct_collection_allowed': ?directCollectionAllowed,
@@ -26,8 +30,16 @@ Widget panel(
               'rider_confirmed': false,
               'driver_verified': false,
             },
-            'payment': {'status': paymentStatus},
-            'payment_options': {'cash': true, 'upi': true},
+            'payment': {'status': paymentStatus, 'amount': '50.00'},
+            'wallet_payment_selected': walletSelected,
+            'payment_options': {
+              'cash': true,
+              'upi': true,
+              if (walletPaise != null) ...{
+                'wallet': true,
+                'wallet_available_paise': '$walletPaise',
+              },
+            },
           },
         ),
       ),
@@ -40,6 +52,42 @@ void main() {
       envString: 'API_BASE_URL=https://trip.example.test/api/v2',
     ),
   );
+  testWidgets('Wallet selection shows the correct exclusive payment actions', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      panel(
+        true,
+        status: 'COMPLETED',
+        walletSelected: true,
+        directCollectionAllowed: false,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Rider selected Wallet. Waiting for confirmation.'),
+      findsOneWidget,
+    );
+    expect(find.text('Slide to confirm payment'), findsNothing);
+    await tester.pumpWidget(
+      panel(false, status: 'COMPLETED', walletPaise: 2000),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Add money to Wallet'), findsOneWidget);
+    expect(find.text('Pay driver in cash'), findsOneWidget);
+    await tester.pumpWidget(
+      panel(
+        false,
+        status: 'COMPLETED',
+        walletPaise: 10000,
+        walletSelected: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Confirm Wallet payment'), findsOneWidget);
+    expect(find.text('Add money to Wallet'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
   testWidgets(
     'provider-owned pending payments do not offer direct collection',
     (tester) async {

@@ -27,6 +27,7 @@ export function CategoryFareFields({
                   max_profit_km: NaN,
                   normal_fare_per_km: NaN,
                   profit_fare_per_km: NaN,
+                  commission_percent: 0,
                 }
               : null,
           )
@@ -50,7 +51,12 @@ export function CategoryFareFields({
                 step={field.step}
                 required
                 value={
-                  Number.isFinite(value[field.key]) ? value[field.key] : ""
+                  field.key === "commission_percent" &&
+                  value[field.key] === undefined
+                    ? 0
+                    : Number.isFinite(value[field.key])
+                      ? value[field.key]
+                      : ""
                 }
                 onChange={(event) =>
                   onChange({

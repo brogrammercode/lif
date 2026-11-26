@@ -25,6 +25,14 @@ export const categoryRateFields = [
     places: 2,
     max: 1000000,
   },
+  {
+    key: "commission_percent",
+    label: "Commission (%)",
+    hint: "Deducted from the driver earnings for rides paid through 1More Wallet.",
+    step: "0.01",
+    places: 2,
+    max: 100,
+  },
 ] as const;
 
 /** Match the strict API fare schema at both admin response boundaries. */
@@ -32,9 +40,13 @@ export function isCategoryFare(value: unknown): value is CategoryFare {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const fare = value as Record<string, unknown>;
   return (
-    Object.keys(fare).length === categoryRateFields.length &&
+    Object.keys(fare).every((key) =>
+      categoryRateFields.some((field) => field.key === key),
+    ) &&
     categoryRateFields.every((field) => {
       const number = fare[field.key];
+      if (field.key === "commission_percent" && number === undefined)
+        return true;
       return (
         typeof number === "number" &&
         Number.isFinite(number) &&

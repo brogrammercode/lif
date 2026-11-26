@@ -20,6 +20,7 @@ import { EmergencyModule } from './features/emergency/emergency.module.js';
 import { GeocodeModule } from './features/geocode/geocode.module.js';
 import { HealthModule } from './features/health/health.module.js';
 import { PaymentModule } from './features/payment/payment.module.js';
+import { WalletModule } from './features/wallet/wallet.module.js';
 import { RideModule } from './features/ride/ride.module.js';
 import { SupportModule } from './features/support/support.module.js';
 import { UserModule } from './features/user/user.module.js';
@@ -47,6 +48,7 @@ import { VehicleCategoryModule } from './features/vehicle_category/vehicle_categ
     EmergencyModule,
     GeocodeModule,
     PaymentModule,
+    WalletModule,
     RideModule,
     SupportModule,
     UserModule,

@@ -8,6 +8,7 @@ import { Prisma, type RideStartVerification } from '@prisma/client';
 import { PrismaService } from '../infra/database/prisma.service.js';
 import { GeocodeService } from '../features/geocode/geocode.service.js';
 import { DriverOperationsService } from '../features/driver_operations/driver_operations.service.js';
+import { default_wallet_controls } from '../features/wallet/wallet-controls.js';
 import {
   new_trip_code,
   reveal_trip_code,
@@ -116,6 +117,7 @@ function fixture() {
       unpaid_reason?: string | null;
       provider?: string | null;
       provider_payment_id?: string | null;
+      updated_at?: Date;
     },
     settlement_review: null as null | Record<string, unknown>,
     search_radius_km: null,
@@ -135,6 +137,7 @@ function fixture() {
     recorded_at: Date;
   }[] = [];
   let actorRole = 'DRIVER';
+  let walletEnabled = false;
   let driverLockHook: (() => void) | undefined;
   const tx = {
     $executeRaw: async (parts: TemplateStringsArray) => {
@@ -149,6 +152,13 @@ function fixture() {
       }),
     },
     rideFarePolicy: { findUnique: async () => null },
+    payoutSchedule: {
+      findUnique: async () => ({
+        ...default_wallet_controls,
+        wallet_ride_collection_enabled: walletEnabled,
+      }),
+    },
+    wallet: { findUnique: async () => ({ available_paise: 5000n }) },
     driverPayoutChange: {
       findFirst: async () => null,
       findMany: async () => [],
@@ -260,8 +270,8 @@ function fixture() {
         update: Partial<NonNullable<typeof trip.payment>>;
       }) => {
         trip.payment = trip.payment
-          ? { ...trip.payment, ...update }
-          : { ...create, id: 'payment' };
+          ? { ...trip.payment, ...update, updated_at: new Date() }
+          : { ...create, id: 'payment', updated_at: new Date() };
         return trip.payment;
       },
     },
@@ -314,6 +324,9 @@ function fixture() {
     events,
     locations,
     completions: () => completions,
+    allowWallet: (enabled: boolean) => {
+      walletEnabled = enabled;
+    },
     withOtherActiveTrip: () => {
       otherActiveTrip = true;
     },
@@ -593,6 +606,33 @@ it('a UPI intent stays pending until the assigned driver confirms actual receipt
   await f.service.payment('driver-user', 'ride', 'UPI', { received: true });
   assert.equal(f.trip.payment?.status, 'CAPTURED');
   assert.equal(f.trip.payment?.amount.toString(), '50');
+});
+it('uses admin settings for ride Wallet selection and unlocks direct receipt when disabled', async () => {
+  const f = fixture();
+  f.trip.status = 'COMPLETED';
+  f.trip.final_fare = decimal(50);
+  await assert.rejects(f.service.payment('rider', 'ride', 'WALLET'), {
+    error_code: 'WALLET_UNAVAILABLE',
+  });
+  f.allowWallet(true);
+  const selected = await f.service.payment('rider', 'ride', 'WALLET');
+  assert.equal(selected.wallet_payment_selected, true);
+  assert.equal(selected.payment_options.wallet_available_paise, '5000');
+  await assert.rejects(
+    f.service.payment('driver-user', 'ride', 'CASH', { received: true }),
+    { error_code: 'WALLET_PAYMENT_SELECTED' },
+  );
+  f.allowWallet(false);
+  assert.equal(
+    (await f.service.context('driver-user', 'ride')).direct_collection_allowed,
+    true,
+  );
+  assert.equal(
+    (await f.service.context('rider', 'ride')).payment_options.wallet,
+    false,
+  );
+  await f.service.payment('driver-user', 'ride', 'CASH', { received: true });
+  assert.equal(f.trip.payment?.status, 'CAPTURED');
 });
 it('rejects unrelated trip access and forged manual fare/collection payloads', async () => {
   const f = fixture();

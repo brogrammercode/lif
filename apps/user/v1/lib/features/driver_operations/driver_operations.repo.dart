@@ -86,6 +86,14 @@ class DriverOperationsRepository {
   Future<Map<String, dynamic>> payment(String id, String method) async => _map(
     await _client.postData('${_trip(id)}/payment', data: {'method': method}),
   );
+  Future<void> payWithWallet(String id) async {
+    ApiResult.unwrap(
+      await _client.postData(
+        '/rides/${Uri.encodeComponent(id)}/payments/wallet',
+      ),
+    );
+  }
+
   Future<Map<String, dynamic>> navigation(
     String id,
     double latitude,

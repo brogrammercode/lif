@@ -4,15 +4,16 @@
 
 ## Contract
 
-Every vehicle category and subcategory owns these three values independently:
+Every vehicle category and subcategory owns these values independently:
 
 | Value | Meaning |
 | --- | --- |
 | max_profit_km | First distance band charged at the profit rate; not a monetary fare cap |
 | profit_fare_per_km | INR/km within that distance band |
 | normal_fare_per_km | INR/km after that distance band |
+| commission_percent | Platform share on wallet-paid rides, from 0% to 100%, with up to two decimal places |
 
-Fare = min(distanceKm, maxProfitKm) * profitRate + max(distanceKm - maxProfitKm, 0) * normalRate. Decimal money rounds once after summing both bands. Existing zero base/time/commission rules remain unchanged. Payment, cancellation/no-show and matching settings remain shared and snapshotted on quotes.
+Fare = min(distanceKm, maxProfitKm) * profitRate + max(distanceKm - maxProfitKm, 0) * normalRate. Decimal money rounds once after summing both bands. Base and time charges remain zero. Payment availability, cancellation/no-show and matching settings remain shared. The category's commission is snapshotted separately on the quote. Wallet collection records the full rider fare, rounds commission half up to the nearest paise, and credits the net driver earnings. Legacy quotes without a commission use 0%. Cash and direct UPI collection are outside this wallet deduction.
 
 - Different categories of the same physical vehicle type can have different prices.
 - Parent and child prices are independent. Grouping parents are never quoted while they have children.

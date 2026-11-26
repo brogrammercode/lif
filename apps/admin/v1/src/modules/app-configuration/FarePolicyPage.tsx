@@ -158,8 +158,8 @@ export function FarePolicyPage() {
           ))}
           <p className="field-hint">
             Fare = profit-band kilometres × profit rate + remaining kilometres ×
-            normal rate. No base fare, time charge, surge or commission is
-            added. Existing quotes keep their saved policy.
+            normal rate. Category commission is deducted from driver earnings
+            for wallet payments. Existing quotes keep their saved policy.
           </p>
           <EditorSection
             card
@@ -203,19 +203,6 @@ export function FarePolicyPage() {
               onChange={() => {}}
             />
             <div className="form-grid">
-              <Field
-                id="policy-commission"
-                label="Commission (%)"
-                hint="Zero commission at launch. Drivers receive 100% of the ride fare."
-              >
-                <input
-                  id="policy-commission"
-                  className="field"
-                  type="number"
-                  readOnly
-                  value={0}
-                />
-              </Field>
               {(
                 [
                   {
@@ -412,9 +399,7 @@ export function FarePolicyPage() {
               onChange={(event) => setDistance(event.target.value)}
             />
           </Field>
-          <span className="field-hint">
-            Distance fares only · No time charge or commission
-          </span>
+          <span className="field-hint">Distance fares only</span>
         </div>
         <dl className="fare-preview-grid">
           {draft.rates.map((category) => {

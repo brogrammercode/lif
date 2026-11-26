@@ -290,9 +290,11 @@ class _SettingsPageState extends State<SettingsPage> {
                               ? Icons.payments_outlined
                               : Icons.account_balance_wallet_outlined,
                           title: driver ? 'Total Earning' : 'Wallet',
-                          value: driver
-                              ? rideMoney(stats['total_earnings'])
-                              : rideMoney(stats['wallet']),
+                          value: _controller.walletProfilePaise == null
+                              ? '—'
+                              : rideMoney(
+                                  _controller.walletProfilePaise! / 100,
+                                ),
                         ),
                         ProfileStat(
                           icon: Icons.route_outlined,
@@ -352,16 +354,16 @@ class _SettingsPageState extends State<SettingsPage> {
                 'Past Driver Rides',
                 () => _open(AppRoutes.driverRides),
               ),
-            row(
-              Icons.account_balance_wallet_outlined,
-              'My Wallet',
-              () => Navigator.push(
+            row(Icons.account_balance_wallet_outlined, 'My Wallet', () async {
+              await Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => WalletPage(controller: _controller),
+                  builder: (_) =>
+                      WalletPage(controller: _controller, driver: driver),
                 ),
-              ),
-            ),
+              );
+              if (mounted) await _controller.refreshWalletAmount();
+            }),
             if (driver) ...[
               row(
                 Icons.directions_car_outlined,

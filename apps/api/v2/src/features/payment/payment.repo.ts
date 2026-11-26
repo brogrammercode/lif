@@ -177,6 +177,12 @@ export class PaymentRepository {
       const current = await tx.payment.findUniqueOrThrow({
         where: { id: payment.id },
       });
+      if (current.collection_method === 'WALLET')
+        throw new AppError(
+          409,
+          'WALLET_PAYMENT_WEBHOOK_UNSUPPORTED',
+          'A ride paid from Wallet must be reconciled through the wallet ledger.',
+        );
       if (
         current.collection_method === 'CASH' ||
         current.collection_method === 'UPI'

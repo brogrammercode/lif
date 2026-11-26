@@ -22,6 +22,7 @@ import {
   place_id,
   place_input,
   place_update,
+  place_remove,
   place_list,
   place_toggle,
   place_review,
@@ -116,6 +117,23 @@ export class PlacesController {
         place_update.parse(body),
       ),
       'Place updated',
+    );
+  }
+  @Delete(':id')
+  async remove(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return send_success(
+      res,
+      await this.service.remove(
+        req.auth!.user_id,
+        place_id.parse(id),
+        place_remove.parse(body).version,
+      ),
+      'Place removed',
     );
   }
   @Put(':id/bookmark')

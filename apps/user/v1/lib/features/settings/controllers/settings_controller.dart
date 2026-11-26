@@ -1,17 +1,20 @@
 import 'package:user/core/state/feature_controller.dart';
 import 'dart:async';
 import 'package:user/core/network/api_result.dart';
+import 'package:user/features/auth/app_mode.repo.dart';
 import 'package:user/features/settings/settings.repo.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:user/features/demos/controllers/ride_demo_controller.dart';
 
 class WalletTransaction {
   final String reference, title;
   final int paise;
   final int? balanceAfterPaise;
+  final int? grossPaise, commissionPaise;
+  final String? commissionPercent;
   final DateTime date;
   final DateTime? completedAt;
   final String? rideId;
+  final String? payoutId;
 
   const WalletTransaction({
     required this.reference,
@@ -19,8 +22,12 @@ class WalletTransaction {
     required this.paise,
     required this.date,
     this.balanceAfterPaise,
+    this.grossPaise,
+    this.commissionPaise,
+    this.commissionPercent,
     this.completedAt,
     this.rideId,
+    this.payoutId,
   });
 
   bool get processing => completedAt == null;
@@ -37,21 +44,6 @@ class FaqEntry {
 class SettingsController extends FeatureController {
   SettingsController(this.repository);
 
-  void _initializeWalletPreview() {
-    if (_walletPreviewInitialized == true) return;
-    _walletPreviewInitialized = true;
-    if (_walletTransactions.isNotEmpty) return;
-    final now = DateTime.now();
-    // TODO: Replace this preview ledger with account-scoped wallet history from the API.
-    _walletTransactions.addAll([
-      _previewEntry(5, -20000, 125000, now.subtract(const Duration(hours: 3))),
-      _previewEntry(4, 20000, 145000, now.subtract(const Duration(hours: 8))),
-      _previewEntry(3, -25000, 125000, now.subtract(const Duration(days: 1))),
-      _previewEntry(2, 50000, 150000, now.subtract(const Duration(days: 3))),
-      _previewEntry(1, 100000, 100000, now.subtract(const Duration(days: 7))),
-    ]);
-  }
-
   String? notice;
   final SettingsRepository repository;
   SettingsAccount? account;
@@ -60,12 +52,10 @@ class SettingsController extends FeatureController {
   int loadId = 0;
   // Temporary profile preview data; keep fixtures in this controller.
   final Map<String, dynamic> summary = {
-    'wallet': 1250,
     'rider_distance_m': 428500,
     'driver_distance_m': 2840600,
     'longest_distance_m': 186400,
     'places_explored': 32,
-    'total_earnings': 48650,
     'money_saved': 1840,
     'vehicle_brand': {
       'name': 'Maruti Suzuki',
@@ -73,106 +63,41 @@ class SettingsController extends FeatureController {
           'https://res.cloudinary.com/drxuvrw65/image/upload/v1792684132/1more-admin/vehicle-brands/74618f08-2e02-44c2-a9d5-42213978f227.webp',
     },
   };
-  final _walletTransactions = <WalletTransaction>[];
-  bool? _walletPreviewInitialized;
-  final String walletId = '1M  6084  1250';
-  final String walletExpiry = '11/30';
   String get walletCardholder {
     final name = account?.user.displayName.trim() ?? '';
     return name.isEmpty ? '1MORE RIDER' : name.toUpperCase();
   }
 
-  List<WalletTransaction> get walletTransactions {
-    _initializeWalletPreview();
-    return List.unmodifiable(_walletTransactions);
-  }
-
-  final _walletTimers = <Timer>{};
-
-  WalletTransaction _previewEntry(
-    int number,
-    int paise,
-    int balance,
-    DateTime date,
-  ) => WalletTransaction(
-    reference: _walletReference(number),
-    title: paise < 0 ? 'Ride payment' : 'Money added',
-    paise: paise,
-    date: date,
-    completedAt: date.add(const Duration(seconds: 2)),
-    balanceAfterPaise: balance,
-    rideId: paise < 0 ? RideDemoController.tripId : null,
-  );
-
-  String _walletReference(int number) =>
-      'WLT-${number.toString().padLeft(3, '0')}';
-
-  WalletTransaction? walletTransaction(String reference) {
-    _initializeWalletPreview();
-    for (final transaction in _walletTransactions) {
-      if (transaction.reference == reference) return transaction;
-    }
-    return null;
-  }
-
-  RideDemoController walletRidePreview(WalletTransaction transaction) =>
-      RideDemoController(
-          receiptTime: transaction.completedAt,
-          receiptFare: transaction.paise.abs() / 100,
-        )
-        ..method = 'WALLET'
-        ..preview(RideDemoStep.completed);
-
-  String? addPreviewMoney(int paise) {
-    if (isDisposed || paise <= 0 || paise > 9999999) return null;
-    _initializeWalletPreview();
-    final transaction = WalletTransaction(
-      reference: _walletReference(_walletTransactions.length + 1),
-      title: 'Money added',
-      paise: paise,
-      date: DateTime.now(),
-    );
-    update(() => _walletTransactions.insert(0, transaction));
-    late final Timer timer;
-    timer = Timer(const Duration(seconds: 2), () {
-      _walletTimers.remove(timer);
-      update(() {
-        final index = _walletTransactions.indexOf(transaction);
-        if (index == -1) return;
-        final balance = ((summary['wallet'] as num) * 100).round() + paise;
-        summary['wallet'] = balance / 100;
-        _walletTransactions[index] = WalletTransaction(
-          reference: transaction.reference,
-          title: transaction.title,
-          paise: paise,
-          date: transaction.date,
-          completedAt: DateTime.now(),
-          balanceAfterPaise: balance,
-        );
-      });
-    });
-    _walletTimers.add(timer);
-    return transaction.reference;
-  }
-
-  @override
-  void dispose() {
-    for (final timer in _walletTimers) {
-      timer.cancel();
-    }
-    _walletTimers.clear();
-    super.dispose();
-  }
-
   String version = '';
   String? summaryError;
+  int? walletProfilePaise;
+  int _walletLoadId = 0;
+
+  Future<void> refreshWalletAmount() async {
+    final current = account;
+    if (isDisposed || current == null) return;
+    final id = ++_walletLoadId;
+    try {
+      final paise = await repository.walletProfileAmount(
+        driver: current.mode == AppMode.driver && current.hasDriverAccess,
+      );
+      if (id == _walletLoadId && identical(current, account)) {
+        update(() => walletProfilePaise = paise);
+      }
+    } catch (_) {
+      if (id == _walletLoadId && identical(current, account)) {
+        update(() => walletProfilePaise = null);
+      }
+    }
+  }
+
   String get partnerInformation =>
       'Drive with 1More\n\nApply with your personal information, live selfie, driving licence and vehicle documents. Our team reviews your application and shares updates in the app.\n\nOnce approved, complete activation and vehicle verification, choose your vehicle and go online. Receive ride requests nearby and collect fares in cash or direct UPI.';
   List<FaqEntry> get faq => const [
     FaqEntry(
       question: 'How do I pay for a ride?',
       answer:
-          'Payment is made directly to your driver in cash or through UPI. 1More records the selected payment method and ride details. For cash or direct UPI payments, the driver confirms when payment is received.',
+          'Choose an available payment method at the end of the ride. Wallet payments are confirmed in the app. For cash or direct UPI, your driver confirms receipt.',
     ),
     FaqEntry(
       question: 'How do I become a driver?',
@@ -204,7 +129,15 @@ class SettingsController extends FeatureController {
     if (error != null) update(() => error = null);
     try {
       final account = await repository.load();
-      if (!isDisposed && id == loadId) update(() => this.account = account);
+      if (isDisposed || id != loadId) return;
+      update(() {
+        if (this.account?.mode != account.mode ||
+            this.account?.user.id != account.user.id) {
+          walletProfilePaise = null;
+        }
+        this.account = account;
+      });
+      unawaited(refreshWalletAmount());
       unawaited(
         PackageInfo.fromPlatform()
             .then((info) {

@@ -336,6 +336,13 @@ function WorkspaceShell() {
                   Rides
                 </NavLink>
               )}
+              {selectedId && (
+                <NavLink
+                  to={`/users/${encodeURIComponent(selectedId)}/wallet-ledger${pendingSuffix}`}
+                >
+                  Wallet Ledger
+                </NavLink>
+              )}
               {selectedId && selected && isDriverAccount(selected) && (
                 <NavLink
                   to={`/users/${encodeURIComponent(selectedId)}/vehicle-verification${pendingSuffix}`}
@@ -422,6 +429,7 @@ function WorkspaceShell() {
                 Vehicle Models
               </PendingNavLink>
               <NavLink to="/app/user/fare-policy">Fare Policy</NavLink>
+              <NavLink to="/app/user/payouts">Payouts</NavLink>
               <PendingNavLink
                 to="/app/user/ride-reviews"
                 pendingTo="/app/user/ride-reviews?pending_only=true"

@@ -1,7 +1,10 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:user/components/ui/solid_ui.dart';
+import 'package:user/core/network/dio_client.dart';
 import 'package:user/features/auth/app_mode.repo.dart';
 import 'package:user/features/auth/models/user.model.dart';
 import 'package:user/features/settings/pages/settings_page.dart';
@@ -10,7 +13,7 @@ import 'package:user/features/settings/widgets/profile_overview.dart';
 
 class ProfileRepository extends SettingsRepository {
   final bool driver;
-  ProfileRepository(this.driver);
+  ProfileRepository(this.driver) : super(walletClient: _walletFixture(driver));
   @override
   Future<SettingsAccount> load() async => SettingsAccount(
     user: UserModel(
@@ -25,16 +28,50 @@ class ProfileRepository extends SettingsRepository {
   );
 }
 
+DioClient _walletFixture(bool driver) {
+  final dio = Dio(BaseOptions(baseUrl: 'https://wallet.example.test/api/v2'));
+  dio.interceptors.add(
+    InterceptorsWrapper(
+      onRequest: (options, handler) {
+        if (options.path == '/wallet') {
+          expect(options.queryParameters['kind'], driver ? 'DRIVER' : 'RIDER');
+        }
+        final entries = switch (options.path) {
+          '/wallet' => {
+            'available_paise': '125000',
+            'held_paise': '0',
+            'earnings_paise': driver ? '350000' : null,
+            'rows': <Object>[],
+            'has_more': false,
+          },
+          '/wallet/topups' ||
+          '/driver/wallet/payout-methods' => {'rows': <Object>[]},
+          _ => throw StateError('Unexpected endpoint ${options.path}'),
+        };
+        handler.resolve(
+          Response(
+            requestOptions: options,
+            statusCode: 200,
+            data: {'status': 'success', 'data': entries},
+          ),
+        );
+      },
+    ),
+  );
+  return DioClient.forTesting(client: dio, createRefreshClient: () => dio);
+}
+
 void main() {
-  setUp(
-    () => PackageInfo.setMockInitialValues(
+  setUp(() {
+    FlutterSecureStorage.setMockInitialValues({});
+    PackageInfo.setMockInitialValues(
       appName: '1More',
       packageName: 'test',
       version: '0.1.10',
       buildNumber: '10',
       buildSignature: '',
-    ),
-  );
+    );
+  });
   for (final driver in [false, true]) {
     testWidgets(
       'profile overview has role cards and scrolls at large text: $driver',
@@ -62,6 +99,7 @@ void main() {
         expect(find.byType(SolidScope), findsOneWidget);
         expect(find.byType(ProfileStat), findsNWidgets(4));
         expect(find.text(driver ? 'Total Earning' : 'Wallet'), findsOneWidget);
+        expect(find.text(driver ? '₹3500.00' : '₹1250.00'), findsOneWidget);
         expect(find.text('Ride Milestone'), findsOneWidget);
         expect(find.byTooltip('Account options'), findsNothing);
         final identity = tester.widget<ProfileIdentity>(
@@ -71,7 +109,10 @@ void main() {
         await tester.ensureVisible(find.text('My Wallet'));
         await tester.tap(find.text('My Wallet'));
         await tester.pumpAndSettle();
-        expect(find.text('Wallet balance'), findsOneWidget);
+        expect(
+          find.text(driver ? 'Available earnings' : 'Wallet balance'),
+          findsOneWidget,
+        );
         expect(find.text('₹1250.00'), findsOneWidget);
         await tester.tap(find.byTooltip('Back'));
         await tester.pumpAndSettle();

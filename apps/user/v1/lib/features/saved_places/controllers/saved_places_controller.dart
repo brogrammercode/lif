@@ -21,6 +21,8 @@ class SavedPlacesController extends FeatureController {
     } catch (_) {}
   }
 
+  Future<Map<String, dynamic>> loadPlaceForEdit(String id) => repo.detail(id);
+
   Future<void> load({bool changed = false}) async {
     if (loading && !changed) return;
     final generation = ++this.generation;

@@ -131,6 +131,9 @@ enum TicketPriority {
 }
 
 model User {
+  wallets                  Wallet[]
+  payout_methods           DriverPayoutMethod[]
+  payout_block             PayoutDriverBlock?
   id                   String     @id @default(uuid())
   role                 UserRole   @default(RIDER)
   status               UserStatus @default(ACTIVE)
@@ -324,6 +327,7 @@ model VehicleCategory {
   max_profit_km      Decimal?    @db.Decimal(12, 3)
   normal_fare_per_km Decimal?    @db.Decimal(12, 2)
   profit_fare_per_km Decimal?    @db.Decimal(12, 2)
+  commission_percent Decimal    @default(0) @db.Decimal(5, 2)
   is_active          Boolean     @default(true)
   sort_order         Int         @default(0)
   created_at         DateTime    @default(now()) @db.Timestamptz(3)
@@ -489,6 +493,7 @@ model CommunityPlace {
   phone         String?
   website       String?
   version       Int           @default(1)
+  archived_at   DateTime?     @db.Timestamptz(3)
   created_at    DateTime      @default(now()) @db.Timestamptz(3)
   updated_at    DateTime      @updatedAt @db.Timestamptz(3)
   created_by    User?         @relation(fields: [created_by_id], references: [id], onDelete: SetNull)
@@ -704,6 +709,287 @@ model RideEvent {
 
   @@index([ride_id, created_at])
   @@map("ride_events")
+}
+
+enum WalletKind {
+  RIDER
+  DRIVER
+}
+
+enum WalletEntryKind {
+  TOP_UP
+  RIDE_DEBIT
+  RIDE_EARNING
+  REFUND
+  ADJUSTMENT
+  PAYOUT_HOLD
+  PAYOUT_SETTLED
+  PAYOUT_RELEASE
+}
+
+enum WalletTopUpStatus {
+  CREATING
+  PENDING
+  CAPTURED
+  FAILED
+  REFUNDED
+  REVIEW_REQUIRED
+}
+
+enum PayoutMethodKind {
+  UPI
+  DEBIT_CARD
+}
+
+enum PayoutMethodStatus {
+  PENDING
+  VERIFIED
+  FAILED
+  DISABLED
+}
+
+enum PayoutFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum PayoutStatus {
+  DRAFT
+  READY
+  PROCESSING
+  PAID
+  PARTIALLY_PAID
+  FAILED
+  EXCLUDED
+  REVERSED
+  REVIEW_REQUIRED
+}
+
+model Wallet {
+  id              String     @id @default(uuid())
+  user_id         String
+  kind            WalletKind
+  currency        String     @default("INR") @db.VarChar(3)
+  available_paise BigInt     @default(0)
+  held_paise      BigInt     @default(0)
+  entries         WalletEntry[]
+  topups          WalletTopUp[]
+  payouts         DriverPayout[]
+  user            User       @relation(fields: [user_id], references: [id], onDelete: Restrict)
+
+  @@unique([user_id, kind])
+  @@map("wallets")
+}
+
+model WalletEntry {
+  id                    String          @id @default(uuid())
+  wallet_id             String
+  kind                  WalletEntryKind
+  available_delta_paise BigInt
+  held_delta_paise      BigInt
+  available_after_paise BigInt
+  held_after_paise      BigInt
+  commission_paise      BigInt?
+  commission_percent    Decimal? @db.Decimal(5, 2)
+  operation_key         String          @unique
+  ride_id               String?
+  payment_id            String?
+  topup_id              String?
+  payout_id             String?
+  reverses_entry_id     String?
+  created_at            DateTime        @default(now()) @db.Timestamptz(3)
+  wallet                Wallet          @relation(fields: [wallet_id], references: [id], onDelete: Restrict)
+  topup                 WalletTopUp?    @relation(fields: [topup_id], references: [id], onDelete: Restrict)
+  payout                DriverPayout?   @relation(fields: [payout_id], references: [id], onDelete: Restrict)
+  reverses_entry        WalletEntry?    @relation("WalletEntryReversal", fields: [reverses_entry_id], references: [id], onDelete: Restrict)
+  reversals             WalletEntry[]   @relation("WalletEntryReversal")
+  payout_lines          DriverPayoutLine[]
+
+  @@index([wallet_id, created_at, id])
+  @@index([ride_id])
+  @@map("wallet_entries")
+}
+
+model WalletTopUp {
+  credited_net_of_refund_paise BigInt @default(0)
+  reviewed_chargeback_paise BigInt @default(0)
+  provider_link_id    String?           @unique
+  checkout_url        String?
+  provider_mode       String?
+  id                  String            @id @default(uuid())
+  wallet_id           String
+  amount_paise        BigInt
+  request_key         String
+  provider_order_id   String?           @unique
+  provider_payment_id String?           @unique
+  status              WalletTopUpStatus @default(CREATING)
+  created_at          DateTime          @default(now()) @db.Timestamptz(3)
+  updated_at          DateTime          @updatedAt @db.Timestamptz(3)
+  wallet              Wallet            @relation(fields: [wallet_id], references: [id], onDelete: Restrict)
+  entries             WalletEntry[]
+
+  @@unique([wallet_id, request_key])
+  @@index([status, updated_at])
+  @@index([wallet_id, created_at, id])
+  @@map("wallet_topups")
+}
+
+model DriverPayoutMethod {
+  destination_hash String?
+  provider_validation_id   String?            @unique
+  beneficiary_name_hash   String?
+  id                       String             @id @default(uuid())
+  driver_id                String
+  kind                     PayoutMethodKind
+  status                   PayoutMethodStatus @default(PENDING)
+  provider_contact_id      String?
+  provider_fund_account_id String?            @unique
+  masked_label             String
+  is_default               Boolean            @default(false)
+  created_at               DateTime           @default(now()) @db.Timestamptz(3)
+  updated_at               DateTime           @updatedAt @db.Timestamptz(3)
+  driver                   User               @relation(fields: [driver_id], references: [id], onDelete: Restrict)
+  payouts                  DriverPayout[]
+
+  @@index([driver_id, status])
+  @@map("driver_payout_methods")
+}
+
+enum WalletTopUpMode {
+  disabled
+  test
+  live
+}
+
+model PayoutSchedule {
+  id                   String          @id
+  enabled              Boolean         @default(false)
+  wallet_ride_collection_enabled Boolean @default(false)
+  wallet_topup_mode WalletTopUpMode @default(disabled)
+  wallet_live_topup_approved Boolean @default(false)
+  razorpay_x_upi_setup_enabled Boolean @default(false)
+  razorpay_x_transfers_enabled Boolean @default(false)
+  frequency            PayoutFrequency @default(WEEKLY)
+  minute_of_day_ist    Int             @default(0)
+  weekday_ist          Int             @default(1)
+  month_day_ist        Int             @default(1)
+  minimum_paise        BigInt          @default(0)
+  require_approval     Boolean         @default(true)
+  next_run_at          DateTime?       @db.Timestamptz(3)
+  replaced_run_at      DateTime?       @db.Timestamptz(3)
+  version              Int             @default(1)
+  updated_at           DateTime        @updatedAt @db.Timestamptz(3)
+  cycles               PayoutCycle[]
+
+  @@map("payout_schedules")
+}
+
+model PayoutDriverBlock {
+  driver_id  String    @id
+  reason     String
+  actor_id   String
+  expires_at DateTime? @db.Timestamptz(3)
+  created_at DateTime  @default(now()) @db.Timestamptz(3)
+  driver     User      @relation(fields: [driver_id], references: [id], onDelete: Restrict)
+
+  @@map("payout_driver_blocks")
+}
+
+model PayoutCycle {
+  id                String         @id @default(uuid())
+  schedule_id       String
+  period_start      DateTime       @db.Timestamptz(3)
+  cutoff_at         DateTime       @db.Timestamptz(3)
+  scheduled_at      DateTime       @db.Timestamptz(3)
+  schedule_snapshot Json
+  status            PayoutStatus   @default(DRAFT)
+  version           Int            @default(1)
+  approved_at       DateTime?      @db.Timestamptz(3)
+  approved_by_id    String?
+  created_at        DateTime       @default(now()) @db.Timestamptz(3)
+  schedule          PayoutSchedule @relation(fields: [schedule_id], references: [id], onDelete: Restrict)
+  payouts           DriverPayout[]
+
+  @@unique([schedule_id, cutoff_at])
+  @@index([status, scheduled_at])
+  @@map("payout_cycles")
+}
+
+model DriverPayout {
+  id                   String              @id @default(uuid())
+  cycle_id             String
+  wallet_id            String
+  method_id            String?
+  destination_snapshot Json?
+  amount_paise         BigInt              @default(0)
+  status               PayoutStatus        @default(DRAFT)
+  exclusion_reason     String?
+  created_at           DateTime            @default(now()) @db.Timestamptz(3)
+  updated_at           DateTime            @updatedAt @db.Timestamptz(3)
+  cycle                PayoutCycle         @relation(fields: [cycle_id], references: [id], onDelete: Restrict)
+  wallet               Wallet              @relation(fields: [wallet_id], references: [id], onDelete: Restrict)
+  method               DriverPayoutMethod? @relation(fields: [method_id], references: [id], onDelete: Restrict)
+  entries              WalletEntry[]
+  lines                DriverPayoutLine[]
+  attempts             DriverPayoutAttempt[]
+
+  @@unique([cycle_id, wallet_id])
+  @@index([wallet_id, created_at, id])
+  @@map("driver_payouts")
+}
+
+model DriverPayoutLine {
+  id              String       @id @default(uuid())
+  payout_id       String
+  source_entry_id String?
+  amount_paise    BigInt
+  ride_id         String?
+  reference       String?
+  reason          String?
+  actor_id        String?
+  created_at      DateTime     @default(now()) @db.Timestamptz(3)
+  payout          DriverPayout @relation(fields: [payout_id], references: [id], onDelete: Restrict)
+  source_entry    WalletEntry? @relation(fields: [source_entry_id], references: [id], onDelete: Restrict)
+
+  @@unique([payout_id, source_entry_id])
+  @@index([source_entry_id])
+  @@map("driver_payout_lines")
+}
+
+model DriverPayoutAttempt {
+  first_submitted_at DateTime? @db.Timestamptz(3)
+  id                 String       @id @default(uuid())
+  payout_id          String
+  attempt_number     Int
+  idempotency_key    String       @unique @db.VarChar(36)
+  provider_payout_id String?      @unique
+  utr                String?
+  status             PayoutStatus @default(READY)
+  failure_code       String?
+  next_retry_at      DateTime?    @db.Timestamptz(3)
+  created_at         DateTime     @default(now()) @db.Timestamptz(3)
+  updated_at         DateTime     @updatedAt @db.Timestamptz(3)
+  payout             DriverPayout @relation(fields: [payout_id], references: [id], onDelete: Restrict)
+
+  @@unique([payout_id, attempt_number])
+  @@index([status, next_retry_at])
+  @@map("driver_payout_attempts")
+}
+
+model WalletProviderEvent {
+  object_id String?
+  reconciled_at DateTime? @db.Timestamptz(3)
+  provider    String
+  event_id    String
+  event_type  String
+  subject_id  String?
+  received_at DateTime  @default(now()) @db.Timestamptz(3)
+  processed_at DateTime? @db.Timestamptz(3)
+
+  @@id([provider, event_id])
+  @@index([provider, subject_id])
+  @@map("wallet_provider_events")
 }
 
 model PaymentMethod {
