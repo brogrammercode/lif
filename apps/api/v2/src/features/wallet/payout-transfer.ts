@@ -7,6 +7,7 @@ import { require_active_admin } from '../../infra/database/account_lifecycle.js'
 import { PrismaService } from '../../infra/database/prisma.service.js';
 import type { TransactionClient } from '../../infra/database/client.js';
 import { create_user_log } from '../../infra/database/user_log.js';
+import { PayoutMethods } from './payout-methods.js';
 import {
   payout_schedule_lock,
   payout_schedule_id,
@@ -18,7 +19,7 @@ const payout_entity = z.object({
   id: z.string().regex(/^pout_[a-zA-Z0-9]+$/),
   fund_account_id: z.string(),
   reference_id: z.string(),
-  mode: z.literal('UPI'),
+  mode: z.enum(['UPI', 'IMPS']),
   amount: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   currency: z.literal('INR'),
   status: z.enum([
@@ -42,7 +43,10 @@ const is_active = (status: string) =>
 
 @Injectable()
 export class PayoutTransfer {
-  constructor(private readonly db: PrismaService) {}
+  constructor(
+    private readonly db: PrismaService,
+    private readonly methods: PayoutMethods = new PayoutMethods(db),
+  ) {}
 
   get credentials_ready() {
     return razorpay_x_credentials_ready();
@@ -80,12 +84,18 @@ export class PayoutTransfer {
   async tick(max_batches = 1, deadline = Infinity) {
     if (!this.credentials_ready) return;
     for (let batch = 0; batch < max_batches && Date.now() < deadline; batch++) {
-      if (!(await this.process_batch())) break;
+      if (!(await this.process_batch(deadline))) break;
     }
   }
 
-  private async process_batch() {
-    const { accepting_submissions, worked } = await this.reserve();
+  private async process_batch(deadline: number) {
+    const { accepting_submissions, worked, link_methods } =
+      await this.reserve();
+    if (link_methods && deadline - Date.now() > 16_000) {
+      await Promise.allSettled(
+        link_methods.map((method) => this.methods.provision(method)),
+      );
+    }
     const now = new Date();
     const attempts = await this.db.client.driverPayoutAttempt.findMany({
       where: {
@@ -163,9 +173,10 @@ export class PayoutTransfer {
             },
           },
         },
-        orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
+        orderBy: [{ updated_at: 'asc' }, { id: 'asc' }],
         take: 3,
       });
+      const link_methods = [];
       for (const row of rows) {
         const minimum = z
           .object({ minimum_paise: z.string().regex(/^\d+$/) })
@@ -176,14 +187,19 @@ export class PayoutTransfer {
         const method = await tx.driverPayoutMethod.findFirst({
           where: {
             driver_id: row.wallet.user_id,
-            kind: 'UPI',
-            status: 'VERIFIED',
             is_default: true,
-            provider_fund_account_id: { not: null },
+            OR: [
+              { status: 'VERIFIED', provider_fund_account_id: { not: null } },
+              { status: 'PENDING', pending_details: { not: null } },
+            ],
           },
         });
         const totals = await tx.driverPayoutLine.aggregate({
-          where: { payout_id: row.id, source_entry_id: { not: null } },
+          where: {
+            payout_id: row.id,
+            source_entry_id: { not: null },
+            source_entry: { kind: { not: 'CASH_PAYMENT' } },
+          },
           _sum: { amount_paise: true },
         });
         const earnings = totals._sum.amount_paise ?? 0n;
@@ -193,13 +209,25 @@ export class PayoutTransfer {
             ? 'Driver account is inactive'
             : block && (!block.expires_at || block.expires_at > new Date())
               ? 'Driver payout is blocked'
-              : !method?.provider_fund_account_id
-                ? 'Verified payout method required'
+              : !method
+                ? 'Payout account required'
                 : amount < min || amount < 100n
                   ? 'Below minimum payout'
                   : amount > BigInt(Number.MAX_SAFE_INTEGER)
                     ? 'Payout exceeds supported amount'
                     : null;
+        if (!reason && method?.pending_details) {
+          if (
+            !method.link_attempted_at ||
+            Date.now() - method.link_attempted_at.getTime() > retry_ms
+          )
+            link_methods.push(method);
+          await tx.driverPayout.update({
+            where: { id: row.id },
+            data: { updated_at: new Date() },
+          });
+          continue;
+        }
         if (reason || !method?.provider_fund_account_id) {
           await tx.driverPayout.update({
             where: { id: row.id },
@@ -264,6 +292,7 @@ export class PayoutTransfer {
             method_id: method.id,
             destination_snapshot: {
               fund_account_id: method.provider_fund_account_id,
+              mode: method.kind === 'UPI' ? 'UPI' : 'IMPS',
               masked_label: method.masked_label,
               source_account: config.RAZORPAY_X_SOURCE_ACCOUNT,
               earnings_paise: String(earnings),
@@ -283,6 +312,7 @@ export class PayoutTransfer {
       return {
         accepting_submissions: true,
         worked: automatic !== null || empty.length > 0 || rows.length > 0,
+        link_methods,
       };
     });
   }
@@ -397,7 +427,7 @@ export class PayoutTransfer {
         amount,
         currency: 'INR',
         reference_id: attempt.payout_id,
-        mode: 'UPI',
+        mode: destination.mode,
         purpose: 'payout',
         queue_if_low_balance: true,
       },
@@ -439,6 +469,7 @@ export class PayoutTransfer {
       if (
         result.amount !== Number(payout.amount_paise) ||
         result.fund_account_id !== destination.fund_account_id ||
+        result.mode !== destination.mode ||
         result.reference_id !== payout.id ||
         (expected_id && result.id !== expected_id)
       )
@@ -589,6 +620,7 @@ export class PayoutTransfer {
 
 const destination_schema = z.object({
   fund_account_id: z.string().regex(/^fa_[A-Za-z0-9]+$/),
+  mode: z.enum(['UPI', 'IMPS']).default('UPI'),
   source_account: z.string().min(1),
   earnings_paise: z.string().regex(/^\d+$/),
 });

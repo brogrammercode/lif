@@ -25,8 +25,8 @@ class _Adapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
-String _token(String suffix) =>
-    'e30.${base64Url.encode(utf8.encode(jsonEncode({'exp': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600}))).replaceAll('=', '')}.$suffix';
+String _token(String suffix, {int validForSeconds = 3600}) =>
+    'e30.${base64Url.encode(utf8.encode(jsonEncode({'exp': DateTime.now().millisecondsSinceEpoch ~/ 1000 + validForSeconds}))).replaceAll('=', '')}.$suffix';
 
 ResponseBody _json(Object? data, [int status = 200]) => ResponseBody.fromString(
   jsonEncode({'status': status < 400 ? 'success' : 'error', 'data': data}),
@@ -243,7 +243,7 @@ void main() {
       ),
     );
     await client.saveTokens(oldToken, 'old-refresh');
-    await expectLater(client.refreshSession(), throwsStateError);
+    await expectLater(client.refreshSession(), throwsA(isA<DioException>()));
     expect(await client.hasSession(), true);
     expect(await client.readRefreshToken(), 'old-refresh');
     expect(
@@ -253,6 +253,53 @@ void main() {
       oldToken,
     );
   });
+
+  test(
+    'an expired token does not reach protected routes when refresh is busy',
+    () async {
+      final refreshResponse = Completer<ResponseBody>();
+      final newToken = _token('new');
+      var refreshes = 0;
+      var calls = 0;
+      final client = DioClient.forTesting(
+        client: _dio((request) async {
+          calls++;
+          expect(request.headers['Authorization'], 'Bearer $newToken');
+          return _json({'ok': true});
+        }),
+        createRefreshClient: () => _dio((_) async {
+          if (++refreshes == 1) return refreshResponse.future;
+          return _json({
+            'access_token': newToken,
+            'refresh_token': 'new-refresh',
+          });
+        }),
+      );
+      await client.saveTokens(
+        _token('old', validForSeconds: -5),
+        'old-refresh',
+      );
+      final busy = throwsA(
+        isA<DioException>().having(
+          (error) => error.response?.statusCode,
+          'status',
+          503,
+        ),
+      );
+      final first = expectLater(client.getData('/auth/me'), busy);
+      final second = expectLater(client.getData('/me/travel-context'), busy);
+      await Future<void>.delayed(Duration.zero);
+      refreshResponse.complete(_json(null, 503));
+      await Future.wait([first, second]);
+      expect(calls, 0);
+      expect(refreshes, 1);
+      expect(await client.readRefreshToken(), 'old-refresh');
+      await client.getData('/auth/me');
+      expect(calls, 1);
+      expect(refreshes, 2);
+      expect(await client.readRefreshToken(), 'new-refresh');
+    },
+  );
 
   for (final status in [200, 401]) {
     test(

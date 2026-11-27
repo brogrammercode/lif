@@ -6,6 +6,7 @@ export const payout_schedule_id = 'default';
 export const payout_schedule_lock = 720065;
 
 const control_fields = {
+  razorpay_ride_upi_enabled: true,
   wallet_ride_collection_enabled: true,
   wallet_topup_mode: true,
   wallet_live_topup_approved: true,
@@ -16,6 +17,7 @@ const control_fields = {
 export type WalletControls = Pick<PayoutSchedule, keyof typeof control_fields>;
 
 export const default_wallet_controls: WalletControls = {
+  razorpay_ride_upi_enabled: false,
   wallet_ride_collection_enabled: false,
   wallet_topup_mode: 'disabled',
   wallet_live_topup_approved: false,

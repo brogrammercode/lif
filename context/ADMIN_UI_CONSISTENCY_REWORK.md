@@ -25,3 +25,10 @@ New browser coverage checks desktop/mobile layouts, panel spacing, field approva
 - Desktop (1440px) and mobile (390px) screenshots were inspected for fare cards/previews, empty and populated ride reports, vehicle selection/fields, confirmations and long accepted documents. Private-attachment readers were also checked at 320px. Browser fixtures intentionally block external font delivery; screenshots use the existing system fallback, while production retains Space Grotesk.
 
 Screenshots are local review artifacts under the admin app's ignored `test-results` / `.artifacts` directories. No live administrator/user records were changed. Existing uncommitted mobile release/version documentation was preserved. No APK was built and no code was pushed for this admin UI task.
+
+## Wallet ledger and payouts
+
+- [x] Align wallet balances, filters and transaction rows with shared admin panels. Group the compact transaction dialog into balance facts, provider references and payment progress, with refund and reconciliation actions in the footer.
+- [x] Align payout cycles, driver payouts and preview tables with shared admin badges, action menus, pagination and loading states. Keep gross earnings, commission and net amounts visible.
+- [x] Use compact dialogs with scrolling bodies and fixed actions for payout settings, draft changes, driver blocks, reconciliation and approval. Retain the existing requests, confirmation steps and revision checks.
+- [x] Verify the admin build and all 17 browser tests in the configuration suite. Review desktop screenshots of the ledger and payout cycle and the payout settings at 390px.

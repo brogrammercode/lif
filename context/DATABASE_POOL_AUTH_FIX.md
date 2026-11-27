@@ -25,3 +25,15 @@ Verified: API V2 production compile and all **200 unit/HTTP tests passed**. Form
 No account, session, ride or audit fixture was inserted into the live database. No schema migration, private environment edit, API V1 change or automatic deployment is required. A real Google sign-in must be retried by the user after the updated API is running; this repair cannot guarantee availability during a provider outage or sustained overload.
 
 References: [Prisma connection pooling](https://www.prisma.io/docs/orm/v6/prisma-client/setup-and-configuration/databases-connections/connection-pool), [Prisma with Neon](https://www.prisma.io/docs/orm/v6/overview/databases/neon).
+
+## Mobile refresh timeout follow-up
+
+The 27 November API log shows the refresh transaction was already 16 seconds old when its first query failed with P2028. The log does not identify where the time was spent.
+
+- Mobile refresh now looks up the session through the pool before starting the rotation transaction. Under the account lifecycle lock, it rereads the current user and conditionally claims the still-valid mobile session. The claim, new session and audit remain atomic.
+- Refresh retries one pool or transaction expiry failure during its read-only checks. Once it attempts the session claim, it propagates the failure without replaying the transaction.
+- The app retains stored tokens on a temporary refresh error. If the access token has expired, pending protected requests report the refresh error instead of sending it. A later request can refresh normally.
+
+A read-only session lookup against the configured test pool succeeded once in about 12.2 seconds. Later, the local API health check returned HTTP 503 and independent Prisma reads timed out at both 15 and 30 seconds. The intermittent database connection prevented a live refresh check.
+
+Verification passed for the API compile, 16 focused API tests and 18 Flutter networking and session tests. The broader API suite still reports the existing saved-place revision and vehicle correction failures.

@@ -4,6 +4,7 @@ import 'package:user/features/driver_account/pages/driver_finances_page.dart';
 import 'package:user/features/partner_program/pages/driver_exit_page.dart';
 import 'package:flutter/material.dart';
 import 'package:user/features/auth/pages/login_page.dart';
+import 'package:user/features/auth/models/user.model.dart';
 import 'package:user/features/home/pages/home_page.dart';
 import 'package:user/features/auth/pages/session_gate.dart';
 import 'package:user/features/profile/pages/profile_page.dart';
@@ -51,7 +52,12 @@ class AppRoutes {
   static const String driverFinances = '/driver/finances';
 
   static Map<String, WidgetBuilder> get routes => {
-    gate: (context) => const SessionGate(),
+    gate: (context) {
+      final arguments = ModalRoute.of(context)?.settings.arguments;
+      return SessionGate(
+        signedInUser: arguments is UserModel ? arguments : null,
+      );
+    },
     login: (context) => const LoginPage(),
     home: (context) => const HomePage(),
     profile: (context) => const ProfilePage(),

@@ -198,7 +198,7 @@ void main() {
       expect(mapTaps, 1);
       expect(find.text('Comfort'), findsOneWidget);
       expect(tester.takeException(), isNull, reason: 'Vehicle layout');
-      expect(find.text('Passengers'), findsOneWidget);
+      expect(find.text('Passengers'), findsNothing);
       expect(find.text('Pay the driver after your ride'), findsNothing);
       expect(find.text('Pickup note (optional)'), findsNothing);
       final panel = find.byKey(const ValueKey('ride-stage-panel'));
@@ -262,6 +262,54 @@ void main() {
       expect(find.text('Trip Details'), findsWidgets);
       expect(find.text('Download bill').hitTestable(), findsOneWidget);
       expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+  testWidgets(
+    'rider demo moves from the ride through each payment method to the receipt',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        ScreenUtilInit(
+          designSize: const Size(390, 844),
+          builder: (_, _) => MaterialApp(
+            home: RideDemoHost(mapBuilder: (_) => const SizedBox.expand()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final stages = find.byType(PopupMenuButton<RideDemoStep>);
+      for (final (method, simulate) in [
+        ('Cash', 'Confirm cash'),
+        ('UPI', 'Simulate UPI payment'),
+        ('Wallet', null),
+      ]) {
+        tester.widget<PopupMenuButton<RideDemoStep>>(stages).onSelected!(
+          RideDemoStep.inProgress,
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Next'));
+        await tester.pumpAndSettle();
+        expect(find.text('Ride payment'), findsOneWidget);
+        expect(find.text('Balance ₹500.00'), findsOneWidget);
+        expect(find.text("You've arrived"), findsNothing);
+        await tester.tap(find.text(method).hitTestable());
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        if (simulate != null) {
+          expect(find.text('Payment progress'), findsOneWidget);
+          expect(find.text('Continue to receipt'), findsNothing);
+          await tester.tap(find.text(simulate));
+        }
+        await tester.pumpAndSettle();
+        expect(find.text('Payment successful'), findsOneWidget);
+        await tester.tap(find.text('Continue to receipt'));
+        await tester.pumpAndSettle();
+        expect(find.text("You've arrived").hitTestable(), findsOneWidget);
+      }
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );

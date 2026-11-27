@@ -178,7 +178,7 @@ class _RideDemoHostState extends State<RideDemoHost> {
                         onPressed: _controller.step == RideDemoStep.completed
                             ? null
                             : _controller.next,
-                        child: const Text('Next'),
+                        child: Text(_controller.nextLabel),
                       ),
                       IconButton(
                         tooltip: 'Restart demo',

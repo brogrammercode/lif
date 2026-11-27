@@ -106,7 +106,11 @@ class HomeController extends FeatureController {
     final data = await repository.travelContext();
     if (!isDisposed) {
       update(() {
-        resumeDriver = data['active_driver_ride'] is Map;
+        resumeDriver =
+            (data['driver_operations_allowed'] ??
+                    data['can_enter_driver_mode']) !=
+                false &&
+            data['active_driver_ride'] is Map;
         activeRide =
             data[resumeDriver ? 'active_driver_ride' : 'active_rider_ride']
                 is Map

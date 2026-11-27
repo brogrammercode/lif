@@ -108,6 +108,9 @@ const CONFIG_SCHEMA = z.object({
   RAZORPAY_X_KEY_ID: z.string().trim().default(''),
   RAZORPAY_X_KEY_SECRET: z.string().trim().default(''),
   RAZORPAY_X_SOURCE_ACCOUNT: z.string().trim().default(''),
+  PAYOUT_DETAILS_SECRET: z
+    .union([z.literal(''), z.string().min(32)])
+    .default(''),
   CRON_SECRET: z.string().min(16).optional(),
 });
 const parsed_config = CONFIG_SCHEMA.safeParse(process.env);

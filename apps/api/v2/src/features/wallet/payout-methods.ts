@@ -1,30 +1,137 @@
 import { Injectable } from '@nestjs/common';
-import { createHash } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  createHmac,
+  hkdfSync,
+  randomBytes,
+} from 'node:crypto';
 import { z } from 'zod';
 import type { DriverPayoutMethod } from '@prisma/client';
 import { config } from '../../core/config.js';
 import { AppError } from '../../core/error.js';
-import {
-  require_active_account,
-  require_driver_participation,
-} from '../../infra/database/account_lifecycle.js';
+import { require_driver_wallet_access } from '../../infra/database/account_lifecycle.js';
 import { PrismaService } from '../../infra/database/prisma.service.js';
 import {
-  razorpay_x_credentials_ready,
   payout_schedule_lock,
+  razorpay_x_credentials_ready,
   read_wallet_controls,
 } from './wallet-controls.js';
 
-export const payout_method_input = z
-  .object({
-    name: z.string().trim().min(3).max(50),
-    vpa: z
+const name = z.string().trim().min(3).max(50);
+const vpa = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(100)
+  .regex(/^[a-z0-9.-]+@[a-z0-9.-]+$/);
+const bank = {
+  name,
+  account_number: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z0-9]{5,35}$/),
+  ifsc: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{4}0[A-Z0-9]{6}$/),
+};
+const destination_input = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('UPI'), name, vpa }),
+  z.strictObject({ kind: z.literal('BANK_ACCOUNT'), ...bank }),
+  z.strictObject({
+    kind: z.literal('DEBIT_CARD'),
+    ...bank,
+    card_last_four: z
       .string()
       .trim()
-      .max(100)
-      .regex(/^[a-z0-9.-]+@[a-z0-9.-]+$/i),
-  })
-  .strict();
+      .regex(/^\d{4}$/),
+  }),
+]);
+type Destination = z.infer<typeof destination_input>;
+export const payout_method_input = z.union([
+  destination_input,
+  z
+    .strictObject({ name, vpa })
+    .transform((input) => ({ kind: 'UPI' as const, ...input })),
+]);
+
+const contact_schema = z.object({
+  id: z.string().regex(/^cont_[A-Za-z0-9]+$/),
+  reference_id: z.string(),
+  active: z.literal(true),
+});
+const fund_fields = {
+  id: z.string().regex(/^fa_[A-Za-z0-9]+$/),
+  contact_id: z.string(),
+  active: z.literal(true),
+};
+const fund_schema = z.discriminatedUnion('account_type', [
+  z.object({
+    ...fund_fields,
+    account_type: z.literal('vpa'),
+    vpa: z.object({ address: z.string() }),
+  }),
+  z.object({
+    ...fund_fields,
+    account_type: z.literal('bank_account'),
+    bank_account: z.object({ ifsc: z.string(), account_number: z.string() }),
+  }),
+]);
+
+// Derive distinct keys for encryption and lookup. Bind ciphertext to its owner.
+const key = (purpose: string) =>
+  Buffer.from(
+    hkdfSync(
+      'sha256',
+      config.PAYOUT_DETAILS_SECRET || config.JWT_SECRET,
+      '1More payout destinations',
+      purpose,
+      32,
+    ),
+  );
+const fingerprint = (input: Destination) =>
+  createHmac('sha256', key('lookup-v1'))
+    .update(
+      input.kind === 'UPI'
+        ? input.vpa
+        : [input.ifsc, input.account_number, input.name.toLowerCase()].join(
+            ':',
+          ),
+    )
+    .digest('hex');
+const encrypt = (input: Destination, owner: string) => {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key('encrypt-v1'), iv);
+  cipher.setAAD(Buffer.from(owner));
+  return Buffer.concat([
+    iv,
+    cipher.update(JSON.stringify(input)),
+    cipher.final(),
+    cipher.getAuthTag(),
+  ]).toString('base64url');
+};
+const decrypt = (value: string, owner: string) => {
+  const bytes = Buffer.from(value, 'base64url');
+  const decipher = createDecipheriv(
+    'aes-256-gcm',
+    key('encrypt-v1'),
+    bytes.subarray(0, 12),
+  );
+  decipher.setAAD(Buffer.from(owner));
+  decipher.setAuthTag(bytes.subarray(-16));
+  return destination_input.parse(
+    JSON.parse(
+      Buffer.concat([
+        decipher.update(bytes.subarray(12, -16)),
+        decipher.final(),
+      ]).toString('utf8'),
+    ),
+  );
+};
 
 const validation_schema = z.object({
   id: z.string().regex(/^fav_[A-Za-z0-9]+$/),
@@ -79,104 +186,206 @@ const unavailable = () =>
 export class PayoutMethods {
   constructor(private readonly db: PrismaService) {}
 
+  get credentials_ready() {
+    return razorpay_x_credentials_ready();
+  }
+
   async list(driver_id: string) {
-    const [rows, controls] = await Promise.all([
-      this.db.client.driverPayoutMethod.findMany({
-        where: { driver_id, status: { not: 'DISABLED' } },
-        orderBy: [{ is_default: 'desc' }, { created_at: 'desc' }],
-        take: 10,
-      }),
-      read_wallet_controls(this.db.client),
-    ]);
+    await this.db.client.$transaction((tx) =>
+      require_driver_wallet_access(tx, driver_id),
+    );
+    const rows = await this.db.client.driverPayoutMethod.findMany({
+      where: { driver_id, status: { not: 'DISABLED' } },
+      orderBy: [{ is_default: 'desc' }, { created_at: 'desc' }],
+      take: 10,
+    });
     return {
-      upi_enabled:
-        controls.razorpay_x_upi_setup_enabled && razorpay_x_credentials_ready(),
+      upi_enabled: true,
+      bank_account_enabled: true,
       debit_card_enabled: false,
       rows: rows.map(present),
     };
   }
 
-  async setup(driver_id: string, input: z.infer<typeof payout_method_input>) {
-    if (!razorpay_x_credentials_ready()) throw unavailable();
-    const vpa = input.vpa.toLowerCase();
-    const destination_hash = vpa_hash(vpa);
-    const beneficiary_name_hash = name_hash(input.name);
-    const { row, existing } = await this.db.client.$transaction(async (tx) => {
-      const driver = await require_active_account(tx, driver_id);
-      if (driver.role !== 'DRIVER')
-        throw new AppError(
-          403,
-          'DRIVER_ACCESS_REQUIRED',
-          'Driver access is required.',
-        );
-      await require_driver_participation(tx, driver_id);
+  async setup(driver_id: string, input: Destination) {
+    const destination_hash = fingerprint(input);
+    const masked_label =
+      input.kind === 'UPI'
+        ? mask_vpa(input.vpa)
+        : `Bank account •••• ${input.account_number.slice(-4)}${input.kind === 'DEBIT_CARD' ? ` · Card •••• ${input.card_last_four}` : ''}`;
+    return this.db.client.$transaction(async (tx) => {
+      await require_driver_wallet_access(tx, driver_id);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${payout_schedule_lock}::int)`;
-      if (!(await read_wallet_controls(tx)).razorpay_x_upi_setup_enabled)
-        throw unavailable();
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(720068, hashtext(${driver_id}))`;
-      const today = new Date(Date.now() - 24 * 60 * 60_000);
-      const pending = await tx.driverPayoutMethod.findFirst({
+      const existing = await tx.driverPayoutMethod.findFirst({
         where: {
           driver_id,
-          status: 'PENDING',
-          destination_hash,
-          beneficiary_name_hash,
-          created_at: { gte: today },
+          status: { not: 'DISABLED' },
+          destination_hash:
+            input.kind === 'UPI'
+              ? { in: [destination_hash, vpa_hash(input.vpa)] }
+              : destination_hash,
         },
-        orderBy: { created_at: 'desc' },
+        orderBy: [{ is_default: 'desc' }, { created_at: 'desc' }],
       });
-      if (pending) return { row: pending, existing: true };
-      if (
-        (await tx.driverPayoutMethod.count({
-          where: { driver_id, created_at: { gte: today } },
-        })) >= 3
-      )
-        throw new AppError(
-          429,
-          'PAYOUT_SETUP_LIMIT',
-          'Try another payout verification tomorrow.',
-        );
-      const row = await tx.driverPayoutMethod.create({
-        data: {
+      const already_linked =
+        existing?.status === 'VERIFIED' && existing.provider_fund_account_id;
+      const data = {
+        kind: input.kind,
+        masked_label,
+        destination_hash,
+        is_default: true,
+        ...(!already_linked
+          ? {
+              status: 'PENDING' as const,
+              pending_details: encrypt(input, driver_id),
+              link_attempted_at: null,
+            }
+          : {}),
+      };
+      await tx.driverPayoutMethod.updateMany({
+        where: {
           driver_id,
-          kind: 'UPI',
-          masked_label: mask_vpa(vpa),
-          beneficiary_name_hash,
-          destination_hash,
+          is_default: true,
+          ...(existing ? { id: { not: existing.id } } : {}),
+        },
+        data: { is_default: false },
+      });
+      return present(
+        existing
+          ? await tx.driverPayoutMethod.update({
+              where: { id: existing.id },
+              data,
+            })
+          : await tx.driverPayoutMethod.create({
+              data: { ...data, driver_id },
+            }),
+      );
+    });
+  }
+
+  async set_default(driver_id: string, id: string) {
+    return this.db.client.$transaction(async (tx) => {
+      await require_driver_wallet_access(tx, driver_id);
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${payout_schedule_lock}::int)`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(720068, hashtext(${driver_id}))`;
+      const method = await tx.driverPayoutMethod.findFirst({
+        where: {
+          id,
+          driver_id,
+          OR: [
+            { status: 'VERIFIED', provider_fund_account_id: { not: null } },
+            { status: 'PENDING', pending_details: { not: null } },
+          ],
         },
       });
-      return { row, existing: false };
+      if (!method)
+        throw new AppError(
+          404,
+          'PAYOUT_METHOD_NOT_FOUND',
+          'Save this payout account again.',
+        );
+      await tx.driverPayoutMethod.updateMany({
+        where: { driver_id, is_default: true, id: { not: id } },
+        data: { is_default: false },
+      });
+      return present(
+        await tx.driverPayoutMethod.update({
+          where: { id },
+          data: { is_default: true, link_attempted_at: null },
+        }),
+      );
     });
-    if (existing) return this.check(driver_id, row.id);
-    const response = await this.request(
-      '/fund_accounts/validations',
-      validation_schema,
-      {
-        source_account_number: config.RAZORPAY_X_SOURCE_ACCOUNT,
-        validation_type: 'pennydrop',
-        reference_id: row.id,
-        fund_account: {
-          account_type: 'vpa',
-          vpa: { address: vpa },
-          contact: {
-            name: input.name,
-            type: 'vendor',
-            reference_id: driver_id,
-          },
-        },
+  }
+
+  async provision(row: DriverPayoutMethod) {
+    if (!row.pending_details || !this.credentials_ready) return present(row);
+    const can_retry = new Date(Date.now() - 5 * 60_000);
+    const claim = await this.db.client.driverPayoutMethod.updateMany({
+      where: {
+        id: row.id,
+        status: 'PENDING',
+        is_default: true,
+        pending_details: row.pending_details,
+        OR: [
+          { link_attempted_at: null },
+          { link_attempted_at: { lt: can_retry } },
+        ],
       },
+      data: { link_attempted_at: new Date() },
+    });
+    if (!claim.count) return present(row);
+    let input: Destination;
+    try {
+      input = decrypt(row.pending_details, row.driver_id);
+    } catch {
+      throw unavailable();
+    }
+    const contact =
+      row.provider_contact_id ||
+      (await this.request('/contacts', contact_schema, {
+        name: input.name,
+        type: 'vendor',
+        reference_id: row.driver_id,
+      }).then((contact) => {
+        if (contact.reference_id !== row.driver_id) throw unavailable();
+        return contact.id;
+      }));
+    const fund = await this.request(
+      '/fund_accounts',
+      fund_schema,
+      input.kind === 'UPI'
+        ? {
+            contact_id: contact,
+            account_type: 'vpa',
+            vpa: { address: input.vpa },
+          }
+        : {
+            contact_id: contact,
+            account_type: 'bank_account',
+            bank_account: {
+              name: input.name,
+              ifsc: input.ifsc,
+              account_number: input.account_number,
+            },
+          },
     );
     if (
-      (response.reference_id !== row.id &&
-        !(response.status === 'failed' && !response.reference_id)) ||
-      (response.fund_account &&
-        response.fund_account.vpa.address.toLowerCase() !== vpa)
+      fund.contact_id !== contact ||
+      !(input.kind === 'UPI'
+        ? fund.account_type === 'vpa' &&
+          fund.vpa.address.toLowerCase() === input.vpa
+        : fund.account_type === 'bank_account' &&
+          fund.bank_account.ifsc === input.ifsc &&
+          fund.bank_account.account_number === input.account_number)
     )
       throw unavailable();
-    return this.apply(row, response);
+    await this.db.client.driverPayoutMethod.updateMany({
+      where: {
+        id: row.id,
+        pending_details: row.pending_details,
+        status: 'PENDING',
+        is_default: true,
+      },
+      data: {
+        status: 'VERIFIED',
+        provider_fund_account_id: fund.id,
+        provider_contact_id: contact,
+        pending_details: null,
+        link_attempted_at: null,
+      },
+    });
+    return present(
+      await this.db.client.driverPayoutMethod.findUniqueOrThrow({
+        where: { id: row.id },
+      }),
+    );
   }
 
   async check(driver_id: string, id: string) {
+    await this.db.client.$transaction((tx) =>
+      require_driver_wallet_access(tx, driver_id),
+    );
     const row = await this.db.client.driverPayoutMethod.findFirst({
       where: { id, driver_id },
     });
@@ -187,7 +396,12 @@ export class PayoutMethods {
         'Payout method not found.',
       );
     if (row.status !== 'PENDING') return present(row);
-    if (!razorpay_x_credentials_ready()) throw unavailable();
+    if (row.pending_details) return this.provision(row);
+    if (
+      !this.credentials_ready ||
+      !(await read_wallet_controls(this.db.client)).razorpay_x_upi_setup_enabled
+    )
+      throw unavailable();
     const validation = row.provider_validation_id
       ? await this.request(
           `/fund_accounts/validations/${encodeURIComponent(row.provider_validation_id)}`,
@@ -244,11 +458,13 @@ export class PayoutMethods {
     validation: z.infer<typeof validation_schema>,
   ) {
     return this.db.client.$transaction(async (tx) => {
+      await require_driver_wallet_access(tx, row.driver_id);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(720068, hashtext(${row.driver_id}))`;
       const current = await tx.driverPayoutMethod.findUniqueOrThrow({
         where: { id: row.id },
       });
-      if (current.status !== 'PENDING') return present(current);
+      if (current.status !== 'PENDING' || current.pending_details)
+        return present(current);
       const fund = validation.fund_account;
       const name = validation.validation_results?.registered_name;
       const verified =
@@ -292,7 +508,10 @@ export class PayoutMethods {
           where: {
             driver_id: row.driver_id,
             is_default: true,
-            created_at: { gt: current.created_at },
+            OR: [
+              { created_at: { gt: current.created_at } },
+              { pending_details: { not: null } },
+            ],
           },
           select: { id: true },
         }));
@@ -353,5 +572,9 @@ function present(row: DriverPayoutMethod) {
     status: row.status,
     masked_label: row.masked_label,
     is_default: row.is_default,
+    selectable: Boolean(
+      row.pending_details ||
+      (row.provider_fund_account_id && row.status === 'VERIFIED'),
+    ),
   };
 }

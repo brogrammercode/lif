@@ -1,13 +1,18 @@
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { it } from 'node:test';
-import { Prisma } from '@prisma/client';
+import { Prisma, type DriverPayoutMethod } from '@prisma/client';
 import { PrismaService } from '../infra/database/prisma.service.js';
 import { config } from '../core/config.js';
 import { PaymentRepository } from '../features/payment/payment.repo.js';
 import { WalletRepository } from '../features/wallet/wallet.repo.js';
 import { PayoutTransfer } from '../features/wallet/payout-transfer.js';
 import {
+  PayoutMethods,
+  payout_method_input,
+} from '../features/wallet/payout-methods.js';
+import {
+  cadence_update,
   next_payout_run,
   payout_settings_schema,
   present_payout_schedule,
@@ -18,10 +23,305 @@ import {
   payout_submission_state,
 } from '../features/wallet/wallet-controls.js';
 import { WalletTopUps } from '../features/wallet/wallet-topups.js';
+import { RideUpi } from '../features/wallet/ride-upi.js';
 import {
   RazorpayWallet,
   type RazorpayWalletLink,
 } from '../features/wallet/razorpay-wallet.js';
+
+it('saves a bank-linked debit card before credentials are available and links it later', async (t) => {
+  const input = {
+    kind: 'DEBIT_CARD',
+    name: 'Fixture Driver',
+    account_number: '012347865432',
+    ifsc: 'HDFC0000053',
+    card_last_four: '1234',
+  };
+  assert.equal(
+    payout_method_input.safeParse({ ...input, card_number: 'rejected' })
+      .success,
+    false,
+  );
+  let saved: DriverPayoutMethod;
+  const tx = {
+    $executeRaw: async () => 1,
+    user: {
+      findUnique: async () => ({ status: 'ACTIVE', deleted_at: null }),
+      findUniqueOrThrow: async () => ({
+        role: 'DRIVER',
+        partner_application: null,
+      }),
+    },
+    driverPayoutMethod: {
+      findFirst: async () => null,
+      create: async ({ data }: { data: DriverPayoutMethod }) =>
+        (saved = { ...data, id: 'method-one' }),
+      updateMany: async ({ data }: { data: Partial<DriverPayoutMethod> }) => {
+        if (saved) Object.assign(saved, data);
+        return { count: 1 };
+      },
+      findUniqueOrThrow: async () => saved,
+    },
+  };
+  const methods = new PayoutMethods(
+    database({
+      ...tx,
+      $transaction: async (run: (value: typeof tx) => unknown) => run(tx),
+    }),
+  );
+  let provider_ready = false;
+  t.mock.getter(methods, 'credentials_ready', () => provider_ready);
+  let requests = 0;
+  t.mock.method(globalThis, 'fetch', async (url: string, req: RequestInit) => {
+    requests++;
+    assert.equal(req.method, 'POST');
+    if (url.endsWith('/contacts')) {
+      assert.equal(JSON.parse(String(req.body)).reference_id, 'driver');
+      return Response.json({
+        id: 'cont_fixture',
+        reference_id: 'driver',
+        active: true,
+      });
+    }
+    assert.ok(url.endsWith('/fund_accounts'));
+    const payload = JSON.parse(String(req.body));
+    assert.deepEqual(payload, {
+      contact_id: 'cont_fixture',
+      account_type: 'bank_account',
+      bank_account: {
+        name: input.name,
+        ifsc: input.ifsc,
+        account_number: input.account_number,
+      },
+    });
+    return Response.json({ ...payload, id: 'fa_fixture', active: true });
+  });
+  const result = await methods.setup(
+    'driver',
+    payout_method_input.parse(input),
+  );
+  assert.equal(result.status, 'PENDING');
+  assert.equal(result.is_default, true);
+  assert.equal(result.selectable, true);
+  assert.ok(!JSON.stringify(result).includes(input.account_number));
+  const stored = await tx.driverPayoutMethod.findUniqueOrThrow();
+  assert.ok(
+    stored.pending_details &&
+      !stored.pending_details.includes(input.account_number),
+  );
+  await methods.provision(stored);
+  assert.equal(requests, 0);
+  provider_ready = true;
+  assert.equal((await methods.provision({ ...stored })).status, 'VERIFIED');
+  assert.equal(stored.provider_fund_account_id, 'fa_fixture');
+  assert.equal(stored.pending_details, null);
+  assert.equal(requests, 2);
+});
+
+it('reuses a ride UPI order and credits the driver once after matching capture', async (t) => {
+  const ride = {
+    id: 'ride-upi',
+    rider_id: 'rider',
+    driver_id: 'profile',
+    status: 'COMPLETED',
+    currency: 'INR',
+    final_fare: new Prisma.Decimal(50),
+    driver: { user_id: 'driver' },
+    settlement_review: null,
+    quotes: [
+      {
+        category_snapshot: {
+          payment_policy: { direct_upi_enabled: true, commission_percent: 10 },
+        },
+      },
+    ],
+    payment: null as Record<string, unknown> | null,
+  };
+  const credits: bigint[] = [];
+  const tx = {
+    $executeRaw: async () => 1,
+    user: { findUnique: async () => ({ status: 'ACTIVE', deleted_at: null }) },
+    ride: { findFirst: async () => ride },
+    payoutSchedule: {
+      findUnique: async () => ({ razorpay_ride_upi_enabled: true }),
+    },
+    payment: {
+      upsert: async ({ create }: { create: Record<string, unknown> }) => {
+        ride.payment = { ...create, id: 'payment', provider_order_id: null };
+        return ride.payment;
+      },
+      update: async ({ data }: { data: Record<string, unknown> }) =>
+        Object.assign(ride.payment!, data),
+      findFirst: async () => ride.payment,
+      findUnique: async ({
+        where,
+      }: {
+        where: { provider_order_id: string };
+      }) =>
+        ride.payment?.provider_order_id === where.provider_order_id
+          ? ride.payment
+          : null,
+      findUniqueOrThrow: async () => ({ ...ride.payment, ride }),
+    },
+    wallet: {
+      upsert: async () => ({
+        id: 'wallet',
+        available_paise: 4500n,
+        held_paise: 0n,
+      }),
+    },
+    walletEntry: {
+      create: async ({ data }: { data: { available_delta_paise: bigint } }) =>
+        credits.push(data.available_delta_paise),
+    },
+    rideEvent: { create: async () => ({}) },
+    userLog: { create: async () => ({}) },
+  };
+  const provider = new RazorpayWallet();
+  t.mock.getter(provider, 'credential_mode', () => 'live');
+  let receipt = '';
+  const order = () => ({
+    id: 'order_fixture',
+    receipt,
+    amount: 5000,
+    amount_paid: 0,
+    currency: 'INR' as const,
+    status: 'created' as const,
+  });
+  const create = t.mock.method(
+    provider,
+    'create_order',
+    async (reference: string) => {
+      receipt = reference;
+      return order();
+    },
+  );
+  t.mock.method(provider, 'order', async () => order());
+  let captured = false;
+  t.mock.method(provider, 'settled_order_payment', async () =>
+    captured
+      ? {
+          id: 'pay_fixture',
+          order_id: 'order_fixture',
+          amount: 5000,
+          amount_refunded: 0,
+          currency: 'INR',
+          status: 'captured',
+          method: 'upi',
+        }
+      : null,
+  );
+  const service = new RideUpi(
+    database({
+      ...tx,
+      $transaction: async (run: (client: typeof tx) => unknown) => run(tx),
+    }),
+    provider,
+  );
+  const first = await service.checkout('rider', ride.id);
+  const second = await service.checkout('rider', ride.id);
+  assert.equal(first.sdk_checkout?.order_id, 'order_fixture');
+  assert.equal(second.sdk_checkout?.order_id, 'order_fixture');
+  assert.equal(create.mock.callCount(), 1);
+  assert.deepEqual(credits, []);
+  captured = true;
+  const verified = await service.check('driver', ride.id);
+  assert.equal(verified.status, 'CAPTURED');
+  assert.equal(verified.sdk_checkout, undefined);
+  assert.equal((await service.check('driver', ride.id)).status, 'CAPTURED');
+  assert.equal(
+    (await service.reconcile_order('order_fixture'))?.status,
+    'CAPTURED',
+  );
+  assert.deepEqual(credits, [4500n]);
+});
+
+it('debits the rider and credits driver net earnings once for a Wallet ride payment', async () => {
+  const ride = {
+    status: 'COMPLETED',
+    currency: 'INR',
+    final_fare: new Prisma.Decimal('50.00'),
+    driver: { user_id: 'driver' },
+    payment: null as Record<string, unknown> | null,
+    settlement_review: null,
+    quotes: [
+      { category_snapshot: { payment_policy: { commission_percent: 10 } } },
+    ],
+  };
+  const entries: Prisma.WalletEntryCreateManyInput[] = [];
+  const rider = { id: 'rider-wallet', available_paise: 7000n, held_paise: 0n };
+  const driver = {
+    id: 'driver-wallet',
+    available_paise: 1000n,
+    held_paise: 0n,
+  };
+  const tx = {
+    $executeRaw: async () => 1,
+    $queryRaw: async () => [],
+    user: { findUnique: async () => ({ status: 'ACTIVE', deleted_at: null }) },
+    ride: { findFirst: async () => ride },
+    payoutSchedule: {
+      findUnique: async () => ({ wallet_ride_collection_enabled: true }),
+    },
+    walletTopUp: { findFirst: async () => null },
+    wallet: {
+      findUnique: async () => rider,
+      findUniqueOrThrow: async () => rider,
+      updateMany: async ({
+        data,
+      }: {
+        data: { available_paise: { decrement: bigint } };
+      }) => {
+        rider.available_paise -= data.available_paise.decrement;
+        return { count: 1 };
+      },
+      upsert: async ({
+        update,
+      }: {
+        update: { available_paise: { increment: bigint } };
+      }) => {
+        driver.available_paise += update.available_paise.increment;
+        return driver;
+      },
+    },
+    payment: {
+      upsert: async ({ create }: { create: Record<string, unknown> }) =>
+        (ride.payment = { ...create, id: 'wallet-payment' }),
+    },
+    walletEntry: {
+      createMany: async ({
+        data,
+      }: {
+        data: Prisma.WalletEntryCreateManyInput[];
+      }) => entries.push(...data),
+    },
+    rideEvent: { create: async () => ({}) },
+    userLog: { create: async () => ({}) },
+  };
+  const repo = new WalletRepository(
+    database({
+      $transaction: async (run: (client: typeof tx) => unknown) => run(tx),
+    }),
+  );
+  assert.equal((await repo.pay_ride('rider', 'ride')).status, 'CAPTURED');
+  assert.equal((await repo.pay_ride('rider', 'ride')).status, 'CAPTURED');
+  assert.equal(rider.available_paise, 2000n);
+  assert.equal(driver.available_paise, 5500n);
+  assert.deepEqual(
+    entries.map(
+      ({ kind, available_delta_paise, payment_id, commission_paise }) => [
+        kind,
+        available_delta_paise,
+        payment_id,
+        commission_paise,
+      ],
+    ),
+    [
+      ['RIDE_DEBIT', -5000n, 'wallet-payment', undefined],
+      ['RIDE_EARNING', 4500n, 'wallet-payment', 500n],
+    ],
+  );
+});
 
 it('continues checking submitted payouts when admin disables transfers', async (t) => {
   let checked = false;
@@ -251,6 +551,81 @@ it('requires admin-selected top-up mode, matching provider credentials and live 
   const approved = { ...live, wallet_live_topup_approved: true };
   assert.equal(active_topup_mode(approved, null), null);
   assert.equal(active_topup_mode(approved, 'live'), 'live');
+});
+
+it('anchors payout cadence to the latest cycle at 5 AM IST and accepts a new date', () => {
+  const now = new Date('2026-11-27T02:00:00.000Z');
+  const last = new Date('2026-11-25T18:30:00.000Z');
+  const weekly = cadence_update({ frequency: 'WEEKLY' }, null, last, now)!;
+  assert.equal(weekly.next_run_at?.toISOString(), '2026-12-02T23:30:00.000Z');
+  assert.equal(weekly.timing.minute_of_day_ist, 300);
+  const monthly = cadence_update(
+    { frequency: 'MONTHLY', next_run_date: '2027-01-31' },
+    null,
+    last,
+    now,
+  )!;
+  assert.equal(monthly.next_run_at?.toISOString(), '2027-01-30T23:30:00.000Z');
+  assert.equal(
+    next_payout_run(monthly.timing, monthly.next_run_at!).toISOString(),
+    '2027-02-27T23:30:00.000Z',
+  );
+  const overdue = cadence_update({ frequency: 'DAILY' }, null, last, now)!;
+  assert.equal(overdue.next_run_at?.toISOString(), '2026-11-27T23:30:00.000Z');
+  assert.equal(
+    cadence_update(
+      { frequency: 'WEEKLY', next_run_date: '2026-11-27' },
+      null,
+      last,
+      now,
+    )?.next_run_at,
+    null,
+  );
+  assert.equal(
+    cadence_update(
+      { frequency: 'WEEKLY' },
+      { ...weekly.timing, next_run_at: weekly.next_run_at },
+      last,
+      now,
+    ),
+    null,
+  );
+});
+
+it('does not recreate the last payout cycle when the stored next date is stale', async () => {
+  const last = new Date('2026-11-26T23:30:00.000Z');
+  let next_date: Date | undefined;
+  const tx = {
+    $executeRaw: async () => 1,
+    payoutSchedule: {
+      findUnique: async () => ({
+        id: 'payout-schedule',
+        enabled: true,
+        frequency: 'WEEKLY',
+        weekday_ist: 5,
+        minute_of_day_ist: 300,
+        next_run_at: last,
+      }),
+      update: async ({ data }: { data: { next_run_at: Date } }) => {
+        next_date = data.next_run_at;
+      },
+    },
+    payoutCycle: {
+      findFirst: async () => ({ cutoff_at: last }),
+      upsert: async () =>
+        assert.fail('The last cycle must not be drafted again.'),
+    },
+  };
+  const repo = new WalletRepository(
+    database({
+      $transaction: async (run: (client: typeof tx) => unknown) => run(tx),
+    }),
+  );
+  assert.deepEqual(
+    await repo.prepare_due_cycle(new Date('2026-11-27T02:00:00.000Z')),
+    { prepared: false },
+  );
+  assert.equal(next_date?.toISOString(), '2026-12-03T23:30:00.000Z');
 });
 
 it('round-trips saved admin payout settings and clips monthly days in IST', () => {
@@ -683,7 +1058,7 @@ it('refunds a wallet ride once and preserves an already paid driver unless the p
   assert.equal(wallet.get('driver')?.available_paise, 0n);
 });
 
-it('reconciles an ambiguous payout only from a matching RazorpayX transfer', async (t) => {
+it('reconciles an ambiguous bank payout only from a matching RazorpayX transfer and mode', async (t) => {
   const attempt = {
     id: 'attempt',
     idempotency_key: 'key',
@@ -697,6 +1072,7 @@ it('reconciles an ambiguous payout only from a matching RazorpayX transfer', asy
       destination_snapshot: {
         earnings_paise: '400',
         fund_account_id: 'fa_valid',
+        mode: 'IMPS',
         source_account: 'source',
       },
     },
@@ -741,6 +1117,7 @@ it('reconciles an ambiguous payout only from a matching RazorpayX transfer', asy
   );
   t.mock.getter(worker, 'credentials_ready', () => true);
   let reference = 'other';
+  let mode = 'IMPS';
   t.mock.method(globalThis, 'fetch', async (url: string, init: RequestInit) => {
     assert.equal(url, 'https://api.razorpay.com/v1/payouts/pout_known');
     assert.equal(init.method, 'GET');
@@ -748,7 +1125,7 @@ it('reconciles an ambiguous payout only from a matching RazorpayX transfer', asy
       id: 'pout_known',
       fund_account_id: 'fa_valid',
       reference_id: reference,
-      mode: 'UPI',
+      mode,
       amount: 400,
       currency: 'INR',
       status: 'processed',
@@ -759,6 +1136,12 @@ it('reconciles an ambiguous payout only from a matching RazorpayX transfer', asy
   });
   assert.equal(holdRemoved, 0);
   reference = 'payout';
+  mode = 'UPI';
+  await assert.rejects(worker.reconcile('admin', 'payout', 'pout_known'), {
+    error_code: 'PAYOUT_PROVIDER_MISMATCH',
+  });
+  assert.equal(holdRemoved, 0);
+  mode = 'IMPS';
   await worker.reconcile('admin', 'payout', 'pout_known');
   assert.equal(attempt.status, 'PAID');
   await assert.rejects(worker.reconcile('admin', 'payout', 'pout_known'), {

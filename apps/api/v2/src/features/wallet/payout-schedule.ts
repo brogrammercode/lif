@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { PayoutSchedule } from '@prisma/client';
 import { default_wallet_controls } from './wallet-controls.js';
 
-export const payout_settings_schema = z
+const legacy_payout_settings_schema = z
   .object({
     expected_version: z.number().int().nonnegative(),
     enabled: z.boolean(),
@@ -13,6 +13,7 @@ export const payout_settings_schema = z
     minimum_paise: z.string().regex(/^(0|[1-9][0-9]{0,11})$/),
     require_approval: z.boolean(),
     next_run_override: z.iso.datetime().nullable().optional(),
+    razorpay_ride_upi_enabled: z.boolean().optional(),
     wallet_ride_collection_enabled: z.boolean().optional(),
     wallet_topup_mode: z.enum(['disabled', 'test', 'live']).optional(),
     wallet_live_topup_approved: z.boolean().optional(),
@@ -21,12 +22,74 @@ export const payout_settings_schema = z
   })
   .strict();
 
+const cadence_settings_schema = z.strictObject({
+  expected_version: z.number().int().nonnegative(),
+  frequency: z.enum(['DAILY', 'WEEKLY', 'MONTHLY']),
+  next_run_date: z.iso.date().optional(),
+});
+
+export const payout_settings_schema = z.union([
+  legacy_payout_settings_schema,
+  cadence_settings_schema,
+]);
+
 const ist_offset_ms = 330 * 60_000;
 
 type Timing = Pick<
   PayoutSchedule,
   'frequency' | 'minute_of_day_ist' | 'weekday_ist' | 'month_day_ist'
 >;
+
+const ist_day = (date: Date) =>
+  new Date(date.getTime() + ist_offset_ms).toISOString().slice(0, 10);
+
+const daily_check = (day: string) => new Date(`${day}T05:00:00+05:30`);
+
+export function cadence_update(
+  input: Pick<
+    z.infer<typeof cadence_settings_schema>,
+    'frequency' | 'next_run_date'
+  >,
+  current: (Timing & { next_run_at: Date | null }) | null,
+  last_cutoff: Date | null,
+  now: Date,
+) {
+  if (
+    !input.next_run_date &&
+    current?.frequency === input.frequency &&
+    current.minute_of_day_ist === 300 &&
+    current.next_run_at
+  )
+    return null;
+
+  const anchor = daily_check(
+    input.next_run_date ?? ist_day(last_cutoff ?? now),
+  );
+  const timing_for = (date: Date) => {
+    const ist = new Date(date.getTime() + ist_offset_ms);
+    return {
+      frequency: input.frequency,
+      minute_of_day_ist: 300,
+      weekday_ist: ist.getUTCDay(),
+      month_day_ist: ist.getUTCDate(),
+    };
+  };
+  const timing = timing_for(anchor);
+  const next = input.next_run_date
+    ? anchor
+    : last_cutoff
+      ? next_payout_run(timing, anchor)
+      : anchor;
+  if (
+    input.next_run_date &&
+    (next <= now || (last_cutoff && next <= last_cutoff))
+  ) {
+    return { timing, next_run_at: null };
+  }
+  if (next > now) return { timing, next_run_at: next };
+  const next_run_at = next_payout_run({ ...timing, frequency: 'DAILY' }, now);
+  return { timing: timing_for(next_run_at), next_run_at };
+}
 
 export function next_payout_run(schedule: Timing, now = new Date()) {
   const ist = new Date(now.getTime() + ist_offset_ms);
@@ -78,6 +141,7 @@ export function present_payout_schedule(row: PayoutSchedule | null) {
     version: 0,
   };
   return {
+    razorpay_ride_upi_enabled: row?.razorpay_ride_upi_enabled ?? false,
     wallet_ride_collection_enabled:
       row?.wallet_ride_collection_enabled ??
       default_wallet_controls.wallet_ride_collection_enabled,

@@ -6,7 +6,7 @@
 - [x] Remove both old cron routes and all automatic audit timers. Emails and Razorpay webhooks still respond to their own events.
 - [x] Pass API compilation, admin build and 56 focused API tests covering auth, dispatch, failure isolation and the single schedule.
 
-The admin payout time is the eligibility cutoff. The first daily check at or after it picks up due work. A run starts up to 10 due cycles, 10 payout batches of 3 and 40 top-up checks, stopping between batches when the 40-second processing window is reached. Remaining work is eligible at the next run.
+The Payout settings dialog accepts a cadence and optional next date. A chosen date starts the recurring cadence at the 05:00 IST check. With just a cadence change, the API uses the most recent cycle cutoff and picks the next daily check if already overdue. The worker checks the last recorded cycle before drafting. Existing timing options sent by older clients still work. A run starts up to 10 due cycles, 10 payout batches of 3 and 40 top-up checks, stopping between batches when the 40-second processing window is reached. Remaining work is eligible at the next run.
 
 For every new scheduled task, add a service method and register it in `CronJobs.run()`. The existing daily route remains the only scheduler entry point.
 

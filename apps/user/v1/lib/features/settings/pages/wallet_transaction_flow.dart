@@ -4,7 +4,7 @@ import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/features/rides/ride_display.dart' show rideMoney;
 import 'package:user/features/settings/controllers/wallet_controller.dart';
 
-String _timestamp(BuildContext context, DateTime date) {
+String walletTimestamp(BuildContext context, DateTime date) {
   final labels = MaterialLocalizations.of(context);
   final local = date.toLocal();
   return '${labels.formatMediumDate(local)} · ${labels.formatTimeOfDay(TimeOfDay.fromDateTime(local), alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context))}';
@@ -123,7 +123,7 @@ class WalletTransactionCard extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    _timestamp(context, item.date),
+                    walletTimestamp(context, item.date),
                     style: const TextStyle(
                       fontSize: 12,
                       color: RideTokens.muted,
@@ -189,9 +189,10 @@ class WalletTransactionDetails extends StatelessWidget {
     final updated = item.topUp?.updatedAt;
     final reference = item.topUpReference ?? item.reference;
     final rows = <(String, String)>[
-      ('Date & time', _timestamp(context, item.date)),
+      ('Date & time', walletTimestamp(context, item.date)),
+      if (entry?.balanceNeutral == true) ('Wallet impact', 'Balance unchanged'),
       if (updated != null && updated.isAfter(item.date) && entry == null)
-        ('Last updated', _timestamp(context, updated)),
+        ('Last updated', walletTimestamp(context, updated)),
       if (entry?.balanceAfterPaise case final balance?)
         ('Wallet balance after', rideMoney(balance / 100)),
       if (provider?.maskedDestination case final destination?)
@@ -214,7 +215,11 @@ class WalletTransactionDetails extends StatelessWidget {
           rideMoney(commission / 100),
         ),
       if ((provider?.netPaise ??
-              (entry?.grossPaise == null ? null : entry?.paise))
+              (entry?.grossPaise == null
+                  ? null
+                  : entry!.balanceNeutral
+                  ? entry.grossPaise! - (entry.commissionPaise ?? 0)
+                  : entry.paise))
           case final net?)
         ('Net earnings', rideMoney(net / 100)),
       if (entry?.topUpId != null) ('Ledger entry', item.reference),

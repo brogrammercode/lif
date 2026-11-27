@@ -72,11 +72,13 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
   Future<void> _signIn() async {
     if (_signingIn) return;
     try {
-      if (await _controller.signIn() && mounted) {
+      final user = await _controller.signIn();
+      if (user != null && mounted) {
         Navigator.pushNamedAndRemoveUntil(
           context,
           AppRoutes.gate,
           (_) => false,
+          arguments: user,
         );
       }
     } catch (error) {

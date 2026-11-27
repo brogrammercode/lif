@@ -1,3 +1,4 @@
+import 'package:user/features/rides/widgets/ride_payment_panel.dart';
 import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/rides/widgets/ride_history_layout.dart';
 import 'package:user/features/rides/controllers/ride_feedback_controller.dart';
@@ -297,6 +298,18 @@ class _RiderTripState extends State<RideDetailPage>
           _controller.status != 'COMPLETED') {
         return;
       }
+      if (![
+        'CAPTURED',
+        'CANCELLED',
+        'REFUNDED',
+        'PARTIALLY_REFUNDED',
+      ].contains(rideMap(_controller.data!['payment'])['status'])) {
+        showAppError(
+          context,
+          'Finish ride payment before viewing the receipt.',
+        );
+        return;
+      }
       final trip = rideMap(_controller.data!['trip']);
       final vehicle = rideMap(trip['vehicle']);
       final brand = rideMap(vehicle['brand']);
@@ -449,6 +462,12 @@ class _RiderTripState extends State<RideDetailPage>
     final hasMap = pickup != null && dropoff != null;
     final mapMode = hasMap && _showHistoryMap;
     final completed = _controller.status == 'COMPLETED';
+    final hasStandardPayment =
+        !widget.driverHistory &&
+        completed &&
+        data != null &&
+        data['review'] == null &&
+        [null, 'PENDING', 'FAILED'].contains(payment['status']);
     final canContactDriver =
         !widget.driverHistory &&
         (_controller.active ||
@@ -554,7 +573,15 @@ class _RiderTripState extends State<RideDetailPage>
                     ),
                     if (_controller.error != null)
                       AppLoadError(message: _controller.error!, onRetry: _load),
-                    if (!widget.driverHistory &&
+                    if (hasStandardPayment) ...[
+                      const SizedBox(height: 24),
+                      RidePaymentPanel(
+                        rideId: _controller.id!,
+                        data: data,
+                        repository: _controller.ops,
+                        onChanged: _changed,
+                      ),
+                    ] else if (!widget.driverHistory &&
                         (data['review'] != null ||
                             (completed &&
                                 payment['status'] != 'CAPTURED'))) ...[
@@ -771,13 +798,11 @@ class _RiderTripState extends State<RideDetailPage>
         ),
         panel: Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
-          child: TripActionsPanel(
+          child: RidePaymentPanel(
             rideId: _controller.id!,
-            externalContext: _controller.data,
+            data: _controller.data!,
             repository: _controller.ops,
             onChanged: _changed,
-            compactRiderPayment: true,
-            hideContacts: true,
           ),
         ),
       );

@@ -20,6 +20,7 @@ Production and demo records belong in controllers. Pages own navigation, focus, 
 - [x] Add extensible demo registry and Home bottom-sheet launcher.
 - [x] Reuse real routes/pages in demo, including back navigation and restart.
 - [x] Add demo stage controls for deterministic search, assignment, arrival, start and completion; stop all demo activity on exit.
+- [x] Rider demo advances from Ride in progress to Payment before Completed. It uses the real payment sheet with local Cash, UPI and Wallet responses. The toolbar can confirm Cash or simulate UPI without opening a native checkout.
 - [x] Migrate account/settings/profile/notifications/emergency/payment/support data ownership.
 - [x] Migrate saved-place lists/details/picker/directions data ownership.
 - [x] Migrate driver account/finance/documents/fleet/operations/chat data ownership.

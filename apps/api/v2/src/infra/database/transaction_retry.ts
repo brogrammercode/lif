@@ -9,27 +9,38 @@ type Options = {
   isolationLevel?: Prisma.TransactionIsolationLevel;
 };
 
-// Only retry acquisition: once Prisma enters the callback, any error (including
-// a lost commit acknowledgement) must propagate without replaying writes.
+// Retrying before callback entry is the default. A read-only preflight may opt
+// in, provided it calls begin_writes before attempting its first mutation.
 export async function transaction_with_connection_retry<T>(
   database: AppPrismaClient,
-  work: (tx: TransactionClient) => Promise<T>,
-  options: Options = {},
+  work: (tx: TransactionClient, begin_writes: () => void) => Promise<T>,
+  {
+    retry_read_only_preflight = false,
+    ...options
+  }: Options & {
+    retry_read_only_preflight?: boolean;
+  } = {},
 ): Promise<T> {
   for (let attempt = 0; ; attempt++) {
-    let entered = false;
+    let write_attempted = false;
     try {
       return await database.$transaction(
         async (tx) => {
-          entered = true;
-          return work(tx);
+          write_attempted = !retry_read_only_preflight;
+          return work(tx, () => {
+            write_attempted = true;
+          });
         },
         { maxWait: DATABASE_POOL_WAIT_SECONDS * 1000, ...options },
       );
     } catch (error) {
       const failure = error as { code?: unknown; errorCode?: unknown } | null;
       const code = failure?.code ?? failure?.errorCode;
-      if (entered || attempt > 0 || !['P2024', 'P2028'].includes(String(code)))
+      if (
+        write_attempted ||
+        attempt > 0 ||
+        !['P2024', 'P2028'].includes(String(code))
+      )
         throw error;
       await pause(100 + Math.floor(Math.random() * 100));
     }

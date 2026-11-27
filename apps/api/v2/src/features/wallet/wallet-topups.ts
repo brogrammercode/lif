@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { WalletTopUp } from '@prisma/client';
 import { z } from 'zod';
@@ -11,6 +11,7 @@ import {
 import { PrismaService } from '../../infra/database/prisma.service.js';
 import { create_user_log } from '../../infra/database/user_log.js';
 import { RazorpayWallet } from './razorpay-wallet.js';
+import { RideUpi } from './ride-upi.js';
 import {
   active_topup_mode,
   gateway_credential_mode,
@@ -89,6 +90,7 @@ export class WalletTopUps {
   constructor(
     private readonly db: PrismaService,
     private readonly provider: RazorpayWallet,
+    @Optional() private readonly ride_upi?: RideUpi,
   ) {}
 
   async list(user_id: string) {
@@ -570,6 +572,17 @@ export class WalletTopUps {
       }
     }
     const order = input.payload.order?.entity;
+    const capture_order =
+      input.event === 'order.paid'
+        ? order?.id
+        : input.event === 'payment.captured'
+          ? input.payload.payment?.entity.order_id
+          : null;
+    if (capture_order && this.ride_upi) {
+      const ride = await this.ride_upi.reconcile_order(capture_order);
+      if (ride && ['PENDING', 'FAILED'].includes(ride.status))
+        throw capture_pending();
+    }
     if (
       input.event === 'order.paid' &&
       order &&
@@ -603,6 +616,15 @@ export class WalletTopUps {
       }
     }
     if (payment_id) {
+      if (
+        await this.ride_upi?.flag_refund_or_dispute(
+          payment_id,
+          input.event,
+          event_id,
+          input.payload.dispute?.entity.id,
+        )
+      )
+        return;
       await this.flag_review(
         payment_id,
         input.event,

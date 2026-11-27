@@ -119,7 +119,10 @@ test("shows wallet balances and opens failed and cancelled payment details", asy
   await expect(details.getByText("Available balance after")).toBeVisible();
 });
 
-test("persists payment controls through payout settings", async ({ page }) => {
+test("payout settings save just the cadence and date with payment controls separate", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 700 });
   await mockConfiguration(page);
   const settings = {
     enabled: false,
@@ -133,6 +136,7 @@ test("persists payment controls through payout settings", async ({ page }) => {
     next_run_at: null,
     transfers_enabled: false,
     submission_state: "schedule_paused",
+    razorpay_ride_upi_enabled: false,
     wallet_ride_collection_enabled: false,
     wallet_topup_mode: "disabled",
     wallet_live_topup_approved: false,
@@ -166,22 +170,59 @@ test("persists payment controls through payout settings", async ({ page }) => {
   const open = page.getByRole("button", { name: "Settings", exact: true });
   await open.click();
   const dialog = page.getByRole("dialog", { name: "Payout settings" });
-  await dialog.getByLabel("Allow wallet payment for rides").check();
-  await dialog.getByLabel("Allow drivers to verify a payout UPI ID").check();
-  await dialog.getByLabel("Submit payouts to RazorpayX").check();
-  await dialog.getByLabel("Wallet top-ups").selectOption("live");
-  await dialog
+  await expect(
+    dialog.getByRole("button", { name: "Save settings" }),
+  ).toBeInViewport();
+  await expect(dialog.getByLabel("Run time (IST)")).toHaveCount(0);
+  await expect(dialog.getByRole("switch")).toHaveCount(0);
+  await dialog.getByLabel("Frequency").selectOption("MONTHLY");
+  await dialog.getByLabel("Next payout date (IST)").fill("2030-03-15");
+  const savingSchedule = page.waitForRequest(
+    (request) =>
+      request.method() === "PUT" && request.url().endsWith("/settings"),
+  );
+  await dialog.getByRole("button", { name: "Save settings" }).click();
+  expect((await savingSchedule).postDataJSON()).toEqual({
+    expected_version: 1,
+    frequency: "MONTHLY",
+    next_run_date: "2030-03-15",
+  });
+  await expect(dialog).toHaveCount(0);
+  await expect(open).toBeFocused();
+  await open.click();
+  await dialog.getByRole("button", { name: "Payment controls" }).click();
+  const controls = page.getByRole("dialog", { name: "Payment controls" });
+  await controls
+    .getByRole("switch", { name: "Allow Razorpay UPI for rides" })
+    .click();
+  await controls
+    .getByRole("switch", { name: "Allow wallet payment for rides" })
+    .click();
+  await controls
+    .getByRole("switch", { name: "Allow drivers to verify a payout UPI ID" })
+    .click();
+  await controls
+    .getByRole("switch", { name: "Submit payouts to RazorpayX" })
+    .click();
+  await controls.getByLabel("Wallet top-ups").selectOption("live");
+  await controls
     .getByLabel("Confirm the live wallet arrangement is approved")
     .check();
-  await dialog.getByRole("button", { name: "Save settings" }).click();
-  await expect(dialog).toHaveCount(0);
+  await controls.getByRole("button", { name: "Save settings" }).click();
+  await expect(controls).toHaveCount(0);
   expect(settings).toMatchObject({
+    razorpay_ride_upi_enabled: true,
     wallet_ride_collection_enabled: true,
     razorpay_x_upi_setup_enabled: true,
     razorpay_x_transfers_enabled: true,
     wallet_topup_mode: "live",
     wallet_live_topup_approved: true,
   });
+  await open.click();
+  await dialog.getByRole("button", { name: "Payment controls" }).click();
+  await expect(
+    controls.getByRole("switch", { name: "Submit payouts to RazorpayX" }),
+  ).toHaveAttribute("aria-checked", "true");
 });
 
 test("previews gross, commission and net for the next payout", async ({
@@ -222,6 +263,70 @@ test("previews gross, commission and net for the next payout", async ({
       preview.getByRole("cell", { name: value, exact: true }),
     ).toBeVisible();
   }
+});
+
+test("opens a driver payout breakdown and edits the draft from its action menu", async ({
+  page,
+}) => {
+  await mockConfiguration(page);
+  const date = "2027-02-28T03:30:00.000Z";
+  let edit: unknown;
+  await page.route("**/api/v2/admin/payouts/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const data = path.endsWith("/lines")
+      ? {
+          rows: [
+            {
+              id: "line",
+              reference: "Airport run",
+              amount_paise: "9000",
+              gross_paise: "10000",
+              commission_paise: "1000",
+              commission_percent: "10",
+              created_at: date,
+            },
+          ],
+          has_more: false,
+        }
+      : {
+          cycle: { id: "cycle", status: "DRAFT", version: 1 },
+          rows: [
+            {
+              id: "payout",
+              status: "DRAFT",
+              amount_paise: "9000",
+              updated_at: date,
+              wallet: { user: { id: "driver", first_name: "Payout Driver" } },
+              attempts: [],
+              _count: { lines: 1 },
+            },
+          ],
+          has_more: false,
+        };
+    if (route.request().method() === "PATCH") {
+      edit = route.request().postDataJSON();
+    }
+    return route.fulfill({ json: { status: "success", data } });
+  });
+  await page.goto("/app/user/payouts/cycle");
+  await (await entityAction(page, "Breakdown (1)")).click();
+  const breakdown = page.getByRole("dialog", { name: "Payout breakdown" });
+  await expect(breakdown.getByText("Airport run")).toBeVisible();
+  await expect(breakdown.getByText("Payout Driver")).toBeVisible();
+  await breakdown.getByRole("button", { name: "Close dialog" }).click();
+
+  await (await entityAction(page, "Edit draft")).click();
+  const draft = page.getByRole("dialog", { name: "Edit draft payout" });
+  await draft.getByLabel("Adjustment").fill("-25");
+  await draft.getByLabel("Reason").fill("Correct duplicate earnings");
+  await draft.getByRole("button", { name: "Save draft change" }).click();
+  await expect(draft).toHaveCount(0);
+  expect(edit).toMatchObject({
+    action: "adjust",
+    amount_paise: "-2500",
+    expected_updated_at: date,
+    reason: "Correct duplicate earnings",
+  });
 });
 
 for (const entry of [

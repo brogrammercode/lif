@@ -5,6 +5,7 @@ import 'package:user/core/network/api_result.dart';
 import 'package:user/core/route_observer.dart';
 import 'package:user/features/auth/auth.repo.dart';
 import 'package:user/features/auth/models/user.model.dart';
+import 'package:user/features/auth/pages/session_gate.dart';
 import 'package:user/features/driver_vehicles/pages/driver_vehicles_page.dart';
 import 'package:user/features/driver_vehicles/vehicle_verification.repo.dart';
 
@@ -36,8 +37,8 @@ class _DriverVehicleGateState extends State<DriverVehicleGate>
   ModalRoute<dynamic>? _route;
   bool get _homeAllowed => _controller.homeAllowed;
   bool get _checking => _controller.checking;
-  Future<bool> get _ready => _controller.ready;
-  set _ready(Future<bool> value) => _controller.ready = value;
+  Future<DriverVehicleAccess> get _ready => _controller.ready;
+  set _ready(Future<DriverVehicleAccess> value) => _controller.ready = value;
 
   @override
   void initState() {
@@ -83,10 +84,10 @@ class _DriverVehicleGateState extends State<DriverVehicleGate>
     }
   }
 
-  Future<bool> _check() => _controller.check();
+  Future<DriverVehicleAccess> _check() => _controller.check();
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<bool>(
+  Widget build(BuildContext context) => FutureBuilder<DriverVehicleAccess>(
     future: _ready,
     builder: (context, snapshot) {
       if (snapshot.hasError) {
@@ -105,13 +106,17 @@ class _DriverVehicleGateState extends State<DriverVehicleGate>
           !snapshot.hasData) {
         return widget.child;
       }
-      return snapshot.data!
-          ? widget.child
-          : DriverVehiclesPage(
-              registrationRequired: true,
-              initialData: _registration,
-              repository: widget.repository,
-            );
+      return switch (snapshot.data!) {
+        DriverVehicleAccess.rider => SessionGate(
+          signedInUser: _controller.exitedUser,
+        ),
+        DriverVehicleAccess.home => widget.child,
+        DriverVehicleAccess.registration => DriverVehiclesPage(
+          registrationRequired: true,
+          initialData: _registration,
+          repository: widget.repository,
+        ),
+      };
     },
   );
 }

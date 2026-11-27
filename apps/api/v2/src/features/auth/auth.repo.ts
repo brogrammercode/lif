@@ -9,7 +9,11 @@ import type { AuthProvider, Prisma } from '@prisma/client';
 import { create_user_log } from '../../infra/database/user_log.js';
 import type { ExternalLoginInput } from './auth.type.js';
 import { AppError } from '../../core/error.js';
-import { require_active_account } from '../../infra/database/account_lifecycle.js';
+import {
+  lock_account_for_write,
+  require_active_account,
+} from '../../infra/database/account_lifecycle.js';
+import type { TransactionClient } from '../../infra/database/client.js';
 import {
   create_activation,
   partner_lock,
@@ -21,8 +25,11 @@ import {
 @Injectable()
 export class AuthRepository {
   constructor(private readonly prismaService: PrismaService) {}
-  readonly find_user_by_id = async (user_id: string) =>
-    this.prismaService.client.user.findUnique({
+  readonly find_user_by_id = async (
+    user_id: string,
+    db: Pick<TransactionClient, 'user'> = this.prismaService.client,
+  ) =>
+    db.user.findUnique({
       where: { id: user_id },
       include: {
         driver_profile: true,
@@ -226,38 +233,41 @@ export class AuthRepository {
       user_agent?: string;
       ip_address?: string;
     },
-  ) =>
-    transaction_with_connection_retry(
+  ) => {
+    // Let the initial pooled lookup acquire a connection before starting the
+    // rotation timer. The write still claims this exact session under lock.
+    const session = await this.prismaService.client.session.findUnique({
+      where: { refresh_token_hash },
+      select: {
+        id: true,
+        user_id: true,
+        family_id: true,
+        revoked_at: true,
+        expires_at: true,
+      },
+    });
+    if (
+      !session ||
+      session.family_id ||
+      session.revoked_at ||
+      session.expires_at.getTime() <= Date.now()
+    )
+      return null;
+
+    return transaction_with_connection_retry(
       this.prismaService.client,
-      async (tx) => {
-        const session = await tx.session.findUnique({
-          where: { refresh_token_hash },
-          include: {
-            user: {
-              include: {
-                driver_profile: true,
-                partner_application: {
-                  select: { status: true, activation_issued_at: true },
-                },
-              },
-            },
-          },
-        });
-        if (
-          !session ||
-          session.family_id ||
-          session.revoked_at ||
-          session.expires_at.getTime() <= Date.now() ||
-          session.user.status !== 'ACTIVE' ||
-          session.user.deleted_at
-        )
-          return null;
+      async (tx, begin_writes) => {
         // Serialize refresh against deactivation so a refresh cannot leave a
         // newly created, unrevoked session behind the deactivation transaction.
-        await require_active_account(tx, session.user_id);
+        await lock_account_for_write(tx, session.user_id);
+        const user = await this.find_user_by_id(session.user_id, tx);
+        if (!user || user.status !== 'ACTIVE' || user.deleted_at) return null;
+        begin_writes();
         const claimed = await tx.session.updateMany({
           where: {
             id: session.id,
+            refresh_token_hash,
+            family_id: null,
             revoked_at: null,
             expires_at: { gt: new Date() },
           },
@@ -279,10 +289,11 @@ export class AuthRepository {
           entity_id: next.id,
           action: 'ROTATE_MOBILE_SESSION',
         });
-        return session.user;
+        return user;
       },
-      { maxWait: 30000, timeout: 15000 },
+      { maxWait: 30000, timeout: 15000, retry_read_only_preflight: true },
     );
+  };
 
   readonly revoke_session = async (session_id: string, actor_uid: string) =>
     transaction_with_connection_retry(this.prismaService.client, async (tx) => {

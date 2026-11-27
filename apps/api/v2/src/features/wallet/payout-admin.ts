@@ -66,7 +66,7 @@ export class PayoutAdmin {
         u.id AS driver_id, trim(concat_ws(' ', u.first_name, u.last_name)) AS driver_name,
         p.amount_paise::text AS payout_total_paise,
         p.exclusion_reason, l.ride_id, l.reference, l.reason,
-        (CASE WHEN e.kind = 'RIDE_EARNING' THEN e.available_delta_paise + COALESCE(e.commission_paise, 0) END)::text AS gross_paise,
+        (CASE WHEN e.kind = 'CASH_PAYMENT' THEN e.external_amount_paise WHEN e.kind = 'RIDE_EARNING' THEN e.available_delta_paise + COALESCE(e.commission_paise, 0) END)::text AS gross_paise,
         e.commission_percent::text AS commission_percent,
         e.commission_paise::text AS commission_paise,
         l.amount_paise::text AS line_amount_paise,

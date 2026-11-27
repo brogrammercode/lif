@@ -3,9 +3,19 @@ import { Link, useParams } from "react-router-dom";
 import { LoadingState, StateCard } from "../../components/feedback/StateCard";
 import { PageHeading } from "../../components/layout/PageHeading";
 import { Button } from "../../components/ui/Button";
-import { CatalogPanel } from "../../components/ui/CatalogPanel";
+import { CatalogPanel, PanelNote } from "../../components/ui/CatalogPanel";
 import { Dialog } from "../../components/ui/Dialog";
 import { Field } from "../../components/ui/Field";
+import { Badge } from "../../components/ui/Badge";
+import { Icon } from "../../components/ui/Icon";
+import { ActionMenu } from "../../components/ui/ActionMenu";
+import { SettingRow } from "../../components/ui/EditorSection";
+import {
+  FinanceDialogForm,
+  FinancePagination,
+  financeDate as timestamp,
+  formatPaise as money,
+} from "../../components/ui/FinanceLayout";
 import { apiRequest } from "../../lib/api-client";
 import { useAdminSave } from "../../lib/useAdminResource";
 import { useAdminResource } from "../../lib/useAdminResource";
@@ -56,119 +66,156 @@ type PayoutLine = {
   commission_percent: string | null;
 };
 
-const money = (value: string) => {
-  const paise = BigInt(value);
-  const absolute = paise < 0n ? -paise : paise;
-  return `${paise < 0n ? "−" : ""}₹${(absolute / 100n).toLocaleString("en-IN")}.${String(absolute % 100n).padStart(2, "0")}`;
-};
+function PayoutStatus({ status }: { status: string }) {
+  const tones: Record<string, "active" | "inactive" | "warning" | "danger"> = {
+    PAID: "active",
+    ELIGIBLE: "active",
+    PROCESSING: "warning",
+    PARTIALLY_PAID: "warning",
+    REVIEW_REQUIRED: "warning",
+    FAILED: "danger",
+    BLOCKED: "danger",
+  };
+  const key = status.toUpperCase();
+  const label = key.toLowerCase().replaceAll("_", " ");
+  return (
+    <Badge tone={tones[key] ?? "inactive"}>
+      {label.charAt(0).toUpperCase() + label.slice(1)}
+    </Badge>
+  );
+}
 
-function PayoutBreakdown({ id, close }: { id: string; close: () => void }) {
+function RideEarnings({ earnings }: { earnings: Earnings }) {
+  return (
+    <div className="mt-1 grid gap-0.5 text-xs font-normal text-muted">
+      <span>Gross {money(earnings.gross_paise)}</span>
+      <span>Commission ?{money(earnings.commission_paise)}</span>
+      <span>Net {money(earnings.driver_net_paise)}</span>
+    </div>
+  );
+}
+
+function payoutDriverName(payout: DriverPayout) {
+  const { first_name, last_name } = payout.wallet.user;
+  return [first_name, last_name].filter(Boolean).join(" ") || "Driver";
+}
+
+function PayoutBreakdown({
+  payout,
+  close,
+}: {
+  payout: DriverPayout;
+  close: () => void;
+}) {
   const [page, setPage] = useState(1);
-  const path = `/admin/payouts/drivers/${encodeURIComponent(id)}/lines?page=${page}`;
+  const path = `/admin/payouts/drivers/${encodeURIComponent(payout.id)}/lines?page=${page}`;
   const resource = useAdminResource<{ rows: PayoutLine[]; has_more: boolean }>(
     path,
   );
   const data = resource.dataPath === path ? resource.data : null;
   const error = resource.errorPath === path ? resource.error : null;
   return (
-    <Dialog title="Payout breakdown" onClose={close}>
-      {error ? (
-        <StateCard
-          error
-          title="Could not load payout breakdown"
-          message={error}
-        >
-          <Button onClick={resource.refresh}>Retry</Button>
-        </StateCard>
-      ) : !data ? (
-        <LoadingState variant="table" label="Loading breakdown" />
-      ) : !data.rows.length ? (
-        <StateCard
-          title="No breakdown entries"
-          message="Ride earnings and adjustments will appear here."
-        />
-      ) : (
-        <div className="table-scroll">
-          <table className="catalog-table">
-            <thead>
-              <tr>
-                <th>Reference</th>
-                <th>Details</th>
-                <th>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.rows.map((line) => (
-                <tr key={line.id}>
-                  <td>
-                    {line.reference ||
-                      (line.ride_id ? `Ride ${line.ride_id}` : "") ||
-                      line.id}
-                    <span className="table-subtitle">
-                      {timestamp(line.created_at)}
-                    </span>
-                  </td>
-                  <td>
-                    {line.reason ||
-                      (line.ride_id ? "Ride earnings" : "Payout adjustment")}
-                    {line.ride?.final_fare && (
-                      <span className="table-subtitle">
-                        Ride fare ₹{line.ride.final_fare}
-                      </span>
-                    )}
-                    {line.ride?.completed_at && (
-                      <span className="table-subtitle">
-                        Ride ended {timestamp(line.ride.completed_at)}
-                      </span>
-                    )}
-                    {line.actor_id && (
-                      <span className="table-subtitle">
-                        Recorded by {line.actor_id}
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    {money(line.amount_paise)}
-                    {line.gross_paise != null &&
-                      line.commission_paise != null && (
-                        <>
-                          <span className="table-subtitle">
-                            Gross {money(line.gross_paise)}
-                          </span>
-                          <span className="table-subtitle">
-                            Commission ({line.commission_percent}%) −
-                            {money(line.commission_paise)}
-                          </span>
-                          <span className="table-subtitle">
-                            Net ride earnings
-                          </span>
-                        </>
-                      )}
-                  </td>
+    <Dialog
+      title="Payout breakdown"
+      description={payoutDriverName(payout)}
+      onClose={close}
+      compact
+    >
+      <div className="trip-dialog-body">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-[#fafafa] px-3 py-2">
+          <div>
+            <p className="text-xs text-muted">Payout amount</p>
+            <strong className="tabular-nums">
+              {money(payout.amount_paise)}
+            </strong>
+          </div>
+          <PayoutStatus status={payout.status} />
+        </div>
+        {error ? (
+          <StateCard
+            error
+            title="Could not load payout breakdown"
+            message={error}
+          >
+            <Button onClick={resource.refresh}>Retry</Button>
+          </StateCard>
+        ) : !data ? (
+          <LoadingState variant="table" label="Loading breakdown" />
+        ) : !data.rows.length ? (
+          <StateCard
+            title="No breakdown entries"
+            message="Ride earnings and adjustments will appear here."
+          />
+        ) : (
+          <div className="table-scroll finance-dialog-table">
+            <table className="finance-table">
+              <thead>
+                <tr>
+                  <th>Reference</th>
+                  <th>Details</th>
+                  <th className="finance-money">Amount</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {(page > 1 || data?.has_more) && (
-        <div className="review-toolbar">
-          <Button
-            variant="secondary"
-            disabled={page === 1 || resource.loading}
-            onClick={() => setPage(page - 1)}
-          >
-            Previous
-          </Button>
-          <Button
-            variant="secondary"
-            disabled={!data?.has_more || resource.loading}
-            onClick={() => setPage(page + 1)}
-          >
-            Next
-          </Button>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {data.rows.map((line) => (
+                  <tr key={line.id}>
+                    <td>
+                      {line.reference ||
+                        (line.ride_id ? `Ride ${line.ride_id}` : "") ||
+                        line.id}
+                      <span className="table-subtitle">
+                        {timestamp(line.created_at)}
+                      </span>
+                    </td>
+                    <td>
+                      {line.reason ||
+                        (line.ride_id ? "Ride earnings" : "Payout adjustment")}
+                      {line.ride?.final_fare && (
+                        <span className="table-subtitle">
+                          Ride fare ₹{line.ride.final_fare}
+                        </span>
+                      )}
+                      {line.ride?.completed_at && (
+                        <span className="table-subtitle">
+                          Ride ended {timestamp(line.ride.completed_at)}
+                        </span>
+                      )}
+                      {line.actor_id && (
+                        <span className="table-subtitle">
+                          Recorded by {line.actor_id}
+                        </span>
+                      )}
+                    </td>
+                    <td className="finance-money">
+                      <span className="font-semibold text-ink">
+                        {money(line.amount_paise)}
+                      </span>
+                      {line.gross_paise != null &&
+                        line.commission_paise != null && (
+                          <>
+                            <span className="table-subtitle">
+                              Gross {money(line.gross_paise)}
+                            </span>
+                            <span className="table-subtitle">
+                              Commission ({line.commission_percent}%) −
+                              {money(line.commission_paise)}
+                            </span>
+                          </>
+                        )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      <FinancePagination
+        page={page}
+        hasMore={data?.has_more}
+        busy={resource.loading}
+        onPage={setPage}
+      />
     </Dialog>
   );
 }
@@ -185,6 +232,7 @@ type Schedule = {
   require_approval: boolean;
   version: number;
   next_run_at: string | null;
+  planned_next_run_at?: string | null;
   transfers_enabled: boolean;
   submission_state?:
     | "schedule_paused"
@@ -192,6 +240,7 @@ type Schedule = {
     | "credentials_unavailable"
     | "test_funding"
     | "ready";
+  razorpay_ride_upi_enabled?: boolean;
   wallet_ride_collection_enabled: boolean;
   wallet_topup_mode: "disabled" | "test" | "live";
   wallet_live_topup_approved: boolean;
@@ -225,20 +274,115 @@ function SettingsDialog({
   initial,
   onClose,
   onSaved,
+  onPaymentControls,
+}: {
+  initial: Schedule;
+  onClose: () => void;
+  onSaved: () => void;
+  onPaymentControls: () => void;
+}) {
+  const [frequency, setFrequency] = useState(initial.frequency);
+  const [date, setDate] = useState("");
+  const save = useAdminSave();
+  const plannedDate = initial.planned_next_run_at ?? initial.next_run_at;
+  return (
+    <Dialog title="Payout settings" onClose={onClose} busy={save.busy} compact>
+      <FinanceDialogForm
+        close={onClose}
+        busy={save.busy}
+        error={save.error}
+        action="Save settings"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save.run(
+            (signal) =>
+              apiRequest(settingsPath, {
+                method: "PUT",
+                signal,
+                data: {
+                  expected_version: initial.version,
+                  frequency,
+                  ...(date && { next_run_date: date }),
+                },
+              }),
+            onSaved,
+          );
+        }}
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field id="payout-frequency" label="Frequency">
+            <select
+              id="payout-frequency"
+              className="field"
+              value={frequency}
+              onChange={(event) =>
+                setFrequency(event.target.value as Schedule["frequency"])
+              }
+            >
+              <option value="DAILY">Daily</option>
+              <option value="WEEKLY">Weekly</option>
+              <option value="MONTHLY">Monthly</option>
+            </select>
+          </Field>
+          <Field id="payout-next-run" label="Next payout date (IST)">
+            <input
+              id="payout-next-run"
+              className="field"
+              type="date"
+              value={date}
+              onChange={(event) => setDate(event.target.value)}
+            />
+          </Field>
+        </div>
+        {plannedDate && (
+          <p className="field-hint">
+            {initial.enabled ? "Next payout date" : "Planned payout date"}{" "}
+            {new Intl.DateTimeFormat("en-IN", {
+              dateStyle: "medium",
+              timeZone: "Asia/Kolkata",
+            }).format(new Date(plannedDate))}
+            {!initial.enabled && " · Payout cycles are paused"}
+          </p>
+        )}
+        <p className="field-hint">
+          The job checks for due payouts daily at 5:00 AM IST. A date you choose
+          starts the new cadence. Leave it blank to calculate the date when the
+          cadence changes.
+        </p>
+        <Button
+          type="button"
+          variant="secondary"
+          className="justify-self-start"
+          disabled={save.busy}
+          onClick={onPaymentControls}
+        >
+          Payment controls
+        </Button>
+      </FinanceDialogForm>
+    </Dialog>
+  );
+}
+
+function PaymentControlsDialog({
+  initial,
+  onClose,
+  onSaved,
 }: {
   initial: Schedule;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [draft, setDraft] = useState(initial);
-  const [override, setOverride] = useState<string>();
   const save = useAdminSave();
   const field = <K extends keyof Schedule>(key: K, value: Schedule[K]) =>
     setDraft((previous) => ({ ...previous, [key]: value }));
-  const time = `${String(Math.floor(draft.minute_of_day_ist / 60)).padStart(2, "0")}:${String(draft.minute_of_day_ist % 60).padStart(2, "0")}`;
   return (
-    <Dialog title="Payout settings" onClose={onClose} busy={save.busy}>
-      <form
+    <Dialog title="Payment controls" onClose={onClose} busy={save.busy} compact>
+      <FinanceDialogForm
+        close={onClose}
+        busy={save.busy}
+        error={save.error}
+        action="Save settings"
         onSubmit={(event) => {
           event.preventDefault();
           void save.run(
@@ -254,6 +398,7 @@ function SettingsDialog({
                   month_day_ist: draft.month_day_ist,
                   minimum_paise: draft.minimum_paise,
                   require_approval: draft.require_approval,
+                  razorpay_ride_upi_enabled: draft.razorpay_ride_upi_enabled,
                   wallet_ride_collection_enabled:
                     draft.wallet_ride_collection_enabled,
                   wallet_topup_mode: draft.wallet_topup_mode,
@@ -263,42 +408,44 @@ function SettingsDialog({
                   razorpay_x_transfers_enabled:
                     draft.razorpay_x_transfers_enabled,
                   expected_version: draft.version,
-                  next_run_override:
-                    !draft.enabled || override === undefined
-                      ? undefined
-                      : override
-                        ? new Date(`${override}+05:30`).toISOString()
-                        : null,
                 },
               }),
             onSaved,
           );
         }}
       >
-        <fieldset disabled={save.busy} className="space-y-3">
-          <legend className="font-semibold">Payments</legend>
-          {(
-            [
-              [
-                "wallet_ride_collection_enabled",
-                "Allow wallet payment for rides",
-              ],
-              [
-                "razorpay_x_upi_setup_enabled",
-                "Allow drivers to verify a payout UPI ID",
-              ],
-              ["razorpay_x_transfers_enabled", "Submit payouts to RazorpayX"],
-            ] as const
-          ).map(([key, label]) => (
-            <label className="flex items-center gap-2" key={key}>
-              <input
-                type="checkbox"
-                checked={draft[key] === true}
-                onChange={(event) => field(key, event.target.checked)}
-              />
-              {label}
-            </label>
-          ))}
+        <fieldset className="m-0 grid min-w-0 gap-3 rounded-lg border border-line px-3 pb-3">
+          <legend className="px-1 text-sm font-semibold text-ink">
+            Payments
+          </legend>
+          <div className="grid gap-2">
+            <SettingRow
+              label="Allow Razorpay UPI for rides"
+              checked={draft.razorpay_ride_upi_enabled === true}
+              onChange={(value) => field("razorpay_ride_upi_enabled", value)}
+              disabled={save.busy}
+            />
+            <SettingRow
+              label="Allow wallet payment for rides"
+              checked={draft.wallet_ride_collection_enabled}
+              onChange={(value) =>
+                field("wallet_ride_collection_enabled", value)
+              }
+              disabled={save.busy}
+            />
+            <SettingRow
+              label="Allow drivers to verify a payout UPI ID"
+              checked={draft.razorpay_x_upi_setup_enabled}
+              onChange={(value) => field("razorpay_x_upi_setup_enabled", value)}
+              disabled={save.busy}
+            />
+            <SettingRow
+              label="Submit payouts to RazorpayX"
+              checked={draft.razorpay_x_transfers_enabled}
+              onChange={(value) => field("razorpay_x_transfers_enabled", value)}
+              disabled={save.busy}
+            />
+          </div>
           <Field id="wallet-topup-mode" label="Wallet top-ups">
             <select
               id="wallet-topup-mode"
@@ -318,8 +465,9 @@ function SettingsDialog({
           </Field>
           {(draft.wallet_topup_mode === "live" ||
             draft.wallet_live_topup_approved) && (
-            <label className="flex items-center gap-2">
+            <label className="flex items-center gap-2 font-medium">
               <input
+                className="accent-brand"
                 type="checkbox"
                 checked={draft.wallet_live_topup_approved === true}
                 onChange={(event) =>
@@ -330,7 +478,7 @@ function SettingsDialog({
             </label>
           )}
           {initial.provider_readiness && (
-            <p className="text-sm">
+            <p className="field-hint">
               Gateway{" "}
               {initial.provider_readiness.gateway_mode
                 ? `${initial.provider_readiness.gateway_mode} credentials configured`
@@ -346,128 +494,26 @@ function SettingsDialog({
             initial.provider_readiness &&
             draft.wallet_topup_mode !==
               initial.provider_readiness.gateway_mode && (
-              <p className="text-sm">
+              <p className="field-hint">
                 Top-ups become available when matching Gateway credentials are
                 configured.
               </p>
             )}
-          <p className="text-sm">
+          <p className="field-hint">
             Disabling new top-ups or payouts keeps status checks running for
             existing provider transactions.
           </p>
         </fieldset>
-        <fieldset disabled={save.busy}>
-          <legend className="font-semibold">Payout schedule</legend>
-          <label>
-            <input
-              type="checkbox"
-              checked={draft.enabled}
-              onChange={(event) => field("enabled", event.target.checked)}
-            />{" "}
-            Enable schedule
-          </label>
-          <Field id="payout-frequency" label="Frequency">
-            <select
-              id="payout-frequency"
-              className="field"
-              value={draft.frequency}
-              onChange={(event) =>
-                field("frequency", event.target.value as Schedule["frequency"])
-              }
-            >
-              <option value="DAILY">Daily</option>
-              <option value="WEEKLY">Weekly</option>
-              <option value="MONTHLY">Monthly</option>
-            </select>
-          </Field>
-          <Field id="payout-time" label="Run time (IST)">
-            <input
-              id="payout-time"
-              className="field"
-              type="time"
-              required
-              value={time}
-              onChange={(event) => {
-                const [hours, minutes] = event.target.value
-                  .split(":")
-                  .map(Number);
-                if (
-                  hours !== undefined &&
-                  minutes !== undefined &&
-                  Number.isFinite(hours) &&
-                  Number.isFinite(minutes)
-                )
-                  field("minute_of_day_ist", hours * 60 + minutes);
-              }}
-            />
-          </Field>
-          {draft.frequency === "WEEKLY" && (
-            <Field id="payout-weekday" label="Day of week">
-              <select
-                id="payout-weekday"
-                className="field"
-                value={draft.weekday_ist}
-                onChange={(event) =>
-                  field("weekday_ist", Number(event.target.value))
-                }
-              >
-                {[
-                  "Sunday",
-                  "Monday",
-                  "Tuesday",
-                  "Wednesday",
-                  "Thursday",
-                  "Friday",
-                  "Saturday",
-                ].map((day, index) => (
-                  <option key={day} value={index}>
-                    {day}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          )}
-          {draft.frequency === "MONTHLY" && (
-            <Field id="payout-monthday" label="Day of month">
-              <input
-                id="payout-monthday"
-                className="field"
-                type="number"
-                min={1}
-                max={31}
-                required
-                value={draft.month_day_ist}
-                onChange={(event) =>
-                  field("month_day_ist", Number(event.target.value))
-                }
-              />
-            </Field>
-          )}
-          <Field id="payout-next-run" label="Move the next run (IST)">
-            <input
-              id="payout-next-run"
-              className="field"
-              type="datetime-local"
-              disabled={!draft.enabled}
-              value={override ?? ""}
-              onChange={(event) => setOverride(event.target.value)}
-            />
-          </Field>
-          {initial.next_run_at && (
-            <p>Scheduled next run {timestamp(initial.next_run_at)}</p>
-          )}
-          <p className="text-sm text-muted">
-            Payouts are picked up by the first 5:00 AM IST daily check after
-            their scheduled time.
-          </p>
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={!draft.enabled}
-            onClick={() => setOverride("")}
-          >
-            Use recurring schedule
-          </Button>
+        <fieldset className="m-0 grid min-w-0 gap-3 rounded-lg border border-line px-3 pb-3">
+          <legend className="px-1 text-sm font-semibold text-ink">
+            Payout safeguards
+          </legend>
+          <SettingRow
+            label="Enable payout cycles"
+            checked={draft.enabled}
+            onChange={(value) => field("enabled", value)}
+            disabled={save.busy}
+          />
           <Field id="payout-minimum" label="Minimum payout (paise)">
             <input
               id="payout-minimum"
@@ -479,31 +525,17 @@ function SettingsDialog({
               onChange={(event) => field("minimum_paise", event.target.value)}
             />
           </Field>
-          <label>
-            <input
-              type="checkbox"
-              checked={draft.require_approval}
-              onChange={(event) =>
-                field("require_approval", event.target.checked)
-              }
-            />{" "}
-            Require approval before submission
-          </label>
+          <SettingRow
+            label="Require approval before submission"
+            checked={draft.require_approval}
+            onChange={(value) => field("require_approval", value)}
+            disabled={save.busy}
+          />
         </fieldset>
-        {save.error && <p role="alert">{save.error}</p>}
-        <Button type="submit" disabled={save.busy}>
-          Save settings
-        </Button>
-      </form>
+      </FinanceDialogForm>
     </Dialog>
   );
 }
-const timestamp = (value: string) =>
-  new Date(value).toLocaleString("en-IN", {
-    timeZone: "Asia/Kolkata",
-    timeZoneName: "short",
-  });
-
 export function PayoutsPage() {
   const { cycleId } = useParams();
   return <PayoutList key={cycleId ?? "cycles"} cycleId={cycleId} />;
@@ -527,104 +559,108 @@ function UpcomingPayouts({ close }: { close: () => void }) {
   const data = resource.dataPath === path ? resource.data : null;
   const error = resource.errorPath === path ? resource.error : null;
   return (
-    <Dialog title="Upcoming payouts" onClose={close}>
-      {error ? (
-        <StateCard
-          title="Could not load upcoming payouts"
-          error
-          message={error}
-        >
-          <Button onClick={resource.refresh}>Retry</Button>
-        </StateCard>
-      ) : !data ? (
-        <LoadingState variant="table" label="Loading upcoming payouts" />
-      ) : (
-        <>
-          <p>
-            {data.next_run_at
-              ? `Estimated from current earnings for ${timestamp(data.next_run_at)}.`
-              : "The payout schedule is disabled."}
-          </p>
-          {data.rows.length ? (
-            <div className="table-scroll">
-              <table className="catalog-table">
-                <thead>
-                  <tr>
-                    <th>Driver</th>
-                    <th>Gross</th>
-                    <th>Commission</th>
-                    <th>Net</th>
-                    <th>Eligibility</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.rows.map((row) => (
-                    <tr key={row.driver_id}>
-                      <td>
-                        <Link
-                          to={`/users/${encodeURIComponent(row.driver_id)}/wallet-ledger?kind=DRIVER`}
-                        >
-                          {row.driver_name || "View driver"}
-                        </Link>
-                      </td>
-                      <td>{money(row.gross_paise)}</td>
-                      <td>{money(row.commission_paise)}</td>
-                      <td>{money(row.net_paise)}</td>
-                      <td>{row.eligibility}</td>
+    <Dialog title="Upcoming payouts" onClose={close} compact>
+      <div className="trip-dialog-body">
+        {error ? (
+          <StateCard
+            title="Could not load upcoming payouts"
+            error
+            message={error}
+          >
+            <Button onClick={resource.refresh}>Retry</Button>
+          </StateCard>
+        ) : !data ? (
+          <LoadingState variant="table" label="Loading upcoming payouts" />
+        ) : (
+          <>
+            <PanelNote icon="clock">
+              {data.next_run_at
+                ? `Estimated from current earnings for ${timestamp(data.next_run_at)}.`
+                : "The payout schedule is disabled."}
+            </PanelNote>
+            {data.rows.length ? (
+              <div className="table-scroll finance-dialog-table">
+                <table className="finance-table">
+                  <thead>
+                    <tr>
+                      <th>Driver</th>
+                      <th className="finance-money">Gross</th>
+                      <th className="finance-money">Commission</th>
+                      <th className="finance-money">Net</th>
+                      <th>Eligibility</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            data.next_run_at && (
-              <p>No unpaid wallet earnings are ready to preview.</p>
-            )
-          )}
-          {(page > 1 || data.has_more) && (
-            <div className="review-toolbar">
-              <Button
-                variant="secondary"
-                disabled={page === 1 || resource.loading}
-                onClick={() => setPage(page - 1)}
-              >
-                Previous
-              </Button>
-              <Button
-                variant="secondary"
-                disabled={!data.has_more || resource.loading}
-                onClick={() => setPage(page + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          )}
-        </>
-      )}
+                  </thead>
+                  <tbody>
+                    {data.rows.map((row) => (
+                      <tr key={row.driver_id}>
+                        <td>
+                          <Link
+                            className="font-semibold text-ink hover:text-brand hover:underline"
+                            to={`/users/${encodeURIComponent(row.driver_id)}/wallet-ledger?kind=DRIVER`}
+                          >
+                            {row.driver_name || "View driver"}
+                          </Link>
+                        </td>
+                        <td className="finance-money">
+                          {money(row.gross_paise)}
+                        </td>
+                        <td className="finance-money">
+                          {money(row.commission_paise)}
+                        </td>
+                        <td className="finance-money font-semibold text-ink">
+                          {money(row.net_paise)}
+                        </td>
+                        <td>
+                          <PayoutStatus status={row.eligibility} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              data.next_run_at && (
+                <p>No unpaid wallet earnings are ready to preview.</p>
+              )
+            )}
+          </>
+        )}
+      </div>
+      <FinancePagination
+        page={page}
+        hasMore={data?.has_more}
+        busy={resource.loading}
+        onPage={setPage}
+      />
     </Dialog>
   );
 }
 
 function ReconcilePayout({
-  id,
+  payout,
   close,
   done,
 }: {
-  id: string;
+  payout: DriverPayout;
   close: () => void;
   done: () => void;
 }) {
   const [providerId, setProviderId] = useState("");
   const save = useAdminSave();
   return (
-    <Dialog title="Reconcile payout" onClose={close} busy={save.busy}>
-      <form
+    <Dialog title="Reconcile payout" onClose={close} busy={save.busy} compact>
+      <FinanceDialogForm
+        close={close}
+        busy={save.busy}
+        error={save.error}
+        action="Check payout"
+        disabled={!/^pout_[A-Za-z0-9]{1,80}$/.test(providerId.trim())}
         onSubmit={(event) => {
           event.preventDefault();
           void save.run(
             (signal) =>
               apiRequest(
-                `/admin/payouts/drivers/${encodeURIComponent(id)}/reconcile`,
+                `/admin/payouts/drivers/${encodeURIComponent(payout.id)}/reconcile`,
                 {
                   method: "POST",
                   signal,
@@ -650,16 +686,7 @@ function ReconcilePayout({
             required
           />
         </Field>
-        {save.error && <p role="alert">{save.error}</p>}
-        <Button
-          type="submit"
-          disabled={
-            save.busy || !/^pout_[A-Za-z0-9]{1,80}$/.test(providerId.trim())
-          }
-        >
-          Check payout
-        </Button>
-      </form>
+      </FinanceDialogForm>
     </Dialog>
   );
 }
@@ -691,11 +718,13 @@ function PayoutList({ cycleId }: { cycleId?: string }) {
   const [blocking, setBlocking] = useState(false);
   const [approving, setApproving] = useState(false);
   const approval = useAdminSave();
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState<
+    "schedule" | "controls" | null
+  >(null);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [reconciling, setReconciling] = useState<string | null>(null);
+  const [reconciling, setReconciling] = useState<DriverPayout | null>(null);
   const schedule = useAdminResource<Schedule>(cycleId ? null : settingsPath);
-  const [breakdown, setBreakdown] = useState<string | null>(null);
+  const [breakdown, setBreakdown] = useState<DriverPayout | null>(null);
   const path =
     "/admin/payouts/cycles" +
     (cycleId ? `/${encodeURIComponent(cycleId)}/drivers` : "") +
@@ -709,10 +738,10 @@ function PayoutList({ cycleId }: { cycleId?: string }) {
   const error = path === resource.errorPath ? resource.error : null;
   const waiting = !data && !error;
   return (
-    <div className="catalog-page">
+    <div className="catalog-page finance-page">
       <PageHeading
         eyebrow="App / User"
-        title="Payouts"
+        title={cycleId ? "Payout cycle" : "Payouts"}
         description={
           cycleId
             ? "Driver payments in this cycle."
@@ -721,56 +750,80 @@ function PayoutList({ cycleId }: { cycleId?: string }) {
       >
         {!cycleId && (
           <Button variant="secondary" onClick={() => setBlocking(true)}>
+            <Icon name="shield" size={16} />
             Driver blocks
           </Button>
         )}
         {!cycleId && (
           <Button variant="secondary" onClick={() => setPreviewOpen(true)}>
+            <Icon name="clock" size={16} />
             Upcoming payouts
           </Button>
         )}
-        {cycleId && <Link to={payoutPath}>All payout cycles</Link>}
         {cycleId && (
-          <Button variant="secondary" onClick={download} disabled={report.busy}>
+          <Link className="button button-secondary" to={payoutPath}>
+            <Icon name="arrowLeft" size={16} /> All payout cycles
+          </Link>
+        )}
+        {cycleId && (
+          <Button variant="secondary" onClick={download} busy={report.busy}>
             {report.busy ? "Preparing report…" : "Download report"}
           </Button>
         )}
         {!cycleId && (
-          <Button variant="secondary" onClick={() => setSettingsOpen(true)}>
+          <Button onClick={() => setSettingsOpen("schedule")}>
+            <Icon name="settings" size={16} />
             Settings
           </Button>
         )}
+        {data?.cycle?.status === "DRAFT" && (
+          <Button onClick={() => setApproving(true)}>Approve cycle</Button>
+        )}
       </PageHeading>
-      {report.error && <p role="alert">{report.error}</p>}
+      {report.error && (
+        <div role="alert">
+          <PanelNote icon="error">{report.error}</PanelNote>
+        </div>
+      )}
       <CatalogPanel
         title={cycleId ? "Driver payouts" : "Payout cycles"}
         description={
           cycleId
             ? "Amounts, statuses and provider references."
-            : schedule.data
-              ? `${schedule.data.next_run_at ? `Next run ${timestamp(schedule.data.next_run_at)}. ` : ""}${submissionSummary(schedule.data)}`
-              : "Recorded runs and their settlement cutoffs."
+            : "Review recorded payouts by cycle."
         }
-        busy={waiting || resource.loading}
-        footer={
-          (page > 1 || data?.has_more) && (
-            <div className="review-toolbar">
-              <Button
-                variant="secondary"
-                disabled={page === 1 || resource.loading}
-                onClick={() => setPage(page - 1)}
-              >
-                Previous
-              </Button>
-              <Button
-                variant="secondary"
-                disabled={!data?.has_more || resource.loading}
-                onClick={() => setPage(page + 1)}
-              >
-                Next
-              </Button>
+        toolbar={
+          !cycleId &&
+          schedule.data && (
+            <div className="px-4 pb-3 sm:px-5">
+              <PanelNote icon="clock">
+                {schedule.data.next_run_at && (
+                  <strong className="mr-2 font-semibold">
+                    Next run {timestamp(schedule.data.next_run_at)}.
+                  </strong>
+                )}
+                {submissionSummary(schedule.data)}
+              </PanelNote>
             </div>
           )
+        }
+        busy={waiting || resource.loading}
+        actions={
+          <Button
+            variant="secondary"
+            busy={resource.loading}
+            onClick={resource.refresh}
+          >
+            <Icon name="refresh" size={16} /> Refresh
+          </Button>
+        }
+        footer={
+          <FinancePagination
+            page={page}
+            hasMore={data?.has_more}
+            busy={waiting || resource.loading}
+            onPage={setPage}
+          />
         }
       >
         {waiting ? (
@@ -781,13 +834,15 @@ function PayoutList({ cycleId }: { cycleId?: string }) {
           </StateCard>
         ) : data?.rows.length ? (
           <div className="table-scroll">
-            <table className="catalog-table">
+            <table className="finance-table">
               <thead>
                 <tr>
                   <th>{cycleId ? "Driver" : "Scheduled run"}</th>
-                  <th>{cycleId ? "Amount" : "Cutoff"}</th>
+                  <th className={cycleId ? "finance-money" : undefined}>
+                    {cycleId ? "Amount" : "Cutoff"}
+                  </th>
                   <th>Status</th>
-                  <th>{cycleId ? "Details" : "Drivers"}</th>
+                  <th>{cycleId ? "Actions" : "Drivers and earnings"}</th>
                 </tr>
               </thead>
               <tbody>
@@ -796,29 +851,20 @@ function PayoutList({ cycleId }: { cycleId?: string }) {
                     <tr key={row.id}>
                       <td>
                         <Link
+                          className="font-semibold text-ink hover:text-brand hover:underline"
                           to={`${payoutPath}/${encodeURIComponent(row.id)}`}
                         >
                           {timestamp(row.scheduled_at)}
                         </Link>
                       </td>
                       <td>{timestamp(row.cutoff_at)}</td>
-                      <td>{row.status.replaceAll("_", " ")}</td>
+                      <td>
+                        <PayoutStatus status={row.status} />
+                      </td>
                       <td>
                         {row._count.payouts}
                         {row.ride_earnings && (
-                          <>
-                            <span className="table-subtitle">
-                              Gross {money(row.ride_earnings.gross_paise)}
-                            </span>
-                            <span className="table-subtitle">
-                              Commission −
-                              {money(row.ride_earnings.commission_paise)}
-                            </span>
-                            <span className="table-subtitle">
-                              Net ride earnings{" "}
-                              {money(row.ride_earnings.driver_net_paise)}
-                            </span>
-                          </>
+                          <RideEarnings earnings={row.ride_earnings} />
                         )}
                       </td>
                     </tr>
@@ -826,61 +872,22 @@ function PayoutList({ cycleId }: { cycleId?: string }) {
                     <tr key={row.id}>
                       <td>
                         <Link
+                          className="font-semibold text-ink hover:text-brand hover:underline"
                           to={`/users/${encodeURIComponent(row.wallet.user.id)}/wallet-ledger?kind=DRIVER`}
                         >
-                          {[
-                            row.wallet.user.first_name,
-                            row.wallet.user.last_name,
-                          ]
-                            .filter(Boolean)
-                            .join(" ") || "View driver"}
+                          {payoutDriverName(row)}
                         </Link>
                       </td>
-                      <td>
-                        {money(row.amount_paise)}
+                      <td className="finance-money">
+                        <span className="font-semibold text-ink">
+                          {money(row.amount_paise)}
+                        </span>
                         {row.ride_earnings && (
-                          <>
-                            <span className="table-subtitle">
-                              Gross {money(row.ride_earnings.gross_paise)}
-                            </span>
-                            <span className="table-subtitle">
-                              Commission −
-                              {money(row.ride_earnings.commission_paise)}
-                            </span>
-                            <span className="table-subtitle">
-                              Net ride earnings{" "}
-                              {money(row.ride_earnings.driver_net_paise)}
-                            </span>
-                          </>
+                          <RideEarnings earnings={row.ride_earnings} />
                         )}
                       </td>
-                      <td>{row.status.replaceAll("_", " ")}</td>
                       <td>
-                        <Button
-                          variant="secondary"
-                          onClick={() => setBreakdown(row.id)}
-                        >
-                          Breakdown ({row._count.lines})
-                        </Button>
-                        {data.cycle?.status === "DRAFT" &&
-                          ["DRAFT", "EXCLUDED"].includes(row.status) && (
-                            <Button
-                              variant="secondary"
-                              onClick={() => setEditing(row)}
-                            >
-                              Edit draft
-                            </Button>
-                          )}
-                        {row.status === "REVIEW_REQUIRED" &&
-                          row.attempts[0]?.failure_code ===
-                            "SUBMISSION_UNCONFIRMED" && (
-                            <Button
-                              variant="secondary"
-                              onClick={() => setReconciling(row.id)}
-                            >
-                              Reconcile
-                            </Button>
-                          )}
+                        <PayoutStatus status={row.status} />
                         {row.exclusion_reason && (
                           <span className="table-subtitle">
                             {row.exclusion_reason}
@@ -902,6 +909,39 @@ function PayoutList({ cycleId }: { cycleId?: string }) {
                           </span>
                         )}
                       </td>
+                      <td>
+                        <ActionMenu
+                          label="Payout actions"
+                          items={[
+                            {
+                              label: `Breakdown (${row._count.lines})`,
+                              icon: "layers",
+                              onSelect: () => setBreakdown(row),
+                            },
+                            ...(data.cycle?.status === "DRAFT" &&
+                            ["DRAFT", "EXCLUDED"].includes(row.status)
+                              ? [
+                                  {
+                                    label: "Edit draft",
+                                    icon: "edit" as const,
+                                    onSelect: () => setEditing(row),
+                                  },
+                                ]
+                              : []),
+                            ...(row.status === "REVIEW_REQUIRED" &&
+                            row.attempts[0]?.failure_code ===
+                              "SUBMISSION_UNCONFIRMED"
+                              ? [
+                                  {
+                                    label: "Reconcile",
+                                    icon: "settings" as const,
+                                    onSelect: () => setReconciling(row),
+                                  },
+                                ]
+                              : []),
+                          ]}
+                        />
+                      </td>
                     </tr>
                   ),
                 )}
@@ -919,53 +959,64 @@ function PayoutList({ cycleId }: { cycleId?: string }) {
           />
         )}
       </CatalogPanel>
-      {data?.cycle?.status === "DRAFT" && (
-        <Button variant="secondary" onClick={() => setApproving(true)}>
-          Approve cycle
-        </Button>
-      )}
       {approving && data?.cycle && (
         <Dialog
           title="Approve this payout cycle?"
           onClose={() => setApproving(false)}
           busy={approval.busy}
+          compact
         >
-          <p>
-            Approval locks draft edits and queues eligible payouts when
-            RazorpayX transfers are enabled.
-          </p>
-          {approval.error && <p role="alert">{approval.error}</p>}
-          <Button
-            disabled={approval.busy}
-            onClick={() => {
-              const cycle = data.cycle;
-              if (!cycle) return;
-              void approval.run(
-                (signal) =>
-                  apiRequest(
-                    `/admin/payouts/cycles/${encodeURIComponent(cycle.id)}/approve`,
-                    {
-                      method: "POST",
-                      signal,
-                      data: { version: cycle.version },
-                    },
-                  ),
-                () => {
-                  setApproving(false);
-                  resource.refresh();
-                },
-              );
-            }}
-          >
-            Confirm approval
-          </Button>
+          <div className="trip-dialog-body">
+            <p>
+              Approval locks draft edits and queues eligible payouts when
+              RazorpayX transfers are enabled.
+            </p>
+            {approval.error && (
+              <p role="alert" className="text-red-700">
+                {approval.error}
+              </p>
+            )}
+          </div>
+          <div className="dialog-footer">
+            <Button
+              variant="secondary"
+              disabled={approval.busy}
+              onClick={() => setApproving(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              busy={approval.busy}
+              onClick={() => {
+                const cycle = data.cycle;
+                if (!cycle) return;
+                void approval.run(
+                  (signal) =>
+                    apiRequest(
+                      `/admin/payouts/cycles/${encodeURIComponent(cycle.id)}/approve`,
+                      {
+                        method: "POST",
+                        signal,
+                        data: { version: cycle.version },
+                      },
+                    ),
+                  () => {
+                    setApproving(false);
+                    resource.refresh();
+                  },
+                );
+              }}
+            >
+              Confirm approval
+            </Button>
+          </div>
         </Dialog>
       )}
       {blocking && <PayoutBlocksDialog onClose={() => setBlocking(false)} />}
       {previewOpen && <UpcomingPayouts close={() => setPreviewOpen(false)} />}
       {reconciling && (
         <ReconcilePayout
-          id={reconciling}
+          payout={reconciling}
           close={() => setReconciling(null)}
           done={() => {
             setReconciling(null);
@@ -976,6 +1027,7 @@ function PayoutList({ cycleId }: { cycleId?: string }) {
       {editing && (
         <EditPayoutDialog
           payout={editing}
+          driverName={payoutDriverName(editing)}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -985,34 +1037,49 @@ function PayoutList({ cycleId }: { cycleId?: string }) {
       )}
       {settingsOpen &&
         (schedule.data ? (
-          <SettingsDialog
-            initial={schedule.data}
-            onClose={() => setSettingsOpen(false)}
-            onSaved={() => {
-              schedule.refresh();
-              setSettingsOpen(false);
-            }}
-          />
+          settingsOpen === "controls" ? (
+            <PaymentControlsDialog
+              initial={schedule.data}
+              onClose={() => setSettingsOpen(null)}
+              onSaved={() => {
+                schedule.refresh();
+                setSettingsOpen(null);
+              }}
+            />
+          ) : (
+            <SettingsDialog
+              initial={schedule.data}
+              onClose={() => setSettingsOpen(null)}
+              onPaymentControls={() => setSettingsOpen("controls")}
+              onSaved={() => {
+                schedule.refresh();
+                setSettingsOpen(null);
+              }}
+            />
+          )
         ) : (
           <Dialog
             title="Payout settings"
-            onClose={() => setSettingsOpen(false)}
+            onClose={() => setSettingsOpen(null)}
+            compact
           >
-            {schedule.error ? (
-              <StateCard
-                error
-                title="Could not load settings"
-                message={schedule.error}
-              >
-                <Button onClick={schedule.refresh}>Retry</Button>
-              </StateCard>
-            ) : (
-              <LoadingState variant="table" label="Loading settings" />
-            )}
+            <div className="trip-dialog-body">
+              {schedule.error ? (
+                <StateCard
+                  error
+                  title="Could not load settings"
+                  message={schedule.error}
+                >
+                  <Button onClick={schedule.refresh}>Retry</Button>
+                </StateCard>
+              ) : (
+                <LoadingState variant="form" label="Loading settings" />
+              )}
+            </div>
           </Dialog>
         ))}
       {breakdown && (
-        <PayoutBreakdown id={breakdown} close={() => setBreakdown(null)} />
+        <PayoutBreakdown payout={breakdown} close={() => setBreakdown(null)} />
       )}
     </div>
   );

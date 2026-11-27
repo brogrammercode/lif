@@ -40,7 +40,7 @@ export function SettingRow({
   disabled,
 }: {
   label: string;
-  description: string;
+  description?: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;
@@ -49,7 +49,7 @@ export function SettingRow({
     <div className="visibility-row">
       <div>
         <p className="font-semibold">{label}</p>
-        <p className="field-hint">{description}</p>
+        {description && <p className="field-hint">{description}</p>}
       </div>
       <Switch
         label={label}

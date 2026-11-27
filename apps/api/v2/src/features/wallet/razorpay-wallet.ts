@@ -35,6 +35,7 @@ const payment_schema = z.object({
   amount_refunded: z.number().int(),
   currency: z.string(),
   status: z.string(),
+  method: z.string().optional(),
   error_description: z.string().nullish(),
   created_at: z.number().int().optional(),
 });

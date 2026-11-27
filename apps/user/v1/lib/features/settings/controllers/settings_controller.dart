@@ -16,6 +16,7 @@ class WalletTransaction {
   final String? rideId;
   final String? payoutId;
   final String? topUpId;
+  final bool balanceNeutral;
 
   const WalletTransaction({
     required this.reference,
@@ -30,6 +31,7 @@ class WalletTransaction {
     this.rideId,
     this.payoutId,
     this.topUpId,
+    this.balanceNeutral = false,
   });
 
   bool get processing => completedAt == null;

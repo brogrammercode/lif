@@ -127,6 +127,8 @@ class DriverDemoController extends RideDemoController {
       'payment': {
         ...data['payment'] as Map,
         'status': phase == DriverDemoPhase.completed ? 'CAPTURED' : 'PENDING',
+        'method': method,
+        'collection_method': method,
       },
       'direct_collection_allowed': true,
     };

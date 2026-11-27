@@ -74,7 +74,14 @@ void main() {
               find.byType(PopupMenuButton<DriverDemoPhase>),
             )
             .onSelected!(phase);
-        await tester.pumpAndSettle();
+        if (phase == DriverDemoPhase.payment) {
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 400));
+          await tester.pump(const Duration(milliseconds: 400));
+          expect(find.text('Payment progress'), findsOneWidget);
+        } else {
+          await tester.pumpAndSettle();
+        }
         expect(tester.element(map), same(mountedMap));
         final sheet = tester.widget<DraggableScrollableSheet>(
           find.byType(DraggableScrollableSheet),
@@ -108,11 +115,16 @@ void main() {
           find.byType(PopupMenuButton<DriverDemoPhase>),
         )
         .onSelected!(DriverDemoPhase.payment);
-    await tester.pumpAndSettle();
-    expect(find.text('Collect the ride fare'), findsOneWidget);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Payment progress'), findsOneWidget);
     final slider = tester.widget<RideSwipeButton>(find.byType(RideSwipeButton));
     expect(slider.label, 'Slide to confirm payment');
     slider.onSwipe();
+    await tester.pumpAndSettle();
+    expect(find.text('Payment successful'), findsOneWidget);
+    await tester.tap(find.text('Continue to receipt'));
     await tester.pumpAndSettle();
     expect(find.text('Ride completed'), findsOneWidget);
     expect(find.text('Aarav Sharma'), findsOneWidget);

@@ -1,4 +1,5 @@
 import 'package:user/features/auth/controllers/session_controller.dart';
+import 'package:user/features/auth/models/user.model.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'package:user/core/routes.dart';
@@ -8,7 +9,8 @@ import 'package:user/features/auth/widgets/startup_splash.dart';
 
 class SessionGate extends StatefulWidget {
   final Future<void> Function()? initialize;
-  const SessionGate({super.key, this.initialize});
+  final UserModel? signedInUser;
+  const SessionGate({super.key, this.initialize, this.signedInUser});
 
   @override
   State<SessionGate> createState() => _SessionGateState();
@@ -23,10 +25,12 @@ class _SessionGateState extends State<SessionGate> {
   @override
   void initState() {
     super.initState();
-    _destination = _resolveDestination();
+    _destination = _resolveDestination(signedInUser: widget.signedInUser);
   }
 
-  Future<SessionDestination> _resolveDestination() async {
+  Future<SessionDestination> _resolveDestination({
+    UserModel? signedInUser,
+  }) async {
     final initialize = widget.initialize;
     if (initialize != null) {
       try {
@@ -36,7 +40,7 @@ class _SessionGateState extends State<SessionGate> {
         rethrow;
       }
     }
-    return _controller.resolveDestination();
+    return _controller.resolveDestination(signedInUser: signedInUser);
   }
 
   @override
@@ -132,10 +136,13 @@ class _RouteReplacementState extends State<_RouteReplacement> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_scheduled) return;
+    if (_scheduled || ModalRoute.isCurrentOf(context) == false) return;
     _scheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
+      if (!mounted) return;
+      if (ModalRoute.isCurrentOf(context) == false) {
+        _scheduled = false;
+      } else {
         Navigator.pushReplacementNamed(
           context,
           widget.route,

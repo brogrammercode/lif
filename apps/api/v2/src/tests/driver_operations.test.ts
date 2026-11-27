@@ -89,6 +89,7 @@ function fixture() {
           payment_policy: {
             cash_enabled: true,
             direct_upi_enabled: true,
+            commission_percent: 0,
             free_pickup_wait_minutes: 5,
             free_cancellation_minutes: 2,
             cancellation_fee_percent: 10,
@@ -138,6 +139,7 @@ function fixture() {
   }[] = [];
   let actorRole = 'DRIVER';
   let walletEnabled = false;
+  const cashEntries: Prisma.WalletEntryUncheckedCreateInput[] = [];
   let driverLockHook: (() => void) | undefined;
   const tx = {
     $executeRaw: async (parts: TemplateStringsArray) => {
@@ -158,7 +160,27 @@ function fixture() {
         wallet_ride_collection_enabled: walletEnabled,
       }),
     },
-    wallet: { findUnique: async () => ({ available_paise: 5000n }) },
+    $queryRaw: async () => [],
+    wallet: {
+      findUnique: async () => ({ available_paise: 5000n }),
+      findUniqueOrThrow: async () => ({
+        available_paise: 5000n,
+        held_paise: 100n,
+      }),
+      upsert: async ({ create }: { create: { user_id: string } }) => ({
+        id: create.user_id,
+      }),
+    },
+    walletEntry: {
+      create: async ({
+        data,
+      }: {
+        data: Prisma.WalletEntryUncheckedCreateInput;
+      }) => {
+        cashEntries.push(data);
+        return data;
+      },
+    },
     driverPayoutChange: {
       findFirst: async () => null,
       findMany: async () => [],
@@ -323,6 +345,7 @@ function fixture() {
     driver,
     events,
     locations,
+    cashEntries,
     completions: () => completions,
     allowWallet: (enabled: boolean) => {
       walletEnabled = enabled;
@@ -606,6 +629,28 @@ it('a UPI intent stays pending until the assigned driver confirms actual receipt
   await f.service.payment('driver-user', 'ride', 'UPI', { received: true });
   assert.equal(f.trip.payment?.status, 'CAPTURED');
   assert.equal(f.trip.payment?.amount.toString(), '50');
+});
+it('records cash on both wallets without moving balance and snapshots the driver commission once', async () => {
+  const f = fixture();
+  f.trip.status = 'COMPLETED';
+  f.trip.final_fare = decimal(50.04);
+  f.trip.quotes[0]!.category_snapshot.payment_policy.commission_percent = 12.5;
+  await f.service.payment('rider', 'ride', 'CASH');
+  assert.equal(f.cashEntries.length, 0);
+  await f.service.payment('driver-user', 'ride', 'CASH', { received: true });
+  await f.service.payment('driver-user', 'ride', 'CASH', { received: true });
+  assert.equal(f.cashEntries.length, 2);
+  const [rider, driver] = f.cashEntries;
+  assert.equal(rider?.external_amount_paise, -5004n);
+  assert.equal(driver?.external_amount_paise, 5004n);
+  assert.equal(driver?.commission_paise, 626n);
+  assert.equal(rider?.commission_paise, undefined);
+  for (const entry of f.cashEntries) {
+    assert.equal(entry.available_delta_paise, 0n);
+    assert.equal(entry.held_delta_paise, 0n);
+    assert.equal(entry.available_after_paise, 5000n);
+    assert.equal(entry.held_after_paise, 100n);
+  }
 });
 it('uses admin settings for ride Wallet selection and unlocks direct receipt when disabled', async () => {
   const f = fixture();

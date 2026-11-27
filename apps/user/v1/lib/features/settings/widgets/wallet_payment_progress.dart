@@ -338,7 +338,10 @@ class _PaymentProgressBodyState extends State<_PaymentProgressBody> {
 class WalletPaymentTimeline extends StatelessWidget {
   const WalletPaymentTimeline(this.item, {super.key, this.actions = const []})
     : _amountPaise = null,
-      _startFailed = false;
+      _startFailed = false,
+      rideStatus = null,
+      waitingLabel = null,
+      failureReason = null;
 
   const WalletPaymentTimeline.preparing(
     int amountPaise, {
@@ -347,17 +350,36 @@ class WalletPaymentTimeline extends StatelessWidget {
     required this.actions,
   }) : item = null,
        _amountPaise = amountPaise,
-       _startFailed = failed;
+       _startFailed = failed,
+       rideStatus = null,
+       waitingLabel = null,
+       failureReason = null;
+
+  const WalletPaymentTimeline.ride(
+    int amountPaise, {
+    super.key,
+    required WalletHistoryStatus status,
+    required this.waitingLabel,
+    this.failureReason,
+    this.actions = const [],
+  }) : item = null,
+       _amountPaise = amountPaise,
+       _startFailed = false,
+       rideStatus = status;
 
   final WalletHistoryItem? item;
   final int? _amountPaise;
   final bool _startFailed;
+  final WalletHistoryStatus? rideStatus;
+  final String? waitingLabel;
+  final String? failureReason;
   final List<Widget> actions;
 
   @override
   Widget build(BuildContext context) {
     final item = this.item;
     final status =
+        rideStatus ??
         item?.status ??
         (_startFailed
             ? WalletHistoryStatus.failed
@@ -371,10 +393,10 @@ class WalletPaymentTimeline extends StatelessWidget {
     final completionLabel = pending || completed
         ? 'Payment completed'
         : status.label;
-    final title = item == null
+    final title = item == null && rideStatus == null
         ? (_startFailed ? 'Could not start payment' : 'Preparing payment')
         : switch (status) {
-            WalletHistoryStatus.pending => 'Processing payment',
+            WalletHistoryStatus.pending => waitingLabel ?? 'Processing payment',
             WalletHistoryStatus.completed => 'Payment successful',
             WalletHistoryStatus.failed => 'Payment failed',
             WalletHistoryStatus.cancelled => 'Payment cancelled',
@@ -412,7 +434,7 @@ class WalletPaymentTimeline extends StatelessWidget {
             ],
           ),
         ),
-        if (item?.failureReason case final reason?)
+        if ((failureReason ?? item?.failureReason) case final reason?)
           SolidSurface(
             tint: status.fill,
             child: Text(reason, style: TextStyle(color: status.ink)),
@@ -428,11 +450,13 @@ class WalletPaymentTimeline extends StatelessWidget {
               _TimelineRow(
                 'Payment initiated',
                 date: startedAt,
-                status: item == null ? status : WalletHistoryStatus.completed,
+                status: item == null && rideStatus == null
+                    ? status
+                    : WalletHistoryStatus.completed,
               ),
               _TimelineRow(
-                'Processing payment',
-                status: item == null
+                waitingLabel ?? 'Processing payment',
+                status: item == null && rideStatus == null
                     ? null
                     : (pending ? status : WalletHistoryStatus.completed),
               ),

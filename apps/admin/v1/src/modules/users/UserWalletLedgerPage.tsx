@@ -3,12 +3,19 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { StateCard } from "../../components/feedback/StateCard";
 import { PageHeading } from "../../components/layout/PageHeading";
 import { Button } from "../../components/ui/Button";
-import { CatalogPanel } from "../../components/ui/CatalogPanel";
+import { CatalogPanel, TableLoading } from "../../components/ui/CatalogPanel";
 import { Field } from "../../components/ui/Field";
 import { Dialog } from "../../components/ui/Dialog";
 import { Badge } from "../../components/ui/Badge";
 import { Icon, type IconName } from "../../components/ui/Icon";
 import { Skeleton } from "../../components/ui/Skeleton";
+import {
+  FinanceDialogForm,
+  FinancePagination,
+  financeDate as istDate,
+  formatPaise as money,
+} from "../../components/ui/FinanceLayout";
+import { TripFacts, TripSection } from "./TripDetails";
 import { apiRequest } from "../../lib/api-client";
 import { useAdminResource, useAdminSave } from "../../lib/useAdminResource";
 
@@ -22,6 +29,7 @@ type LedgerEntry = {
   id: string;
   kind: string;
   created_at: string;
+  external_amount_paise?: string;
   available_delta_paise: string;
   held_delta_paise: string;
   available_after_paise: string;
@@ -59,6 +67,7 @@ type WalletActivity = {
 
 const entryLabels: Record<string, string> = {
   TOP_UP: "Money added",
+  CASH_PAYMENT: "Cash payment",
   RIDE_DEBIT: "Ride payment",
   RIDE_EARNING: "Ride earnings",
   REFUND: "Refund",
@@ -67,12 +76,6 @@ const entryLabels: Record<string, string> = {
   PAYOUT_SETTLED: "Payout paid",
   PAYOUT_RELEASE: "Payout funds released",
 };
-
-function money(value: string) {
-  const paise = BigInt(value);
-  const absolute = paise < 0n ? -paise : paise;
-  return `${paise < 0n ? "−" : ""}₹${(absolute / 100n).toLocaleString("en-IN")}.${String(absolute % 100n).padStart(2, "0")}`;
-}
 
 export function UserWalletLedgerPage() {
   const { userId } = useParams();
@@ -89,6 +92,7 @@ export function UserWalletLedgerPage() {
 
 const ledgerKinds = [
   "TOP_UP",
+  "CASH_PAYMENT",
   "RIDE_DEBIT",
   "RIDE_EARNING",
   "REFUND",
@@ -125,7 +129,7 @@ function UserWalletLedger({
     : null;
 
   return (
-    <div className="catalog-page">
+    <div className="catalog-page finance-page">
       <PageHeading
         title="Wallet Ledger"
         eyebrow="Users / Wallet Ledger"
@@ -136,19 +140,16 @@ function UserWalletLedger({
         description={kind === "DRIVER" ? "Driver wallet" : "Rider wallet"}
         busy={!balance && loading}
       >
-        <dl className="grid gap-3 px-4 pb-4 sm:grid-cols-2 sm:px-5">
+        <dl className="grid grid-cols-2 divide-x divide-line border-t border-line">
           {(
             [
               ["Available balance", balance?.available_paise],
               ["Held balance", balance?.held_paise],
             ] as const
           ).map(([label, value]) => (
-            <div
-              key={label}
-              className="rounded-xl border border-line bg-canvas p-4"
-            >
+            <div key={label} className="min-w-0 px-4 py-3 sm:px-5">
               <dt className="text-xs text-muted">{label}</dt>
-              <dd className="mt-1 text-xl font-semibold text-ink tabular-nums">
+              <dd className="mt-1 text-lg font-semibold text-ink tabular-nums [overflow-wrap:anywhere]">
                 {value !== undefined ? (
                   money(value)
                 ) : loading ? (
@@ -171,12 +172,13 @@ function UserWalletLedger({
             disabled={wallet.loading}
             onClick={wallet.refresh}
           >
+            <Icon name="refresh" size={16} />
             Refresh
           </Button>
         }
         toolbar={
           <form
-            className="review-toolbar"
+            className="grid items-end gap-3 px-4 pb-4 sm:grid-cols-2 sm:px-5 xl:grid-cols-3 2xl:grid-cols-6"
             onSubmit={(event) => {
               event.preventDefault();
               const query = new URLSearchParams();
@@ -211,7 +213,7 @@ function UserWalletLedger({
                 <option value="">All entries</option>
                 {ledgerKinds.map((entry) => (
                   <option key={entry} value={entry}>
-                    {entry.toLowerCase().replaceAll("_", " ")}
+                    {entryLabels[entry]}
                   </option>
                 ))}
               </select>
@@ -235,54 +237,36 @@ function UserWalletLedger({
                 maxLength={100}
               />
             </Field>
-            <Button type="submit" variant="secondary">
-              Apply filters
-            </Button>
-            {filters && (
-              <Button
-                type="reset"
-                variant="secondary"
-                onClick={() => {
-                  setPage(1);
-                  setFilters("");
-                }}
-              >
-                Clear filters
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="submit" variant="secondary">
+                Apply filters
               </Button>
-            )}
+              {filters && (
+                <Button
+                  type="reset"
+                  variant="secondary"
+                  onClick={() => {
+                    setPage(1);
+                    setFilters("");
+                  }}
+                >
+                  Clear filters
+                </Button>
+              )}
+            </div>
           </form>
         }
         footer={
-          (page > 1 || data?.has_more) && (
-            <div className="review-toolbar">
-              <Button
-                variant="secondary"
-                disabled={page === 1 || loading || wallet.loading}
-                onClick={() => setPage(page - 1)}
-              >
-                Previous
-              </Button>
-              <Button
-                variant="secondary"
-                disabled={!data?.has_more || wallet.loading}
-                onClick={() => setPage(page + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          )
+          <FinancePagination
+            page={page}
+            hasMore={data?.has_more}
+            busy={loading || wallet.loading}
+            onPage={setPage}
+          />
         }
       >
         {loading ? (
-          <div
-            className="grid gap-2 px-4 pb-4 sm:px-5"
-            role="status"
-            aria-label="Loading wallet activity"
-          >
-            {Array.from({ length: 3 }, (_, index) => (
-              <Skeleton key={index} className="h-16 w-full rounded-xl" />
-            ))}
-          </div>
+          <TableLoading label="Loading wallet activity" />
         ) : error && !data ? (
           <StateCard
             error
@@ -302,7 +286,7 @@ function UserWalletLedger({
               </p>
             )}
             {data?.activity.length ? (
-              <ul className="grid gap-2 px-4 pb-4 sm:px-5">
+              <ul className="divide-y divide-line border-t border-line">
                 {data.activity.map((item) => (
                   <li key={`${item.source}:${item.id}`}>
                     <WalletActivityCard
@@ -383,12 +367,10 @@ function activityStatus(item: WalletActivity) {
 function activityAmount(item: WalletActivity) {
   if (!item.entry) return money(item.topup.amount_paise);
   const available = item.entry.available_delta_paise;
-  const amount = available === "0" ? item.entry.held_delta_paise : available;
+  const amount =
+    item.entry.external_amount_paise ??
+    (available === "0" ? item.entry.held_delta_paise : available);
   return `${BigInt(amount) > 0n ? "+" : ""}${money(amount)}`;
-}
-
-function istDate(value: string) {
-  return `${new Date(value).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" })} IST`;
 }
 
 function WalletActivityCard({
@@ -402,7 +384,7 @@ function WalletActivityCard({
   return (
     <button
       type="button"
-      className="flex w-full items-center gap-3 rounded-xl border border-line bg-white p-3 text-left hover:bg-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand sm:px-4"
+      className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-[#fffdfa] focus-visible:outline focus-visible:-outline-offset-2 focus-visible:outline-brand sm:px-5"
       onClick={open}
     >
       <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-soft text-brand">
@@ -495,31 +477,28 @@ function WalletActivityDetails({
       : null;
   return (
     <Dialog title="Transaction details" onClose={close} compact>
-      <div className="dialog-body space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-canvas p-4">
+      <div className="trip-dialog-body">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-[#fafafa] px-3 py-2.5">
           <div>
             <p className="text-sm font-semibold text-ink">
               {activityTitle(item)}
             </p>
-            <p className="mt-1 text-xl font-semibold tabular-nums text-ink">
+            <p className="mt-0.5 text-lg font-semibold tabular-nums text-ink">
               {activityAmount(item)}
             </p>
           </div>
           <Badge tone={status.tone}>{status.label}</Badge>
         </div>
         {topup?.failure_reason && (
-          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-800">
             <p className="font-semibold">Razorpay failure reason</p>
             <p>{topup.failure_reason}</p>
           </div>
         )}
         {topup &&
           (topup.status === "PENDING" || topup.status === "CREATING") && (
-            <section className="rounded-xl border border-line p-3">
-              <h3 className="mb-3 text-sm font-semibold text-ink">
-                Payment timeline
-              </h3>
-              <ol className="grid gap-3 text-sm">
+            <TripSection title="Payment timeline">
+              <ol className="grid gap-2">
                 <li className="flex items-start gap-2">
                   <Icon name="success" size={17} className="text-green-700" />
                   <span>
@@ -546,21 +525,16 @@ function WalletActivityDetails({
                   <span>Wallet credited after capture</span>
                 </li>
               </ol>
-            </section>
+            </TripSection>
           )}
-        <dl className="divide-y divide-line rounded-xl border border-line px-3">
-          {fields
-            .filter(([, value]) => value)
-            .map(([label, value]) => (
-              <div
-                key={label}
-                className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-3 py-2.5 text-sm"
-              >
-                <dt className="text-xs text-muted">{label}</dt>
-                <dd className="m-0 break-all text-right text-ink">{value}</dd>
-              </div>
-            ))}
-        </dl>
+        <TripSection title="Transaction and balance">
+          <TripFacts items={fields.slice(0, 8).filter(([, value]) => value)} />
+        </TripSection>
+        {fields.slice(8).some(([, value]) => value) && (
+          <TripSection title="References and provider">
+            <TripFacts items={fields.slice(8).filter(([, value]) => value)} />
+          </TripSection>
+        )}
       </div>
       {(refundableRide || review) && (
         <div className="dialog-footer">
@@ -607,8 +581,15 @@ function WalletLedgerAction({
       title={refund ? "Refund wallet ride" : "Reconcile top-up"}
       onClose={close}
       busy={save.busy}
+      compact
     >
-      <form
+      <FinanceDialogForm
+        close={close}
+        busy={save.busy}
+        disabled={reason.trim().length < 3}
+        danger={refund}
+        error={save.error}
+        action={refund ? "Confirm refund" : "Check and reconcile"}
         onSubmit={(event) => {
           event.preventDefault();
           void save.run(
@@ -629,54 +610,49 @@ function WalletLedgerAction({
           );
         }}
       >
-        <fieldset disabled={save.busy}>
-          <p>
-            {refund
-              ? "The full fare is credited to the rider’s wallet. Driver earnings are reversed if the payout has not settled."
-              : "Verify the refund or final dispute outcome with Razorpay before updating the wallet."}
-          </p>
-          <Field id="wallet-action-reason" label="Reason">
-            <textarea
-              id="wallet-action-reason"
+        <p className="field-hint">
+          {refund
+            ? "The full fare is credited to the rider’s wallet. Driver earnings are reversed if the payout has not settled."
+            : "Verify the refund or final dispute outcome with Razorpay before updating the wallet."}
+        </p>
+        <Field id="wallet-action-reason" label="Reason">
+          <textarea
+            id="wallet-action-reason"
+            className="field"
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            minLength={3}
+            maxLength={300}
+            required
+          />
+        </Field>
+        {refund && (
+          <label className="flex items-start gap-2">
+            <input
+              className="mt-1 accent-brand"
+              type="checkbox"
+              checked={platformFunded}
+              onChange={(event) => setPlatformFunded(event.target.checked)}
+            />{" "}
+            Authorize a platform-funded refund if the driver was already paid
+          </label>
+        )}
+        {!refund && (
+          <Field
+            id="wallet-dispute-id"
+            label="Razorpay dispute ID (if missing from the webhook)"
+          >
+            <input
+              id="wallet-dispute-id"
               className="field"
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-              minLength={3}
-              maxLength={300}
-              required
+              value={disputeId}
+              onChange={(event) => setDisputeId(event.target.value)}
+              maxLength={85}
+              pattern="disp_[A-Za-z0-9]+"
             />
           </Field>
-          {refund && (
-            <label>
-              <input
-                type="checkbox"
-                checked={platformFunded}
-                onChange={(event) => setPlatformFunded(event.target.checked)}
-              />{" "}
-              Authorize a platform-funded refund if the driver was already paid
-            </label>
-          )}
-          {!refund && (
-            <Field
-              id="wallet-dispute-id"
-              label="Razorpay dispute ID (if missing from the webhook)"
-            >
-              <input
-                id="wallet-dispute-id"
-                className="field"
-                value={disputeId}
-                onChange={(event) => setDisputeId(event.target.value)}
-                maxLength={85}
-                pattern="disp_[A-Za-z0-9]+"
-              />
-            </Field>
-          )}
-        </fieldset>
-        {save.error && <p role="alert">{save.error}</p>}
-        <Button type="submit" disabled={save.busy || reason.trim().length < 3}>
-          {refund ? "Confirm refund" : "Check and reconcile"}
-        </Button>
-      </form>
+        )}
+      </FinanceDialogForm>
     </Dialog>
   );
 }

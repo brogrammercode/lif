@@ -1,8 +1,17 @@
-import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/components/ui/solid_ui.dart';
 import '../controllers/wallet_controller.dart';
-import 'wallet_feedback.dart';
+
+enum _PayoutKind {
+  bank('BANK_ACCOUNT', 'Bank account'),
+  card('DEBIT_CARD', 'Debit card'),
+  upi('UPI', 'UPI');
+
+  const _PayoutKind(this.key, this.label);
+  final String key, label;
+}
 
 class PayoutSetupForm extends StatefulWidget {
   const PayoutSetupForm({super.key, required this.wallet});
@@ -16,22 +25,89 @@ class _PayoutSetupFormState extends State<PayoutSetupForm> {
   final _form = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _vpa = TextEditingController();
+  final _account = TextEditingController();
+  final _ifsc = TextEditingController();
+  final _lastFour = TextEditingController();
+  _PayoutKind _kind = _PayoutKind.bank;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.wallet.loadPayoutMethods();
+    });
+  }
 
   @override
   void dispose() {
     _name.dispose();
     _vpa.dispose();
+    _account.dispose();
+    _ifsc.dispose();
+    _lastFour.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
     if (_form.currentState?.validate() != true) return;
     FocusManager.instance.primaryFocus?.unfocus();
-    await widget.wallet.setupPayoutMethod(_name.text.trim(), _vpa.text.trim());
-    if (mounted && widget.wallet.checkoutError == null) {
-      _name.clear();
-      _vpa.clear();
-    }
+    final saved = await widget.wallet.setupPayoutMethod({
+      'kind': _kind.key,
+      'name': _name.text.trim(),
+      if (_kind == _PayoutKind.upi)
+        'vpa': _vpa.text.trim()
+      else ...{
+        'account_number': _account.text.trim(),
+        'ifsc': _ifsc.text.trim().toUpperCase(),
+        if (_kind == _PayoutKind.card) 'card_last_four': _lastFour.text.trim(),
+      },
+    });
+    if (!mounted || !saved) return;
+    _form.currentState?.reset();
+    _name.clear();
+    _vpa.clear();
+    _account.clear();
+    _ifsc.clear();
+    _lastFour.clear();
+  }
+
+  Widget _field(
+    String label,
+    TextEditingController controller,
+    RegExp pattern,
+    String error, {
+    int? maxLength,
+    TextInputType? keyboard,
+    bool digitsOnly = false,
+  }) => SolidTextFormField(
+    label: label,
+    controller: controller,
+    maxLength: maxLength,
+    enabled: !widget.wallet.checkoutBusy,
+    keyboardType: keyboard,
+    inputFormatters: digitsOnly
+        ? [FilteringTextInputFormatter.digitsOnly]
+        : null,
+    validator: (value) => pattern.hasMatch(value?.trim() ?? '') ? null : error,
+  );
+
+  Widget _methodChip(_PayoutKind kind, {required bool busy}) {
+    final selected = _kind == kind;
+    return ChoiceChip(
+      label: Text(kind.label, textAlign: TextAlign.center),
+      labelStyle: TextStyle(
+        color: selected ? Colors.white : RideTokens.ink,
+        fontSize: 13,
+        fontWeight: FontWeight.w500,
+      ),
+      color: WidgetStatePropertyAll(
+        selected ? Colors.black : const Color(0xFFF5F5F5),
+      ),
+      side: BorderSide(color: selected ? Colors.black : RideTokens.line),
+      showCheckmark: false,
+      selected: selected,
+      onSelected: busy ? null : (_) => setState(() => _kind = kind),
+    );
   }
 
   @override
@@ -44,74 +120,95 @@ class _PayoutSetupFormState extends State<PayoutSetupForm> {
         child: Form(
           key: _form,
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            spacing: 12,
             children: [
               for (final method in wallet.payoutMethods)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.account_balance_outlined),
-                  title: Text(method.label),
-                  subtitle: Text(switch (method.status) {
-                    'VERIFIED' =>
-                      method.isDefault ? 'Verified · Default' : 'Verified',
-                    'FAILED' => 'Verification failed',
-                    _ => 'Verification pending',
+                  leading: Icon(switch (method.kind) {
+                    'UPI' => Icons.qr_code_2,
+                    'DEBIT_CARD' => Icons.credit_card_outlined,
+                    _ => Icons.account_balance_outlined,
                   }),
-                  trailing: method.status == 'PENDING'
-                      ? TextButton(
-                          onPressed: wallet.checkoutBusy
-                              ? null
-                              : () => wallet.checkPayoutMethod(method.id),
-                          child: const Text('Check'),
-                        )
+                  title: Text(method.label),
+                  subtitle: Text(
+                    method.isDefault
+                        ? 'Default payout account'
+                        : method.selectable
+                        ? 'Saved'
+                        : 'Save again to use this account',
+                  ),
+                  trailing: method.isDefault
+                      ? const Icon(Icons.check_circle_outline)
                       : null,
-                ),
-              if (wallet.upiPayoutEnabled) ...[
-                const SizedBox(height: 12),
-                SolidTextFormField(
-                  controller: _name,
-                  label: 'UPI account holder',
-                  enabled: !wallet.checkoutBusy,
-                  validator: (value) => (value?.trim().length ?? 0) < 3
-                      ? 'Enter the registered account name.'
-                      : null,
-                  maxLength: 50,
-                ),
-                const SizedBox(height: 12),
-                SolidTextFormField(
-                  controller: _vpa,
-                  label: 'UPI ID',
-                  keyboardType: TextInputType.emailAddress,
-                  enabled: !wallet.checkoutBusy,
-                  maxLength: 100,
-                  validator: (value) =>
-                      RegExp(
-                        r'^[a-z0-9.-]+@[a-z0-9.-]+$',
-                        caseSensitive: false,
-                      ).hasMatch(value?.trim() ?? '')
+                  onTap:
+                      wallet.checkoutBusy ||
+                          method.isDefault ||
+                          !method.selectable
                       ? null
-                      : 'Enter a valid UPI ID.',
+                      : () => wallet.choosePayoutMethod(method.id),
                 ),
-                const SizedBox(height: 16),
-                SolidButton(
-                  text: 'Verify UPI ID',
-                  busy: wallet.checkoutBusy,
-                  onPressed: wallet.checkoutBusy ? null : _submit,
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  for (final kind in _PayoutKind.values)
+                    _methodChip(kind, busy: wallet.checkoutBusy),
+                ],
+              ),
+              if (_kind == _PayoutKind.card)
+                const Text(
+                  'Payouts go to the bank account linked to this card.',
+                  style: TextStyle(color: RideTokens.muted, fontSize: 13),
                 ),
-              ] else if (wallet.checkoutBusy) ...[
-                const WalletShimmer(height: 48),
-              ] else ...[
-                const Text('UPI verification is unavailable.'),
-                TextButton(
-                  onPressed: wallet.loadPayoutMethods,
-                  child: const Text('Check again'),
+              _field(
+                'Account holder name',
+                _name,
+                RegExp(r'^.{3,50}$'),
+                'Enter the account holder name.',
+                maxLength: 50,
+              ),
+              if (_kind == _PayoutKind.upi)
+                _field(
+                  'UPI ID',
+                  _vpa,
+                  RegExp(r'^[a-z0-9.-]+@[a-z0-9.-]+$', caseSensitive: false),
+                  'Enter a valid UPI ID.',
+                  maxLength: 100,
+                  keyboard: TextInputType.emailAddress,
+                )
+              else ...[
+                _field(
+                  'Account number',
+                  _account,
+                  RegExp(r'^[a-zA-Z0-9]{5,35}$'),
+                  'Enter a valid account number.',
+                  maxLength: 35,
                 ),
+                _field(
+                  'IFSC',
+                  _ifsc,
+                  RegExp(r'^[A-Z]{4}0[A-Z0-9]{6}$', caseSensitive: false),
+                  'Enter a valid IFSC.',
+                  maxLength: 11,
+                ),
+                if (_kind == _PayoutKind.card)
+                  _field(
+                    'Last 4 digits of debit card',
+                    _lastFour,
+                    RegExp(r'^\d{4}$'),
+                    'Enter the last four digits.',
+                    maxLength: 4,
+                    keyboard: TextInputType.number,
+                    digitsOnly: true,
+                  ),
               ],
-              const SizedBox(height: 12),
-              const Text(
-                'Debit card setup is unavailable.',
-                style: TextStyle(color: RideTokens.muted),
+              SolidButton(
+                text: 'Save payout account',
+                busy: wallet.checkoutBusy,
+                onPressed: wallet.checkoutBusy ? null : _submit,
               ),
             ],
           ),

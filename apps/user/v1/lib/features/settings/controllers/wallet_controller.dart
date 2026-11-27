@@ -14,6 +14,14 @@ class WalletController extends FeatureController {
   final DioClient _client;
   int availablePaise = 0;
   int heldPaise = 0;
+  int cashCollectedPaise = 0;
+  bool payoutsLoading = false;
+  bool payoutsLoaded = false;
+  bool hasMorePayouts = false;
+  String? payoutsError;
+  DateTime? nextPayoutAt;
+  List<WalletHistoryItem> payouts = const [];
+  int _payoutPage = 0;
   String? walletId;
   String? error;
   bool loading = false;
@@ -22,7 +30,6 @@ class WalletController extends FeatureController {
   int _page = 0;
   List<WalletTransaction> transactions = const [];
   bool topUpsEnabled = false;
-  bool upiPayoutEnabled = false;
   List<DriverPayoutDestination> payoutMethods = const [];
   bool checkoutBusy = false;
   String? checkoutError;
@@ -73,7 +80,6 @@ class WalletController extends FeatureController {
         await _client.getData('/driver/wallet/payout-methods'),
       );
       update(() {
-        upiPayoutEnabled = data['upi_enabled'] == true;
         payoutMethods = (data['rows'] as List)
             .cast<Map>()
             .map(DriverPayoutDestination.fromMap)
@@ -82,29 +88,37 @@ class WalletController extends FeatureController {
     });
   }
 
-  Future<void> setupPayoutMethod(String name, String vpa) async {
+  Future<bool> setupPayoutMethod(Map<String, String> fields) async {
+    if (checkoutBusy || isDisposed) return false;
     await _checkout(() async {
-      ApiResult.unwrap(
-        await _client.postData(
-          '/driver/wallet/payout-methods',
-          data: {'name': name, 'vpa': vpa},
-        ),
+      final data = _payload(
+        await _client.postData('/driver/wallet/payout-methods', data: fields),
       );
+      _adoptPayoutMethod(data);
     });
-    final message = checkoutError;
-    await loadPayoutMethods();
-    if (message != null) update(() => checkoutError = message);
+    return checkoutError == null;
   }
 
-  Future<void> checkPayoutMethod(String id) async {
+  Future<void> choosePayoutMethod(String id) async {
     await _checkout(() async {
-      ApiResult.unwrap(
-        await _client.postData(
-          '/driver/wallet/payout-methods/${Uri.encodeComponent(id)}/check',
+      final data = _payload(
+        await _client.patchData(
+          '/driver/wallet/payout-methods/${Uri.encodeComponent(id)}/default',
         ),
       );
+      _adoptPayoutMethod(data);
     });
-    if (checkoutError == null) await loadPayoutMethods();
+  }
+
+  void _adoptPayoutMethod(Map data) {
+    final chosen = DriverPayoutDestination.fromMap(data);
+    update(() {
+      payoutMethods = [
+        chosen,
+        for (final method in payoutMethods)
+          if (method.id != chosen.id) method.withoutDefault(),
+      ];
+    });
   }
 
   Future<void> loadTopUps() async {
@@ -243,8 +257,12 @@ class WalletController extends FeatureController {
           .toList();
       update(() {
         walletId = data['id'] as String?;
-        availablePaise = int.parse(data['available_paise'] as String);
+        availablePaise = driver
+            ? int.parse(data['payout_available_paise'] as String)
+            : int.parse(data['available_paise'] as String);
         heldPaise = int.parse(data['held_paise'] as String);
+        cashCollectedPaise =
+            int.tryParse('${data['cash_collected_paise']}') ?? 0;
         hasMore = data['has_more'] == true;
         _page = page;
         transactions = more
@@ -266,7 +284,48 @@ class WalletController extends FeatureController {
     }
   }
 
-  static WalletTransaction _transaction(Map entry) {
+  Future<void> loadPayouts({bool more = false}) async {
+    if (payoutsLoading || (more && !hasMorePayouts)) return;
+    final page = more ? _payoutPage + 1 : 1;
+    update(() {
+      payoutsLoading = true;
+      payoutsError = null;
+    });
+    try {
+      final data = _payload(
+        await _client.getData(
+          '/driver/wallet/payouts',
+          queryParameters: {'page': page},
+        ),
+      );
+      final rows = (data['rows'] as List).cast<Map>().map(
+        (row) => WalletHistoryItem(
+          transaction: _transaction(row, payoutCredit: true),
+        ),
+      );
+      update(() {
+        nextPayoutAt = DateTime.tryParse('${data['next_run_at']}');
+        final combined = {
+          if (more)
+            for (final item in payouts) item.reference: item,
+          for (final item in rows) item.reference: item,
+        };
+        payouts = combined.values.toList();
+        hasMorePayouts = data['has_more'] == true;
+        _payoutPage = page;
+        payoutsLoaded = true;
+      });
+    } catch (exception) {
+      update(() => payoutsError = ApiResult.errorMessage(exception));
+    } finally {
+      update(() => payoutsLoading = false);
+    }
+  }
+
+  static WalletTransaction _transaction(
+    Map entry, {
+    bool payoutCredit = false,
+  }) {
     final date = DateTime.parse(entry['created_at'] as String);
     final available = int.parse(entry['available_delta_paise'] as String);
     final held = int.parse(entry['held_delta_paise'] as String);
@@ -274,6 +333,7 @@ class WalletController extends FeatureController {
       reference: entry['id'] as String,
       title: switch (entry['kind']) {
         'TOP_UP' => 'Money added',
+        'CASH_PAYMENT' => 'Cash payment',
         'RIDE_DEBIT' => 'Ride payment',
         'RIDE_EARNING' => 'Ride earnings',
         'REFUND' => 'Refund',
@@ -283,7 +343,10 @@ class WalletController extends FeatureController {
         'PAYOUT_RELEASE' => 'Payout funds released',
         _ => 'Wallet activity',
       },
-      paise: available == 0 ? held : available,
+      paise: payoutCredit
+          ? held.abs()
+          : int.tryParse('${entry['external_amount_paise']}') ??
+                (available == 0 ? held : available),
       balanceAfterPaise: int.parse(entry['available_after_paise'] as String),
       grossPaise: int.tryParse('${entry['gross_paise']}'),
       commissionPaise: int.tryParse('${entry['commission_paise']}'),
@@ -293,6 +356,7 @@ class WalletController extends FeatureController {
       rideId: entry['ride_id'] as String?,
       payoutId: entry['payout_id'] as String?,
       topUpId: entry['kind'] == 'TOP_UP' ? entry['topup_id'] as String? : null,
+      balanceNeutral: entry['kind'] == 'CASH_PAYMENT',
     );
   }
 
@@ -388,8 +452,9 @@ class WalletHistoryItem {
   String? get failureReason =>
       transaction == null ? topUp?.failureReason : null;
   String? get topUpReference => transaction?.topUpId ?? topUp?.id;
-  bool get balanceChanged =>
-      transaction != null || status == WalletHistoryStatus.completed;
+  bool get balanceChanged => transaction != null
+      ? !transaction!.balanceNeutral
+      : status == WalletHistoryStatus.completed;
 
   WalletHistoryStatus get status {
     if (transaction case final entry?) {
@@ -409,11 +474,24 @@ class WalletHistoryItem {
 }
 
 class DriverPayoutDestination {
-  final String id, status, label;
-  final bool isDefault;
+  final String id, kind, status, label;
+  final bool isDefault, selectable;
+  const DriverPayoutDestination._(
+    this.id,
+    this.kind,
+    this.status,
+    this.label,
+    this.isDefault,
+    this.selectable,
+  );
   DriverPayoutDestination.fromMap(Map row)
     : id = row['id'] as String,
+      kind = row['kind'] as String,
       status = row['status'] as String,
       label = row['masked_label'] as String,
-      isDefault = row['is_default'] == true;
+      isDefault = row['is_default'] == true,
+      selectable = row['selectable'] == true;
+
+  DriverPayoutDestination withoutDefault() =>
+      DriverPayoutDestination._(id, kind, status, label, false, selectable);
 }

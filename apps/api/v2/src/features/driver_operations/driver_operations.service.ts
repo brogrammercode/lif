@@ -23,9 +23,11 @@ import { availability_after_trip } from '../driver/driver_eligibility.js';
 import { approved_driver_upi, approved_driver_upis } from './driver_payout.js';
 import { require_supported_ride_payment } from '../app_configuration/payment_policy.js';
 import {
+  gateway_credential_mode,
   payout_schedule_lock,
   read_wallet_controls,
 } from '../wallet/wallet-controls.js';
+import { record_cash_ride } from '../wallet/cash-ride-entry.js';
 import { rider_vehicle_select } from '../ride/ride.presentation.js';
 import {
   ACTIVE_TRIP,
@@ -702,16 +704,21 @@ export class DriverOperationsService {
       (['PENDING', 'FAILED'].includes(trip.payment.status) &&
         !trip.payment.provider &&
         !trip.payment.provider_payment_id);
+    const payment_controls =
+      trip.status === 'COMPLETED'
+        ? await read_wallet_controls(this.database.client)
+        : null;
     const pending_wallet_choice = awaiting_wallet(trip);
     const wallet_active =
       manageable_payment &&
       wallet_available_for(trip) &&
       (trip.rider_id === user_id || pending_wallet_choice) &&
-      (await read_wallet_controls(this.database.client))
-        .wallet_ride_collection_enabled;
+      payment_controls?.wallet_ride_collection_enabled === true;
     const wallet_selected = wallet_active && pending_wallet_choice;
     const wallet_enabled = trip.rider_id === user_id && wallet_active;
-    const wallet = wallet_enabled
+    const show_wallet_balance =
+      trip.rider_id === user_id && wallet_available_for(trip);
+    const wallet = show_wallet_balance
       ? await this.database.client.wallet.findUnique({
           where: { user_id_kind: { user_id, kind: 'RIDER' } },
           select: { available_paise: true },
@@ -889,6 +896,7 @@ export class DriverOperationsService {
             amount: trip.payment.amount,
             provider_managed:
               !!trip.payment.provider || !!trip.payment.provider_payment_id,
+            razorpay_checkout: trip.payment.provider === 'razorpay-ride',
             method:
               manageable_payment &&
               trip.payment.collection_method === 'WALLET' &&
@@ -902,8 +910,16 @@ export class DriverOperationsService {
       payment_options: {
         cash: policy.cash_enabled !== false,
         upi: policy.direct_upi_enabled === true && !!upi,
+        razorpay_upi:
+          trip.rider_id === user_id &&
+          wallet_available_for(trip) &&
+          (trip.payment?.provider === 'razorpay-ride' ||
+            (manageable_payment &&
+              policy.direct_upi_enabled === true &&
+              payment_controls?.razorpay_ride_upi_enabled === true &&
+              gateway_credential_mode() === 'live')),
         wallet: wallet_enabled,
-        wallet_available_paise: wallet_enabled
+        wallet_available_paise: show_wallet_balance
           ? String(wallet?.available_paise ?? 0)
           : null,
         upi_handle: trip.status === 'COMPLETED' ? upi : null,
@@ -1344,7 +1360,7 @@ export class DriverOperationsService {
           'The driver has no uniquely approved UPI account. Use enabled cash payment or contact support.',
         );
       const paid = receipt?.received === true;
-      await tx.payment.upsert({
+      const recorded = await tx.payment.upsert({
         where: { ride_id },
         create: {
           ride_id,
@@ -1370,6 +1386,21 @@ export class DriverOperationsService {
             : undefined,
         },
       });
+      if (
+        paid &&
+        method === 'CASH' &&
+        trip.currency === 'INR' &&
+        trip.final_fare.gt(0)
+      ) {
+        await record_cash_ride(tx, {
+          ride_id,
+          payment_id: recorded.id,
+          rider_id: trip.rider_id,
+          driver_user_id: trip.driver.user_id,
+          fare: trip.final_fare,
+          snapshot: trip.quotes[0]?.category_snapshot,
+        });
+      }
       if (paid)
         await tx.rideSettlementReview.updateMany({
           where: {

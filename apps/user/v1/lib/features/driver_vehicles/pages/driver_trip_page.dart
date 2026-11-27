@@ -1,3 +1,4 @@
+import 'package:user/features/rides/widgets/ride_payment_panel.dart';
 import 'package:user/components/ui/app_error_snackbar.dart';
 import 'dart:async';
 import 'package:user/features/rides/widgets/ride_sheet_route.dart';
@@ -285,12 +286,10 @@ class _DriverTripPageState extends State<DriverTripPage>
                 onReceipt: openReceipt,
               );
             }
-            final actions = TripActionsPanel(
+            final actions = RidePaymentPanel(
               rideId: _controller.id!,
-              externalContext: data,
+              data: data,
               repository: _controller.ops,
-              hideContacts: true,
-              driverCollectionSlider: true,
               onChanged: _controller.load,
             );
             return Padding(

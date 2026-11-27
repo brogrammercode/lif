@@ -25,6 +25,7 @@ import { start_topup, topup_reference, WalletTopUps } from './wallet-topups.js';
 import { payout_edit, payout_block, PayoutAdmin } from './payout-admin.js';
 import { payout_method_input, PayoutMethods } from './payout-methods.js';
 import { PayoutTransfer } from './payout-transfer.js';
+import { RideUpi } from './ride-upi.js';
 
 const query_schema = z
   .object({
@@ -57,6 +58,7 @@ export class WalletController {
     private readonly payout_admin: PayoutAdmin,
     private readonly payout_methods: PayoutMethods,
     private readonly transfers: PayoutTransfer,
+    private readonly ride_upi: RideUpi,
   ) {}
 
   @Post('admin/payouts/cycles/:id/approve')
@@ -88,16 +90,24 @@ export class WalletController {
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ) {
-    if (request.auth!.role !== 'DRIVER')
-      throw new AppError(
-        403,
-        'DRIVER_ACCESS_REQUIRED',
-        'Driver access is required.',
-      );
     return send_success(
       response,
       await this.payout_methods.list(request.auth!.user_id),
       'Payout methods loaded',
+    );
+  }
+
+  @Get('driver/wallet/payouts')
+  async driver_payouts(
+    @Req() request: Request,
+    @Query() query: unknown,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const { page, page_size } = pagination.parse(query);
+    return send_success(
+      response,
+      await this.wallets.driver_payouts(request.auth!.user_id, page, page_size),
+      'Driver payouts loaded',
     );
   }
 
@@ -130,7 +140,23 @@ export class WalletController {
         request.auth!.user_id,
         payout_method_input.parse(body),
       ),
-      'Payout verification started',
+      'Payout account saved',
+    );
+  }
+
+  @Patch('driver/wallet/payout-methods/:id/default')
+  async payout_method_default(
+    @Req() request: Request,
+    @Param('id') id: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    return send_success(
+      response,
+      await this.payout_methods.set_default(
+        request.auth!.user_id,
+        user_id_schema.parse(id),
+      ),
+      'Payout account selected',
     );
   }
 
@@ -141,12 +167,6 @@ export class WalletController {
     @Param('id') id: string,
     @Res({ passthrough: true }) response: Response,
   ) {
-    if (request.auth!.role !== 'DRIVER')
-      throw new AppError(
-        403,
-        'DRIVER_ACCESS_REQUIRED',
-        'Driver access is required.',
-      );
     return send_success(
       response,
       await this.payout_methods.check(
@@ -402,13 +422,8 @@ export class WalletController {
     @Res({ passthrough: true }) response: Response,
   ) {
     const { kind, page, page_size } = query_schema.parse(query);
-    const { user_id, role } = request.auth!;
-    if (kind === 'DRIVER' && role !== 'DRIVER')
-      throw new AppError(
-        403,
-        'DRIVER_ACCESS_REQUIRED',
-        'Driver access is required.',
-      );
+    const { user_id } = request.auth!;
+    if (kind === 'DRIVER') await this.wallets.require_driver_access(user_id);
     return send_success(
       response,
       await this.wallets.view(user_id, kind, page, page_size),
@@ -549,6 +564,40 @@ export class WalletController {
         user_id_schema.parse(id),
       ),
       'Ride paid from Wallet',
+    );
+  }
+
+  @Post('rides/:id/payments/upi')
+  @HttpCode(200)
+  async upi_checkout(
+    @Req() request: Request,
+    @Param('id') id: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    return send_success(
+      response,
+      await this.ride_upi.checkout(
+        request.auth!.user_id,
+        user_id_schema.parse(id),
+      ),
+      'UPI checkout loaded',
+    );
+  }
+
+  @Post('rides/:id/payments/upi/check')
+  @HttpCode(200)
+  async upi_status(
+    @Req() request: Request,
+    @Param('id') id: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    return send_success(
+      response,
+      await this.ride_upi.check(
+        request.auth!.user_id,
+        user_id_schema.parse(id),
+      ),
+      'UPI payment status loaded',
     );
   }
 }

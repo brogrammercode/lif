@@ -1617,6 +1617,22 @@
   },
   {
     "feature": "wallet",
+    "handler": "upi_checkout",
+    "method": "post",
+    "path": "rides/:id/payments/upi",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "upi_status",
+    "method": "post",
+    "path": "rides/:id/payments/upi/check",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
     "handler": "cycles",
     "method": "get",
     "path": "admin/payouts/cycles",
@@ -1737,6 +1753,14 @@
   },
   {
     "feature": "wallet",
+    "handler": "payout_method_default",
+    "method": "patch",
+    "path": "driver/wallet/payout-methods/:id/default",
+    "guards": ["AuthGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
     "handler": "payout_method_check",
     "method": "post",
     "path": "driver/wallet/payout-methods/:id/check",
@@ -1749,6 +1773,14 @@
     "method": "post",
     "path": "admin/payouts/cycles/:id/approve",
     "guards": ["AuthGuard", "AdminGuard"],
+    "idempotent": false
+  },
+  {
+    "feature": "wallet",
+    "handler": "driver_payouts",
+    "method": "get",
+    "path": "driver/wallet/payouts",
+    "guards": ["AuthGuard"],
     "idempotent": false
   },
   {

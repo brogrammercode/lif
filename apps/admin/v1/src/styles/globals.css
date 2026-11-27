@@ -3120,6 +3120,59 @@ tbody tr:hover {
   line-height: 20px;
   overflow-wrap: anywhere;
 }
+.finance-page {
+  display: grid;
+  gap: 24px;
+}
+.finance-page > .page-heading {
+  margin-bottom: 0;
+}
+.finance-page .catalog-card-header {
+  padding: 16px 20px;
+}
+.finance-dialog-form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.finance-dialog-form .visibility-row {
+  gap: 12px;
+  padding: 8px 10px;
+}
+.finance-table {
+  min-width: 0;
+}
+.finance-table :is(th, td) {
+  padding: 10px 16px;
+}
+.finance-table :is(th, td):first-child {
+  padding-left: 20px;
+}
+.finance-table :is(th, td):last-child {
+  padding-right: 20px;
+}
+.finance-table .finance-money {
+  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.finance-dialog-table {
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+}
+.finance-dialog-table thead {
+  border-top: 0;
+}
+.finance-page .catalog-pagination,
+.dialog-compact .catalog-pagination {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+@media (max-width: 639px) {
+  .finance-page .catalog-card-header {
+    padding-inline: 16px;
+  }
+}
 .dialog-compact .dialog-footer {
   margin: 0;
   padding: 12px 20px;

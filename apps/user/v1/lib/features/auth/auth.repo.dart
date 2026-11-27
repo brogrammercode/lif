@@ -7,7 +7,9 @@ import 'package:user/core/network/dio_client.dart';
 import 'package:user/features/auth/models/user.model.dart';
 
 class AuthRepository {
-  final DioClient _client = DioClient();
+  AuthRepository({DioClient? client}) : _client = client ?? DioClient();
+
+  final DioClient _client;
   final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
   bool _googleInitialized = false;
 

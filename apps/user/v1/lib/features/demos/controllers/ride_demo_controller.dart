@@ -11,6 +11,7 @@ enum RideDemoStep {
   arriving,
   arrived,
   inProgress,
+  payment,
   completed,
   cancelled,
   unfulfilled,
@@ -56,6 +57,14 @@ class RideDemoController extends FeatureController {
   RideDemoStep step = RideDemoStep.home;
   int navigationRevision = 0;
   String status = 'DRAFT', method = 'CASH', category = 'demo-car';
+  String? _paymentMethod;
+  String get nextLabel => step == RideDemoStep.payment
+      ? switch (_paymentMethod) {
+          'CASH' => 'Confirm cash',
+          'UPI' => 'Simulate UPI payment',
+          _ => 'Next',
+        }
+      : 'Next';
   int passengers = 1;
   String note = '';
   DateTime _stageChangedAt = DateTime.now();
@@ -284,15 +293,22 @@ class RideDemoController extends FeatureController {
         'locked': false,
       },
       'payment': {
-        'status': status == 'COMPLETED' ? 'CAPTURED' : 'PENDING',
+        'status': step == RideDemoStep.completed ? 'CAPTURED' : 'PENDING',
         'amount': receiptFare ?? selectedQuote['total_fare'],
-        'collection_method': method,
-        'method': method,
-        'provider_managed': false,
+        'collection_method': _paymentMethod,
+        'method': _paymentMethod,
+        'provider_managed': _paymentMethod == 'UPI',
+        'razorpay_checkout': _paymentMethod == 'UPI',
       },
       'collection_preference': method,
       'direct_collection_allowed': false,
-      'payment_options': {'cash': true, 'upi': false},
+      'payment_options': {
+        'cash': true,
+        'upi': false,
+        'razorpay_upi': true,
+        'wallet': true,
+        'wallet_available_paise': '50000',
+      },
     };
   }
 
@@ -305,6 +321,7 @@ class RideDemoController extends FeatureController {
     RideDemoStep.arriving => 'Driver arriving',
     RideDemoStep.arrived => 'Arrived / start code',
     RideDemoStep.inProgress => 'Ride in progress',
+    RideDemoStep.payment => 'Payment',
     RideDemoStep.completed => 'Completed',
     RideDemoStep.cancelled => 'Cancelled',
     RideDemoStep.unfulfilled => 'No driver found',
@@ -312,6 +329,7 @@ class RideDemoController extends FeatureController {
   void preview(RideDemoStep value) {
     update(() {
       step = value;
+      _paymentMethod = value == RideDemoStep.completed ? method : null;
       _stageChangedAt = DateTime.now();
       navigationRevision++;
       status = switch (value) {
@@ -323,22 +341,30 @@ class RideDemoController extends FeatureController {
         RideDemoStep.arriving => 'DRIVER_ARRIVING',
         RideDemoStep.arrived => 'DRIVER_WAITING',
         RideDemoStep.inProgress => 'IN_PROGRESS',
-        RideDemoStep.completed => 'COMPLETED',
+        RideDemoStep.payment || RideDemoStep.completed => 'COMPLETED',
         RideDemoStep.cancelled => 'CANCELLED',
         RideDemoStep.unfulfilled => 'NO_DRIVER_FOUND',
       };
       riderConfirmed =
-          value == RideDemoStep.inProgress || value == RideDemoStep.completed;
+          value == RideDemoStep.inProgress || status == 'COMPLETED';
       driverVerified = riderConfirmed;
     });
   }
 
-  void next() => preview(
-    RideDemoStep.values[(step.index + 1).clamp(
-      0,
-      RideDemoStep.values.length - 1,
-    )],
-  );
+  void next() {
+    if (step == RideDemoStep.payment && _paymentMethod != null) {
+      _completePayment();
+      return;
+    }
+    preview(
+      RideDemoStep.values[(step.index + 1).clamp(
+        0,
+        RideDemoStep.values.length - 1,
+      )],
+    );
+  }
+
+  void _completePayment() => update(() => step = RideDemoStep.completed);
   void restart() {
     _created = DateTime.now();
     note = '';
@@ -434,6 +460,29 @@ class RideDemoController extends FeatureController {
       result = contextData['trip'];
     } else if (methodName == 'GET' && path == '/trips/$tripId/context') {
       result = contextData;
+    } else if (methodName == 'POST' && path == '/trips/$tripId/payment') {
+      if (step != RideDemoStep.payment ||
+          !['CASH', 'WALLET'].contains(data['method'])) {
+        throw StateError('Choose Cash or Wallet in the demo payment phase.');
+      }
+      update(() => _paymentMethod = data['method'] as String);
+      result = contextData;
+    } else if (methodName == 'POST' &&
+        path == '/rides/$tripId/payments/wallet') {
+      if (_paymentMethod != 'WALLET' || step != RideDemoStep.payment) {
+        throw StateError('Select Wallet before paying this demo fare.');
+      }
+      _completePayment();
+      result = contextData['payment'];
+    } else if (methodName == 'POST' && path == '/rides/$tripId/payments/upi') {
+      if (step != RideDemoStep.payment) {
+        throw StateError('Open UPI in the demo payment phase.');
+      }
+      update(() => _paymentMethod = 'UPI');
+      result = contextData['payment'];
+    } else if (methodName == 'POST' &&
+        path == '/rides/$tripId/payments/upi/check') {
+      result = contextData['payment'];
     } else if (methodName == 'GET' && path == '/trips/$tripId/rider-route') {
       result = {
         ...route,

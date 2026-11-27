@@ -94,6 +94,11 @@ class DriverOperationsRepository {
     );
   }
 
+  Future<Map<String, dynamic>> rideUpi(String id, {bool open = false}) async {
+    final path = '/rides/${Uri.encodeComponent(id)}/payments/upi';
+    return _map(await _client.postData(open ? path : '$path/check'));
+  }
+
   Future<Map<String, dynamic>> navigation(
     String id,
     double latitude,

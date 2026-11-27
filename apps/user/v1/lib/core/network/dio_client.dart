@@ -75,7 +75,16 @@ class DioClient {
             if (token != null &&
                 token.isNotEmpty &&
                 _tokenNeedsRefresh(token)) {
-              token = await _refreshAccessToken() ?? token;
+              final previousToken = token;
+              try {
+                token = await _refreshAccessToken() ?? previousToken;
+              } on DioException {
+                // A token inside the refresh window can still authorize this
+                // request. An expired token would hide the refresh error.
+                if (_tokenNeedsRefresh(previousToken, leeway: Duration.zero)) {
+                  rethrow;
+                }
+              }
             }
             if (token != null && token.isNotEmpty) {
               options.headers['Authorization'] = 'Bearer $token';
@@ -241,7 +250,11 @@ class DioClient {
     if (_signingOut) return;
     _signingOut = true;
     try {
-      await _refreshingAccessToken;
+      try {
+        await _refreshingAccessToken;
+      } on DioException {
+        // A failed rotation may leave the stored refresh token valid to revoke.
+      }
       final token = await readRefreshToken();
       if (token != null && token.isNotEmpty) {
         try {
@@ -312,10 +325,12 @@ class DioClient {
       await _storeTokens(accessToken, rotatedRefreshToken, version);
       return version == _sessionVersion ? accessToken : null;
     } on DioException catch (error) {
-      if (error.response?.statusCode == 401 && version == _sessionVersion) {
+      if (version != _sessionVersion) return null;
+      if (error.response?.statusCode == 401) {
         await clearSession();
+        return null;
       }
-      return null;
+      rethrow;
     } catch (_) {
       return null;
     } finally {
@@ -323,7 +338,10 @@ class DioClient {
     }
   }
 
-  bool _tokenNeedsRefresh(String token) {
+  bool _tokenNeedsRefresh(
+    String token, {
+    Duration leeway = const Duration(seconds: 60),
+  }) {
     try {
       final segments = token.split('.');
       if (segments.length != 3) return true;
@@ -335,9 +353,7 @@ class DioClient {
       final expiresAt = DateTime.fromMillisecondsSinceEpoch(
         expiration.toInt() * 1000,
       );
-      return expiresAt.isBefore(
-        DateTime.now().add(const Duration(seconds: 60)),
-      );
+      return !expiresAt.isAfter(DateTime.now().add(leeway));
     } catch (_) {
       return true;
     }

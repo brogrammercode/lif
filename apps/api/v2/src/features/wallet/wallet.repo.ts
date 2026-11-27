@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import {
   Prisma,
+  type PayoutSchedule,
   type WalletEntry,
   type WalletEntryKind,
   type WalletKind,
@@ -9,14 +10,18 @@ import { AppError } from '../../core/error.js';
 import {
   require_active_account,
   require_active_admin,
+  require_driver_wallet_access,
 } from '../../infra/database/account_lifecycle.js';
 import type { z } from 'zod';
 import {
+  cadence_update,
   next_payout_run,
   present_payout_schedule,
   type payout_settings_schema,
 } from './payout-schedule.js';
 import { PrismaService } from '../../infra/database/prisma.service.js';
+import type { TransactionClient } from '../../infra/database/client.js';
+import { ride_commission } from './cash-ride-entry.js';
 import { create_user_log } from '../../infra/database/user_log.js';
 import {
   gateway_credential_mode,
@@ -54,8 +59,14 @@ function present_activity_topup({
 }
 
 const unpaid_earnings = (cutoff: Date) => Prisma.sql`
-  e.kind = 'RIDE_EARNING' AND e.available_delta_paise > 0
+  ((e.kind = 'RIDE_EARNING' AND e.available_delta_paise > 0)
+    OR (e.kind = 'CASH_PAYMENT' AND e.commission_paise > 0 AND e.external_amount_paise > 0))
   AND e.created_at <= ${cutoff}
+  AND NOT EXISTS (
+    SELECT 1 FROM payments payment
+    WHERE payment.id = e.payment_id AND payment.provider = 'razorpay-ride'
+      AND payment.status IN ('REFUNDED', 'PARTIALLY_REFUNDED')
+  )
   AND NOT EXISTS (
     SELECT 1 FROM wallet_entries r
     WHERE r.reverses_entry_id = e.id AND r.kind = 'REFUND'
@@ -66,17 +77,39 @@ const unpaid_earnings = (cutoff: Date) => Prisma.sql`
   )
 `;
 
+function admin_schedule_snapshot(row: PayoutSchedule | null) {
+  const schedule = present_payout_schedule(row);
+  return {
+    ...schedule,
+    planned_next_run_at: row?.next_run_at ?? schedule.next_run_at,
+  };
+}
+
 @Injectable()
 export class WalletRepository {
   constructor(private readonly database: PrismaService) {}
 
+  async require_driver_access(user_id: string) {
+    await this.database.client.$transaction((tx) =>
+      require_driver_wallet_access(tx, user_id),
+    );
+  }
+
   async schedule() {
-    const settings = present_payout_schedule(
-      await this.database.client.payoutSchedule.findUnique({
+    const db = this.database.client;
+    return this.present_admin_schedule(
+      db,
+      await db.payoutSchedule.findUnique({
         where: { id: payout_schedule_id },
       }),
     );
-    return present_wallet_settings(this.database.client, settings);
+  }
+
+  private present_admin_schedule(
+    db: Pick<TransactionClient, 'walletTopUp'>,
+    row: PayoutSchedule | null,
+  ) {
+    return present_wallet_settings(db, admin_schedule_snapshot(row));
   }
 
   async upcoming(page: number, page_size: number) {
@@ -101,7 +134,8 @@ export class WalletRepository {
           }[]
         >`
         WITH earnings AS (
-          SELECT e.wallet_id, SUM(e.available_delta_paise) AS net,
+          SELECT e.wallet_id, SUM(e.available_delta_paise) AS credited,
+            SUM(CASE WHEN e.kind = 'CASH_PAYMENT' THEN -e.commission_paise ELSE e.available_delta_paise END) AS net,
             SUM(COALESCE(e.commission_paise, 0)) AS commission
           FROM wallet_entries e WHERE ${unpaid_earnings(cutoff)}
           GROUP BY e.wallet_id
@@ -114,12 +148,13 @@ export class WalletRepository {
               WHERE b.driver_id = u.id AND (b.expires_at IS NULL OR b.expires_at > ${as_of}))
               THEN 'Payout blocked'
             WHEN NOT EXISTS (SELECT 1 FROM driver_payout_methods m
-              WHERE m.driver_id = u.id AND m.kind = 'UPI' AND m.status = 'VERIFIED'
-                AND m.is_default AND m.provider_fund_account_id IS NOT NULL)
-              THEN 'Verified payout method required'
+              WHERE m.driver_id = u.id AND m.is_default
+                AND ((m.status = 'VERIFIED' AND m.provider_fund_account_id IS NOT NULL)
+                  OR (m.status = 'PENDING' AND m.pending_details IS NOT NULL)))
+              THEN 'Payout account required'
             WHEN e.net < ${BigInt(schedule.minimum_paise)} OR e.net < 100 THEN 'Below minimum'
             WHEN e.net > ${BigInt(Number.MAX_SAFE_INTEGER)} THEN 'Amount exceeds limit'
-            WHEN e.net > w.available_paise THEN 'Insufficient available earnings'
+            WHEN e.credited > w.available_paise THEN 'Insufficient available earnings'
             ELSE 'Eligible' END AS eligibility
         FROM earnings e JOIN wallets w ON w.id = e.wallet_id JOIN users u ON u.id = w.user_id
         ORDER BY e.net DESC, u.id
@@ -150,6 +185,33 @@ export class WalletRepository {
           'PAYOUT_SCHEDULE_CHANGED',
           'Payout schedule changed. Reload before saving.',
         );
+      if (!('enabled' in input)) {
+        const last = await tx.payoutCycle.findFirst({
+          where: { schedule_id: payout_schedule_id },
+          orderBy: { cutoff_at: 'desc' },
+          select: { cutoff_at: true },
+        });
+        const cadence = cadence_update(
+          input,
+          current,
+          last?.cutoff_at ?? null,
+          new Date(),
+        );
+        if (!cadence) return this.present_admin_schedule(tx, current);
+        if (!cadence.next_run_at)
+          throw new AppError(
+            422,
+            'PAYOUT_RUN_DATE_INVALID',
+            'Choose a future payout date after the last recorded cycle.',
+          );
+        const data = {
+          ...cadence.timing,
+          next_run_at: cadence.next_run_at,
+          replaced_run_at: null,
+          enabled: current?.enabled ?? true,
+        };
+        return this.persist_schedule(tx, actor_id, current, data);
+      }
       const { expected_version: _, next_run_override, ...values } = input;
       const mode =
         values.wallet_topup_mode ?? current?.wallet_topup_mode ?? 'disabled';
@@ -191,7 +253,10 @@ export class WalletRepository {
           'Enable the schedule and choose a future payout date and time.',
         );
       const timing_changed =
-        !current?.enabled ||
+        !current ||
+        (!current.enabled &&
+          values.enabled &&
+          (!current.next_run_at || current.next_run_at <= now)) ||
         values.frequency !== current.frequency ||
         values.minute_of_day_ist !== current.minute_of_day_ist ||
         (values.frequency === 'WEEKLY' &&
@@ -207,9 +272,9 @@ export class WalletRepository {
       const next_run_at = values.enabled
         ? (override ??
           (reset ? recurring_run : (current?.next_run_at ?? recurring_run)))
-        : null;
+        : (current?.next_run_at ?? null);
       const replaced_run_at =
-        !values.enabled || (reset && !override)
+        reset && !override
           ? null
           : override
             ? recurring_run
@@ -234,21 +299,31 @@ export class WalletRepository {
         next_run_at,
         replaced_run_at,
       };
-      const saved = await tx.payoutSchedule.upsert({
-        where,
-        create: { ...where, ...data },
-        update: { ...data, version: { increment: 1 } },
-      });
-      await create_user_log(tx, {
-        actor_id,
-        entity_type: 'PayoutSchedule',
-        entity_id: saved.id,
-        action: 'UPDATE_PAYOUT_SCHEDULE',
-        before_data: present_payout_schedule(current),
-        after_data: present_payout_schedule(saved),
-      });
-      return present_wallet_settings(tx, present_payout_schedule(saved));
+      return this.persist_schedule(tx, actor_id, current, data);
     });
+  }
+
+  private async persist_schedule(
+    tx: TransactionClient,
+    actor_id: string,
+    current: PayoutSchedule | null,
+    data: Omit<Prisma.PayoutScheduleUncheckedCreateInput, 'id' | 'version'>,
+  ) {
+    const where = { id: payout_schedule_id };
+    const saved = await tx.payoutSchedule.upsert({
+      where,
+      create: { ...where, ...data },
+      update: { ...data, version: { increment: 1 } },
+    });
+    await create_user_log(tx, {
+      actor_id,
+      entity_type: 'PayoutSchedule',
+      entity_id: saved.id,
+      action: 'UPDATE_PAYOUT_SCHEDULE',
+      before_data: admin_schedule_snapshot(current),
+      after_data: admin_schedule_snapshot(saved),
+    });
+    return this.present_admin_schedule(tx, saved);
   }
 
   async prepare_due_cycles(now: Date, deadline: number) {
@@ -265,14 +340,25 @@ export class WalletRepository {
         where: { id: payout_schedule_id },
       });
       if (!schedule?.enabled) return { prepared: false };
-      const due =
+      const stored_due =
         schedule.next_run_at ?? next_payout_run(schedule, schedule.updated_at);
-      if (due > now) return { prepared: false };
+      if (stored_due > now) return { prepared: false };
       const last = await tx.payoutCycle.findFirst({
         where: { schedule_id: schedule.id },
         orderBy: { cutoff_at: 'desc' },
         select: { cutoff_at: true },
       });
+      const due =
+        last && stored_due <= last.cutoff_at
+          ? next_payout_run(schedule, last.cutoff_at)
+          : stored_due;
+      if (due > now) {
+        await tx.payoutSchedule.update({
+          where: { id: schedule.id },
+          data: { next_run_at: due, version: { increment: 1 } },
+        });
+        return { prepared: false };
+      }
       const cycle = await tx.payoutCycle.upsert({
         where: {
           schedule_id_cutoff_at: { schedule_id: schedule.id, cutoff_at: due },
@@ -296,7 +382,8 @@ export class WalletRepository {
       // validate eligibility and reserve funds before submitting a payout.
       await tx.$executeRaw`
         WITH earnings AS MATERIALIZED (
-          SELECT e.id, e.wallet_id, e.ride_id, e.available_delta_paise
+          SELECT e.id, e.wallet_id, e.ride_id, e.kind,
+            CASE WHEN e.kind = 'CASH_PAYMENT' THEN -e.commission_paise ELSE e.available_delta_paise END AS payout_amount
           FROM wallet_entries e
           JOIN wallets w ON w.id = e.wallet_id
         WHERE ${unpaid_earnings(due)}
@@ -308,15 +395,16 @@ export class WalletRepository {
           INSERT INTO driver_payouts
             (id, cycle_id, wallet_id, amount_paise, status, created_at, updated_at)
           SELECT gen_random_uuid()::text, ${cycle.id}, wallet_id,
-            sum(available_delta_paise)::bigint, 'DRAFT', now(), now()
+            sum(payout_amount)::bigint, 'DRAFT', now(), now()
           FROM earnings
-          GROUP BY wallet_id
+          GROUP BY wallet_id HAVING sum(payout_amount) > 0
           RETURNING id, wallet_id
         )
         INSERT INTO driver_payout_lines
-          (id, payout_id, source_entry_id, ride_id, amount_paise, created_at)
+          (id, payout_id, source_entry_id, ride_id, amount_paise, reason, created_at)
         SELECT gen_random_uuid()::text, drafts.id, earnings.id, earnings.ride_id,
-          earnings.available_delta_paise, now()
+          earnings.payout_amount,
+          CASE WHEN earnings.kind = 'CASH_PAYMENT' THEN 'Cash ride commission' END, now()
         FROM earnings JOIN drafts USING (wallet_id)
       `;
       await tx.payoutSchedule.update({
@@ -437,13 +525,14 @@ export class WalletRepository {
       }[]
     >`
       SELECT ${group} AS id,
-        SUM(entry.available_delta_paise + COALESCE(entry.commission_paise, 0))::text AS gross_paise,
+        SUM(CASE WHEN entry.kind = 'CASH_PAYMENT' THEN 0
+          ELSE entry.available_delta_paise + COALESCE(entry.commission_paise, 0) END)::text AS gross_paise,
         SUM(COALESCE(entry.commission_paise, 0))::text AS commission_paise,
-        SUM(entry.available_delta_paise)::text AS driver_net_paise
+        SUM(line.amount_paise)::text AS driver_net_paise
       FROM driver_payout_lines AS line
       JOIN driver_payouts AS payout ON payout.id = line.payout_id
       JOIN wallet_entries AS entry ON entry.id = line.source_entry_id
-      WHERE ${group} IN (${Prisma.join(ids)}) AND entry.kind = 'RIDE_EARNING'
+      WHERE ${group} IN (${Prisma.join(ids)}) AND entry.kind IN ('RIDE_EARNING', 'CASH_PAYMENT')
       GROUP BY ${group}
     `;
     return new Map(totals.map(({ id, ...amounts }) => [id, amounts]));
@@ -471,6 +560,7 @@ export class WalletRepository {
             commission_paise: true,
             commission_percent: true,
             available_delta_paise: true,
+            external_amount_paise: true,
           },
         },
       },
@@ -531,6 +621,93 @@ export class WalletRepository {
       ...row.cycle,
       adjustments_paise: String(adjustments._sum.amount_paise ?? 0),
       ride_earnings: totals.get(row.id) ?? null,
+    };
+  }
+
+  async driver_payouts(user_id: string, page: number, page_size: number) {
+    return this.database.client.$transaction(async (tx) => {
+      await require_driver_wallet_access(tx, user_id);
+      const [settings, credits] = await Promise.all([
+        tx.payoutSchedule.findUnique({ where: { id: payout_schedule_id } }),
+        tx.walletEntry.findMany({
+          where: {
+            wallet: { user_id, kind: 'DRIVER' },
+            kind: 'PAYOUT_SETTLED',
+            payout: { status: 'PAID' },
+          },
+          orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+          skip: (page - 1) * page_size,
+          take: page_size + 1,
+          select: {
+            id: true,
+            payout_id: true,
+            available_delta_paise: true,
+            held_delta_paise: true,
+            available_after_paise: true,
+            created_at: true,
+          },
+        }),
+      ]);
+      return {
+        next_run_at: present_payout_schedule(settings).next_run_at,
+        rows: credits.slice(0, page_size).map((credit) => ({
+          ...credit,
+          kind: 'PAYOUT_SETTLED',
+          available_delta_paise: String(credit.available_delta_paise),
+          held_delta_paise: String(credit.held_delta_paise),
+          available_after_paise: String(credit.available_after_paise),
+        })),
+        has_more: credits.length > page_size,
+      };
+    });
+  }
+
+  private async driver_wallet_balance(
+    tx: Pick<Prisma.TransactionClient, '$queryRaw'>,
+    wallet: { id: string; available_paise: bigint },
+  ) {
+    const as_of = new Date();
+    const [summary] = await tx.$queryRaw<
+      { payout_available_paise: bigint; cash_collected_paise: bigint }[]
+    >`
+      WITH pending AS (
+        SELECT COALESCE(SUM(e.available_delta_paise), 0) AS funded,
+          COALESCE(SUM(CASE WHEN e.kind = 'CASH_PAYMENT' THEN e.commission_paise ELSE 0 END), 0) AS commission
+        FROM wallet_entries e
+        WHERE e.wallet_id = ${wallet.id} AND ${unpaid_earnings(as_of)}
+      ), drafts AS (
+        SELECT COALESCE(SUM(p.amount_paise), 0) AS net
+        FROM driver_payouts p
+        WHERE p.wallet_id = ${wallet.id} AND p.status = 'DRAFT'
+      ), draft_funding AS (
+        SELECT COALESCE(SUM(l.amount_paise), 0) AS funded
+        FROM driver_payout_lines l JOIN driver_payouts p ON p.id = l.payout_id
+        JOIN wallet_entries e ON e.id = l.source_entry_id
+        WHERE p.wallet_id = ${wallet.id} AND p.status = 'DRAFT' AND e.kind = 'RIDE_EARNING'
+      ), paid AS (
+        SELECT MAX(c.cutoff_at) AS cutoff
+        FROM driver_payouts p JOIN payout_cycles c ON c.id = p.cycle_id
+        WHERE p.wallet_id = ${wallet.id} AND p.status = 'PAID'
+      ), cash AS (
+        SELECT COALESCE(SUM(e.external_amount_paise), 0) AS collected
+        FROM wallet_entries e CROSS JOIN paid
+        WHERE e.wallet_id = ${wallet.id} AND e.kind = 'CASH_PAYMENT'
+          AND e.external_amount_paise > 0 AND e.created_at <= ${as_of}
+          AND (paid.cutoff IS NULL OR e.created_at > paid.cutoff)
+          AND NOT EXISTS (
+            SELECT 1 FROM wallet_entries r
+            WHERE r.reverses_entry_id = e.id AND r.kind = 'REFUND'
+          )
+      )
+      SELECT GREATEST(0,
+        LEAST(${wallet.available_paise}::bigint, pending.funded + draft_funding.funded)
+        - pending.commission + drafts.net - draft_funding.funded
+      )::bigint AS payout_available_paise, cash.collected::bigint AS cash_collected_paise
+      FROM pending CROSS JOIN drafts CROSS JOIN draft_funding CROSS JOIN cash
+    `;
+    return {
+      payout_available_paise: String(summary?.payout_available_paise ?? 0),
+      cash_collected_paise: String(summary?.cash_collected_paise ?? 0),
     };
   }
 
@@ -596,16 +773,8 @@ export class WalletRepository {
         );
 
       const amount = BigInt(ride.final_fare.mul(100).toFixed(0));
-      const commission_percent = snapshot_commission(
-        ride.quotes[0]?.category_snapshot,
-      );
-      const commission_paise = BigInt(
-        new Prisma.Decimal(amount.toString())
-          .mul(commission_percent)
-          .div(100)
-          .toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP)
-          .toFixed(0),
-      );
+      const { percent: commission_percent, commission: commission_paise } =
+        ride_commission(amount, ride.quotes[0]?.category_snapshot);
       const net = amount - commission_paise;
       const rider = await tx.wallet.findUnique({
         where: { user_id_kind: { user_id, kind: 'RIDER' } },
@@ -1038,12 +1207,19 @@ export class WalletRepository {
                 _sum: { available_delta_paise: true },
               })
             : null;
+        const driver_balance =
+          kind !== 'DRIVER' || filters
+            ? {}
+            : wallet
+              ? await this.driver_wallet_balance(tx, wallet)
+              : { payout_available_paise: '0', cash_collected_paise: '0' };
         return {
           ...(wallet ? { id: wallet.id } : {}),
           kind,
           currency: wallet?.currency ?? 'INR',
           available_paise: String(wallet?.available_paise ?? 0),
           held_paise: String(wallet?.held_paise ?? 0),
+          ...driver_balance,
           ...(kind === 'DRIVER'
             ? {
                 earnings_paise: String(
@@ -1079,33 +1255,12 @@ function present_wallet_entry(
       ? { reverses_entry_id: entry.reverses_entry_id }
       : {}),
     reversed: entry.reversals.length > 0,
+    ...(entry.external_amount_paise != null
+      ? { external_amount_paise: String(entry.external_amount_paise) }
+      : {}),
     ...(entry.commission_paise != null ? commission_breakdown(entry) : {}),
     created_at: entry.created_at,
   };
-}
-
-function snapshot_commission(snapshot: Prisma.JsonValue | undefined) {
-  const policy =
-    snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)
-      ? snapshot.payment_policy
-      : null;
-  const percent =
-    policy && typeof policy === 'object' && !Array.isArray(policy)
-      ? policy.commission_percent
-      : null;
-  if (percent == null) return 0;
-  if (
-    typeof percent !== 'number' ||
-    !Number.isFinite(percent) ||
-    percent < 0 ||
-    percent > 100
-  )
-    throw new AppError(
-      409,
-      'RIDE_COMMISSION_INVALID',
-      'The ride commission must be reviewed before collection.',
-    );
-  return percent;
 }
 
 function commission_breakdown(
@@ -1113,6 +1268,7 @@ function commission_breakdown(
     commission_paise: bigint | null;
     commission_percent: Prisma.Decimal | null;
     available_delta_paise: bigint;
+    external_amount_paise?: bigint | null;
   } | null,
 ) {
   if (entry?.commission_paise == null)
@@ -1122,10 +1278,17 @@ function commission_breakdown(
       commission_percent: null,
       driver_net_paise: null,
     };
+  const external = entry.external_amount_paise;
   return {
-    gross_paise: String(entry.available_delta_paise + entry.commission_paise),
+    gross_paise: String(
+      external ?? entry.available_delta_paise + entry.commission_paise,
+    ),
     commission_paise: String(entry.commission_paise),
     commission_percent: entry.commission_percent?.toString() ?? null,
-    driver_net_paise: String(entry.available_delta_paise),
+    driver_net_paise: String(
+      external == null
+        ? entry.available_delta_paise
+        : external - entry.commission_paise,
+    ),
   };
 }

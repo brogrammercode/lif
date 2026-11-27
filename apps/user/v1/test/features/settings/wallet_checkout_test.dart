@@ -74,6 +74,205 @@ class _Wallet extends WalletController {
 }
 
 void main() {
+  testWidgets('driver wallet switches ledger and payouts inside its history', (
+    tester,
+  ) async {
+    final dio = Dio(BaseOptions(baseUrl: 'https://wallet.example.test'));
+    final payoutMethodsResponse = Completer<void>();
+    var destinationSaved = false;
+    final cash = {
+      'id': 'cash-entry',
+      'kind': 'CASH_PAYMENT',
+      'available_delta_paise': '0',
+      'held_delta_paise': '0',
+      'available_after_paise': '12044',
+      'external_amount_paise': '5969',
+      'created_at': '2026-11-27T00:00:00Z',
+    };
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) async {
+          if (options.path == '/driver/wallet/payout-methods' &&
+              options.method == 'GET') {
+            await payoutMethodsResponse.future;
+          }
+          final data = switch (options.path) {
+            '/wallet' => {
+              'available_paise': '12044',
+              'payout_available_paise': '10044',
+              'cash_collected_paise': '5969',
+              'held_paise': '0',
+              'rows': [cash],
+            },
+            '/driver/wallet/payout-methods' when options.method == 'POST' => {
+              'id': 'bank-1',
+              'kind': 'BANK_ACCOUNT',
+              'status': 'PENDING',
+              'masked_label': 'Bank account •••• 1234',
+              'is_default': true,
+              'selectable': true,
+            },
+            '/driver/wallet/payout-methods' => {'rows': <Object>[]},
+            '/driver/wallet/payouts' => {
+              'next_run_at': '2026-11-30T23:30:00Z',
+              'rows': [
+                {
+                  'id': 'paid-entry',
+                  'kind': 'PAYOUT_SETTLED',
+                  'payout_id': 'payout-1',
+                  'available_delta_paise': '0',
+                  'held_delta_paise': '-8000',
+                  'available_after_paise': '0',
+                  'created_at': '2026-11-22T00:00:00Z',
+                },
+              ],
+            },
+            '/driver/wallet/payouts/payout-1' => {
+              'amount_paise': '8000',
+              'adjustments_paise': '0',
+              'status': 'PAID',
+              'utr': 'UTR-DEMO',
+            },
+            _ => throw StateError('Unexpected endpoint ${options.path}'),
+          };
+          if (options.method == 'POST') {
+            expect(options.data, {
+              'kind': 'BANK_ACCOUNT',
+              'name': 'Fixture Driver',
+              'account_number': '123456781234',
+              'ifsc': 'HDFC0000053',
+            });
+            destinationSaved = true;
+          }
+          handler.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: {'status': 'success', 'data': data},
+            ),
+          );
+        },
+      ),
+    );
+    final settings = SettingsController(
+      SettingsRepository(
+        walletClient: DioClient.forTesting(
+          client: dio,
+          createRefreshClient: Dio.new,
+        ),
+      ),
+    );
+    addTearDown(settings.dispose);
+    await tester.pumpWidget(
+      MaterialApp(home: WalletPage(controller: settings, driver: true)),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('₹100.44'), findsOneWidget);
+    expect(
+      find.text('₹59.69 already settled through cash', findRichText: true),
+      findsOneWidget,
+    );
+    expect(find.text('Setup payout'), findsOneWidget);
+    final ledger = find.text('Ledger');
+    final payoutCycle = find.text('Payout cycle');
+    expect(find.byType(ChoiceChip), findsNothing);
+    final actionAvatar = tester.widget<CircleAvatar>(
+      find.descendant(
+        of: find.ancestor(
+          of: find.text('Setup payout'),
+          matching: find.byType(InkWell),
+        ),
+        matching: find.byType(CircleAvatar),
+      ),
+    );
+    for (final label in [ledger, payoutCycle]) {
+      final avatar = tester.widget<CircleAvatar>(
+        find.descendant(
+          of: find.ancestor(of: label, matching: find.byType(InkWell)),
+          matching: find.byType(CircleAvatar),
+        ),
+      );
+      expect(avatar.radius, actionAvatar.radius);
+      expect(avatar.backgroundColor, actionAvatar.backgroundColor);
+    }
+    await tester.scrollUntilVisible(
+      find.text('Cash payment'),
+      140,
+      scrollable: find.byType(Scrollable),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Cash payment'), findsOneWidget);
+    await tester.ensureVisible(payoutCycle);
+    await tester.tap(payoutCycle);
+    await tester.pumpAndSettle();
+    final schedule = find.text('Next scheduled payout');
+    expect(schedule, findsOneWidget);
+    expect(ModalRoute.of(tester.element(schedule))?.isFirst, isTrue);
+    expect(find.text('Previous payouts'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Payout paid'),
+      140,
+      scrollable: find.byType(Scrollable),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('+₹80.00'), findsOneWidget);
+    await tester.tap(find.text('Payout paid'));
+    await tester.pumpAndSettle();
+    expect(find.text('UTR-DEMO'), findsOneWidget);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(ledger);
+    await tester.tap(ledger);
+    await tester.pumpAndSettle();
+    expect(find.text('Cash payment'), findsOneWidget);
+    await tester.ensureVisible(find.text('Setup payout'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Setup payout'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    final methodLabels = ['Bank account', 'Debit card', 'UPI'];
+    final loadingSizes = [
+      for (final label in methodLabels)
+        tester.getSize(find.widgetWithText(ChoiceChip, label)),
+    ];
+    final bankChip = find.widgetWithText(ChoiceChip, 'Bank account');
+    final loadingChip = tester.widget<ChoiceChip>(bankChip);
+    expect(loadingChip.onSelected, isNull);
+    expect(
+      loadingChip.color!.resolve({WidgetState.disabled, WidgetState.selected}),
+      Colors.black,
+    );
+    expect(loadingChip.labelStyle?.color, Colors.white);
+    payoutMethodsResponse.complete();
+    await tester.pumpAndSettle();
+    expect([
+      for (final label in methodLabels)
+        tester.getSize(find.widgetWithText(ChoiceChip, label)),
+    ], loadingSizes);
+    await tester.tap(find.text('UPI'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'UPI'))
+          .color!
+          .resolve({WidgetState.selected}),
+      Colors.black,
+    );
+    await tester.tap(bankChip);
+    await tester.pumpAndSettle();
+    final fields = find.byType(TextFormField);
+    await tester.enterText(fields.at(0), 'Fixture Driver');
+    await tester.enterText(fields.at(1), '123456781234');
+    await tester.enterText(fields.at(2), 'HDFC0000053');
+    final save = find.text('Save payout account');
+    await tester.ensureVisible(save);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+    expect(destinationSaved, isTrue);
+    expect(find.text('Default payout account'), findsOneWidget);
+    expect(find.text('123456781234'), findsNothing);
+  });
+
   testWidgets('payment progress sheet follows the verified top-up result', (
     tester,
   ) async {

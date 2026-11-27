@@ -7,6 +7,7 @@ import { WalletWebhookController } from './wallet-webhook.controller.js';
 import { PayoutAdmin } from './payout-admin.js';
 import { PayoutMethods } from './payout-methods.js';
 import { PayoutTransfer } from './payout-transfer.js';
+import { RideUpi } from './ride-upi.js';
 
 @Module({
   controllers: [WalletController, WalletWebhookController],
@@ -17,6 +18,7 @@ import { PayoutTransfer } from './payout-transfer.js';
     PayoutAdmin,
     PayoutMethods,
     PayoutTransfer,
+    RideUpi,
   ],
   exports: [WalletRepository, WalletTopUps, PayoutTransfer],
 })

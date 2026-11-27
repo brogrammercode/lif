@@ -1,6 +1,7 @@
 import { AppError } from '../../core/error.js';
 import type { TransactionClient } from './client.js';
 import { ADMIN_ACCESS_LOCK } from '../../features/admin_access/admin_access.constant.js';
+import { partner_lock } from '../../features/partner_program/partner_program.security.js';
 export const ACCOUNT_LIFECYCLE_LOCK = 720050;
 // Call again inside driver write locks, so an in-flight request cannot restore
 // availability or accept a ride after the exit transaction completes.
@@ -25,11 +26,17 @@ export const require_driver_participation = async (
       'Complete driver activation before using driver operations.',
     );
 };
-export const require_active_account = async (
+export const lock_account_for_write = async (
   tx: TransactionClient,
   user_id: string,
 ) => {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${ACCOUNT_LIFECYCLE_LOCK}::integer, hashtext(${user_id}))`;
+};
+export const require_active_account = async (
+  tx: TransactionClient,
+  user_id: string,
+) => {
+  await lock_account_for_write(tx, user_id);
   const user = await tx.user.findUnique({
     where: { id: user_id },
     select: { status: true, deleted_at: true, role: true },
@@ -54,3 +61,30 @@ export const require_active_admin = async (
       'Administrator access is required.',
     );
 };
+
+export async function require_driver_wallet_access(
+  tx: TransactionClient,
+  user_id: string,
+) {
+  await require_active_account(tx, user_id);
+  await partner_lock(tx, user_id);
+  const user = await tx.user.findUniqueOrThrow({
+    where: { id: user_id },
+    select: {
+      role: true,
+      partner_activated_at: true,
+      partner_application: { select: { status: true } },
+    },
+  });
+  if (
+    (user.partner_application &&
+      user.partner_application.status !== 'ACTIVATED') ||
+    (user.role !== 'DRIVER' && !user.partner_activated_at)
+  ) {
+    throw new AppError(
+      403,
+      'DRIVER_ACCESS_REQUIRED',
+      'Driver access is required.',
+    );
+  }
+}
