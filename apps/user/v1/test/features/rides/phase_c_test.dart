@@ -13,8 +13,10 @@ import 'package:user/features/rides/pages/ride_detail_page.dart';
 import 'package:user/features/rides/pages/rides_page.dart';
 import 'package:user/features/rides/ride_display.dart';
 import 'package:user/features/rides/widgets/booking_review_sheet.dart';
+import 'package:user/features/rides/widgets/ride_history_layout.dart';
 import 'package:user/features/rides/widgets/trip_cancellation_dialog.dart';
 import 'package:user/features/rides/widgets/trip_receipt_sheet.dart';
+import 'package:user/features/rides/widgets/trip_start_qr_sheet.dart';
 import 'package:user/features/saved_places/widgets/saved_place_editor.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
@@ -231,6 +233,61 @@ Future<void> openBooking(
 }
 
 void main() {
+  testWidgets('cancelled history cards and details hide ride fare', (
+    tester,
+  ) async {
+    final trip = <String, dynamic>{
+      'status': 'CANCELLED',
+      'pickup_address': 'Station',
+      'dropoff_address': 'University',
+      'estimated_fare': '50.00',
+    };
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Column(
+            children: [
+              RideHistoryRoute(ride: trip),
+              RideHistoryDetails(trip: trip, payment: const {}),
+            ],
+          ),
+        ),
+      ),
+    );
+    expect(find.text('Station'), findsOneWidget);
+    expect(find.textContaining('fare', findRichText: true), findsNothing);
+    expect(find.textContaining('₹'), findsNothing);
+  });
+
+  testWidgets('trip QR sheet fits a small landscape viewport', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(568, 320);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showModalBottomSheet<void>(
+                context: context,
+                isScrollControlled: true,
+                backgroundColor: Colors.transparent,
+                builder: (_) => const TripStartQrSheet(code: '123456'),
+              ),
+              child: const Text('Open trip QR'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open trip QR'));
+    await tester.pumpAndSettle();
+    expect(find.text('Trip QR code'), findsOneWidget);
+    expect(tester.getSize(find.byType(TripStartQrSheet)).height, lessThan(320));
+    expect(tester.takeException(), isNull);
+  });
+
   setUpAll(
     () => dotenv.loadFromString(
       envString: 'API_BASE_URL=https://ride.example.test/api/v2',

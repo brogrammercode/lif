@@ -161,13 +161,13 @@ shorebird patch android --release-version 0.1.19+19 --build-name 0.1.19 --build-
 
 This publishes to installed users of that release. Use the actual released version in all three version arguments. A Dart-only patch keeps the installed base version unchanged and receives its own Shorebird patch number; bumping `pubspec.yaml` does not upgrade installed APK metadata. Changes to native plugins, Gradle, permissions, assets (including `.env`), or Flutter itself need a new base release and APK. Follow [Shorebird patch guidance](https://docs.shorebird.dev/code-push/patch/).
 
-The location search change bumps the source version and build to `0.1.20+20`. Patch 1 targets the installed Android base `0.1.19+19`.
+The source version and build are `0.1.21+21`. Both Android patches target the installed base `0.1.19+19`.
 
 When a patch depends on new API behavior, publish it to `--track staging` first, deploy the matching API V2 changes, and verify those routes before promoting it with `shorebird patches set-track --release-version 0.1.19+19 --patch-number <number> --track stable`.
 
 ### Published updates
 
-**Latest Android base `0.1.19+19`**, published on 27 November 2026 as Shorebird release `1019734` using Flutter `3.47.7`. Stable patch `1` (ID `850029`) adds pasted map links and coordinates to ride and Saved Places search. Shorebird lists the patch as stable. Device verification is pending.
+**Latest Android base `0.1.19+19`**, published on 27 November 2026 as Shorebird release `1019734` using Flutter `3.47.7`. Patch `1` (ID `850029`) adds pasted map links and coordinates to ride and Saved Places search. Patch `2` (ID `850239`, stable) includes that feature and updates the trip QR screens, route loading, cancelled ride details and ride checkout. Device verification is pending.
 
 The earlier Android base `0.1.5+5` was published on 30 October 2026. Shorebird release `939190` was built from source commit `f6f41a1` and includes the liquid-glass mobile rework and updated assets. Its APK version, signing identity, production API configuration and three Android architectures were verified.
 
