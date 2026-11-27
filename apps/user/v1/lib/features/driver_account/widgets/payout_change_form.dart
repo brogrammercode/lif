@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/driver_account/controllers/payout_change_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -184,15 +185,7 @@ class _PayoutFormState extends State<PayoutChangeForm> {
                       'Retry preserves these exact details and request key. Close this page to start a different request.',
                 ),
               ),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: DriverNotice(
-                  icon: Icons.error_outline_rounded,
-                  message: _error!,
-                  error: true,
-                ),
-              ),
+            if (_error != null) AppErrorNotice(message: _error),
             if (_hasPayoutInput)
               LiquidGlassButton(
                 onPressed: _busy ? null : _submit,

@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/components/ui/solid_file_upload.dart';
 import 'package:user/features/saved_places/controllers/place_save_controller.dart';
@@ -161,6 +162,7 @@ class _PickerState extends State<PlacePickerPage> {
         );
         final header = Column(
           children: [
+            AppErrorNotice(message: _error),
             SolidTextFormField(
               controller: _search,
               key: const ValueKey('place-picker-search'),
@@ -226,14 +228,6 @@ class _PickerState extends State<PlacePickerPage> {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 13, color: RideTokens.muted),
               ),
-              if (_error != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(
-                    _error!,
-                    style: const TextStyle(fontSize: 12, color: Colors.red),
-                  ),
-                ),
               const SizedBox(height: 14),
               SolidFileUpload(
                 label: 'Place photos (optional)',
@@ -517,7 +511,10 @@ class _SaveFormState extends State<PlaceSaveForm> {
     ),
   );
   @override
-  Widget build(BuildContext context) => PopScope(
+  Widget build(BuildContext context) =>
+      AppErrorNotice(message: _error, child: _buildSheet(context));
+
+  Widget _buildSheet(BuildContext context) => PopScope(
     canPop: !_busy && _savedId == null,
     onPopInvokedWithResult: (didPop, result) {
       if (didPop) {
@@ -687,17 +684,6 @@ class _SaveFormState extends State<PlaceSaveForm> {
                                     'JPEG, PNG, or WebP | Max 3 MB | Up to 10 photos',
                               ),
                             ),
-                            if (_error != null)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: Text(
-                                  _error!,
-                                  style: const TextStyle(
-                                    color: Color(0xFFB3261E),
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ),
                           ],
                         ),
                       ),

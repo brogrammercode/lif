@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:user/components/ui/app_page.dart';
@@ -82,17 +83,7 @@ class _PartnerActivationPageState extends State<PartnerActivationPage> {
           onChanged: (_) => setState(() {}),
           onFieldSubmitted: (_) => _activate(),
         ),
-        if (_error != null) ...[
-          const SizedBox(height: 10),
-          Text(
-            _error!,
-            style: const TextStyle(
-              color: Color(0xFFB3261E),
-              fontSize: 13,
-              height: 1.4,
-            ),
-          ),
-        ],
+        if (_error != null) AppErrorNotice(message: _error),
         if (_code.text.isNotEmpty) ...[
           const SizedBox(height: 20),
           SizedBox(

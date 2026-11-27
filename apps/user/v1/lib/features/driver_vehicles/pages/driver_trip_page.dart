@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'dart:async';
 import 'package:user/features/rides/widgets/ride_sheet_route.dart';
 import 'package:flutter/material.dart';
@@ -102,9 +103,7 @@ class _DriverTripPageState extends State<DriverTripPage>
       await action();
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+        showAppError(context, ApiResult.errorMessage(error));
       }
     } finally {
       await _controller.load();
@@ -303,10 +302,7 @@ class _DriverTripPageState extends State<DriverTripPage>
                   if (_controller.error != null)
                     AppLoadError(message: _controller.error!, onRetry: _reload),
                   if (moving && _controller.navError != null)
-                    Text(
-                      _controller.navError!,
-                      style: const TextStyle(color: RideTokens.muted),
-                    ),
+                    AppErrorNotice(message: _controller.navError),
                   RideVehicleDriverCard(
                     vehicle: rideMap(trip['vehicle']),
                     driver: {'user': rideMap(trip['rider'])},
@@ -373,7 +369,9 @@ class _DriverTripPageState extends State<DriverTripPage>
                       if (_controller.progress != null)
                         Text(_controller.progress!.instruction),
                       if (_controller.tracking.error.value != null)
-                        Text('Location: ${_controller.tracking.error.value}'),
+                        AppErrorNotice(
+                          message: _controller.tracking.error.value,
+                        ),
                       const SizedBox(height: 12),
                       if (_status != 'DRIVER_WAITING')
                         _button(

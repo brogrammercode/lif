@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/settings/controllers/app_mode_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
@@ -37,9 +38,7 @@ class _AppModeTileState extends State<AppModeTile> {
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+        showAppError(context, ApiResult.errorMessage(error));
       }
     }
   }

@@ -1,10 +1,10 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/features/payments/controllers/payment_methods_controller.dart';
 import 'package:user/features/settings/widgets/settings_secondary.dart';
 import 'package:user/features/settings/pages/wallet_add_money_page.dart';
 import 'package:user/features/settings/widgets/wallet_sheet.dart';
-import 'package:user/features/settings/widgets/wallet_feedback.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
 class PaymentMethodsPage extends StatefulWidget {
@@ -50,7 +50,7 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
     if (confirmed != true || !mounted) return;
     final error = await _controller.remove(id);
     if (error != null && mounted) {
-      showWalletError(context, error);
+      showAppError(context, error);
     }
   }
 
@@ -62,7 +62,7 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
       builder: (context, _) {
         if (_controller.loading) return const SettingsListSkeleton(rows: 2);
         if (_controller.error case final error?) {
-          return WalletErrorNotice(
+          return AppErrorNotice(
             message: error,
             child: Center(
               child: SolidButton(text: 'Retry', onPressed: _controller.load),
@@ -149,7 +149,7 @@ class _UpiFormState extends State<_UpiForm> {
     if (error == null) {
       Navigator.pop(context);
     } else {
-      showWalletError(context, error);
+      showAppError(context, error);
     }
   }
 

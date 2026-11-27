@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -56,9 +57,7 @@ class _SupportTicketPageState extends State<SupportTicketPage> {
     final notice = _controller.notice;
     _controller.notice = null;
     if (mounted && notice != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(notice)));
+      showAppError(context, notice);
     }
   }
 
@@ -82,9 +81,7 @@ class _SupportTicketPageState extends State<SupportTicketPage> {
       await _load(preserve: true);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+        showAppError(context, ApiResult.errorMessage(error));
       }
     } finally {
       if (mounted) setState(() => _sending = false);

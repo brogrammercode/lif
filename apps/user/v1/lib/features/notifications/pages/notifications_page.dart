@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/app_skeleton.dart';
@@ -52,9 +53,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     final notice = _controller.notice;
     _controller.notice = null;
     if (mounted && notice != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(notice)));
+      showAppError(context, notice);
     }
   }
 
@@ -105,9 +104,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
       if (mounted) await _load(preserve: true);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+        showAppError(context, ApiResult.errorMessage(error));
       }
     } finally {
       _opening = false;

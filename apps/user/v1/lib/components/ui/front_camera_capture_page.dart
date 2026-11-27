@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'dart:async';
 
 import 'package:camera/camera.dart';
@@ -110,7 +111,9 @@ class _FrontCameraCapturePageState extends State<FrontCameraCapturePage>
       if (mounted) Navigator.of(context).pop(image);
     } catch (error) {
       debugPrint('FrontCameraCapture capture_error=$error');
-      if (mounted) setState(() => _error = error);
+      if (mounted) {
+        showAppError(context, 'Could not capture the selfie. Try again.');
+      }
     } finally {
       if (mounted) setState(() => _takingPicture = false);
     }
@@ -266,11 +269,7 @@ class _FrontCameraCapturePageState extends State<FrontCameraCapturePage>
               size: 34,
             ),
             const SizedBox(height: 14),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white, fontSize: 14),
-            ),
+            AppErrorNotice(message: message),
             const SizedBox(height: 16),
             TextButton(
               onPressed: _initializing ? null : _initializeCamera,

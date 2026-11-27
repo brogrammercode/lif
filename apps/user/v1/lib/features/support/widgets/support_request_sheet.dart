@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/core/network/api_result.dart';
@@ -192,16 +193,8 @@ class _SupportRequestSheetState extends State<SupportRequestSheet> {
                                         ? 'Add the complaint details'
                                         : null,
                                   ),
-                                  if (_controller.error != null) ...[
-                                    const SizedBox(height: 10),
-                                    Text(
-                                      _controller.error!,
-                                      style: const TextStyle(
-                                        color: Color(0xFFB3261E),
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
+                                  if (_controller.error != null)
+                                    AppErrorNotice(message: _controller.error),
                                 ],
                               ),
                             ),

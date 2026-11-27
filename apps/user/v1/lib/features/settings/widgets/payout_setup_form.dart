@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/solid_ui.dart';
 import '../controllers/wallet_controller.dart';
@@ -38,7 +39,7 @@ class _PayoutSetupFormState extends State<PayoutSetupForm> {
     listenable: widget.wallet,
     builder: (context, _) {
       final wallet = widget.wallet;
-      return WalletErrorNotice(
+      return AppErrorNotice(
         message: wallet.checkoutError,
         child: Form(
           key: _form,

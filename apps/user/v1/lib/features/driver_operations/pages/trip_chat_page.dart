@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/driver_operations/controllers/trip_chat_controller.dart';
 import 'dart:async';
 
@@ -58,9 +59,7 @@ class _TripChatPageState extends State<TripChatPage> {
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+        showAppError(context, ApiResult.errorMessage(error));
       }
     }
   }
@@ -85,15 +84,9 @@ class _TripChatPageState extends State<TripChatPage> {
               'Messages stay between you and the other person on this trip. The latest 100 are shown.',
         ),
         if (_error != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 10),
-            child: DriverNotice(
-              icon: Icons.sync_problem_rounded,
-              message: _error!,
-              error: true,
-              actionLabel: 'Retry',
-              onAction: _load,
-            ),
+          AppErrorNotice(
+            message: _error,
+            child: TextButton(onPressed: _load, child: const Text('Retry')),
           ),
         const SizedBox(height: 10),
         Expanded(

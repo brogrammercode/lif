@@ -37,6 +37,7 @@ const pagination = query_schema.omit({ kind: true });
 const ledger_query = query_schema
   .extend({
     entry_kind: z.enum(WalletEntryKind).optional(),
+    timeline: z.literal('true').optional(),
     from: z.iso.date().optional(),
     to: z.iso.date().optional(),
     reference: user_id_schema.optional(),
@@ -422,18 +423,31 @@ export class WalletController {
     @Query() query: unknown,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const { kind, page, page_size, entry_kind, from, to, reference } =
+    const { kind, page, page_size, entry_kind, from, to, reference, timeline } =
       ledger_query.parse(query);
     const end = to ? new Date(`${to}T00:00:00+05:30`) : undefined;
     if (end) end.setTime(end.getTime() + 86_400_000);
     const user_id = user_id_schema.parse(id);
+    const start = from ? new Date(`${from}T00:00:00+05:30`) : undefined;
+    if (timeline) {
+      return send_success(
+        response,
+        await this.wallets.admin_activity(user_id, kind, page, page_size, {
+          entry_kind,
+          from: start,
+          end,
+          reference,
+        }),
+        'User wallet activity loaded',
+      );
+    }
     const [ledger, reviews] = await Promise.all([
       this.wallets.view(user_id, kind, page, page_size, {
         kind: entry_kind,
         created_at:
           from || end
             ? {
-                gte: from ? new Date(`${from}T00:00:00+05:30`) : undefined,
+                gte: start,
                 lt: end,
               }
             : undefined,

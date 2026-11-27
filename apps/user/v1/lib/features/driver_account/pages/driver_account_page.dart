@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/driver_account/controllers/driver_account_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -77,9 +78,7 @@ class _DriverAccountState extends State<DriverAccountPage>
       await action();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(e))));
+        showAppError(context, ApiResult.errorMessage(e));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -164,15 +163,7 @@ class _DriverAccountState extends State<DriverAccountPage>
           ],
         ),
         const SizedBox(height: 14),
-        if (_error != null && _data != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: DriverNotice(
-              icon: Icons.sync_problem_rounded,
-              message: '$_error. Pull to refresh or retry.',
-              error: true,
-            ),
-          ),
+        if (_error != null && _data != null) AppErrorNotice(message: _error),
         Expanded(
           child: _data == null
               ? (_loading

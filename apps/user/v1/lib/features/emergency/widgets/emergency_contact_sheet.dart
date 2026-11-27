@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/country_picker_widget.dart';
 import 'package:user/components/ui/solid_ui.dart';
@@ -177,16 +178,8 @@ class _EmergencyContactSheetState extends State<EmergencyContactSheet> {
                                     onChanged: (_) => setState(() {}),
                                     onFieldSubmitted: (_) => _submit(),
                                   ),
-                                  if (_error != null) ...[
-                                    const SizedBox(height: 10),
-                                    Text(
-                                      _error!,
-                                      style: const TextStyle(
-                                        color: Color(0xFFB3261E),
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
+                                  if (_error != null)
+                                    AppErrorNotice(message: _error),
                                 ],
                               ),
                             ),

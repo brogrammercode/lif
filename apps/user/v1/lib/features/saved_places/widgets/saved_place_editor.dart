@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/saved_places/controllers/saved_place_editor_controller.dart';
 import 'package:user/components/ui/glass_dropdown.dart';
 import 'package:user/components/ui/app_skeleton.dart';
@@ -143,9 +144,12 @@ class _PlaceEditorState extends State<SavedPlaceEditor> {
                 child: SkeletonBox(height: 10),
               ),
             if (_error != null)
-              TextButton(
-                onPressed: () => _search(_address.text.trim(), _generation),
-                child: Text('$_error · Retry'),
+              AppErrorNotice(
+                message: _error,
+                child: TextButton(
+                  onPressed: () => _search(_address.text.trim(), _generation),
+                  child: const Text('Retry search'),
+                ),
               ),
             if (_results.isNotEmpty &&
                 MediaQuery.viewInsetsOf(context).bottom == 0)

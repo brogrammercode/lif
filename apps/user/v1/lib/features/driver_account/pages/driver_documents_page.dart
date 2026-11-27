@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/driver_account/controllers/driver_documents_controller.dart';
 import 'package:user/components/ui/solid_file_upload.dart';
 import 'package:user/components/ui/liquid_glass.dart';
@@ -59,9 +60,7 @@ class _DocumentsState extends State<DriverDocumentsPage> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(e))));
+        showAppError(context, ApiResult.errorMessage(e));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -131,11 +130,7 @@ class _DocumentsState extends State<DriverDocumentsPage> {
                               );
                             } catch (e) {
                               if (c.mounted) {
-                                ScaffoldMessenger.of(c).showSnackBar(
-                                  SnackBar(
-                                    content: Text(ApiResult.errorMessage(e)),
-                                  ),
-                                );
+                                showAppError(c, ApiResult.errorMessage(e));
                               }
                             }
                           }
@@ -184,9 +179,7 @@ class _DocumentsState extends State<DriverDocumentsPage> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(e))));
+        showAppError(context, ApiResult.errorMessage(e));
       }
     } finally {
       if (mounted) {

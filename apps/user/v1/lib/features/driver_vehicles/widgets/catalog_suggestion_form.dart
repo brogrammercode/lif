@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/driver_vehicles/controllers/catalog_suggestion_controller.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -416,17 +417,7 @@ class _CatalogSuggestionFormState extends State<CatalogSuggestionForm> {
                     limitText:
                         'Supported files: JPEG, PNG, or WebP · Max file size: 3 MB',
                   ),
-                  if (_error != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Text(
-                        _error!,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFFB3261E),
-                        ),
-                      ),
-                    ),
+                  if (_error != null) AppErrorNotice(message: _error),
                 ],
               ),
             ),

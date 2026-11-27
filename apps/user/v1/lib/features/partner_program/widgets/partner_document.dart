@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_html_table/flutter_html_table.dart';
@@ -66,9 +67,7 @@ class PartnerDocument extends StatelessWidget {
             // Missing platform handlers are shown as a recoverable message.
           }
           if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('This link could not be opened.')),
-            );
+            showAppError(context, 'This link could not be opened.');
           }
         },
       ),

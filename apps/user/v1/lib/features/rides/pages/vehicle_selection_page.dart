@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/core/state/data_source_scope.dart';
 import 'package:user/features/rides/controllers/vehicle_selection_controller.dart';
 import 'package:user/components/ui/solid_ui.dart';
@@ -236,12 +237,9 @@ class _VehicleSelectionState extends State<VehicleSelectionPage>
                       ],
                       if (_controller.error != null ||
                           _controller.booking.error != null)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          child: Text(
-                            _controller.booking.error ?? _controller.error!,
-                            style: const TextStyle(color: Colors.red),
-                          ),
+                        AppErrorNotice(
+                          message:
+                              _controller.booking.error ?? _controller.error,
                         ),
                     ],
                   ],

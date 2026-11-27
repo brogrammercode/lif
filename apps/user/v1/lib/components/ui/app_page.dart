@@ -1,3 +1,4 @@
+import 'app_error_snackbar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:user/core/color.dart';
@@ -164,20 +165,15 @@ class AppLoadError extends StatelessWidget {
             color: glass ? GlassTokens.accent : AppColors.textTertiary,
           ),
           SizedBox(height: glass ? 12 : 12.h),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: glass ? 14 : 14.sp,
-              color: glass ? GlassTokens.muted : AppColors.textSecondary,
-              height: 1.4,
-            ),
-          ),
-          SizedBox(height: glass ? 12 : 12.h),
           TextButton(onPressed: onRetry, child: const Text('Try again')),
         ],
       ),
     );
-    return Center(child: glass ? LiquidGlassSurface(child: content) : content);
+    return AppErrorNotice(
+      message: message,
+      child: Center(
+        child: glass ? LiquidGlassSurface(child: content) : content,
+      ),
+    );
   }
 }

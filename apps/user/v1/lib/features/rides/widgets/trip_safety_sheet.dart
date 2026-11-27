@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/rides/controllers/trip_safety_controller.dart';
 import 'package:user/core/state/data_source_scope.dart';
 import 'package:user/components/ui/liquid_glass.dart';
@@ -169,9 +170,7 @@ class _TripSafetySheetState extends State<TripSafetySheet> {
                   }
                 } catch (_) {}
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(_controller.shareFailureMessage)),
-                  );
+                  showAppError(context, _controller.shareFailureMessage);
                 }
               },
             ),
@@ -291,8 +290,7 @@ class _TripSupportState extends State<TripSupportDialog> {
                 validator: (v) =>
                     v == null || v.trim().isEmpty ? 'Enter details' : null,
               ),
-              if (_error != null)
-                Text(_error!, style: const TextStyle(color: Colors.red)),
+              if (_error != null) AppErrorNotice(message: _error),
               if (_attempted && _error != null)
                 const Text(
                   'Retry sends the same request and preserves your message.',

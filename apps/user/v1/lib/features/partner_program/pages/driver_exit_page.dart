@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/rides/ride_display.dart' show rideMoney, rideTime;
 import 'package:user/features/partner_program/controllers/driver_exit_controller.dart';
 import 'package:user/components/ui/liquid_glass.dart';
@@ -159,15 +160,7 @@ class _DriverExitPageState extends State<DriverExitPage>
           const LiquidGlassFormSkeleton(),
         if (_controller.settlementError case final error?)
           AppLoadError(message: error, onRetry: _controller.loadSettlements),
-        if (_error case final error?)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: DriverNotice(
-              icon: Icons.error_outline,
-              message: error,
-              error: true,
-            ),
-          ),
+        if (_error case final error?) AppErrorNotice(message: error),
         if (!_controller.loadingSettlements &&
             _controller.settlements.isEmpty &&
             _controller.settlementError == null)
@@ -244,15 +237,7 @@ class _DriverExitPageState extends State<DriverExitPage>
                       'Review the complete status, dues and settlement document in one place.',
                 ),
                 const SizedBox(height: 16),
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    child: DriverNotice(
-                      icon: Icons.sync_problem_rounded,
-                      message: _error!,
-                      error: true,
-                    ),
-                  ),
+                if (_error != null) AppErrorNotice(message: _error),
                 AppCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/partner_program/controllers/partner_program_controller.dart';
 import 'package:user/components/ui/focus_field_hint.dart';
 import 'package:android_file_picker/android_file_picker.dart';
@@ -388,9 +389,6 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
             : '${ApiResult.errorMessage(error)}${reference == null ? '' : '\nRequest reference: $reference'}';
         _needsSignIn = authFailure;
         setState(() => _error = message);
-        ScaffoldMessenger.maybeOf(
-          context,
-        )?.showSnackBar(SnackBar(content: Text(message)));
       }
     } finally {
       if (mounted) {
@@ -398,7 +396,7 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
           _saving = false;
           _uploadProgress = null;
         });
-        if (_error != null) {
+        if (_needsSignIn) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted && _scroll.hasClients) {
               unawaited(
@@ -1867,16 +1865,6 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
         ),
       ),
       const SizedBox(height: 24),
-      if (_error != null) ...[
-        Semantics(
-          liveRegion: true,
-          child: Text(
-            _error!,
-            style: const TextStyle(fontSize: 13, color: AppColors.googleRed),
-          ),
-        ),
-        const SizedBox(height: 12),
-      ],
       if (_application != null) ...[
         SolidSurface(
           padding: const EdgeInsets.all(14),
@@ -2375,20 +2363,13 @@ class _PartnerProgramPageState extends State<PartnerProgramPage>
             padding: EdgeInsets.only(top: 12, bottom: pinActions ? 8 : 32),
             physics: const AlwaysScrollableScrollPhysics(),
             children: [
-              if (_error != null && !_editingApplication)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: Text(
-                    _error!,
-                    style: const TextStyle(color: AppColors.googleRed),
-                  ),
-                ),
               ..._contents(),
               if (actions != null && !pinActions) actions,
             ],
           );
           return Column(
             children: [
+              AppErrorNotice(message: _error),
               Expanded(child: content),
               if (pinActions)
                 Padding(

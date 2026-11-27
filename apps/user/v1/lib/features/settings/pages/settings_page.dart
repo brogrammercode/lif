@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/rides/ride_display.dart' show rideMoney;
 import 'package:user/features/settings/controllers/settings_controller.dart';
 import 'package:user/components/ui/solid_ui.dart';
@@ -9,7 +10,6 @@ import 'package:user/features/settings/widgets/profile_overview.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:user/features/settings/pages/wallet_page.dart';
-import 'package:user/features/settings/widgets/wallet_feedback.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:user/components/ui/app_page.dart';
@@ -69,7 +69,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   void _notice(String text) {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+      showAppError(context, text);
     }
   }
 
@@ -208,7 +208,13 @@ class _SettingsPageState extends State<SettingsPage> {
       await _repository.savePhoto(photo.path, photo.name);
       if (mounted) {
         await _load();
-        _notice('Your profile photo has been updated.');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Your profile photo has been updated.'),
+            ),
+          );
+        }
       }
     } catch (error) {
       _notice(ApiResult.errorMessage(error));
@@ -286,7 +292,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     if (column == 1) const SizedBox(width: 8),
                     Expanded(
                       child: [
-                        WalletErrorNotice(
+                        AppErrorNotice(
                           message: _controller.walletProfileError,
                           child: ProfileStat(
                             icon: driver

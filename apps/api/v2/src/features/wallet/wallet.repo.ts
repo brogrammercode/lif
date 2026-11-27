@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, type WalletKind } from '@prisma/client';
+import {
+  Prisma,
+  type WalletEntry,
+  type WalletEntryKind,
+  type WalletKind,
+} from '@prisma/client';
 import { AppError } from '../../core/error.js';
 import {
   require_active_account,
@@ -21,6 +26,32 @@ import {
   present_wallet_settings,
   read_wallet_controls,
 } from './wallet-controls.js';
+
+const topup_activity_select = {
+  id: true,
+  wallet_id: true,
+  status: true,
+  amount_paise: true,
+  failure_reason: true,
+  checkout_kind: true,
+  provider_mode: true,
+  provider_link_id: true,
+  provider_order_id: true,
+  provider_payment_id: true,
+  created_at: true,
+  updated_at: true,
+} satisfies Prisma.WalletTopUpSelect;
+type ActivityTopUp = Prisma.WalletTopUpGetPayload<{
+  select: typeof topup_activity_select;
+}>;
+
+function present_activity_topup({
+  wallet_id: _wallet_id,
+  amount_paise,
+  ...row
+}: ActivityTopUp) {
+  return { ...row, amount_paise: String(amount_paise) };
+}
 
 const unpaid_earnings = (cutoff: Date) => Prisma.sql`
   e.kind = 'RIDE_EARNING' AND e.available_delta_paise > 0
@@ -826,6 +857,143 @@ export class WalletRepository {
     });
   }
 
+  async admin_activity(
+    user_id: string,
+    kind: WalletKind,
+    page: number,
+    page_size: number,
+    filters: {
+      entry_kind?: WalletEntryKind;
+      from?: Date;
+      end?: Date;
+      reference?: string;
+    },
+  ) {
+    return this.database.client.$transaction(
+      async (tx) => {
+        const wallet = await tx.wallet.findUnique({
+          where: { user_id_kind: { user_id, kind } },
+          select: { id: true, available_paise: true, held_paise: true },
+        });
+        const balance = {
+          available_paise: String(wallet?.available_paise ?? 0n),
+          held_paise: String(wallet?.held_paise ?? 0n),
+        };
+        if (!wallet) return { ...balance, has_more: false, activity: [] };
+        const { entry_kind, from, end, reference } = filters;
+        const dates = Prisma.sql`
+        ${from ? Prisma.sql`AND record.created_at >= ${from}` : Prisma.empty}
+        ${end ? Prisma.sql`AND record.created_at < ${end}` : Prisma.empty}
+      `;
+        const includeAttempts =
+          kind === 'RIDER' && (!entry_kind || entry_kind === 'TOP_UP');
+        const results = await tx.$queryRaw<
+          { id: string; source: 'entry' | 'attempt' }[]
+        >`
+        SELECT id, source FROM (
+          SELECT record.id, record.created_at, 'entry' AS source
+          FROM wallet_entries record
+          LEFT JOIN wallet_topups topup ON topup.id = record.topup_id AND topup.wallet_id = record.wallet_id
+          WHERE record.wallet_id = ${wallet.id}
+            ${dates}
+            ${entry_kind ? Prisma.sql`AND record.kind = ${entry_kind}::"WalletEntryKind"` : Prisma.empty}
+            ${
+              reference
+                ? Prisma.sql`AND ${reference} IN (
+              record.id, record.ride_id, record.payment_id, record.topup_id,
+              record.payout_id, record.reverses_entry_id,
+              topup.provider_link_id, topup.provider_order_id, topup.provider_payment_id
+            )`
+                : Prisma.empty
+            }
+          ${
+            includeAttempts
+              ? Prisma.sql`
+            UNION ALL
+            SELECT record.id, record.created_at, 'attempt' AS source
+            FROM wallet_topups record
+            WHERE record.wallet_id = ${wallet.id}
+              ${dates}
+              ${
+                reference
+                  ? Prisma.sql`AND ${reference} IN (
+                record.id, record.provider_link_id, record.provider_order_id, record.provider_payment_id
+              )`
+                  : Prisma.empty
+              }
+              AND NOT EXISTS (
+                SELECT 1 FROM wallet_entries credit
+                WHERE credit.wallet_id = record.wallet_id AND credit.topup_id = record.id AND credit.kind = 'TOP_UP'
+              )
+          `
+              : Prisma.empty
+          }
+        ) activity
+        ORDER BY created_at DESC, id DESC, source DESC
+        LIMIT ${page_size + 1} OFFSET ${(page - 1) * page_size}
+      `;
+        const visible = results.slice(0, page_size);
+        const entries = visible
+          .filter(({ source }) => source === 'entry')
+          .map(({ id }) => id);
+        const attempts = visible
+          .filter(({ source }) => source === 'attempt')
+          .map(({ id }) => id);
+        const [ledger_rows, topups] = await Promise.all([
+          entries.length
+            ? tx.walletEntry.findMany({
+                where: { id: { in: entries }, wallet_id: wallet.id },
+                include: {
+                  topup: { select: topup_activity_select },
+                  reversals: {
+                    where: { kind: 'REFUND' },
+                    select: { id: true },
+                    take: 1,
+                  },
+                },
+              })
+            : [],
+          attempts.length
+            ? tx.walletTopUp.findMany({
+                where: { id: { in: attempts }, wallet_id: wallet.id },
+                select: topup_activity_select,
+              })
+            : [],
+        ]);
+        const by_entry = new Map(ledger_rows.map((row) => [row.id, row]));
+        const by_topup = new Map(topups.map((row) => [row.id, row]));
+        return {
+          ...balance,
+          has_more: results.length > page_size,
+          activity: visible.map(({ id, source }) => {
+            if (source === 'attempt') {
+              const topup = by_topup.get(id)!;
+              return {
+                source,
+                id,
+                created_at: topup.created_at,
+                topup: present_activity_topup(topup),
+              };
+            }
+            const entry = by_entry.get(id)!;
+            const topup =
+              entry.topup?.wallet_id === wallet.id ? entry.topup : null;
+            return {
+              source,
+              id,
+              created_at: entry.created_at,
+              entry: present_wallet_entry(entry),
+              ...(entry.kind === 'TOP_UP' && topup
+                ? { topup: present_activity_topup(topup) }
+                : {}),
+            };
+          }),
+        };
+      },
+      { isolationLevel: 'RepeatableRead' },
+    );
+  }
+
   async view(
     user_id: string,
     kind: WalletKind,
@@ -885,31 +1053,35 @@ export class WalletRepository {
             : {}),
           page,
           has_more: rows.length > page_size,
-          rows: rows.slice(0, page_size).map((entry) => ({
-            id: entry.id,
-            kind: entry.kind,
-            available_delta_paise: String(entry.available_delta_paise),
-            held_delta_paise: String(entry.held_delta_paise),
-            available_after_paise: String(entry.available_after_paise),
-            held_after_paise: String(entry.held_after_paise),
-            ...(entry.ride_id ? { ride_id: entry.ride_id } : {}),
-            ...(entry.payment_id ? { payment_id: entry.payment_id } : {}),
-            ...(entry.topup_id ? { topup_id: entry.topup_id } : {}),
-            ...(entry.payout_id ? { payout_id: entry.payout_id } : {}),
-            ...(entry.reverses_entry_id
-              ? { reverses_entry_id: entry.reverses_entry_id }
-              : {}),
-            reversed: entry.reversals.length > 0,
-            ...(entry.commission_paise != null
-              ? commission_breakdown(entry)
-              : {}),
-            created_at: entry.created_at,
-          })),
+          rows: rows.slice(0, page_size).map(present_wallet_entry),
         };
       },
       { isolationLevel: 'RepeatableRead' },
     );
   }
+}
+
+function present_wallet_entry(
+  entry: WalletEntry & { reversals: { id: string }[] },
+) {
+  return {
+    id: entry.id,
+    kind: entry.kind,
+    available_delta_paise: String(entry.available_delta_paise),
+    held_delta_paise: String(entry.held_delta_paise),
+    available_after_paise: String(entry.available_after_paise),
+    held_after_paise: String(entry.held_after_paise),
+    ...(entry.ride_id ? { ride_id: entry.ride_id } : {}),
+    ...(entry.payment_id ? { payment_id: entry.payment_id } : {}),
+    ...(entry.topup_id ? { topup_id: entry.topup_id } : {}),
+    ...(entry.payout_id ? { payout_id: entry.payout_id } : {}),
+    ...(entry.reverses_entry_id
+      ? { reverses_entry_id: entry.reverses_entry_id }
+      : {}),
+    reversed: entry.reversals.length > 0,
+    ...(entry.commission_paise != null ? commission_breakdown(entry) : {}),
+    created_at: entry.created_at,
+  };
 }
 
 function snapshot_commission(snapshot: Prisma.JsonValue | undefined) {

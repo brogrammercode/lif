@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/saved_places/controllers/place_review_controller.dart';
 import 'package:user/features/saved_places/controllers/place_detail_controller.dart';
 import 'dart:async';
@@ -74,9 +75,7 @@ class _PlaceDetailState extends State<PlaceDetailPage> {
       if (mounted) await _load(replace: true);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+        showAppError(context, ApiResult.errorMessage(error));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -147,8 +146,7 @@ class _PlaceDetailState extends State<PlaceDetailPage> {
                   const Text(
                     'This photo will be visible to all signed-in members.',
                   ),
-                  if (error != null)
-                    Text(error!, style: const TextStyle(color: Colors.red)),
+                  if (error != null) AppErrorNotice(message: error),
                 ],
               ),
               actions: [
@@ -194,9 +192,7 @@ class _PlaceDetailState extends State<PlaceDetailPage> {
       if (saved == true && mounted) await _load(replace: true);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+        showAppError(context, ApiResult.errorMessage(error));
       }
     }
   }
@@ -214,7 +210,7 @@ class _PlaceDetailState extends State<PlaceDetailPage> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(_error!, textAlign: TextAlign.center),
+                          AppErrorNotice(message: _error),
                           const SizedBox(height: 12),
                           SolidButton(text: 'Retry', onPressed: _load),
                         ],
@@ -433,27 +429,11 @@ class _PlaceDetailState extends State<PlaceDetailPage> {
             ],
           ),
           if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: SolidSurface(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Showing saved details. $_error',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: RideTokens.muted,
-                        ),
-                      ),
-                    ),
-                    TextButton(onPressed: _load, child: const Text('Retry')),
-                  ],
-                ),
+            AppErrorNotice(
+              message: 'Showing saved details. $_error',
+              child: TextButton(
+                onPressed: _load,
+                child: const Text('Retry details'),
               ),
             ),
           Padding(
@@ -488,21 +468,11 @@ class _PlaceDetailState extends State<PlaceDetailPage> {
               ),
             ),
           if (_reviewError != null)
-            SolidSurface(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _reviewError!,
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: _loadReviews,
-                    child: const Text('Retry'),
-                  ),
-                ],
+            AppErrorNotice(
+              message: _reviewError,
+              child: TextButton(
+                onPressed: _loadReviews,
+                child: const Text('Retry reviews'),
               ),
             ),
           if (_reviews != null && rideMaps(_reviews!['rows']).isEmpty)
@@ -615,7 +585,10 @@ class _ReviewEditorState extends State<PlaceReviewEditor> {
   }
 
   @override
-  Widget build(BuildContext context) => PopScope(
+  Widget build(BuildContext context) =>
+      AppErrorNotice(message: _error, child: _buildSheet(context));
+
+  Widget _buildSheet(BuildContext context) => PopScope(
     canPop: !_busy,
     child: SolidSheet(
       child: SafeArea(
@@ -686,13 +659,6 @@ class _ReviewEditorState extends State<PlaceReviewEditor> {
                           ? 'Write a short review'
                           : null,
                     ),
-                    if (_error != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        _error!,
-                        style: const TextStyle(color: Color(0xFFB3261E)),
-                      ),
-                    ],
                     const SizedBox(height: 16),
                     SolidButton(
                       text: 'Save review',

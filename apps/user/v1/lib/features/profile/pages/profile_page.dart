@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/country_picker_widget.dart';
@@ -141,9 +142,7 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  void _notice(String message) => ScaffoldMessenger.of(
-    context,
-  ).showSnackBar(SnackBar(content: Text(message)));
+  void _notice(String message) => showAppError(context, message);
 
   @override
   Widget build(BuildContext context) => SolidPage(

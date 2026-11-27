@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/rides/ride_display.dart' show rideMoney;
 import 'package:user/features/driver_operations/controllers/trip_actions_controller.dart';
 import 'package:user/features/rides/widgets/rider_flow_components.dart';
@@ -110,9 +111,7 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
       await widget.onChanged();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(e))));
+        showAppError(context, ApiResult.errorMessage(e));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -245,7 +244,10 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
     if (data == null) {
       return AppCard(
         child: _error != null
-            ? TextButton(onPressed: _load, child: Text('$_error · Retry'))
+            ? AppErrorNotice(
+                message: _error,
+                child: TextButton(onPressed: _load, child: const Text('Retry')),
+              )
             : const DriverListSkeleton(rows: 2),
       );
     }
@@ -304,14 +306,7 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
               ],
             ],
           ),
-          if (_error != null)
-            SizedBox(
-              width: 94,
-              child: Text(
-                _error!,
-                style: const TextStyle(fontSize: 10, color: Colors.red),
-              ),
-            ),
+          if (_error != null) AppErrorNotice(message: _error),
         ],
       );
     }
@@ -356,7 +351,10 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (_error != null)
-            TextButton(onPressed: _load, child: Text('$_error · Retry')),
+            AppErrorNotice(
+              message: _error,
+              child: TextButton(onPressed: _load, child: const Text('Retry')),
+            ),
           if (!collectionLocked && allowed.isNotEmpty) ...[
             Text(
               selected == 'UPI' ? 'Collect via direct UPI' : 'Collect cash',
@@ -386,7 +384,10 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (_error != null)
-            TextButton(onPressed: _load, child: Text('$_error · Retry')),
+            AppErrorNotice(
+              message: _error,
+              child: TextButton(onPressed: _load, child: const Text('Retry')),
+            ),
           if (status == 'SEARCHING')
             Text(
               'Searching for drivers${data['search_radius_km'] == null ? '' : ' within ${data['search_radius_km']} km'}. The search expands while no driver accepts.',

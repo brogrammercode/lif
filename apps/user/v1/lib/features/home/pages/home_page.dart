@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/core/state/data_source_scope.dart';
 import 'package:user/features/demos/widgets/demo_launcher.dart';
 import 'package:user/features/home/controllers/home_controller.dart';
@@ -913,9 +914,7 @@ class HomePageState extends State<HomePage>
       );
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+        showAppError(context, ApiResult.errorMessage(error));
       }
     } finally {
       if (mounted) setState(() => _isRequestingQuote = false);
@@ -1711,9 +1710,12 @@ class HomePageState extends State<HomePage>
                       ),
                     ],
                     if (_routeError != null)
-                      TextButton(
-                        onPressed: _isFetchingRoute ? null : _fetchRoute,
-                        child: Text(_routeError!),
+                      AppErrorNotice(
+                        message: _routeError,
+                        child: TextButton(
+                          onPressed: _isFetchingRoute ? null : _fetchRoute,
+                          child: const Text('Retry route'),
+                        ),
                       ),
                     if (_isFetchingRoute)
                       const Text(
@@ -1803,11 +1805,7 @@ class HomePageState extends State<HomePage>
       orElse: () => null,
     );
     if (home == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Save a Home place to use this shortcut.'),
-        ),
-      );
+      showAppError(context, 'Save a Home place to use this shortcut.');
       return;
     }
     _onSuggestionSelected({

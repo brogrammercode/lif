@@ -290,6 +290,42 @@ it('accepts both wallet ID formats and rejects malformed references', async () =
   ]);
 });
 
+it('scopes the admin wallet timeline and keeps payment attempts behind admin access', async () => {
+  const timeline = mock.method(
+    app.get(WalletRepository),
+    'admin_activity',
+    async () => ({
+      available_paise: '100',
+      held_paise: '0',
+      has_more: true,
+      activity: [],
+    }),
+  );
+  const path =
+    '/api/v2/admin/users/rider/wallet-ledger?kind=RIDER&timeline=true&page=2&entry_kind=TOP_UP&from=2026-11-27&reference=order_fixture';
+  const forbidden = await request(path, {
+    headers: { Authorization: `Bearer ${token()}` },
+  });
+  assert.equal(forbidden.response.status, 403);
+  assert.equal(timeline.mock.callCount(), 0);
+  const result = await request(path, {
+    headers: { Authorization: `Bearer ${token('admin', 'ADMIN')}` },
+  });
+  assert.equal(result.response.status, 200);
+  assert.deepEqual(timeline.mock.calls[0]?.arguments, [
+    'rider',
+    'RIDER',
+    2,
+    20,
+    {
+      entry_kind: 'TOP_UP',
+      from: new Date('2026-11-26T18:30:00Z'),
+      end: undefined,
+      reference: 'order_fixture',
+    },
+  ]);
+});
+
 it('keeps the route manifest aligned with compiled Nest routes and security metadata', () => {
   type Route = {
     feature: string;

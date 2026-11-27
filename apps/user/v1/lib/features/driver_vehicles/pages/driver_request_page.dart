@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -166,10 +167,7 @@ class _DriverRequestState extends State<DriverRequestPage> {
               if ('${trip['rider_note'] ?? ''}'.isNotEmpty)
                 Text('${trip['rider_note']}'),
               if (_controller.error != null)
-                Text(
-                  _controller.error!,
-                  style: const TextStyle(color: Colors.red),
-                ),
+                AppErrorNotice(message: _controller.error),
               const SizedBox(height: 16),
               Row(
                 children: [

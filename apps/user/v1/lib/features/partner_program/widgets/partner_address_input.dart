@@ -1,7 +1,7 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/partner_program/controllers/partner_address_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/solid_ui.dart';
-import 'package:user/core/color.dart';
 
 /// Canonical postal selections; the combined requirement remains one answer.
 class PartnerAddressInput extends StatefulWidget {
@@ -195,7 +195,7 @@ class _PartnerAddressInputState extends State<PartnerAddressInput> {
             _write();
           }),
         if (_error != null) ...[
-          Text(_error!, style: const TextStyle(color: AppColors.googleRed)),
+          AppErrorNotice(message: _error),
           TextButton(
             onPressed: _loading
                 ? null

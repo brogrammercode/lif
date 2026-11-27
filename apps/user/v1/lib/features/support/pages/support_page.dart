@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/support/controllers/support_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
@@ -49,9 +50,7 @@ class _SupportPageState extends State<SupportPage> {
     final notice = _controller.notice;
     _controller.notice = null;
     if (mounted && notice != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(notice)));
+      showAppError(context, notice);
     }
   }
 
@@ -67,12 +66,9 @@ class _SupportPageState extends State<SupportPage> {
     if (!mounted) return;
     final ticketId = '${ticket['id'] ?? ''}';
     if (ticketId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'The request was created but could not be opened. Find it in Help Me.',
-          ),
-        ),
+      showAppError(
+        context,
+        'The request was created but could not be opened. Find it in Help Me.',
       );
       return;
     }

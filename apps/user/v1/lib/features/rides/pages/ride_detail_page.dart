@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/rides/widgets/ride_history_layout.dart';
 import 'package:user/features/rides/controllers/ride_feedback_controller.dart';
 import 'package:user/core/state/data_source_scope.dart';
@@ -172,9 +173,7 @@ class _RiderTripState extends State<RideDetailPage>
       await action();
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+        showAppError(context, ApiResult.errorMessage(error));
       }
     }
   }
@@ -233,14 +232,11 @@ class _RiderTripState extends State<RideDetailPage>
     }
     if (!mounted) return;
     if (start['code'] == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            start['locked'] == true
-                ? 'The trip code is temporarily locked. Try again after it expires.'
-                : 'A trip QR code is not available yet. Refresh the trip and try again.',
-          ),
-        ),
+      showAppError(
+        context,
+        start['locked'] == true
+            ? 'The trip code is temporarily locked. Try again after it expires.'
+            : 'A trip QR code is not available yet. Refresh the trip and try again.',
       );
       return;
     }
@@ -365,9 +361,7 @@ class _RiderTripState extends State<RideDetailPage>
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+        showAppError(context, ApiResult.errorMessage(error));
       }
     } finally {
       if (mounted) setState(() => _receiptOpen = false);
@@ -1039,10 +1033,7 @@ class _RiderTripState extends State<RideDetailPage>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Connection update failed: ${_controller.error}',
-                  style: const TextStyle(color: Colors.red),
-                ),
+                AppErrorNotice(message: _controller.error),
                 Text(
                   'Showing the last confirmed update from ${rideTime(_controller.checked?.toIso8601String())}. The current ride status could not be verified.',
                 ),
@@ -1112,7 +1103,10 @@ class _RiderTripState extends State<RideDetailPage>
                     onPressed: _controller.routing
                         ? null
                         : () => _refreshRoute(force: true),
-                    child: Text('${_controller.routeError} · Retry route'),
+                    child: AppErrorNotice(
+                      message: _controller.routeError,
+                      child: const Text('Retry route'),
+                    ),
                   ),
                 if (driverPoint != null)
                   Text(

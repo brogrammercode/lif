@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/components/ui/glass_dropdown.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -280,14 +281,7 @@ class _BookingReviewState extends State<BookingReviewSheet> {
                     const Text(
                       'Retries keep the same booking request. If the connection drops, we check this ride before creating another booking.',
                     ),
-                  if (_error != null)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Text(
-                        _error!,
-                        style: const TextStyle(color: Colors.red),
-                      ),
-                    ),
+                  if (_error != null) AppErrorNotice(message: _error),
                   LiquidGlassButton(
                     onPressed:
                         _busy || methods.isEmpty || (_expired && !_attempted)

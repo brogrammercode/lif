@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -219,11 +220,12 @@ class _DriverGoOnlineStageState extends State<DriverGoOnlineStage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    widget.error ?? 'No registered vehicles are available.',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: RideTokens.muted),
-                  ),
+                  if (widget.error == null)
+                    const Text(
+                      'No registered vehicles are available.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: RideTokens.muted),
+                    ),
                   if (widget.error != null && widget.onRetry != null)
                     TextButton(
                       onPressed: widget.onRetry,
@@ -251,13 +253,7 @@ class _DriverGoOnlineStageState extends State<DriverGoOnlineStage> {
                   _vehicleTile(widget.vehicles[index], index),
             ),
           ),
-        if (widget.error != null && widget.vehicles.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Text(
-            widget.error!,
-            style: const TextStyle(fontSize: 12, color: Colors.red),
-          ),
-        ],
+        AppErrorNotice(message: widget.error),
         if (!widget.canGoOnline && !widget.loading && !widget.isOnline) ...[
           const SizedBox(height: 8),
           const Text(

@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'dart:math' as math;
 
 import 'package:user/components/ui/solid_ui.dart';
@@ -66,10 +67,7 @@ class RiderLivePanel extends StatelessWidget {
         : contactActions;
     final children = <Widget>[
       if (error != null && !searching) ...[
-        Text(
-          'Connection update failed: $error',
-          style: const TextStyle(color: Colors.red),
-        ),
+        AppErrorNotice(message: 'Connection update failed: $error'),
         TextButton(onPressed: onRefresh, child: const Text('Retry update')),
       ],
       if (searching) ...[

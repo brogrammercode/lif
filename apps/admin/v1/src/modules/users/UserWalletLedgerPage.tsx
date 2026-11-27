@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { LoadingState, StateCard } from "../../components/feedback/StateCard";
+import { StateCard } from "../../components/feedback/StateCard";
 import { PageHeading } from "../../components/layout/PageHeading";
 import { Button } from "../../components/ui/Button";
 import { CatalogPanel } from "../../components/ui/CatalogPanel";
 import { Field } from "../../components/ui/Field";
 import { Dialog } from "../../components/ui/Dialog";
+import { Badge } from "../../components/ui/Badge";
+import { Icon, type IconName } from "../../components/ui/Icon";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { apiRequest } from "../../lib/api-client";
 import { useAdminResource, useAdminSave } from "../../lib/useAdminResource";
 
@@ -13,29 +16,56 @@ type Ledger = {
   available_paise: string;
   held_paise: string;
   has_more: boolean;
-  reviews: {
-    id: string;
-    amount_paise: string;
-    provider_payment_id: string | null;
-  }[];
-  rows: {
-    id: string;
-    kind: string;
-    created_at: string;
-    available_delta_paise: string;
-    held_delta_paise: string;
-    available_after_paise: string;
-    held_after_paise: string;
-    ride_id?: string;
-    payment_id?: string;
-    topup_id?: string;
-    payout_id?: string;
-    reverses_entry_id?: string;
-    reversed?: boolean;
-    gross_paise?: string | null;
-    commission_paise?: string | null;
-    commission_percent?: string | null;
-  }[];
+  activity: WalletActivity[];
+};
+type LedgerEntry = {
+  id: string;
+  kind: string;
+  created_at: string;
+  available_delta_paise: string;
+  held_delta_paise: string;
+  available_after_paise: string;
+  held_after_paise: string;
+  ride_id?: string;
+  payment_id?: string;
+  topup_id?: string;
+  payout_id?: string;
+  reverses_entry_id?: string;
+  reversed?: boolean;
+  gross_paise?: string | null;
+  commission_paise?: string | null;
+  commission_percent?: string | null;
+};
+type TopUp = {
+  id: string;
+  status: string;
+  amount_paise: string;
+  failure_reason?: string | null;
+  checkout_kind: string;
+  provider_mode?: string | null;
+  provider_link_id?: string | null;
+  provider_order_id?: string | null;
+  provider_payment_id?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+type WalletActivity = {
+  id: string;
+  created_at: string;
+} & (
+  | { source: "entry"; entry: LedgerEntry; topup?: TopUp }
+  | { source: "attempt"; entry?: undefined; topup: TopUp }
+);
+
+const entryLabels: Record<string, string> = {
+  TOP_UP: "Money added",
+  RIDE_DEBIT: "Ride payment",
+  RIDE_EARNING: "Ride earnings",
+  REFUND: "Refund",
+  ADJUSTMENT: "Adjustment",
+  PAYOUT_HOLD: "Reserved for payout",
+  PAYOUT_SETTLED: "Payout paid",
+  PAYOUT_RELEASE: "Payout funds released",
 };
 
 function money(value: string) {
@@ -82,12 +112,17 @@ function UserWalletLedger({
     id: string;
     kind: "refund" | "review";
   } | null>(null);
+  const [selected, setSelected] = useState<WalletActivity | null>(null);
   const base = `/admin/users/${encodeURIComponent(userId)}/wallet-ledger`;
-  const path = `${base}?kind=${kind}&page=${page}${filters ? `&${filters}` : ""}`;
+  const walletPrefix = `${base}?kind=${kind}&`;
+  const path = `${walletPrefix}timeline=true&page=${page}${filters ? `&${filters}` : ""}`;
   const wallet = useAdminResource<Ledger>(path);
   const data = wallet.dataPath === path ? wallet.data : null;
   const error = wallet.errorPath === path ? wallet.error : null;
   const loading = !data && !error;
+  const balance = wallet.dataPath?.startsWith(walletPrefix)
+    ? wallet.data
+    : null;
 
   return (
     <div className="catalog-page">
@@ -96,50 +131,48 @@ function UserWalletLedger({
         eyebrow="Users / Wallet Ledger"
         description="Review the rider and driver wallet activity for this account."
       />
-      {!!data?.reviews?.length && (
-        <CatalogPanel
-          title="Top-ups under review"
-          description="Refunds or disputes that need reconciliation."
-        >
-          <div className="table-scroll">
-            <table className="catalog-table">
-              <thead>
-                <tr>
-                  <th>Top-up</th>
-                  <th>Amount</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.reviews.map((review) => (
-                  <tr key={review.id}>
-                    <td>{review.provider_payment_id ?? review.id}</td>
-                    <td>{money(review.amount_paise)}</td>
-                    <td>
-                      <Button
-                        variant="secondary"
-                        disabled={!review.provider_payment_id}
-                        onClick={() =>
-                          setAction({ id: review.id, kind: "review" })
-                        }
-                      >
-                        Reconcile
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CatalogPanel>
-      )}
+      <CatalogPanel
+        title="Wallet balance"
+        description={kind === "DRIVER" ? "Driver wallet" : "Rider wallet"}
+        busy={!balance && loading}
+      >
+        <dl className="grid gap-3 px-4 pb-4 sm:grid-cols-2 sm:px-5">
+          {(
+            [
+              ["Available balance", balance?.available_paise],
+              ["Held balance", balance?.held_paise],
+            ] as const
+          ).map(([label, value]) => (
+            <div
+              key={label}
+              className="rounded-xl border border-line bg-canvas p-4"
+            >
+              <dt className="text-xs text-muted">{label}</dt>
+              <dd className="mt-1 text-xl font-semibold text-ink tabular-nums">
+                {value !== undefined ? (
+                  money(value)
+                ) : loading ? (
+                  <Skeleton className="h-6 w-24" />
+                ) : (
+                  "Unavailable"
+                )}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </CatalogPanel>
       <CatalogPanel
         title="Wallet activity"
         busy={loading || wallet.loading}
-        description={
-          data
-            ? `${money(data.available_paise)} available · ${money(data.held_paise)} held`
-            : "Balance and transaction history for this account."
+        description="Top-up attempts and wallet balance movements for this account."
+        actions={
+          <Button
+            variant="secondary"
+            disabled={wallet.loading}
+            onClick={wallet.refresh}
+          >
+            Refresh
+          </Button>
         }
         toolbar={
           <form
@@ -241,102 +274,63 @@ function UserWalletLedger({
         }
       >
         {loading ? (
-          <LoadingState variant="table" label="Loading wallet ledger" />
-        ) : error ? (
-          <StateCard error title="Could not load wallet ledger" message={error}>
+          <div
+            className="grid gap-2 px-4 pb-4 sm:px-5"
+            role="status"
+            aria-label="Loading wallet activity"
+          >
+            {Array.from({ length: 3 }, (_, index) => (
+              <Skeleton key={index} className="h-16 w-full rounded-xl" />
+            ))}
+          </div>
+        ) : error && !data ? (
+          <StateCard
+            error
+            title="Could not load wallet activity"
+            message={error}
+          >
             <Button onClick={wallet.refresh}>Retry</Button>
           </StateCard>
-        ) : data?.rows.length ? (
-          <div className="table-scroll">
-            <table className="catalog-table">
-              <thead>
-                <tr>
-                  <th>Entry</th>
-                  <th>Available change</th>
-                  <th>Held change</th>
-                  <th>Balance after</th>
-                  <th>References</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.rows.map((entry) => (
-                  <tr key={entry.id}>
-                    <td>
-                      {entry.kind.toLowerCase().replaceAll("_", " ")}
-                      <span className="table-subtitle">
-                        {new Date(entry.created_at).toLocaleString("en-IN", {
-                          timeZone: "Asia/Kolkata",
-                        })}{" "}
-                        IST
-                      </span>
-                    </td>
-                    <td>
-                      {money(entry.available_delta_paise)}
-                      {entry.gross_paise != null &&
-                        entry.commission_paise != null && (
-                          <>
-                            <span className="table-subtitle">
-                              Gross {money(entry.gross_paise)}
-                            </span>
-                            <span className="table-subtitle">
-                              Commission ({entry.commission_percent}%) −
-                              {money(entry.commission_paise)}
-                            </span>
-                          </>
-                        )}
-                    </td>
-                    <td>{money(entry.held_delta_paise)}</td>
-                    <td>
-                      {money(entry.available_after_paise)} available
-                      <span className="table-subtitle">
-                        {money(entry.held_after_paise)} held
-                      </span>
-                    </td>
-                    <td>
-                      {(
-                        [
-                          ["Ride", entry.ride_id],
-                          ["Payment", entry.payment_id],
-                          ["Top-up", entry.topup_id],
-                          ["Payout", entry.payout_id],
-                          ["Reversal of", entry.reverses_entry_id],
-                          ["Entry", entry.id],
-                        ] as const
-                      )
-                        .filter(([, id]) => id)
-                        .map(([label, id]) => (
-                          <span className="table-subtitle" key={label}>
-                            {label} {id}
-                          </span>
-                        ))}
-                      {entry.kind === "RIDE_DEBIT" && entry.reversed && (
-                        <span className="table-subtitle">Refunded</span>
-                      )}
-                      {entry.kind === "RIDE_DEBIT" &&
-                        entry.ride_id &&
-                        !entry.reversed && (
-                          <Button
-                            variant="secondary"
-                            onClick={() =>
-                              setAction({ id: entry.ride_id!, kind: "refund" })
-                            }
-                          >
-                            Refund ride
-                          </Button>
-                        )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         ) : (
-          <StateCard
-            title="No wallet transactions"
-            message="Posted wallet entries will appear here."
-          />
+          <>
+            {error && (
+              <p
+                role="alert"
+                className="px-4 pb-3 text-sm text-red-700 sm:px-5"
+              >
+                {error}
+              </p>
+            )}
+            {data?.activity.length ? (
+              <ul className="grid gap-2 px-4 pb-4 sm:px-5">
+                {data.activity.map((item) => (
+                  <li key={`${item.source}:${item.id}`}>
+                    <WalletActivityCard
+                      item={item}
+                      open={() => setSelected(item)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <StateCard
+                title="No wallet transactions"
+                message="Top-up attempts and posted wallet entries will appear here."
+              />
+            )}
+          </>
         )}
       </CatalogPanel>
+      {selected && (
+        <WalletActivityDetails
+          item={selected}
+          close={() => setSelected(null)}
+          onAction={(next) => {
+            setSelected(null);
+            setAction(next);
+          }}
+        />
+      )}
       {action && (
         <WalletLedgerAction
           kind={action.kind}
@@ -349,6 +343,246 @@ function UserWalletLedger({
         />
       )}
     </div>
+  );
+}
+
+function activityTitle(item: WalletActivity) {
+  return item.entry
+    ? (entryLabels[item.entry.kind] ?? "Wallet activity")
+    : "Wallet top-up";
+}
+
+function activityStatus(item: WalletActivity) {
+  const status =
+    item.topup?.status ?? (item.entry?.reversed ? "REFUNDED" : "CAPTURED");
+  const labels: Record<
+    string,
+    {
+      label: string;
+      tone: "active" | "inactive" | "warning" | "danger";
+      icon: IconName;
+    }
+  > = {
+    CAPTURED: { label: "Successful", tone: "active", icon: "success" },
+    CREATING: { label: "Preparing", tone: "warning", icon: "clock" },
+    PENDING: { label: "Pending", tone: "warning", icon: "clock" },
+    FAILED: { label: "Failed", tone: "danger", icon: "error" },
+    CANCELLED: { label: "Cancelled", tone: "inactive", icon: "close" },
+    REFUNDED: { label: "Refunded", tone: "inactive", icon: "child" },
+    REVIEW_REQUIRED: { label: "Under review", tone: "warning", icon: "error" },
+  };
+  return (
+    labels[status] ?? {
+      label: status,
+      tone: "inactive" as const,
+      icon: "layers" as const,
+    }
+  );
+}
+
+function activityAmount(item: WalletActivity) {
+  if (!item.entry) return money(item.topup.amount_paise);
+  const available = item.entry.available_delta_paise;
+  const amount = available === "0" ? item.entry.held_delta_paise : available;
+  return `${BigInt(amount) > 0n ? "+" : ""}${money(amount)}`;
+}
+
+function istDate(value: string) {
+  return `${new Date(value).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" })} IST`;
+}
+
+function WalletActivityCard({
+  item,
+  open,
+}: {
+  item: WalletActivity;
+  open: () => void;
+}) {
+  const status = activityStatus(item);
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center gap-3 rounded-xl border border-line bg-white p-3 text-left hover:bg-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand sm:px-4"
+      onClick={open}
+    >
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-soft text-brand">
+        <Icon name={status.icon} size={18} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold text-ink">
+          {activityTitle(item)}
+        </span>
+        <span className="block text-xs text-muted">
+          {istDate(item.created_at)}
+        </span>
+        {item.topup?.failure_reason && (
+          <span className="block break-words text-xs text-red-700">
+            {item.topup.failure_reason}
+          </span>
+        )}
+      </span>
+      <span className="flex shrink-0 flex-col items-end gap-1">
+        <span className="text-sm font-semibold tabular-nums text-ink">
+          {activityAmount(item)}
+        </span>
+        <Badge tone={status.tone}>{status.label}</Badge>
+      </span>
+      <Icon
+        name="chevronRight"
+        size={16}
+        className="hidden text-muted sm:block"
+      />
+    </button>
+  );
+}
+
+function WalletActivityDetails({
+  item,
+  close,
+  onAction,
+}: {
+  item: WalletActivity;
+  close: () => void;
+  onAction: (action: { id: string; kind: "refund" | "review" }) => void;
+}) {
+  const { entry, topup } = item;
+  const status = activityStatus(item);
+  const fields: [string, string | null | undefined][] = [
+    ["Recorded at", istDate(item.created_at)],
+    ["Checkout initiated", topup && entry ? istDate(topup.created_at) : null],
+    ["Last updated", topup ? istDate(topup.updated_at) : null],
+    [
+      "Available balance after",
+      entry ? money(entry.available_after_paise) : null,
+    ],
+    ["Held balance after", entry ? money(entry.held_after_paise) : null],
+    ["Available change", entry ? money(entry.available_delta_paise) : null],
+    ["Held change", entry ? money(entry.held_delta_paise) : null],
+    [
+      "Gross fare",
+      entry?.gross_paise != null ? money(entry.gross_paise) : null,
+    ],
+    [
+      entry?.commission_percent == null
+        ? "Commission"
+        : `Commission (${entry.commission_percent}%)`,
+      entry?.commission_paise != null ? money(entry.commission_paise) : null,
+    ],
+    ["Top-up reference", topup?.id ?? entry?.topup_id],
+    ["Ledger entry", entry?.id],
+    ["Ride", entry?.ride_id],
+    ["Ride payment", entry?.payment_id],
+    ["Payout", entry?.payout_id],
+    ["Reversal of", entry?.reverses_entry_id],
+    ["Razorpay order", topup?.provider_order_id],
+    ["Razorpay payment", topup?.provider_payment_id],
+    ["Razorpay payment link", topup?.provider_link_id],
+    [
+      "Checkout",
+      topup
+        ? topup.checkout_kind === "SDK"
+          ? "In-app checkout"
+          : "Payment link"
+        : null,
+    ],
+    ["Provider mode", topup?.provider_mode],
+  ];
+  const refundableRide =
+    entry?.kind === "RIDE_DEBIT" && !entry.reversed ? entry.ride_id : null;
+  const review =
+    topup?.status === "REVIEW_REQUIRED" && topup.provider_payment_id
+      ? topup.id
+      : null;
+  return (
+    <Dialog title="Transaction details" onClose={close} compact>
+      <div className="dialog-body space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-canvas p-4">
+          <div>
+            <p className="text-sm font-semibold text-ink">
+              {activityTitle(item)}
+            </p>
+            <p className="mt-1 text-xl font-semibold tabular-nums text-ink">
+              {activityAmount(item)}
+            </p>
+          </div>
+          <Badge tone={status.tone}>{status.label}</Badge>
+        </div>
+        {topup?.failure_reason && (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            <p className="font-semibold">Razorpay failure reason</p>
+            <p>{topup.failure_reason}</p>
+          </div>
+        )}
+        {topup &&
+          (topup.status === "PENDING" || topup.status === "CREATING") && (
+            <section className="rounded-xl border border-line p-3">
+              <h3 className="mb-3 text-sm font-semibold text-ink">
+                Payment timeline
+              </h3>
+              <ol className="grid gap-3 text-sm">
+                <li className="flex items-start gap-2">
+                  <Icon name="success" size={17} className="text-green-700" />
+                  <span>
+                    Top-up initiated
+                    <span className="block text-xs text-muted">
+                      {istDate(topup.created_at)}
+                    </span>
+                  </span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <Icon
+                    name="clock"
+                    size={17}
+                    className="text-brand motion-safe:animate-pulse"
+                  />
+                  <span>
+                    {topup.status === "CREATING"
+                      ? "Preparing checkout"
+                      : "Awaiting Razorpay confirmation"}
+                  </span>
+                </li>
+                <li className="flex items-center gap-2 text-muted">
+                  <Icon name="layers" size={17} />
+                  <span>Wallet credited after capture</span>
+                </li>
+              </ol>
+            </section>
+          )}
+        <dl className="divide-y divide-line rounded-xl border border-line px-3">
+          {fields
+            .filter(([, value]) => value)
+            .map(([label, value]) => (
+              <div
+                key={label}
+                className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-3 py-2.5 text-sm"
+              >
+                <dt className="text-xs text-muted">{label}</dt>
+                <dd className="m-0 break-all text-right text-ink">{value}</dd>
+              </div>
+            ))}
+        </dl>
+      </div>
+      {(refundableRide || review) && (
+        <div className="dialog-footer">
+          {refundableRide && (
+            <Button
+              variant="secondary"
+              onClick={() => onAction({ id: refundableRide, kind: "refund" })}
+            >
+              Refund ride
+            </Button>
+          )}
+          {review && (
+            <Button
+              variant="secondary"
+              onClick={() => onAction({ id: review, kind: "review" })}
+            >
+              Reconcile top-up
+            </Button>
+          )}
+        </div>
+      )}
+    </Dialog>
   );
 }
 

@@ -18,6 +18,107 @@ const categories = [
   { id: "disabled", name: "Disabled Sedan" },
 ];
 
+test("shows wallet balances and opens failed and cancelled payment details", async ({
+  page,
+}) => {
+  await mockConfiguration(page);
+  const date = "2026-11-27T05:30:00.000Z";
+  const rider = {
+    id: "rider",
+    role: "RIDER",
+    status: "ACTIVE",
+    first_name: "Wallet",
+    last_name: "Rider",
+    email: "rider@example.test",
+    avatar_url: null,
+    created_at: date,
+    updated_at: date,
+  };
+  await page.route(
+    (url) => url.pathname === "/api/v2/admin/users",
+    (route) =>
+      route.fulfill({
+        json: {
+          status: "success",
+          data: { users: [rider], total: 1, page: 1, page_size: 20 },
+        },
+      }),
+  );
+  await page.route("**/api/v2/admin/users/rider", (route) =>
+    route.fulfill({ json: { status: "success", data: rider } }),
+  );
+  await page.route("**/api/v2/admin/users/rider/wallet-ledger?**", (route) => {
+    const query = new URL(route.request().url()).searchParams;
+    expect(query.get("timeline")).toBe("true");
+    return route.fulfill({
+      json: {
+        status: "success",
+        data: {
+          available_paise: "12500",
+          held_paise: "3000",
+          has_more: false,
+          activity: [
+            ...["FAILED", "CANCELLED", "PENDING"].map((status) => ({
+              id: status,
+              source: "attempt",
+              created_at: date,
+              topup: {
+                id: status,
+                status,
+                amount_paise: "1000",
+                checkout_kind: "SDK",
+                created_at: date,
+                updated_at: date,
+                ...(status === "FAILED"
+                  ? {
+                      failure_reason: "Payment timed out",
+                      provider_order_id: "order_fixture",
+                    }
+                  : {}),
+              },
+            })),
+            {
+              id: "credit",
+              source: "entry",
+              created_at: date,
+              entry: {
+                id: "credit",
+                kind: "TOP_UP",
+                available_delta_paise: "5000",
+                held_delta_paise: "0",
+                available_after_paise: "12500",
+                held_after_paise: "3000",
+              },
+            },
+          ],
+        },
+      },
+    });
+  });
+  await page.goto("/users/rider/wallet-ledger");
+  await expect(
+    page.getByRole("region", { name: "Wallet balance" }).getByText("₹125.00"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Wallet balance" }).getByText("₹30.00"),
+  ).toBeVisible();
+  await page.getByRole("button", { name: /Wallet top-up.*Failed/ }).click();
+  const details = page.getByRole("dialog", { name: "Transaction details" });
+  await expect(details.getByText("Payment timed out")).toBeVisible();
+  await expect(details.getByText("order_fixture")).toBeVisible();
+  await details.getByRole("button", { name: "Close dialog" }).click();
+  await page.getByRole("button", { name: /Wallet top-up.*Cancelled/ }).click();
+  await expect(details.getByText("Cancelled", { exact: true })).toBeVisible();
+  await details.getByRole("button", { name: "Close dialog" }).click();
+  await page.getByRole("button", { name: /Wallet top-up.*Pending/ }).click();
+  await expect(
+    details.getByText("Awaiting Razorpay confirmation"),
+  ).toBeVisible();
+  await details.getByRole("button", { name: "Close dialog" }).click();
+  await page.getByRole("button", { name: /Money added.*Successful/ }).click();
+  await expect(details.getByText("Available balance after")).toBeVisible();
+});
+
 test("persists payment controls through payout settings", async ({ page }) => {
   await mockConfiguration(page);
   const settings = {

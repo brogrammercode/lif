@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/driver_vehicles/controllers/vehicle_registration_controller.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'dart:async';
@@ -856,6 +857,7 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
         key: _form,
         child: Column(
           children: [
+            AppErrorNotice(message: _error),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.only(top: 20, bottom: 20),
@@ -1019,15 +1021,6 @@ class _VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
                       const SizedBox(height: 16),
                     ],
                   ]),
-                  if (_error != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: DriverNotice(
-                        icon: Icons.error_outline_rounded,
-                        message: _error!,
-                        error: true,
-                      ),
-                    ),
                   if (_progress != null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12),

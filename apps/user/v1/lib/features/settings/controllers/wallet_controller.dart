@@ -36,6 +36,22 @@ class WalletController extends FeatureController {
     );
   }
 
+  List<WalletHistoryItem> get history {
+    final attempts = {for (final topUp in topUps) topUp.id: topUp};
+    return [
+      for (final transaction in transactions)
+        WalletHistoryItem(
+          transaction: transaction,
+          topUp: attempts[transaction.topUpId],
+        ),
+      for (final topUp in topUpsWithoutLedgerCredit)
+        WalletHistoryItem(topUp: topUp),
+    ]..sort((left, right) {
+      final date = right.date.compareTo(left.date);
+      return date != 0 ? date : right.reference.compareTo(left.reference);
+    });
+  }
+
   Future<void> refreshHistory() async {
     if (driver) {
       await load();
@@ -325,6 +341,7 @@ class WalletTopUp {
   final String? failureReason;
   final String? checkoutKey, orderId;
   final DateTime createdAt;
+  final DateTime? updatedAt;
 
   WalletTopUp.fromMap(Map row)
     : id = row['id'] as String,
@@ -332,6 +349,7 @@ class WalletTopUp {
       failureReason = row['failure_reason'] as String?,
       paise = int.parse(row['amount_paise'] as String),
       createdAt = DateTime.parse(row['created_at'] as String),
+      updatedAt = DateTime.tryParse(row['updated_at'] as String? ?? ''),
       checkoutKey = (row['sdk_checkout'] as Map?)?['key_id'] as String?,
       orderId = (row['sdk_checkout'] as Map?)?['order_id'] as String?,
       checkout = Uri.tryParse(row['checkout_url'] as String? ?? '');
@@ -345,6 +363,49 @@ class WalletTopUp {
     'REVIEW_REQUIRED' => 'Under review',
     _ => 'Payment pending',
   };
+}
+
+enum WalletHistoryStatus {
+  completed,
+  pending,
+  failed,
+  cancelled,
+  refunded,
+  review,
+}
+
+class WalletHistoryItem {
+  const WalletHistoryItem({this.transaction, this.topUp})
+    : assert(transaction != null || topUp != null);
+
+  final WalletTransaction? transaction;
+  final WalletTopUp? topUp;
+
+  String get reference => transaction?.reference ?? topUp!.id;
+  String get title => transaction?.title ?? 'Wallet top-up';
+  DateTime get date => transaction?.date ?? topUp!.createdAt;
+  int get paise => transaction?.paise ?? topUp!.paise;
+  String? get failureReason =>
+      transaction == null ? topUp?.failureReason : null;
+  String? get topUpReference => transaction?.topUpId ?? topUp?.id;
+  bool get balanceChanged =>
+      transaction != null || status == WalletHistoryStatus.completed;
+
+  WalletHistoryStatus get status {
+    if (transaction case final entry?) {
+      return entry.processing
+          ? WalletHistoryStatus.pending
+          : WalletHistoryStatus.completed;
+    }
+    return switch (topUp!.status) {
+      'CAPTURED' => WalletHistoryStatus.completed,
+      'FAILED' => WalletHistoryStatus.failed,
+      'CANCELLED' => WalletHistoryStatus.cancelled,
+      'REFUNDED' => WalletHistoryStatus.refunded,
+      'REVIEW_REQUIRED' => WalletHistoryStatus.review,
+      _ => WalletHistoryStatus.pending,
+    };
+  }
 }
 
 class DriverPayoutDestination {

@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/core/routes.dart';
@@ -12,6 +13,7 @@ import 'wallet_add_money_page.dart';
 import 'package:user/features/settings/widgets/wallet_sheet.dart';
 import 'package:user/features/settings/widgets/payout_setup_form.dart';
 import 'package:user/features/settings/widgets/wallet_feedback.dart';
+import 'package:user/features/settings/widgets/wallet_payment_progress.dart';
 
 class WalletPage extends StatefulWidget {
   final SettingsController controller;
@@ -44,102 +46,60 @@ class _WalletPageState extends State<WalletPage> {
     super.dispose();
   }
 
-  Future<void> _showTransaction(WalletTransaction transaction) async {
-    if (transaction.payoutId case final id?) {
-      await _showWalletSheet(
-        title: 'Payout details',
-        content: FutureBuilder<DriverPayoutDetail>(
-          future: _wallet.payoutDetail(id),
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return WalletErrorNotice(
-                message: 'Could not load this payout. Reopen it to try again.',
-                child: TextButton(
-                  onPressed: () => Navigator.maybePop(context),
-                  child: const Text('Close'),
-                ),
-              );
-            }
-            final detail = snapshot.data;
-            if (detail == null) {
-              return const WalletShimmer(height: 72);
-            }
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              spacing: 8,
-              children: [
-                Text('Payout amount · ${rideMoney(detail.amountPaise / 100)}'),
-                Text('Status · ${detail.status}'),
-                if (detail.grossPaise case final gross?)
-                  Text('Gross fares · ${rideMoney(gross / 100)}'),
-                if (detail.commissionPaise case final commission?)
-                  Text('Commission · −${rideMoney(commission / 100)}'),
-                if (detail.netPaise case final net?)
-                  Text('Net ride earnings · ${rideMoney(net / 100)}'),
-                if (detail.adjustmentsPaise != 0)
-                  Text(
-                    'Adjustments · ${rideMoney(detail.adjustmentsPaise / 100)}',
-                  ),
-                if (detail.maskedDestination case final label?)
-                  Text('Destination · $label'),
-                if (detail.utr case final utr?) SelectableText('UTR · $utr'),
-              ],
+  Future<void> _showTransaction(WalletHistoryItem item) async {
+    if (item.status == WalletHistoryStatus.pending) {
+      final action = await showWalletPaymentProgress(
+        context,
+        wallet: _wallet,
+        item: item,
+      );
+      if (mounted && action == WalletProgressAction.addMore) {
+        await showWalletAddMoney(context, wallet: _wallet);
+      }
+      return;
+    }
+    final rideId = item.transaction?.rideId;
+    final payoutId = item.transaction?.payoutId;
+    final payoutDetails = payoutId == null
+        ? null
+        : _wallet.payoutDetail(payoutId);
+    Widget? action;
+    if (rideId != null) {
+      action = Builder(
+        builder: (sheetContext) => SolidButton(
+          text: 'View ride',
+          onPressed: () {
+            Navigator.pop(sheetContext);
+            showRideHistorySheet(
+              context,
+              rideId: rideId,
+              driverHistory: widget.driver,
             );
           },
         ),
       );
-      return;
     }
-    final rideId = transaction.rideId;
-    final gross = transaction.grossPaise;
-    final commission = transaction.commissionPaise;
-    if (gross != null && commission != null) {
-      await _showWalletSheet(
-        title: 'Ride earnings',
-        value: rideMoney(transaction.paise / 100),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('Gross fare · ${rideMoney(gross / 100)}'),
-            const SizedBox(height: 8),
-            Text(
-              'Commission (${transaction.commissionPercent ?? '0'}%) · −${rideMoney(commission / 100)}',
-            ),
-            const SizedBox(height: 8),
-            Text('Net earnings · ${rideMoney(transaction.paise / 100)}'),
-            if (rideId != null) ...[
-              const SizedBox(height: 16),
-              SolidButton(
-                text: 'View ride',
-                onPressed: () {
-                  Navigator.pop(context);
-                  showRideHistorySheet(
-                    context,
-                    rideId: rideId,
-                    driverHistory: true,
-                  );
-                },
-              ),
-            ],
-          ],
-        ),
-      );
-      return;
-    }
-    if (rideId != null) {
-      await showRideHistorySheet(
-        context,
-        rideId: rideId,
-        driverHistory: widget.driver,
-      );
-      return;
-    }
+
     await _showWalletSheet(
-      title: transaction.title,
-      value: rideMoney(transaction.paise / 100),
-      content: SelectableText('Reference: ${transaction.reference}'),
+      title: 'Transaction details',
+      value: item.status.label,
+      content: payoutDetails == null
+          ? WalletTransactionDetails(item, action: action)
+          : FutureBuilder<DriverPayoutDetail>(
+              future: payoutDetails,
+              builder: (context, snapshot) => AppErrorNotice(
+                message: snapshot.hasError
+                    ? 'Could not load payout details. Reopen the transaction to try again.'
+                    : null,
+                child: WalletTransactionDetails(
+                  item,
+                  payout: snapshot.data,
+                  action: snapshot.connectionState == ConnectionState.waiting
+                      ? const WalletShimmer(height: 42)
+                      : action,
+                ),
+              ),
+            ),
     );
   }
 
@@ -160,194 +120,198 @@ class _WalletPageState extends State<WalletPage> {
     bodyColor: Colors.black,
     child: ListenableBuilder(
       listenable: _wallet,
-      builder: (context, _) => WalletErrorNotice(
-        message:
-            _wallet.error ?? (widget.driver ? null : _wallet.checkoutError),
-        child: CustomScrollView(
-          slivers: [
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 22),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      widget.driver ? 'Available earnings' : 'Wallet balance',
-                      style: const TextStyle(
-                        color: Color(0xFFBBC0CA),
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    if (!_wallet.loaded && _wallet.error == null)
-                      const Align(
-                        alignment: Alignment.centerLeft,
-                        child: WalletShimmer(width: 96, height: 42),
-                      )
-                    else
+      builder: (context, _) {
+        final history = _wallet.history;
+        return AppErrorNotice(
+          message:
+              _wallet.error ?? (widget.driver ? null : _wallet.checkoutError),
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 22),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
                       Text(
-                        !_wallet.loaded
-                            ? 'Unavailable'
-                            : _wallet.availablePaise == 0
-                            ? '₹0'
-                            : rideMoney(_wallet.availablePaise / 100),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 38,
-                          height: 1.1,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    if (widget.driver && _wallet.loaded)
-                      Text(
-                        'Processing payout · ${rideMoney(_wallet.heldPaise / 100)}',
+                        widget.driver ? 'Available earnings' : 'Wallet balance',
                         style: const TextStyle(
                           color: Color(0xFFBBC0CA),
                           fontSize: 14,
                         ),
                       ),
-                    const SizedBox(height: 22),
-                    WalletIdentityCard(
-                      walletId: _wallet.walletId,
-                      loading: !_wallet.loaded && _wallet.error == null,
-                      cardholder: widget.controller.walletCardholder,
-                      expiry: '',
-                    ),
-                    const SizedBox(height: 24),
-                    if (widget.driver)
-                      Center(
-                        child: _WalletAction(
-                          icon: Icons.account_balance_outlined,
-                          label: 'Setup payout',
-                          onPressed: () => _showWalletSheet(
-                            title: 'Setup payout',
-                            content: PayoutSetupForm(wallet: _wallet),
+                      const SizedBox(height: 6),
+                      if (!_wallet.loaded && _wallet.error == null)
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: WalletShimmer(width: 96, height: 42),
+                        )
+                      else
+                        Text(
+                          !_wallet.loaded
+                              ? 'Unavailable'
+                              : _wallet.availablePaise == 0
+                              ? '₹0'
+                              : rideMoney(_wallet.availablePaise / 100),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 38,
+                            height: 1.1,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                      )
-                    else
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: _WalletAction(
-                              icon: Icons.add,
-                              label: 'Add money',
-                              onPressed: () =>
-                                  showWalletAddMoney(context, wallet: _wallet),
-                            ),
+                      if (widget.driver && _wallet.loaded)
+                        Text(
+                          'Processing payout · ${rideMoney(_wallet.heldPaise / 100)}',
+                          style: const TextStyle(
+                            color: Color(0xFFBBC0CA),
+                            fontSize: 14,
                           ),
-                          Expanded(
-                            child: _WalletAction(
-                              icon: Icons.credit_card_outlined,
-                              label: 'Payment methods',
-                              onPressed: _openPaymentMethods,
-                            ),
-                          ),
-                          Expanded(
-                            child: _WalletAction(
-                              icon: Icons.history_rounded,
-                              label: 'Activity',
-                              onPressed: () {
-                                final history = _history.currentContext;
-                                if (history != null) {
-                                  Scrollable.ensureVisible(
-                                    history,
-                                    alignment: 0,
-                                    duration:
-                                        MediaQuery.disableAnimationsOf(context)
-                                        ? Duration.zero
-                                        : const Duration(milliseconds: 250),
-                                  );
-                                }
-                              },
-                            ),
-                          ),
-                        ],
+                        ),
+                      const SizedBox(height: 22),
+                      WalletIdentityCard(
+                        walletId: _wallet.walletId,
+                        loading: !_wallet.loaded && _wallet.error == null,
+                        cardholder: widget.controller.walletCardholder,
+                        expiry: '',
                       ),
-                  ],
+                      const SizedBox(height: 24),
+                      if (widget.driver)
+                        Center(
+                          child: _WalletAction(
+                            icon: Icons.account_balance_outlined,
+                            label: 'Setup payout',
+                            onPressed: () => _showWalletSheet(
+                              title: 'Setup payout',
+                              content: PayoutSetupForm(wallet: _wallet),
+                            ),
+                          ),
+                        )
+                      else
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: _WalletAction(
+                                icon: Icons.add,
+                                label: 'Add money',
+                                onPressed: () => showWalletAddMoney(
+                                  context,
+                                  wallet: _wallet,
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: _WalletAction(
+                                icon: Icons.credit_card_outlined,
+                                label: 'Payment methods',
+                                onPressed: _openPaymentMethods,
+                              ),
+                            ),
+                            Expanded(
+                              child: _WalletAction(
+                                icon: Icons.history_rounded,
+                                label: 'Activity',
+                                onPressed: () {
+                                  final history = _history.currentContext;
+                                  if (history != null) {
+                                    Scrollable.ensureVisible(
+                                      history,
+                                      alignment: 0,
+                                      duration:
+                                          MediaQuery.disableAnimationsOf(
+                                            context,
+                                          )
+                                          ? Duration.zero
+                                          : const Duration(milliseconds: 250),
+                                    );
+                                  }
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: Container(
+
+              DecoratedSliver(
                 decoration: const BoxDecoration(
                   color: Color(0xFFF6F7F8),
                   borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
                 ),
-                padding: const EdgeInsets.fromLTRB(12, 14, 12, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Padding(
-                      key: _history,
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: const RideHistoryHeading('Transaction history'),
-                    ),
-                    if ((_wallet.loading && !_wallet.loaded) ||
-                        (!widget.driver &&
-                            !_wallet.topUpsLoaded &&
-                            _wallet.checkoutBusy))
-                      const WalletShimmer(height: 64),
-                    if (_wallet.error != null ||
-                        (!widget.driver &&
-                            !_wallet.topUpsLoaded &&
-                            _wallet.checkoutError != null))
-                      TextButton(
-                        onPressed: _wallet.loading || _wallet.checkoutBusy
-                            ? null
-                            : _wallet.refreshHistory,
-                        child: const Text('Retry'),
-                      ),
-                    for (final topUp in _wallet.topUpsWithoutLedgerCredit)
-                      ListTile(
-                        title: Text(topUp.label),
-                        subtitle: Text(
-                          [
-                            MaterialLocalizations.of(
-                              context,
-                            ).formatShortDate(topUp.createdAt.toLocal()),
-                            ?topUp.failureReason,
-                          ].join('\n'),
-                        ),
-                        trailing: Text(rideMoney(topUp.paise / 100)),
-                        isThreeLine: topUp.failureReason != null,
-                        onTap: topUp.pending
-                            ? () => showWalletAddMoney(
-                                context,
-                                wallet: _wallet,
-                                topUpId: topUp.id,
-                              )
-                            : null,
-                      ),
-                    if (_wallet.loaded &&
-                        (widget.driver || _wallet.topUpsLoaded) &&
-                        _wallet.transactions.isEmpty &&
-                        _wallet.topUps.isEmpty)
-                      const _EmptyWalletHistory(),
-                    for (final transaction in _wallet.transactions)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: WalletTransactionCard(
-                          transaction,
-                          onTap: () => _showTransaction(transaction),
+                sliver: SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(12, 14, 12, 24),
+                  sliver: SliverMainAxisGroup(
+                    slivers: [
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          key: _history,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: const RideHistoryHeading(
+                            'Transaction history',
+                          ),
                         ),
                       ),
-                    if (_wallet.hasMore)
-                      TextButton(
-                        onPressed: _wallet.loading
-                            ? null
-                            : () => _wallet.load(more: true),
-                        child: const Text('Load more'),
+                      if ((_wallet.loading && !_wallet.loaded) ||
+                          (!widget.driver &&
+                              !_wallet.topUpsLoaded &&
+                              _wallet.checkoutBusy))
+                        const SliverToBoxAdapter(
+                          child: WalletShimmer(height: 64),
+                        ),
+                      if (_wallet.error != null ||
+                          (!widget.driver &&
+                              !_wallet.topUpsLoaded &&
+                              _wallet.checkoutError != null))
+                        SliverToBoxAdapter(
+                          child: TextButton(
+                            onPressed: _wallet.loading || _wallet.checkoutBusy
+                                ? null
+                                : _wallet.refreshHistory,
+                            child: const Text('Retry'),
+                          ),
+                        ),
+                      if (_wallet.loaded &&
+                          (widget.driver || _wallet.topUpsLoaded) &&
+                          history.isEmpty)
+                        const SliverToBoxAdapter(child: _EmptyWalletHistory()),
+                      SliverList.separated(
+                        itemCount: history.length,
+                        itemBuilder: (context, index) {
+                          final item = history[index];
+                          return WalletTransactionCard(
+                            item,
+                            key: ValueKey(item.reference),
+                            onTap: () => _showTransaction(item),
+                          );
+                        },
+                        separatorBuilder: (context, index) =>
+                            const SizedBox(height: 10),
                       ),
-                  ],
+                      if (_wallet.hasMore)
+                        SliverToBoxAdapter(
+                          child: TextButton(
+                            onPressed: _wallet.loading
+                                ? null
+                                : () => _wallet.load(more: true),
+                            child: const Text('Load more'),
+                          ),
+                        ),
+                      const SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: SizedBox.shrink(),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
-        ),
-      ),
+            ],
+          ),
+        );
+      },
     ),
   );
 }

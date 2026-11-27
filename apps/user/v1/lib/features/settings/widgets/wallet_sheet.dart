@@ -2,14 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/features/rides/widgets/rider_flow_components.dart';
 
-Future<void> showWalletSheet(
+Future<T?> showWalletSheet<T>(
   BuildContext context, {
   required String title,
   required Widget content,
   String? value,
-}) => showModalBottomSheet<void>(
+  Widget? header,
+  bool dismissible = true,
+}) => showModalBottomSheet<T>(
   context: context,
   isScrollControlled: true,
+  isDismissible: dismissible,
+  enableDrag: dismissible,
   useSafeArea: true,
   showDragHandle: false,
   backgroundColor: Colors.transparent,
@@ -19,7 +23,7 @@ Future<void> showWalletSheet(
     ),
     child: SolidScope(
       child: RideStagePanel(
-        header: RideArrivalStrip(label: title, value: value ?? ''),
+        header: header ?? RideArrivalStrip(label: title, value: value ?? ''),
         child: SafeArea(
           top: false,
           child: Column(

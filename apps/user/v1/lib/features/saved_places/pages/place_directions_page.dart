@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/saved_places/controllers/place_directions_controller.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -113,11 +114,7 @@ class _DirectionsState extends State<PlaceDirectionsPage>
                               color: GlassTokens.muted,
                             ),
                           ),
-                        if (_error != null)
-                          Text(
-                            _error!,
-                            style: const TextStyle(color: Colors.red),
-                          ),
+                        if (_error != null) AppErrorNotice(message: _error),
                         TextButton(
                           onPressed: _busy ? null : _load,
                           child: Text(

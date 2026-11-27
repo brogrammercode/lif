@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -80,9 +81,7 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+        showAppError(context, ApiResult.errorMessage(error));
       }
     }
   }

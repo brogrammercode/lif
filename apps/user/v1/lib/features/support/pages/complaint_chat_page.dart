@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -68,12 +69,9 @@ class _ComplaintChatPageState extends State<ComplaintChatPage> {
     if (!mounted || ticket == null) return;
     final id = '${ticket['id'] ?? ''}';
     if (id.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'The request was created but could not be opened. Find it in Help Me.',
-          ),
-        ),
+      showAppError(
+        context,
+        'The request was created but could not be opened. Find it in Help Me.',
       );
       return;
     }

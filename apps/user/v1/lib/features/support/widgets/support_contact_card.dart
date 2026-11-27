@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/support/controllers/support_contact_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -29,11 +30,7 @@ class _SupportContactCardState extends State<SupportContactCard> {
       if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
     } catch (_) {}
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('This contact action could not be opened.'),
-        ),
-      );
+      showAppError(context, 'This contact action could not be opened.');
     }
   }
 

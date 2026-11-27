@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/features/saved_places/controllers/saved_places_controller.dart';
 import 'dart:async';
@@ -186,9 +187,7 @@ class _SavedPlacesState extends State<SavedPlacesPage>
       fullPlace = await _controller.loadPlaceForEdit('${place['id']}');
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+        showAppError(context, ApiResult.errorMessage(error));
       }
       return;
     }
@@ -460,9 +459,7 @@ class _SavedPlacesState extends State<SavedPlacesPage>
       if (sheet.mounted) Navigator.pop(sheet);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+        showAppError(context, ApiResult.errorMessage(error));
       }
     } finally {
       _removingLegacy = false;
@@ -686,17 +683,7 @@ class _SavedPlacesState extends State<SavedPlacesPage>
                       ),
                       child: Row(
                         children: [
-                          Expanded(
-                            child: Text(
-                              _error!,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: RideTokens.ink,
-                              ),
-                            ),
-                          ),
+                          Expanded(child: AppErrorNotice(message: _error)),
                           TextButton(
                             onPressed: _loading ? null : _load,
                             child: const Text('Retry'),

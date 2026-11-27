@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -189,9 +190,7 @@ class _DriverHomeState extends State<DriverHomeContent>
       await _load();
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+        showAppError(context, ApiResult.errorMessage(error));
       }
     } finally {
       if (mounted) setState(() => _busy = false);

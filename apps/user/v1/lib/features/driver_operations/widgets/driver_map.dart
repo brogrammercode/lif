@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -100,12 +101,9 @@ class _DriverMapState extends State<DriverMap> {
       await _sync();
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Map data could not load. Trip controls remain available.',
-            ),
-          ),
+        showAppError(
+          context,
+          'Map data could not load. Trip controls remain available.',
         );
       }
     }

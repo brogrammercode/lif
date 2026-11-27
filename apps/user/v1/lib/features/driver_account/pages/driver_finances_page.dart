@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/driver_account/controllers/driver_finances_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
@@ -73,9 +74,7 @@ class _FinanceState extends State<DriverFinancesPage>
     );
     if (range == null || !mounted) return;
     if (range.duration.inDays >= 93) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Choose up to 93 days.')));
+      showAppError(context, 'Choose up to 93 days.');
       return;
     }
     String day(DateTime d) =>
@@ -126,15 +125,7 @@ class _FinanceState extends State<DriverFinancesPage>
           ],
         ),
         const SizedBox(height: 14),
-        if (_error != null && _data != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: DriverNotice(
-              icon: Icons.sync_problem_rounded,
-              message: '$_error. Pull to refresh or retry.',
-              error: true,
-            ),
-          ),
+        if (_error != null && _data != null) AppErrorNotice(message: _error),
         Expanded(
           child: _data == null
               ? (_loading
@@ -169,11 +160,9 @@ class _FinanceState extends State<DriverFinancesPage>
                               ) ??
                               0) >
                           0)
-                        DriverNotice(
-                          icon: Icons.warning_amber_rounded,
+                        AppErrorNotice(
                           message:
                               '${rideMap(_data!['summary'])['unpriced_trips']} completed trips have no recorded final fare. Totals exclude them; contact Support.',
-                          warning: true,
                         ),
                       const SizedBox(height: 12),
                       AppCard(

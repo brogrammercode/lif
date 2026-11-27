@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/driver_vehicles/controllers/driver_vehicles_controller.dart';
 import 'package:user/components/ui/liquid_glass.dart';
 import 'package:flutter/material.dart';
@@ -176,9 +177,7 @@ class _DriverVehiclesPageState extends State<DriverVehiclesPage>
       await _reload();
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+        showAppError(context, ApiResult.errorMessage(error));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -406,9 +405,7 @@ class _DriverVehiclesPageState extends State<DriverVehiclesPage>
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+        showAppError(context, ApiResult.errorMessage(error));
       }
     } finally {
       if (mounted) setState(() => _busy = false);

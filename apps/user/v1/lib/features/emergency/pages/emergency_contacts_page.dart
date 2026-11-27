@@ -1,3 +1,4 @@
+import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/features/emergency/controllers/emergency_contacts_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -44,9 +45,7 @@ class _EmergencyContactsPageState extends State<EmergencyContactsPage> {
     final notice = _controller.notice;
     _controller.notice = null;
     if (mounted && notice != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(notice)));
+      showAppError(context, notice);
     }
   }
 
@@ -144,9 +143,7 @@ class _EmergencyContactsPageState extends State<EmergencyContactsPage> {
       }
     } catch (_) {}
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Calling could not be opened.')),
-      );
+      showAppError(context, 'Calling could not be opened.');
     }
   }
 
@@ -236,9 +233,8 @@ class _EmergencyContactsPageState extends State<EmergencyContactsPage> {
     onTap: () => Navigator.pop(context, value),
   );
 
-  void _showError(Object error) => ScaffoldMessenger.of(
-    context,
-  ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+  void _showError(Object error) =>
+      showAppError(context, ApiResult.errorMessage(error));
 
   @override
   void dispose() {
