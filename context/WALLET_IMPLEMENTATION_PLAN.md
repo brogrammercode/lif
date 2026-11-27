@@ -139,6 +139,7 @@ Existing admin sidebar, tabs, tables, action menus aur dialogs reuse karo. Read,
 
 - [x] Rider aur driver ke Payment phases use the existing black-header, white-body ride sheet. Cash waits for the assigned driver's receipt confirmation. Wallet verifies the platform debit and driver credit. UPI opens Razorpay from the same animated progress sheet. Verified payment unlocks the receipt.
 - [x] Cash receipts are recorded on both wallets with zero available/held movement. The selected quote supplies commission. A negative cash commission line reduces the next funded payout. Commission carries forward when funded earnings are insufficient.
+- Cash collection migration `202611270006` lets the ledger store commission on the positive, balance-neutral driver cash entry. Both a zero-rounded commission and a positive commission are valid. The rider cash entry carries no commission, and the existing wallet-earning check still applies.
 - [x] Razorpay ride checkout owns a separate order bound to the ride and final fare. The signed wallet webhook and in-app check both reconcile that order. A captured UPI payment credits driver earnings once. Refunds and disputes can require manual payout review.
 - [x] Driver wallet and payout methods use the same activation and role rule as Driver Home. An exited or unactivated account cannot use driver payout methods.
 - [x] Migration 202611270004 was applied to lif_test. Prisma db push confirmed the database was in sync.
