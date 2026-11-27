@@ -1,0 +1,1 @@
+ALTER TYPE "WalletTopUpStatus" ADD VALUE 'CANCELLED';

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_logo.dart';
+import 'wallet_feedback.dart';
 
 /// The shared visual wallet card used on the wallet page and payment picker.
 class WalletIdentityCard extends StatelessWidget {
-  final String walletId;
+  final String? walletId;
+  final bool loading;
   final String cardholder;
   final String expiry;
 
@@ -12,6 +14,7 @@ class WalletIdentityCard extends StatelessWidget {
     required this.walletId,
     required this.cardholder,
     required this.expiry,
+    this.loading = false,
   });
 
   static const _cardText = TextStyle(
@@ -130,14 +133,22 @@ class WalletIdentityCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 30),
-                      Text(
-                        walletId,
-                        semanticsLabel: 'Wallet ID $walletId',
-                        style: _cardText.copyWith(
-                          fontSize: 22,
-                          letterSpacing: 1.6,
+                      if (loading)
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: WalletShimmer(width: 156, height: 27),
+                        )
+                      else
+                        Text(
+                          walletId ?? '',
+                          semanticsLabel: walletId == null
+                              ? null
+                              : 'Wallet ID $walletId',
+                          style: _cardText.copyWith(
+                            fontSize: 22,
+                            letterSpacing: 1.6,
+                          ),
                         ),
-                      ),
                       const SizedBox(height: 17),
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,

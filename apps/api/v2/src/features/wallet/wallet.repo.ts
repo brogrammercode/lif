@@ -871,15 +871,18 @@ export class WalletRepository {
               })
             : null;
         return {
-          id: wallet?.id ?? null,
+          ...(wallet ? { id: wallet.id } : {}),
           kind,
           currency: wallet?.currency ?? 'INR',
           available_paise: String(wallet?.available_paise ?? 0),
           held_paise: String(wallet?.held_paise ?? 0),
-          earnings_paise:
-            kind === 'DRIVER'
-              ? String(earnings?._sum.available_delta_paise ?? 0)
-              : null,
+          ...(kind === 'DRIVER'
+            ? {
+                earnings_paise: String(
+                  earnings?._sum.available_delta_paise ?? 0,
+                ),
+              }
+            : {}),
           page,
           has_more: rows.length > page_size,
           rows: rows.slice(0, page_size).map((entry) => ({
@@ -889,13 +892,17 @@ export class WalletRepository {
             held_delta_paise: String(entry.held_delta_paise),
             available_after_paise: String(entry.available_after_paise),
             held_after_paise: String(entry.held_after_paise),
-            ride_id: entry.ride_id,
-            payment_id: entry.payment_id,
-            topup_id: entry.topup_id,
-            payout_id: entry.payout_id,
-            reverses_entry_id: entry.reverses_entry_id,
+            ...(entry.ride_id ? { ride_id: entry.ride_id } : {}),
+            ...(entry.payment_id ? { payment_id: entry.payment_id } : {}),
+            ...(entry.topup_id ? { topup_id: entry.topup_id } : {}),
+            ...(entry.payout_id ? { payout_id: entry.payout_id } : {}),
+            ...(entry.reverses_entry_id
+              ? { reverses_entry_id: entry.reverses_entry_id }
+              : {}),
             reversed: entry.reversals.length > 0,
-            ...commission_breakdown(entry),
+            ...(entry.commission_paise != null
+              ? commission_breakdown(entry)
+              : {}),
             created_at: entry.created_at,
           })),
         };

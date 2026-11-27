@@ -257,6 +257,39 @@ it('dispatches all daily cron jobs through one protected route and isolates fail
   ]);
 });
 
+it('accepts both wallet ID formats and rejects malformed references', async () => {
+  const check = mock.method(app.get(WalletTopUps), 'check', async () => ({
+    status: 'PENDING',
+  }));
+  const options = {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token()}` },
+  };
+  const stale = await request(
+    '/api/v2/wallet/topups/bad%20reference/check',
+    options,
+  );
+  assert.equal(stale.response.status, 404);
+  assert.equal(stale.body.error_code, 'TOPUP_NOT_FOUND');
+  assert.equal(check.mock.callCount(), 0);
+
+  const id = randomUUID();
+  const current = await request(`/api/v2/wallet/topups/${id}/check`, options);
+  assert.equal(current.response.status, 200);
+  assert.deepEqual(check.mock.calls[0]?.arguments, ['rider', id, false]);
+  const legacy = await request('/api/v2/wallet/topups/1795756390810/check', {
+    ...options,
+    headers: { ...options.headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cancelled: true }),
+  });
+  assert.equal(legacy.response.status, 200);
+  assert.deepEqual(check.mock.calls[1]?.arguments, [
+    'rider',
+    '1795756390810',
+    true,
+  ]);
+});
+
 it('keeps the route manifest aligned with compiled Nest routes and security metadata', () => {
   type Route = {
     feature: string;

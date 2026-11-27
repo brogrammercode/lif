@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:user/components/ui/app_page.dart';
 import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/features/payments/controllers/payment_methods_controller.dart';
 import 'package:user/features/settings/widgets/settings_secondary.dart';
-import 'package:user/features/settings/widgets/wallet_checkout_form.dart';
+import 'package:user/features/settings/pages/wallet_add_money_page.dart';
 import 'package:user/features/settings/widgets/wallet_sheet.dart';
+import 'package:user/features/settings/widgets/wallet_feedback.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
 class PaymentMethodsPage extends StatefulWidget {
@@ -34,28 +34,23 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
 
   Future<void> _remove(Map<String, dynamic> method) async {
     final id = method['id'] as String;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showSolidActionSheet<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Remove payment method?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
+      title: 'Remove payment method?',
+      actions: const [
+        SolidSheetAction(
+          value: true,
+          label: 'Remove method',
+          icon: Icons.delete_outline,
+          destructive: true,
+        ),
+        SolidSheetAction(value: false, label: 'Keep method', icon: Icons.close),
+      ],
     );
     if (confirmed != true || !mounted) return;
     final error = await _controller.remove(id);
     if (error != null && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error)));
+      showWalletError(context, error);
     }
   }
 
@@ -67,40 +62,30 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
       builder: (context, _) {
         if (_controller.loading) return const SettingsListSkeleton(rows: 2);
         if (_controller.error case final error?) {
-          return AppLoadError(message: error, onRetry: _controller.load);
+          return WalletErrorNotice(
+            message: error,
+            child: Center(
+              child: SolidButton(text: 'Retry', onPressed: _controller.load),
+            ),
+          );
         }
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
           children: [
-            SolidSurface(
-              padding: EdgeInsets.zero,
-              child: Column(
-                children: [
-                  ListTile(
-                    leading: const Icon(Icons.credit_card_outlined),
-                    title: const Text('Debit card'),
-                    subtitle: const Text(
-                      'Enter card details in Razorpay checkout',
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => showWalletSheet(
-                      context,
-                      title: 'Add money by card',
-                      content: const StandaloneWalletCheckoutForm(),
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: const Icon(Icons.qr_code_2_outlined),
-                    title: const Text('Add UPI ID'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => showWalletSheet(
-                      context,
-                      title: 'Add UPI ID',
-                      content: _UpiForm(controller: _controller),
-                    ),
-                  ),
-                ],
+            _MethodTile(
+              icon: Icons.credit_card_outlined,
+              title: 'Debit card',
+              subtitle: 'Pay securely in Razorpay',
+              onTap: () => showWalletAddMoney(context),
+            ),
+            const SizedBox(height: 10),
+            _MethodTile(
+              icon: Icons.qr_code_2_outlined,
+              title: 'Add UPI ID',
+              onTap: () => showWalletSheet(
+                context,
+                title: 'Add UPI ID',
+                content: _UpiForm(controller: _controller),
               ),
             ),
             if (_controller.methods.isNotEmpty) ...[
@@ -115,17 +100,13 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
                 child: Column(
                   children: [
                     for (final method in _controller.methods)
-                      ListTile(
-                        leading: Icon(
-                          method['type'] == 'CARD'
-                              ? Icons.credit_card_outlined
-                              : Icons.qr_code_2_outlined,
-                        ),
-                        title: Text(
-                          method['type'] == 'CARD'
-                              ? '${method['card_brand'] ?? 'Card'} •••• ${method['card_last4'] ?? ''}'
-                              : '${method['upi_handle'] ?? 'UPI'}',
-                        ),
+                      _MethodTile(
+                        icon: method['type'] == 'CARD'
+                            ? Icons.credit_card_outlined
+                            : Icons.qr_code_2_outlined,
+                        title: method['type'] == 'CARD'
+                            ? '${method['card_brand'] ?? 'Card'} •••• ${method['card_last4'] ?? ''}'
+                            : '${method['upi_handle'] ?? 'UPI'}',
                         trailing: IconButton(
                           tooltip: 'Remove method',
                           onPressed: _controller.saving
@@ -155,7 +136,6 @@ class _UpiForm extends StatefulWidget {
 
 class _UpiFormState extends State<_UpiForm> {
   final _id = TextEditingController();
-  String? _error;
 
   @override
   void dispose() {
@@ -169,7 +149,7 @@ class _UpiFormState extends State<_UpiForm> {
     if (error == null) {
       Navigator.pop(context);
     } else {
-      setState(() => _error = error);
+      showWalletError(context, error);
     }
   }
 
@@ -189,17 +169,53 @@ class _UpiFormState extends State<_UpiForm> {
           textCapitalization: TextCapitalization.none,
           enabled: !widget.controller.saving,
         ),
-        if (_error case final error?)
-          Text(
-            error,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
-          ),
         SolidButton(
           text: 'Save UPI ID',
           busy: widget.controller.saving,
           onPressed: _id.text.trim().isEmpty ? null : _save,
         ),
       ],
+    ),
+  );
+}
+
+class _MethodTile extends StatelessWidget {
+  const _MethodTile({
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    this.onTap,
+    this.trailing,
+  });
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final VoidCallback? onTap;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) => SolidSurface(
+    padding: EdgeInsets.zero,
+    child: ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      leading: CircleAvatar(
+        radius: 19,
+        backgroundColor: const Color(0xFFF2F5FC),
+        foregroundColor: RideTokens.accent,
+        child: Icon(icon, size: 19),
+      ),
+      title: Text(
+        title,
+        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+      ),
+      subtitle: subtitle == null
+          ? null
+          : Text(
+              subtitle!,
+              style: const TextStyle(fontSize: 12, color: RideTokens.muted),
+            ),
+      trailing: trailing ?? const Icon(Icons.chevron_right, size: 20),
+      onTap: onTap,
     ),
   );
 }

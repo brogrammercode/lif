@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/solid_ui.dart';
 import '../controllers/wallet_controller.dart';
+import 'wallet_feedback.dart';
 
 class PayoutSetupForm extends StatefulWidget {
   const PayoutSetupForm({super.key, required this.wallet});
@@ -37,81 +38,82 @@ class _PayoutSetupFormState extends State<PayoutSetupForm> {
     listenable: widget.wallet,
     builder: (context, _) {
       final wallet = widget.wallet;
-      return Form(
-        key: _form,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (final method in wallet.payoutMethods)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.account_balance_outlined),
-                title: Text(method.label),
-                subtitle: Text(switch (method.status) {
-                  'VERIFIED' =>
-                    method.isDefault ? 'Verified · Default' : 'Verified',
-                  'FAILED' => 'Verification failed',
-                  _ => 'Verification pending',
-                }),
-                trailing: method.status == 'PENDING'
-                    ? TextButton(
-                        onPressed: wallet.checkoutBusy
-                            ? null
-                            : () => wallet.checkPayoutMethod(method.id),
-                        child: const Text('Check'),
-                      )
-                    : null,
-              ),
-            if (wallet.checkoutError case final message?) ...[
-              Text(message, style: const TextStyle(color: Colors.red)),
+      return WalletErrorNotice(
+        message: wallet.checkoutError,
+        child: Form(
+          key: _form,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final method in wallet.payoutMethods)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.account_balance_outlined),
+                  title: Text(method.label),
+                  subtitle: Text(switch (method.status) {
+                    'VERIFIED' =>
+                      method.isDefault ? 'Verified · Default' : 'Verified',
+                    'FAILED' => 'Verification failed',
+                    _ => 'Verification pending',
+                  }),
+                  trailing: method.status == 'PENDING'
+                      ? TextButton(
+                          onPressed: wallet.checkoutBusy
+                              ? null
+                              : () => wallet.checkPayoutMethod(method.id),
+                          child: const Text('Check'),
+                        )
+                      : null,
+                ),
+              if (wallet.upiPayoutEnabled) ...[
+                const SizedBox(height: 12),
+                SolidTextFormField(
+                  controller: _name,
+                  label: 'UPI account holder',
+                  enabled: !wallet.checkoutBusy,
+                  validator: (value) => (value?.trim().length ?? 0) < 3
+                      ? 'Enter the registered account name.'
+                      : null,
+                  maxLength: 50,
+                ),
+                const SizedBox(height: 12),
+                SolidTextFormField(
+                  controller: _vpa,
+                  label: 'UPI ID',
+                  keyboardType: TextInputType.emailAddress,
+                  enabled: !wallet.checkoutBusy,
+                  maxLength: 100,
+                  validator: (value) =>
+                      RegExp(
+                        r'^[a-z0-9.-]+@[a-z0-9.-]+$',
+                        caseSensitive: false,
+                      ).hasMatch(value?.trim() ?? '')
+                      ? null
+                      : 'Enter a valid UPI ID.',
+                ),
+                const SizedBox(height: 16),
+                SolidButton(
+                  text: 'Verify UPI ID',
+                  busy: wallet.checkoutBusy,
+                  onPressed: wallet.checkoutBusy ? null : _submit,
+                ),
+              ] else if (wallet.checkoutBusy) ...[
+                const WalletShimmer(height: 48),
+              ] else ...[
+                const Text('UPI verification is unavailable.'),
+                TextButton(
+                  onPressed: wallet.loadPayoutMethods,
+                  child: const Text('Check again'),
+                ),
+              ],
               const SizedBox(height: 12),
+              const Text(
+                'Debit card setup is unavailable.',
+                style: TextStyle(color: RideTokens.muted),
+              ),
             ],
-            if (wallet.upiPayoutEnabled) ...[
-              const SizedBox(height: 12),
-              SolidTextFormField(
-                controller: _name,
-                label: 'UPI account holder',
-                enabled: !wallet.checkoutBusy,
-                validator: (value) => (value?.trim().length ?? 0) < 3
-                    ? 'Enter the registered account name.'
-                    : null,
-                maxLength: 50,
-              ),
-              const SizedBox(height: 12),
-              SolidTextFormField(
-                controller: _vpa,
-                label: 'UPI ID',
-                keyboardType: TextInputType.emailAddress,
-                enabled: !wallet.checkoutBusy,
-                maxLength: 100,
-                validator: (value) =>
-                    RegExp(
-                      r'^[a-z0-9.-]+@[a-z0-9.-]+$',
-                      caseSensitive: false,
-                    ).hasMatch(value?.trim() ?? '')
-                    ? null
-                    : 'Enter a valid UPI ID.',
-              ),
-              const SizedBox(height: 16),
-              SolidButton(
-                text: 'Verify UPI ID',
-                busy: wallet.checkoutBusy,
-                onPressed: wallet.checkoutBusy ? null : _submit,
-              ),
-            ] else if (!wallet.checkoutBusy) ...[
-              const Text('UPI verification is unavailable.'),
-              TextButton(
-                onPressed: wallet.loadPayoutMethods,
-                child: const Text('Check again'),
-              ),
-            ],
-            const SizedBox(height: 12),
-            const Text(
-              'Debit card setup is unavailable.',
-              style: TextStyle(color: RideTokens.muted),
-            ),
-          ],
+          ),
         ),
       );
     },

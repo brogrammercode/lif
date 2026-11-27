@@ -15,8 +15,7 @@ import 'package:user/core/routes.dart';
 import 'package:user/features/driver_operations/driver_operations.repo.dart';
 import 'package:user/features/driver_operations/widgets/driver_glass.dart';
 import 'package:user/features/driver_operations/pages/trip_start_qr_scanner_page.dart';
-import 'package:user/features/settings/widgets/wallet_checkout_form.dart';
-import 'package:user/features/settings/widgets/wallet_sheet.dart';
+import 'package:user/features/settings/pages/wallet_add_money_page.dart';
 
 class TripActionsPanel extends StatefulWidget {
   final String rideId;
@@ -86,11 +85,7 @@ class _TripActionsPanelState extends State<TripActionsPanel> {
   Future<void> _load() => _controller.load();
 
   Future<void> _addWalletMoney() async {
-    await showWalletSheet(
-      context,
-      title: 'Add money',
-      content: const StandaloneWalletCheckoutForm(),
-    );
+    await showWalletAddMoney(context);
     if (!mounted) return;
     if (widget.externalContext == null) await _load();
     if (mounted) await widget.onChanged();

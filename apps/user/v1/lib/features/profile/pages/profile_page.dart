@@ -313,12 +313,15 @@ class _ProfileInfoRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
       child: Row(
         children: [
-          Text(
-            row.label,
-            style: const TextStyle(color: RideTokens.muted, fontSize: 14),
+          Flexible(
+            child: Text(
+              row.label,
+              style: const TextStyle(color: RideTokens.muted, fontSize: 14),
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
+            flex: 2,
             child: Text(
               row.value,
               textAlign: TextAlign.right,

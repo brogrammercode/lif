@@ -139,11 +139,13 @@ class ProfileIdentity extends StatelessWidget {
 class ProfileStat extends StatelessWidget {
   final IconData icon;
   final String title, value;
+  final bool loading;
   const ProfileStat({
     super.key,
     required this.icon,
     required this.title,
     required this.value,
+    this.loading = false,
   });
   @override
   Widget build(BuildContext context) => Container(
@@ -166,14 +168,17 @@ class ProfileStat extends StatelessWidget {
           child: Icon(icon, size: 18, color: _profileIconColor(icon)),
         ),
         const SizedBox(height: 12),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 18,
-            height: 1.2,
-            fontWeight: FontWeight.w500,
+        if (loading)
+          const AppSkeleton(child: SkeletonBox(width: 62, height: 22))
+        else
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 18,
+              height: 1.2,
+              fontWeight: FontWeight.w500,
+            ),
           ),
-        ),
         const SizedBox(height: 4),
         Text(
           title,

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import { it } from 'node:test';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../infra/database/prisma.service.js';
+import { config } from '../core/config.js';
 import { PaymentRepository } from '../features/payment/payment.repo.js';
 import { WalletRepository } from '../features/wallet/wallet.repo.js';
 import { PayoutTransfer } from '../features/wallet/payout-transfer.js';
@@ -127,6 +129,89 @@ it('reuses an existing checkout request while paused and rejects new checkout re
     service.start('rider', { amount_paise: 1500, request_key: 'new-key' }),
     { error_code: 'WALLET_TOPUP_DISABLED' },
   );
+});
+
+it('wallet top-up cancellation releases the attempt and a signed late capture credits it once', async (t) => {
+  const reference = '1795758490546';
+  let row = {
+    id: reference,
+    wallet_id: 'rider-wallet',
+    checkout_kind: 'SDK',
+    provider_mode: 'live',
+    provider_order_id: 'order_1',
+    amount_paise: 100n,
+    status: 'PENDING',
+    created_at: new Date(),
+    updated_at: new Date(),
+  };
+  let captured = false;
+  let credits = 0;
+  let event: { processed_at: Date } | null = null;
+  const tx = {
+    $executeRaw: async () => 1,
+    walletTopUp: {
+      findFirst: async () => row,
+      findUnique: async ({ where }: { where: { id: string } }) =>
+        where.id === reference ? row : null,
+      findUniqueOrThrow: async () => row,
+      updateMany: async ({ data }: { data: Partial<typeof row> }) => {
+        row = { ...row, ...data };
+        return { count: 1 };
+      },
+      update: async ({ data }: { data: Partial<typeof row> }) =>
+        (row = { ...row, ...data }),
+    },
+    walletProviderEvent: {
+      findUnique: async () => event,
+      findFirst: async () => null,
+      upsert: async () => (event = { processed_at: new Date() }),
+    },
+    wallet: { update: async () => ({ available_paise: 100n, held_paise: 0n }) },
+    walletEntry: { create: async () => credits++ },
+  };
+  const provider = new RazorpayWallet();
+  t.mock.getter(provider, 'credential_mode', () => 'live');
+  t.mock.method(provider, 'order', async () => ({
+    id: 'order_1',
+    receipt: reference,
+    amount: 100,
+    currency: 'INR',
+    amount_paid: captured ? 100 : 0,
+    status: captured ? 'paid' : 'created',
+  }));
+  t.mock.method(provider, 'settled_order_payment', async () =>
+    captured ? { id: 'pay_1', status: 'captured', amount_refunded: 0 } : null,
+  );
+  const service = new WalletTopUps(
+    database({
+      ...tx,
+      $transaction: async (run: (value: typeof tx) => unknown) => run(tx),
+    }),
+    provider,
+  );
+  assert.equal(
+    (await service.check('rider', reference, true)).status,
+    'CANCELLED',
+  );
+  assert.equal(credits, 0);
+  const previousSecret = config.RAZORPAY_WALLET_WEBHOOK_SECRET;
+  const secret = 'fixture-wallet-webhook';
+  config.RAZORPAY_WALLET_WEBHOOK_SECRET = secret;
+  t.after(() => {
+    config.RAZORPAY_WALLET_WEBHOOK_SECRET = previousSecret;
+  });
+  captured = true;
+  const payload = Buffer.from(
+    JSON.stringify({
+      event: 'order.paid',
+      payload: { order: { entity: { id: 'order_1', receipt: reference } } },
+    }),
+  );
+  const signature = createHmac('sha256', secret).update(payload).digest('hex');
+  await service.webhook(payload, signature, 'fixture-event');
+  await service.webhook(payload, signature, 'fixture-event');
+  assert.equal(row.status, 'CAPTURED');
+  assert.equal(credits, 1);
 });
 
 it('reports the same transfer blockers that the worker enforces', async () => {
@@ -458,6 +543,32 @@ it('wallet top-ups require one captured payment matching the complete INR checko
   assert.equal(await razorpay.captured({ ...link, amount_paid: 12598 }), null);
   assert.equal(request.mock.callCount(), 0);
   assert.equal(await razorpay.captured(link), 'pay_1');
+  const order = {
+    id: 'order_1',
+    receipt: 'topup',
+    amount: 12599,
+    amount_paid: 12599,
+    currency: 'INR' as const,
+    status: 'paid' as const,
+  };
+  assert.equal((await razorpay.settled_order_payment(order))?.id, 'pay_1');
+  assert.equal(
+    await razorpay.settled_order_payment({ ...order, status: 'attempted' }),
+    null,
+  );
+  items = [
+    {
+      ...valid,
+      status: 'failed',
+      error_description: 'Payment timed out',
+    } as typeof valid,
+  ];
+  assert.deepEqual(
+    await razorpay.order_failure(order.id, order.amount, order.currency),
+    {
+      reason: 'Payment timed out',
+    },
+  );
   for (const bad of [
     [{ ...valid, status: 'authorized' }],
     [{ ...valid, order_id: 'order_else' }],

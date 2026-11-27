@@ -21,7 +21,7 @@ import { send_success } from '../../core/response.js';
 import { user_id_schema } from '../admin_user/admin_user.type.js';
 import { WalletRepository } from './wallet.repo.js';
 import { payout_settings_schema } from './payout-schedule.js';
-import { start_topup, WalletTopUps } from './wallet-topups.js';
+import { start_topup, topup_reference, WalletTopUps } from './wallet-topups.js';
 import { payout_edit, payout_block, PayoutAdmin } from './payout-admin.js';
 import { payout_method_input, PayoutMethods } from './payout-methods.js';
 import { PayoutTransfer } from './payout-transfer.js';
@@ -110,7 +110,7 @@ export class WalletController {
       response,
       await this.wallets.driver_payout(
         request.auth!.user_id,
-        z.uuid().parse(id),
+        user_id_schema.parse(id),
       ),
       'Payout loaded',
     );
@@ -150,7 +150,7 @@ export class WalletController {
       response,
       await this.payout_methods.check(
         request.auth!.user_id,
-        z.uuid().parse(id),
+        user_id_schema.parse(id),
       ),
       'Payout method checked',
     );
@@ -233,11 +233,28 @@ export class WalletController {
   async check_topup(
     @Req() request: Request,
     @Param('id') id: string,
+    @Body() body: unknown,
     @Res({ passthrough: true }) response: Response,
   ) {
+    const reference = topup_reference.safeParse(id);
+    if (!reference.success) {
+      throw new AppError(
+        404,
+        'TOPUP_NOT_FOUND',
+        'This top-up reference is unavailable. Refresh My Wallet and reopen the top-up from your history.',
+      );
+    }
+    const input = z
+      .object({ cancelled: z.boolean().optional() })
+      .strict()
+      .parse(body ?? {});
     return send_success(
       response,
-      await this.topups.check(request.auth!.user_id, z.uuid().parse(id)),
+      await this.topups.check(
+        request.auth!.user_id,
+        reference.data,
+        input.cancelled === true,
+      ),
       'Top-up status loaded',
     );
   }
@@ -319,7 +336,7 @@ export class WalletController {
       response,
       await this.transfers.reconcile(
         request.auth!.user_id,
-        z.uuid().parse(id),
+        user_id_schema.parse(id),
         input.provider_id,
       ),
       'Payout checked against RazorpayX',
@@ -466,7 +483,7 @@ export class WalletController {
       await this.topups.admin_reconcile(
         request.auth!.user_id,
         user_id_schema.parse(id),
-        z.uuid().parse(topup_id),
+        topup_reference.parse(topup_id),
         reason,
         dispute_id,
       ),

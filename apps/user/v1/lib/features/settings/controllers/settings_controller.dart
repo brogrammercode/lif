@@ -15,6 +15,7 @@ class WalletTransaction {
   final DateTime? completedAt;
   final String? rideId;
   final String? payoutId;
+  final String? topUpId;
 
   const WalletTransaction({
     required this.reference,
@@ -28,6 +29,7 @@ class WalletTransaction {
     this.completedAt,
     this.rideId,
     this.payoutId,
+    this.topUpId,
   });
 
   bool get processing => completedAt == null;
@@ -71,12 +73,18 @@ class SettingsController extends FeatureController {
   String version = '';
   String? summaryError;
   int? walletProfilePaise;
+  bool walletProfileLoading = true;
+  String? walletProfileError;
   int _walletLoadId = 0;
 
   Future<void> refreshWalletAmount() async {
     final current = account;
     if (isDisposed || current == null) return;
     final id = ++_walletLoadId;
+    update(() {
+      walletProfileLoading = true;
+      walletProfileError = null;
+    });
     try {
       final paise = await repository.walletProfileAmount(
         driver: current.mode == AppMode.driver && current.hasDriverAccess,
@@ -84,9 +92,13 @@ class SettingsController extends FeatureController {
       if (id == _walletLoadId && identical(current, account)) {
         update(() => walletProfilePaise = paise);
       }
-    } catch (_) {
+    } catch (error) {
       if (id == _walletLoadId && identical(current, account)) {
-        update(() => walletProfilePaise = null);
+        update(() => walletProfileError = ApiResult.errorMessage(error));
+      }
+    } finally {
+      if (id == _walletLoadId && identical(current, account)) {
+        update(() => walletProfileLoading = false);
       }
     }
   }
@@ -134,6 +146,8 @@ class SettingsController extends FeatureController {
         if (this.account?.mode != account.mode ||
             this.account?.user.id != account.user.id) {
           walletProfilePaise = null;
+          walletProfileLoading = true;
+          walletProfileError = null;
         }
         this.account = account;
       });

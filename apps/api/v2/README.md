@@ -8,18 +8,19 @@ Driver vehicle verification adds private WebP document uploads, requested catalo
 
 ## Start
 
-For Vercel, use this folder as the API project's root; `vercel.json` selects NestJS. See [VERCEL_DEPLOYMENT.md](../../../context/VERCEL_DEPLOYMENT.md) for project roots, environment settings, admin API routing and platform limits. API `npm run build` now runs Prisma generation and schema push before Nest compilation; use `npm run build:compile` for compilation without database writes.
+For Vercel, use this folder as the API project's root. See [VERCEL_DEPLOYMENT.md](../../../context/VERCEL_DEPLOYMENT.md) for deployment and migrations. `npm run build` generates Prisma Client and compiles Nest. Apply schema changes separately with `npm run prisma:deploy`.
 
 Requires Node.js 24 or newer. Run from `apps/api/v2`:
 
 ```powershell
 npm ci
 npm run prisma:deploy
-npm run prisma:generate
 npm run dev
 ```
 
 The local `.env` contains the existing API configuration with `PORT=4001`. The normal base URL is **http://localhost:4001/api/v2**. Every route also accepts `/api/v1` on this server, so clients can migrate their server address before their URL version. Both prefixes invoke the same Nest controllers.
+
+`npm run dev` checks that the configured port is free, then regenerates Prisma Client and starts the watcher. Use one local watcher at a time. After changing the Prisma schema, stop the watcher, apply the migration and restart. The running API can hold the Prisma engine file open on Windows.
 
 Build and run compiled code:
 

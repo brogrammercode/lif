@@ -734,6 +734,7 @@ enum WalletTopUpStatus {
   FAILED
   REFUNDED
   REVIEW_REQUIRED
+  CANCELLED
 }
 
 enum PayoutMethodKind {
@@ -816,6 +817,9 @@ model WalletTopUp {
   reviewed_chargeback_paise BigInt @default(0)
   provider_link_id    String?           @unique
   checkout_url        String?
+  checkout_kind       String            @default("LINK")
+  provider_order_create_claimed Boolean @default(false)
+  failure_reason       String?
   provider_mode       String?
   id                  String            @id @default(uuid())
   wallet_id           String

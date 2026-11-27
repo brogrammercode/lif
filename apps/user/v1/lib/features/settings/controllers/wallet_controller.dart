@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:user/core/network/api_result.dart';
+import 'package:user/core/network/api.constant.dart';
 import 'package:user/core/network/dio_client.dart';
 import 'package:user/core/state/feature_controller.dart';
 import 'settings_controller.dart';
@@ -26,6 +27,26 @@ class WalletController extends FeatureController {
   bool checkoutBusy = false;
   String? checkoutError;
   List<WalletTopUp> topUps = const [];
+  bool topUpsLoaded = false;
+
+  Iterable<WalletTopUp> get topUpsWithoutLedgerCredit {
+    final credited = transactions.map((row) => row.topUpId).toSet();
+    return topUps.where(
+      (row) => row.status != 'CAPTURED' || !credited.contains(row.id),
+    );
+  }
+
+  Future<void> refreshHistory() async {
+    if (driver) {
+      await load();
+      return;
+    }
+    await Future.wait([load(), loadTopUps()]);
+    if (isDisposed || checkoutError != null) return;
+    final pending = topUps.where((row) => row.status == 'PENDING').firstOrNull;
+    if (pending != null) await checkTopUp(pending.id);
+  }
+
   String? _requestKey;
   int? _requestedPaise;
 
@@ -78,13 +99,18 @@ class WalletController extends FeatureController {
         topUpsEnabled = data['enabled'] == true;
         topUps = (data['rows'] as List)
             .cast<Map>()
+            .where((row) => WalletTopUp.isServerId(row['id']))
             .map(WalletTopUp.fromMap)
             .toList();
+        topUpsLoaded = true;
       });
     });
   }
 
-  Future<WalletTopUp?> startTopUp(int paise) async {
+  Future<WalletTopUp?> startTopUp(
+    int paise, {
+    required bool nativeCheckout,
+  }) async {
     if (_requestedPaise != paise || _requestKey == null) {
       final random = Random.secure();
       final bytes = List.generate(16, (_) => random.nextInt(256));
@@ -97,24 +123,56 @@ class WalletController extends FeatureController {
     }
     return _requestTopUp(
       '/wallet/topups',
-      data: {'amount_paise': paise, 'request_key': _requestKey},
+      data: {
+        'amount_paise': paise,
+        'request_key': _requestKey,
+        if (nativeCheckout) 'checkout_kind': 'SDK',
+      },
     );
   }
 
-  Future<WalletTopUp?> checkTopUp(String id) =>
-      _requestTopUp('/wallet/topups/${Uri.encodeComponent(id)}/check');
+  Future<String?> checkoutPhone() async {
+    try {
+      final data = _payload(await _client.getData(ApiConstants.AUTH_ME));
+      final phone = data['phone_e164'];
+      return phone is String && RegExp(r'^\+[1-9]\d{6,14}$').hasMatch(phone)
+          ? phone
+          : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<WalletTopUp?> checkTopUp(String id, {bool cancelled = false}) async {
+    if (!WalletTopUp.isServerId(id)) {
+      await loadTopUps();
+      update(() {
+        checkoutError ??=
+            'This top-up is unavailable. Reopen it from wallet history.';
+      });
+      return null;
+    }
+    return _requestTopUp(
+      '/wallet/topups/${Uri.encodeComponent(id)}/check',
+      data: cancelled ? {'cancelled': true} : null,
+    );
+  }
 
   Future<WalletTopUp?> _requestTopUp(String path, {Object? data}) async {
     WalletTopUp? result;
     await _checkout(() async {
-      final entry = WalletTopUp.fromMap(
-        _payload(await _client.postData(path, data: data)),
-      );
+      final row = _payload(await _client.postData(path, data: data));
+      if (!WalletTopUp.isServerId(row['id'])) {
+        throw const FormatException('Invalid wallet top-up reference.');
+      }
+      final entry = WalletTopUp.fromMap(row);
       update(() {
         result = entry;
         topUps = [entry, ...topUps.where((row) => row.id != entry.id)];
-        _requestKey = null;
-        _requestedPaise = null;
+        if (path == '/wallet/topups' || !entry.pending) {
+          _requestKey = null;
+          _requestedPaise = null;
+        }
       });
     });
     if (result?.status == 'CAPTURED') await load();
@@ -218,6 +276,7 @@ class WalletController extends FeatureController {
       completedAt: date,
       rideId: entry['ride_id'] as String?,
       payoutId: entry['payout_id'] as String?,
+      topUpId: entry['kind'] == 'TOP_UP' ? entry['topup_id'] as String? : null,
     );
   }
 
@@ -255,22 +314,33 @@ class DriverPayoutDetail {
 }
 
 class WalletTopUp {
+  static final _serverId = RegExp(r'^[A-Za-z0-9_-]{1,40}$');
+
+  static bool isServerId(Object? value) =>
+      value is String && _serverId.hasMatch(value);
+
   final String id, status;
   final int paise;
   final Uri? checkout;
+  final String? failureReason;
+  final String? checkoutKey, orderId;
   final DateTime createdAt;
 
   WalletTopUp.fromMap(Map row)
     : id = row['id'] as String,
       status = row['status'] as String,
+      failureReason = row['failure_reason'] as String?,
       paise = int.parse(row['amount_paise'] as String),
       createdAt = DateTime.parse(row['created_at'] as String),
+      checkoutKey = (row['sdk_checkout'] as Map?)?['key_id'] as String?,
+      orderId = (row['sdk_checkout'] as Map?)?['order_id'] as String?,
       checkout = Uri.tryParse(row['checkout_url'] as String? ?? '');
 
   bool get pending => status == 'CREATING' || status == 'PENDING';
   String get label => switch (status) {
     'CAPTURED' => 'Money added',
-    'FAILED' => 'Expired or cancelled',
+    'FAILED' => 'Payment failed',
+    'CANCELLED' => 'Top-up cancelled',
     'REFUNDED' => 'Refunded',
     'REVIEW_REQUIRED' => 'Under review',
     _ => 'Payment pending',

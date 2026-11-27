@@ -34,6 +34,17 @@ class UserModel {
     lastName,
   ].whereType<String>().where((value) => value.isNotEmpty).join(' ');
 
+  static double? _coordinate(Object? value, double limit) {
+    final number = switch (value) {
+      num value => value.toDouble(),
+      String value => double.tryParse(value),
+      _ => null,
+    };
+    return number != null && number.isFinite && number.abs() <= limit
+        ? number
+        : null;
+  }
+
   factory UserModel.fromJson(Map<String, dynamic> json) => UserModel(
     id: '${json['id'] ?? ''}',
     role: '${json['role'] ?? 'RIDER'}',
@@ -43,8 +54,8 @@ class UserModel {
     email: json['email'] as String?,
     phoneE164: json['phone_e164'] as String?,
     avatarUrl: json['avatar_url'] as String?,
-    lastKnownLatitude: (json['last_known_latitude'] as num?)?.toDouble(),
-    lastKnownLongitude: (json['last_known_longitude'] as num?)?.toDouble(),
+    lastKnownLatitude: _coordinate(json['last_known_latitude'], 90),
+    lastKnownLongitude: _coordinate(json['last_known_longitude'], 180),
     partnerStatus: json['partner_status'] as String?,
     partnerActivationRequired: json['partner_activation_required'] == true,
     hasPartnerExit:

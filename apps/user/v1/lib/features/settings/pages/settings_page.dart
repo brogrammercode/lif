@@ -9,6 +9,7 @@ import 'package:user/features/settings/widgets/profile_overview.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:user/features/settings/pages/wallet_page.dart';
+import 'package:user/features/settings/widgets/wallet_feedback.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:user/components/ui/app_page.dart';
@@ -285,16 +286,22 @@ class _SettingsPageState extends State<SettingsPage> {
                     if (column == 1) const SizedBox(width: 8),
                     Expanded(
                       child: [
-                        ProfileStat(
-                          icon: driver
-                              ? Icons.payments_outlined
-                              : Icons.account_balance_wallet_outlined,
-                          title: driver ? 'Total Earning' : 'Wallet',
-                          value: _controller.walletProfilePaise == null
-                              ? '—'
-                              : rideMoney(
-                                  _controller.walletProfilePaise! / 100,
-                                ),
+                        WalletErrorNotice(
+                          message: _controller.walletProfileError,
+                          child: ProfileStat(
+                            icon: driver
+                                ? Icons.payments_outlined
+                                : Icons.account_balance_wallet_outlined,
+                            title: driver ? 'Total Earning' : 'Wallet',
+                            loading:
+                                _controller.walletProfilePaise == null &&
+                                _controller.walletProfileLoading,
+                            value: _controller.walletProfilePaise == null
+                                ? 'Unavailable'
+                                : rideMoney(
+                                    _controller.walletProfilePaise! / 100,
+                                  ),
+                          ),
                         ),
                         ProfileStat(
                           icon: Icons.route_outlined,

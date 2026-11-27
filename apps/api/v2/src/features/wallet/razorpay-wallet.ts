@@ -35,8 +35,18 @@ const payment_schema = z.object({
   amount_refunded: z.number().int(),
   currency: z.string(),
   status: z.string(),
+  error_description: z.string().nullish(),
+  created_at: z.number().int().optional(),
 });
 const payment_list = z.object({ items: z.array(payment_schema) });
+const order_schema = z.object({
+  id: z.string().regex(/^order_[A-Za-z0-9]+$/),
+  receipt: z.string(),
+  amount: z.number().int().positive(),
+  amount_paid: z.number().int().nonnegative(),
+  currency: z.literal('INR'),
+  status: z.enum(['created', 'attempted', 'paid']),
+});
 
 @Injectable()
 export class RazorpayWallet {
@@ -110,6 +120,66 @@ export class RazorpayWallet {
     );
   }
 
+  order(id: string) {
+    return this.request(`/orders/${encodeURIComponent(id)}`, order_schema);
+  }
+
+  async find_order(receipt: string) {
+    const query = new URLSearchParams({ receipt, count: '2' });
+    const result = await this.request(
+      `/orders?${query}`,
+      z.object({ items: z.array(order_schema) }),
+    );
+    const matches = result.items.filter((order) => order.receipt === receipt);
+    if (matches.length > 1)
+      throw new AppError(
+        409,
+        'WALLET_ORDER_CONFLICT',
+        'Checkout needs review.',
+      );
+    return matches[0];
+  }
+
+  create_order(receipt: string, amount: number) {
+    return this.request('/orders', order_schema, {
+      receipt,
+      amount,
+      currency: 'INR',
+      partial_payment: false,
+    });
+  }
+
+  async settled_order_payment(order: z.infer<typeof order_schema>) {
+    if (order.status !== 'paid' || order.amount_paid !== order.amount)
+      return null;
+    return this.match_settled_payment(order.id, order.amount, order.currency);
+  }
+
+  async order_failure(order_id: string, amount: number, currency: string) {
+    const result = await this.order_payments(order_id);
+    const payments = result.items.filter(
+      (payment) =>
+        payment.order_id === order_id &&
+        payment.amount === amount &&
+        payment.currency === currency,
+    );
+    if (
+      !payments.length ||
+      payments.some((payment) => payment.status !== 'failed')
+    )
+      return null;
+    const latest = payments.sort(
+      (left, right) => (right.created_at ?? 0) - (left.created_at ?? 0),
+    )[0]!;
+    return {
+      reason:
+        latest.error_description
+          ?.trim()
+          .replace(/[\u0000-\u001f\u007f]/g, ' ')
+          .slice(0, 240) || undefined,
+    };
+  }
+
   payment(id: string) {
     return this.request(`/payments/${encodeURIComponent(id)}`, payment_schema);
   }
@@ -141,19 +211,35 @@ export class RazorpayWallet {
       !link.order_id
     )
       return null;
-    const result = await this.request(
-      `/orders/${encodeURIComponent(link.order_id)}/payments`,
-      payment_list,
+    return this.match_settled_payment(
+      link.order_id,
+      link.amount,
+      link.currency,
     );
+  }
+
+  private async match_settled_payment(
+    order_id: string,
+    amount: number,
+    currency: string,
+  ) {
+    const result = await this.order_payments(order_id);
     const matches = result.items.filter(
       (payment) =>
-        payment.order_id === link.order_id &&
-        payment.amount === link.amount &&
-        payment.currency === link.currency &&
+        payment.order_id === order_id &&
+        payment.amount === amount &&
+        payment.currency === currency &&
         ['captured', 'refunded'].includes(payment.status) &&
         payment.amount_refunded >= 0 &&
         payment.amount_refunded <= payment.amount,
     );
     return matches.length === 1 ? matches[0]! : null;
+  }
+
+  private order_payments(order_id: string) {
+    return this.request(
+      `/orders/${encodeURIComponent(order_id)}/payments`,
+      payment_list,
+    );
   }
 }

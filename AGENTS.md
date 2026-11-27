@@ -78,6 +78,7 @@ Read the specific implementation document before changing one of these flows. Ex
 
 - Do not commit or print `.env` contents, access/refresh tokens, SMTP/Cloudinary secrets, private documents, signing passwords, `key.properties` or keystores. `.env.example` contains placeholders and documentation only. Mobile bundled environment values are public client configuration, never server secrets.
 - Use existing schema/migration conventions. Inspect generated SQL for destructive operations. Do not run `prisma migrate reset`, destructive seeds or `db push --accept-data-loss` against shared data as a verification shortcut.
+- After a Prisma schema change, verify the target database, apply the committed migrations first with `npm run prisma:deploy`, then run `npm run prisma:push` to sync the schema and `npm run prisma:generate` to refresh the client. Use the direct database connection for hosted Prisma CLI commands. If the push reports potential data loss, stop and investigate.
 - Keep multi-record changes and the required business audit atomic. Preserve lifecycle/lock ordering and version checks. Do not retry an entered write transaction or an ambiguous commit in a way that can duplicate side effects.
 - Use isolated fixtures for tests. Do not delete users, grant admin privileges or send real notifications just to check a code change. When cleanup is requested, identify exact fixtures and preserve real accounts.
 - Keep private assets private, preserve ownership checks, sanitize document HTML, and avoid embedding user-supplied URLs in unsafe contexts.

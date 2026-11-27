@@ -10,9 +10,10 @@ import {
 } from '../../infra/database/account_lifecycle.js';
 import { PrismaService } from '../../infra/database/prisma.service.js';
 import { create_user_log } from '../../infra/database/user_log.js';
-import { RazorpayWallet, type RazorpayWalletLink } from './razorpay-wallet.js';
+import { RazorpayWallet } from './razorpay-wallet.js';
 import {
   active_topup_mode,
+  gateway_credential_mode,
   payout_schedule_lock,
   read_wallet_controls,
 } from './wallet-controls.js';
@@ -21,12 +22,38 @@ export const start_topup = z
   .object({
     amount_paise: z.number().int().min(100).max(1000000),
     request_key: z.uuid(),
+    checkout_kind: z.enum(['LINK', 'SDK']).optional(),
   })
   .strict();
+
+export const topup_reference = z.string().regex(/^[A-Za-z0-9_-]{1,40}$/);
+const reconcilable = (status: WalletTopUp['status']) =>
+  status === 'CREATING' ||
+  status === 'PENDING' ||
+  status === 'CANCELLED' ||
+  status === 'FAILED';
 
 const event_schema = z.object({
   event: z.string(),
   payload: z.object({
+    order: z
+      .object({
+        entity: z.object({
+          id: z.string().regex(/^order_[A-Za-z0-9]+$/),
+          receipt: z.string().nullish(),
+        }),
+      })
+      .optional(),
+    payment: z
+      .object({
+        entity: z.object({
+          order_id: z
+            .string()
+            .regex(/^order_[A-Za-z0-9]+$/)
+            .nullish(),
+        }),
+      })
+      .optional(),
     payment_link: z
       .object({
         entity: z.object({
@@ -154,18 +181,30 @@ export class WalletTopUps {
           amount_paise: input.amount_paise,
           request_key: input.request_key,
           provider_mode: mode,
+          checkout_kind: input.checkout_kind,
         },
       });
     });
     return present(await this.sync(row, true));
   }
 
-  async check(user_id: string, id: string) {
+  async check(user_id: string, id: string, cancelled = false) {
     const row = await this.db.client.walletTopUp.findFirst({
       where: { id, wallet: { user_id, kind: 'RIDER' } },
     });
     if (!row) throw new AppError(404, 'TOPUP_NOT_FOUND', 'Top-up not found.');
-    return present(await this.sync(row, true));
+    const synced = await this.sync(row, !cancelled);
+    if (!cancelled || !['CREATING', 'PENDING'].includes(synced.status))
+      return present(synced);
+    // A checkout dismissal closes the in-app attempt. Confirmed late
+    // captures can still reconcile the same reference through the provider.
+    await this.db.client.walletTopUp.updateMany({
+      where: { id, status: { in: ['CREATING', 'PENDING'] } },
+      data: { status: 'CANCELLED' },
+    });
+    return present(
+      await this.db.client.walletTopUp.findUniqueOrThrow({ where: { id } }),
+    );
   }
 
   async reconcile_pending(limit = 4, deadline = Infinity) {
@@ -179,6 +218,20 @@ export class WalletTopUps {
       orderBy: { updated_at: 'asc' },
       take: limit,
     });
+    if (Date.now() < deadline) {
+      rows.push(
+        ...(await this.db.client.walletTopUp.findMany({
+          where: {
+            status: { in: ['CANCELLED', 'FAILED'] },
+            provider_order_id: { not: null },
+            provider_mode: mode,
+            created_at: { gte: new Date(Date.now() - 7 * 86400000) },
+          },
+          orderBy: { updated_at: 'asc' },
+          take: Math.min(limit, 4),
+        })),
+      );
+    }
     for (
       let offset = 0;
       offset < rows.length && Date.now() < deadline;
@@ -204,7 +257,9 @@ export class WalletTopUps {
     allow_create: boolean,
     event_link_id?: string,
   ) {
-    if (!['CREATING', 'PENDING'].includes(row.status)) return row;
+    if (!reconcilable(row.status)) return row;
+    allow_create =
+      allow_create && (row.status === 'PENDING' || row.status === 'CREATING');
     const mode = this.provider.credential_mode;
     if (!mode || row.provider_mode !== mode)
       throw new AppError(
@@ -212,6 +267,9 @@ export class WalletTopUps {
         'WALLET_TOPUP_DISABLED',
         'Checkout verification is unavailable.',
       );
+    if (row.checkout_kind === 'SDK') {
+      return this.sync_order(row, allow_create, event_link_id);
+    }
     const expires = row.created_at.getTime() + link_lifetime_ms;
     const known_link = row.provider_link_id ?? event_link_id;
     let link = known_link
@@ -257,25 +315,162 @@ export class WalletTopUps {
         'Checkout could not be matched to the wallet.',
       );
     const payment = await this.provider.settled_payment(link);
+    const failure =
+      !payment && link.order_id && link.status !== 'paid'
+        ? await this.provider.order_failure(
+            link.order_id,
+            link.amount,
+            link.currency,
+          )
+        : null;
     return this.record(
       row.id,
-      link,
+      {
+        link_id: link.id,
+        checkout_url: link.short_url,
+        order_id: link.order_id,
+        terminal:
+          link.status === 'cancelled'
+            ? 'CANCELLED'
+            : link.status === 'expired' || failure
+              ? 'FAILED'
+              : undefined,
+        failure_reason:
+          failure?.reason ??
+          (link.status === 'expired' ? 'Payment link expired.' : undefined),
+      },
       payment?.id ?? null,
       Boolean(payment?.amount_refunded || payment?.status === 'refunded'),
     );
   }
 
+  private async sync_order(
+    row: WalletTopUp,
+    allow_create: boolean,
+    event_order_id?: string,
+  ) {
+    const order_id = row.provider_order_id ?? event_order_id;
+    let order = order_id
+      ? await this.provider.order(order_id)
+      : await this.provider.find_order(row.id);
+    const expired = Date.now() >= row.created_at.getTime() + link_lifetime_ms;
+    if (
+      !order &&
+      allow_create &&
+      !expired &&
+      !row.provider_order_create_claimed &&
+      (await this.claim_order_creation(row))
+    ) {
+      try {
+        order = await this.provider.create_order(
+          row.id,
+          Number(row.amount_paise),
+        );
+      } catch (error) {
+        // Recover by receipt after a lost response without repeating the write.
+        order = await this.provider.find_order(row.id);
+        if (!order) throw error;
+      }
+    }
+    if (!order) {
+      if (expired) {
+        await this.db.client.walletTopUp.updateMany({
+          where: { id: row.id, status: 'CREATING', provider_order_id: null },
+          data: { status: 'FAILED' },
+        });
+      }
+      return this.db.client.walletTopUp.findUniqueOrThrow({
+        where: { id: row.id },
+      });
+    }
+    if (order.receipt !== row.id || BigInt(order.amount) !== row.amount_paise)
+      throw new AppError(
+        409,
+        'TOPUP_ORDER_MISMATCH',
+        'Checkout could not be matched to the wallet.',
+      );
+    const payment = await this.provider.settled_order_payment(order);
+    const failure =
+      order.status === 'attempted' && !payment
+        ? await this.provider.order_failure(
+            order.id,
+            order.amount,
+            order.currency,
+          )
+        : null;
+    return this.record(
+      row.id,
+      {
+        order_id: order.id,
+        terminal: failure ? 'FAILED' : undefined,
+        failure_reason: failure?.reason,
+      },
+      payment?.id ?? null,
+      Boolean(payment?.amount_refunded || payment?.status === 'refunded'),
+    );
+  }
+
+  private async claim_order_creation(row: WalletTopUp) {
+    return this.db.client.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${payout_schedule_lock}::int)`;
+      if (
+        active_topup_mode(
+          await read_wallet_controls(tx),
+          this.provider.credential_mode,
+        ) !== row.provider_mode ||
+        !row.provider_mode
+      )
+        return false;
+      const claimed = await tx.walletTopUp.updateMany({
+        where: {
+          id: row.id,
+          status: 'CREATING',
+          provider_order_id: null,
+          provider_order_create_claimed: false,
+        },
+        data: { provider_order_create_claimed: true },
+      });
+      return claimed.count === 1;
+    });
+  }
+
   private record(
     id: string,
-    link: RazorpayWalletLink,
+    checkout: {
+      link_id?: string;
+      checkout_url?: string;
+      order_id?: string | null;
+      terminal?: 'FAILED' | 'CANCELLED';
+      failure_reason?: string;
+    },
     captured: string | null,
     refunded: boolean,
   ) {
     return this.db.client.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lock_topup}::int, hashtext(${id}))`;
       const row = await tx.walletTopUp.findUniqueOrThrow({ where: { id } });
-      if (!['CREATING', 'PENDING'].includes(row.status)) return row;
-      if (row.provider_link_id && row.provider_link_id !== link.id)
+      if (!reconcilable(row.status)) return row;
+      if (
+        !captured &&
+        (row.status === 'FAILED' ||
+          (row.status === 'CANCELLED' && checkout.terminal !== 'FAILED'))
+      ) {
+        if (
+          checkout.failure_reason &&
+          checkout.failure_reason !== row.failure_reason
+        )
+          return tx.walletTopUp.update({
+            where: { id },
+            data: { failure_reason: checkout.failure_reason },
+          });
+        return row;
+      }
+      if (
+        (row.provider_link_id && row.provider_link_id !== checkout.link_id) ||
+        (row.provider_order_id &&
+          checkout.order_id &&
+          row.provider_order_id !== checkout.order_id)
+      )
         throw new AppError(
           409,
           'TOPUP_LINK_MISMATCH',
@@ -314,17 +509,16 @@ export class WalletTopUps {
       return tx.walletTopUp.update({
         where: { id },
         data: {
-          provider_link_id: link.id,
-          checkout_url: link.short_url,
-          provider_order_id: link.order_id ?? undefined,
+          provider_link_id: checkout.link_id,
+          checkout_url: checkout.checkout_url,
+          provider_order_id: checkout.order_id ?? undefined,
           provider_payment_id: captured ?? undefined,
+          failure_reason: captured ? null : checkout.failure_reason,
           status: captured
             ? review
               ? 'REVIEW_REQUIRED'
               : 'CAPTURED'
-            : ['expired', 'cancelled'].includes(link.status)
-              ? 'FAILED'
-              : 'PENDING',
+            : (checkout.terminal ?? 'PENDING'),
         },
       });
     });
@@ -363,13 +557,31 @@ export class WalletTopUps {
     const link = input.payload.payment_link?.entity;
     if (
       link?.reference_id &&
-      z.uuid().safeParse(link.reference_id).success &&
+      topup_reference.safeParse(link.reference_id).success &&
       /^payment_link\.(paid|expired|cancelled)$/.test(input.event)
     ) {
       const row = await this.db.client.walletTopUp.findUnique({
         where: { id: link.reference_id },
       });
-      if (row) await this.sync(row, false, link.id);
+      if (row && row.checkout_kind !== 'SDK') {
+        const synced = await this.sync(row, false, link.id);
+        if (input.event === 'payment_link.paid' && reconcilable(synced.status))
+          throw capture_pending();
+      }
+    }
+    const order = input.payload.order?.entity;
+    if (
+      input.event === 'order.paid' &&
+      order &&
+      topup_reference.safeParse(order.receipt).success
+    ) {
+      const row = await this.db.client.walletTopUp.findUnique({
+        where: { id: order.receipt! },
+      });
+      if (row?.checkout_kind === 'SDK') {
+        const synced = await this.sync(row, false, order.id);
+        if (reconcilable(synced.status)) throw capture_pending();
+      }
     }
     const payment_id =
       input.event === 'refund.processed'
@@ -377,6 +589,19 @@ export class WalletTopUps {
         : input.event === 'payment.dispute.created'
           ? input.payload.dispute?.entity.payment_id
           : null;
+    if (
+      ['payment.failed', 'payment.captured'].includes(input.event) &&
+      input.payload.payment?.entity.order_id
+    ) {
+      const row = await this.db.client.walletTopUp.findUnique({
+        where: { provider_order_id: input.payload.payment.entity.order_id },
+      });
+      if (row) {
+        const synced = await this.sync(row, false);
+        if (input.event === 'payment.captured' && reconcilable(synced.status))
+          throw capture_pending();
+      }
+    }
     if (payment_id) {
       await this.flag_review(
         payment_id,
@@ -685,12 +910,37 @@ export class WalletTopUps {
 }
 
 function present(row: WalletTopUp) {
+  const sdk_ready =
+    row.status === 'PENDING' &&
+    row.checkout_kind === 'SDK' &&
+    row.provider_order_id &&
+    row.provider_mode === gateway_credential_mode();
   return {
     id: row.id,
     amount_paise: String(row.amount_paise),
     status: row.status,
-    checkout_url: row.status === 'PENDING' ? row.checkout_url : null,
+    ...(row.failure_reason && row.status === 'FAILED'
+      ? { failure_reason: row.failure_reason }
+      : {}),
+    ...(row.status === 'PENDING' && row.checkout_url
+      ? { checkout_url: row.checkout_url }
+      : {}),
+    ...(sdk_ready
+      ? {
+          sdk_checkout: {
+            key_id: config.RAZORPAY_WALLET_KEY_ID,
+            order_id: row.provider_order_id,
+          },
+        }
+      : {}),
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
 }
+
+const capture_pending = () =>
+  new AppError(
+    503,
+    'TOPUP_CAPTURE_PENDING',
+    'Razorpay capture is still being verified.',
+  );
