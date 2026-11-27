@@ -281,6 +281,44 @@ void main() {
     },
   );
   testWidgets(
+    'pasted maps pin replaces search text and keeps its exact coordinates',
+    (tester) async {
+      viewport(tester, const Size(390, 844));
+      final repo = PlaceFixture();
+      PlaceMap? map;
+      await tester.pumpWidget(
+        glass.shell(
+          PlacePickerPage(
+            repository: repo,
+            mapBuilder: (value) {
+              map = value;
+              return fakeMap(value);
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final field = find.descendant(
+        of: find.byKey(const ValueKey('place-picker-search')),
+        matching: find.byType(TextFormField),
+      );
+      await tester.enterText(
+        field,
+        'https://maps.google.com/?q=25.247369,86.979143',
+      );
+      await tester.pump(const Duration(milliseconds: 240));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextFormField>(field).controller?.text,
+        'River Cafe, Bhagalpur',
+      );
+      expect(map?.target?.latitude, 25.247369);
+      expect(map?.target?.longitude, closeTo(86.979143, 1e-10));
+      expect(find.text('Continue'), findsOneWidget);
+      expect(repo.inputs, isEmpty);
+    },
+  );
+  testWidgets(
     'map picker uses selected coordinates and saves only on final submit',
     (tester) async {
       viewport(tester, const Size(390, 844));

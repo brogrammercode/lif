@@ -2,6 +2,7 @@ import 'package:user/components/ui/app_error_snackbar.dart';
 import 'package:user/core/state/data_source_scope.dart';
 import 'package:user/features/demos/widgets/demo_launcher.dart';
 import 'package:user/features/home/controllers/home_controller.dart';
+import 'package:user/features/user_app/location_search.dart';
 import 'package:user/components/ui/solid_ui.dart';
 import 'package:user/components/ui/location_access_sheet.dart';
 import 'package:user/features/rides/pages/vehicle_selection_page.dart';
@@ -589,9 +590,14 @@ class HomePageState extends State<HomePage>
     }
     if (query.length < 3) return;
 
-    _debounce = Timer(const Duration(milliseconds: 450), () {
-      _fetchSuggestions(query, field, generation);
-    });
+    _debounce = Timer(
+      LocationSearch.recognizes(query)
+          ? const Duration(milliseconds: 180)
+          : const Duration(milliseconds: 450),
+      () {
+        _fetchSuggestions(query, field, generation);
+      },
+    );
   }
 
   TextEditingController _searchControllerFor(SearchField field) =>
@@ -605,17 +611,32 @@ class HomePageState extends State<HomePage>
     if (generation != _searchGeneration || _activeField != field) return;
     if (mounted) setState(() => _isFetchingSuggestions = true);
     try {
-      final data = await _controller.search(query);
+      final pasted = await _controller.repository.resolveLocation(
+        query,
+        pickup: field == SearchField.from,
+        expandShortLinks: !_controller.simulated,
+      );
+      final place = pasted?.place;
+      final data = place == null
+          ? await _controller.search(pasted?.query ?? query)
+          : const <Map<String, dynamic>>[];
       if (!mounted ||
           generation != _searchGeneration ||
           _activeField != field ||
           _searchControllerFor(field).text.trim() != query) {
         return;
       }
-      _holdOrShowSuggestions(data, query, field);
+      if (place != null) {
+        _onSuggestionSelected(place, exact: true);
+      } else {
+        _holdOrShowSuggestions(data, query, field);
+      }
     } catch (e) {
       if (mounted && generation == _searchGeneration) {
         setState(() => _isFetchingSuggestions = false);
+        if (LocationSearch.recognizes(query)) {
+          showAppError(context, ApiResult.errorMessage(e));
+        }
       }
     }
   }
@@ -1019,7 +1040,7 @@ class HomePageState extends State<HomePage>
     }
   }
 
-  void _onSuggestionSelected(dynamic suggestion) {
+  void _onSuggestionSelected(dynamic suggestion, {bool exact = false}) {
     _debounce?.cancel();
     _routeSettleTimer?.cancel();
     _routeRequestGeneration++;
@@ -1030,8 +1051,10 @@ class HomePageState extends State<HomePage>
     final field = _isLocationSelection
         ? (_selectionEditsPickup ? SearchField.from : SearchField.to)
         : _activeField;
-    final displayName = suggestion['display_name'] ?? '';
-    final shortName = displayName.split(',').first;
+    final displayName = '${suggestion['display_name'] ?? ''}';
+    final shortName = exact
+        ? displayName.substring(0, math.min(displayName.length, 300))
+        : displayName.split(',').first;
 
     final lat = _coordinateValue(suggestion['lat']);
     final lon = _coordinateValue(suggestion['lon']);
@@ -1047,6 +1070,7 @@ class HomePageState extends State<HomePage>
 
     setState(() {
       _suggestions = [];
+      _isFetchingSuggestions = false;
       _invalidateRouteChoice();
       _isMapDragging = false;
       _mapPickField = _isLocationSelection ? field : null;
@@ -1181,8 +1205,11 @@ class HomePageState extends State<HomePage>
     _pendingMapCenter = position.target;
     _routeRequestGeneration++;
     if (!_isMapDragging && mounted) {
+      _debounce?.cancel();
+      _searchGeneration++;
       setState(() {
         _isMapDragging = true;
+        _isFetchingSuggestions = false;
         _invalidateRouteChoice();
         if (pickField == SearchField.from) {
           _hasPickupLocation = false;
@@ -1452,7 +1479,9 @@ class HomePageState extends State<HomePage>
                       child: SolidButton(
                         onPressed: _resumeActive,
                         icon: const Icon(Icons.directions_car_outlined),
-                        text: 'Resume your active trip',
+                        text: _activeRide?['status'] == 'COMPLETED'
+                            ? 'Resume ride payment'
+                            : 'Resume your active trip',
                       ),
                     ),
 
@@ -1709,18 +1738,9 @@ class HomePageState extends State<HomePage>
                         () => _chooseLocations(),
                       ),
                     ],
-                    if (_routeError != null)
-                      AppErrorNotice(
-                        message: _routeError,
-                        child: TextButton(
-                          onPressed: _isFetchingRoute ? null : _fetchRoute,
-                          child: const Text('Retry route'),
-                        ),
-                      ),
-                    if (_isFetchingRoute)
-                      const Text(
-                        'Checking route…',
-                        style: TextStyle(color: RideTokens.muted),
+                    if (_isFetchingRoute || _routeError != null)
+                      RideRouteUpdate(
+                        onRetry: _isFetchingRoute ? null : _fetchRoute,
                       ),
                     if (_isLocationSelection && selectionReady) ...[
                       const SizedBox(height: 20),

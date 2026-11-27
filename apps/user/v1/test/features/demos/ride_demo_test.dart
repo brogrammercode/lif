@@ -155,6 +155,49 @@ void main() {
     },
   );
   testWidgets(
+    'ride pickup and drop-off replace pasted locations before confirmation',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        ScreenUtilInit(
+          designSize: const Size(390, 844),
+          builder: (_, _) => MaterialApp(
+            home: RideDemoHost(
+              mapBuilder: (_) => const ColoredBox(color: Colors.grey),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      for (final (endpoint, input, confirmation) in [
+        ('Pickup', '25.247369, 86.979143', 'Confirm pickup'),
+        (
+          'Drop-off',
+          'https://www.google.com/maps/place/25.258,87.014',
+          'Confirm drop-off',
+        ),
+      ]) {
+        await tester.tap(find.text(endpoint));
+        await tester.pumpAndSettle();
+        final field = find.byType(TextField).hitTestable();
+        await tester.enterText(field, input);
+        await tester.pump(const Duration(milliseconds: 200));
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<TextField>(field).controller?.text,
+          'Selected demo location, Bhagalpur',
+        );
+        await tester.tap(find.text(confirmation));
+        await tester.pumpAndSettle();
+        expect(find.text(confirmation), findsNothing);
+      }
+    },
+  );
+  testWidgets(
     'demo hosts the production pages and stage controls without a second flow UI',
     (tester) async {
       tester.view.physicalSize = const Size(390, 844);

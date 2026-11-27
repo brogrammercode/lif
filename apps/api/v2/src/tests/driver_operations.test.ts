@@ -1236,6 +1236,59 @@ it('rider snapshots disclose timestamped location only during their active trip'
   );
 });
 
+it('recovers unpaid completed trips in rider and driver home without replacing live trips', async () => {
+  const queries: Prisma.RideFindFirstArgs[] = [];
+  const db = new PrismaService();
+  const ride = {
+    findFirst: async (query: Prisma.RideFindFirstArgs) => {
+      queries.push(query);
+      return { id: 'ride', status: 'COMPLETED' };
+    },
+  };
+  Object.defineProperty(db, 'client', {
+    value: {
+      ride,
+      $transaction: async (action: (tx: unknown) => unknown) =>
+        action({
+          ride,
+          user: { findUniqueOrThrow: async () => ({ role: 'DRIVER' }) },
+        }),
+    },
+  });
+  const service = new TravelContextService(db);
+  const context = await service.context('account');
+  assert.equal(context.active_rider_ride?.id, 'ride');
+  assert.equal(context.active_driver_ride?.id, 'ride');
+  assert.equal((await service.current('account'))?.id, 'ride');
+  assert.equal(queries[0]?.where?.rider_id, 'account');
+  for (const query of queries.slice(1)) {
+    assert.deepEqual(query.where?.driver, { user_id: 'account' });
+  }
+  for (const query of queries) {
+    const [active, unpaid] = query.where!.OR!;
+    assert.ok(JSON.stringify(active).includes('IN_PROGRESS'));
+    assert.equal(unpaid?.status, 'COMPLETED');
+    assert.deepEqual(unpaid?.OR, [
+      { payment: { is: null } },
+      {
+        payment: {
+          is: {
+            status: {
+              in: ['PENDING', 'REQUIRES_ACTION', 'AUTHORIZED', 'FAILED'],
+            },
+          },
+        },
+      },
+    ]);
+    assert.deepEqual(
+      (query.orderBy as Prisma.RideOrderByWithRelationInput[])[0],
+      {
+        completed_at: { sort: 'asc', nulls: 'first' },
+      },
+    );
+  }
+});
+
 it('rider history scopes both rows and counts to the rider and excludes unbooked drafts', async () => {
   const calls: {
     where: unknown;

@@ -10,6 +10,7 @@ import 'package:user/features/saved_places/pages/place_picker_page.dart';
 import 'package:user/features/saved_places/pages/place_detail_page.dart';
 import 'package:user/features/saved_places/widgets/place_components.dart';
 import 'package:user/features/saved_places/widgets/place_map.dart';
+import 'package:user/features/user_app/location_search.dart';
 
 class SavedPlacesPage extends StatefulWidget {
   final PlacesRepository? repository;
@@ -111,6 +112,47 @@ class _SavedPlacesState extends State<SavedPlacesPage>
 
   void _find(String query) {
     _debounce?.cancel();
+    final generation = ++_controller.locationSearchGeneration;
+    if (LocationSearch.recognizes(query)) {
+      _debounce = Timer(const Duration(milliseconds: 180), () {
+        unawaited(_previewPastedLocation(query, generation));
+      });
+      return;
+    }
+    _filterPlaces(query);
+  }
+
+  Future<void> _previewPastedLocation(String query, int generation) async {
+    try {
+      final pasted = await _repo.resolveLocation(query);
+      if (!mounted ||
+          generation != _controller.locationSearchGeneration ||
+          ModalRoute.isCurrentOf(context) != true) {
+        return;
+      }
+      if (pasted?.place case final place?) {
+        final address = '${place['display_name']}';
+        setState(() => _search.text = address);
+        FocusScope.of(context).unfocus();
+        await _add({
+          'latitude': place['lat'],
+          'longitude': place['lon'],
+          'address': address,
+          'name': place['name'] ?? address.split(',').first,
+        });
+        if (mounted && _search.text == address) _filterPlaces(address);
+      } else if (pasted?.query case final name?) {
+        _search.text = name;
+        _filterPlaces(name);
+      }
+    } catch (error) {
+      if (mounted && generation == _controller.locationSearchGeneration) {
+        showAppError(context, ApiResult.errorMessage(error));
+      }
+    }
+  }
+
+  void _filterPlaces(String query) {
     _query = query.trim();
     _page = 1;
     setState(() {

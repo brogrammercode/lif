@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:user/features/rides/ride_display.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
+import 'package:user/features/user_app/location_search.dart';
 
 class SavedPlaceEditor extends StatefulWidget {
   final Map<String, dynamic>? initial;
@@ -73,13 +74,30 @@ class _PlaceEditorState extends State<SavedPlaceEditor> {
     });
     if (value.trim().length < 3) return;
     _debounce = Timer(
-      const Duration(seconds: 3),
+      LocationSearch.recognizes(value)
+          ? const Duration(milliseconds: 180)
+          : const Duration(seconds: 3),
       () => _search(value.trim(), generation),
     );
   }
 
-  Future<void> _search(String query, int generation) =>
-      _controller.search(query, generation);
+  Future<void> _search(String query, int generation) async {
+    final place = await _controller.search(query, generation);
+    if (mounted && generation == _generation && place != null) _choose(place);
+  }
+
+  void _choose(Map<String, dynamic> place) {
+    _debounce?.cancel();
+    _generation++;
+    final name = '${place['display_name']}'.trim();
+    setState(() {
+      _selected = ridePoint(place['lat'], place['lon']);
+      _address.text = name.length > 300 ? name.substring(0, 300) : name;
+      _results = [];
+      _searching = false;
+    });
+    FocusScope.of(context).unfocus();
+  }
 
   @override
   void dispose() {
@@ -125,7 +143,6 @@ class _PlaceEditorState extends State<SavedPlaceEditor> {
             const SizedBox(height: 16),
             TextFormField(
               controller: _address,
-              maxLength: 300,
               decoration: const InputDecoration(
                 labelText: 'Search address',
                 helperText:
@@ -174,20 +191,7 @@ class _PlaceEditorState extends State<SavedPlaceEditor> {
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          onTap: () {
-                            _debounce?.cancel();
-                            _generation++;
-                            final name = '${place['display_name']}'.trim();
-                            setState(() {
-                              _selected = ridePoint(place['lat'], place['lon']);
-                              _address.text = name.length > 300
-                                  ? name.substring(0, 300)
-                                  : name;
-                              _results = [];
-                              _searching = false;
-                            });
-                            FocusScope.of(context).unfocus();
-                          },
+                          onTap: () => _choose(place),
                         ),
                       ),
                     );

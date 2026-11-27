@@ -153,21 +153,21 @@ adb install -r build/app/outputs/flutter-apk/app-release.apk
 
 ### Publish a Dart fix to an existing release
 
-Use the target release's original environment/build settings. Shorebird currently lists Android base `0.1.14+14` as active. Set both build values to that installed base when creating a patch:
+Use the target release's original environment and build settings. Set both build values to the installed base when creating a patch.
 
 ```powershell
-shorebird patch android --release-version 0.1.14+14 --build-name 0.1.14 --build-number 14 --track staging
+shorebird patch android --release-version 0.1.19+19 --build-name 0.1.19 --build-number 19 --track staging
 ```
 
 This publishes to installed users of that release. Use the actual released version in all three version arguments. A Dart-only patch keeps the installed base version unchanged and receives its own Shorebird patch number; bumping `pubspec.yaml` does not upgrade installed APK metadata. Changes to native plugins, Gradle, permissions, assets (including `.env`), or Flutter itself need a new base release and APK. Follow [Shorebird patch guidance](https://docs.shorebird.dev/code-push/patch/).
 
-The project version is now `0.1.5+5`, incrementing the version and build once from `0.1.4+4` for the new base APK release. Devices still running `0.1.3+3` must install the new APK to receive this new base and its assets; a patch cannot change an installed APK's Android version name/code.
+The location search change bumps the source version and build to `0.1.20+20`. Patch 1 targets the installed Android base `0.1.19+19`.
 
-When a patch depends on new API behavior, publish it to `--track staging` first, deploy the matching API V2 changes, and verify those routes before promoting it with `shorebird patches set-track --release-version 0.1.14+14 --patch-number <number> --track stable`.
+When a patch depends on new API behavior, publish it to `--track staging` first, deploy the matching API V2 changes, and verify those routes before promoting it with `shorebird patches set-track --release-version 0.1.19+19 --patch-number <number> --track stable`.
 
 ### Published updates
 
-**Latest Android base: `0.1.14+14`, published on 24 November 2026.** Shorebird release `1008988` is active for Android and uses Flutter `3.47.7` (revision `5bef02a16146a0effc07da4acccaafe90a2739ce`).
+**Latest Android base `0.1.19+19`**, published on 27 November 2026 as Shorebird release `1019734` using Flutter `3.47.7`. Stable patch `1` (ID `850029`) adds pasted map links and coordinates to ride and Saved Places search. Shorebird lists the patch as stable. Device verification is pending.
 
 The earlier Android base `0.1.5+5` was published on 30 October 2026. Shorebird release `939190` was built from source commit `f6f41a1` and includes the liquid-glass mobile rework and updated assets. Its APK version, signing identity, production API configuration and three Android architectures were verified.
 

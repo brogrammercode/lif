@@ -194,8 +194,11 @@ class RiderTripController extends FeatureController {
       routeData = null;
       remainingPoints = [];
     }
-    routing = true;
-    lastRouteRequest = DateTime.now();
+    update(() {
+      routing = true;
+      routeError = null;
+      lastRouteRequest = DateTime.now();
+    });
     try {
       final route = await ops.riderRoute(id!);
       if (isDisposed ||
@@ -218,15 +221,13 @@ class RiderTripController extends FeatureController {
         routeError = null;
       });
     } catch (e) {
-      if (!isDisposed) {
-        update(() {
-          routeError = ApiResult.errorMessage(e);
-          routeData = null;
-          remainingPoints = [];
-        });
+      if (!isDisposed &&
+          needsRoute &&
+          (status == 'IN_PROGRESS' ? 'DROPOFF' : 'PICKUP') == target) {
+        update(() => routeError = ApiResult.errorMessage(e));
       }
     } finally {
-      routing = false;
+      if (!isDisposed) update(() => routing = false);
       if (!isDisposed &&
           needsRoute &&
           (status == 'IN_PROGRESS' ? 'DROPOFF' : 'PICKUP') != target) {

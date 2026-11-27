@@ -24,10 +24,23 @@ import {
 } from '../features/wallet/wallet-controls.js';
 import { WalletTopUps } from '../features/wallet/wallet-topups.js';
 import { RideUpi } from '../features/wallet/ride-upi.js';
+import { ride_commission } from '../features/wallet/cash-ride-entry.js';
 import {
   RazorpayWallet,
   type RazorpayWalletLink,
 } from '../features/wallet/razorpay-wallet.js';
+
+it('charges one paise when positive commission rounds below one paise', () => {
+  const commission = (amount: bigint, percent: number) =>
+    ride_commission(amount, {
+      payment_policy: { commission_percent: percent },
+    });
+  assert.deepEqual(commission(181n, 0.2), { percent: 0.2, commission: 1n });
+  assert.equal(commission(181n, 20).commission, 36n);
+  assert.equal(commission(181n, 0).commission, 0n);
+  assert.equal(commission(0n, 20).commission, 0n);
+  assert.equal(commission(1n, 100).commission, 1n);
+});
 
 it('saves a bank-linked debit card before credentials are available and links it later', async (t) => {
   const input = {

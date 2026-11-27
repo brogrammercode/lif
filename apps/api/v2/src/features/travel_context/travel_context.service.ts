@@ -7,6 +7,10 @@ import {
   rider_vehicle_select,
 } from '../ride/ride.presentation.js';
 import type { RiderHistoryFilters } from './travel_context.type.js';
+import {
+  resumable_ride_order,
+  ride_payment_pending,
+} from '../ride/ride_payment_pending.js';
 
 export const RIDER_ACTIVE_STATUSES: RideStatus[] = [
   'REQUESTED',
@@ -98,17 +102,26 @@ export class TravelContextService {
         });
         const [rider_ride, driver_trip] = await Promise.all([
           tx.ride.findFirst({
-            where: { rider_id: user_id, status: { in: RIDER_ACTIVE_STATUSES } },
+            where: {
+              rider_id: user_id,
+              OR: [
+                { status: { in: RIDER_ACTIVE_STATUSES } },
+                ride_payment_pending,
+              ],
+            },
             select: summary,
-            orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
+            orderBy: resumable_ride_order,
           }),
           tx.ride.findFirst({
             where: {
               driver: { user_id },
-              status: { in: DRIVER_ACTIVE_STATUSES },
+              OR: [
+                { status: { in: DRIVER_ACTIVE_STATUSES } },
+                ride_payment_pending,
+              ],
             },
             select: summary,
-            orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
+            orderBy: resumable_ride_order,
           }),
         ]);
         const driver_access =
@@ -133,9 +146,12 @@ export class TravelContextService {
   }
   async current(user_id: string) {
     return this.database.client.ride.findFirst({
-      where: { driver: { user_id }, status: { in: DRIVER_ACTIVE_STATUSES } },
+      where: {
+        driver: { user_id },
+        OR: [{ status: { in: DRIVER_ACTIVE_STATUSES } }, ride_payment_pending],
+      },
       select: driver_ride,
-      orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
+      orderBy: resumable_ride_order,
     });
   }
   async rider_history(

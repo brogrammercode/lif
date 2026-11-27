@@ -117,6 +117,8 @@ Never show Top Rated Driver, trophies, unread-message badges, exact ETAs or phot
 
 Vehicle Continue submits directly into matching. Do not restore a compulsory review detour. Preserve the distinction between a nearby preview and an accepted driver. Pre-booking identity/locations remain limited to the approved public projection.
 
+Trip QR uses the shared black-header, white-body sheet. Driver scanning uses the shared page frame with a bounded camera area and manual trip code available on return. While routes recalculate, show inline progress and keep the last route for the same destination. If loading fails, offer an inline retry. Cancelled ride cards and details omit fare fields while any separate cancellation review remains available.
+
 ## Maps
 
 Retain MapLibre and the existing configured free map source. Do not change provider to imitate foreign map labels. Use blue route strokes, black/white endpoint markers and a small top-down vehicle marker. Attributions stay visible above overlays. Never fabricate traffic, driver motion, nearby vehicles or route progress.
@@ -158,6 +160,13 @@ Home's Demo sheet is backed by DemoRegistryController. RideDemoController suppli
 Home's compact `PlaceCard(compact: true)` carousel floats above, and outside, the route panel. It includes only the signed-in account's personal saved places and shared places that account bookmarked; never render the global community feed in Home. Keep the map visible between independent cards; do not put the place carousel inside the white route-entry surface. Show a full-bleed place photo behind a compact tilted white information tile with saved-place name, address, category and an actual rating only when one exists.
 
 The Saved Places page uses a full-screen map with a floating destination search field and filter control, coordinate-anchored place markers, a compact selected-photo card carousel, a map/list toggle and a simple place-count footer. Keep the map as the dominant canvas. The add/edit place flow uses the shared solid name/address fields, place-type selector, and shared image upload widget; show selected photos as compact previews. Keep the form limited to place name, address, type and photos while preserving existing optional metadata during edits.
+
+### Pasted locations
+
+- [x] The shared location search resolves coordinates and Google Maps share links in ride pickup, ride drop-off, and Saved Places search and address editing, using the existing fields. Saved Places destination search opens the existing map picker for an exact pin.
+- [x] Keep the original coordinates when reverse geocoding supplies a display address. If the address is unavailable, display the coordinates. Links with only a place name reuse suggestions. Keep the existing confirmation before selecting or saving a location.
+- [x] Verify coordinate formats, map pin priority, short-link redirect handling, ride pickup and drop-off confirmation, and the Saved Places map picker with focused Flutter tests.
+- [ ] Verify location pasting and patch delivery on a connected Android device.
 
 Place details use the shared solid page header and surfaces. Keep one compact summary, photo gallery, two primary place actions, and a clean review list. Put less frequent contact, sharing, copying and owner actions in one solid options sheet; avoid repeating the same action in multiple sections.
 

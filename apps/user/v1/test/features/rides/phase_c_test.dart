@@ -378,10 +378,13 @@ void main() {
         ride: 'ride',
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Updating route…'), findsWidgets);
     repo.status = 'IN_PROGRESS';
     await tester.tap(find.byTooltip('Refresh ride'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
     expect(find.textContaining('to drop-off'), findsNothing);
     expect(find.textContaining('to pickup'), findsNothing);
     repo.pendingRoute = null;

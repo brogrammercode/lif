@@ -247,9 +247,10 @@ class _RiderTripState extends State<RideDetailPage>
       if (!mounted || start['rider_confirmed'] != true) return;
     }
 
-    await showDialog<void>(
+    await showModalBottomSheet<void>(
       context: context,
-      barrierDismissible: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (_) => TripStartQrSheet(code: '${start['code']}'),
     );
   }
@@ -868,6 +869,8 @@ class _RiderTripState extends State<RideDetailPage>
     }
     final estimate = _controller.routeFresh && _controller.locationFresh
         ? '${rideDuration(_controller.routeData?['duration_s'])} ${_controller.status == 'IN_PROGRESS' ? 'to drop-off' : 'to pickup'} · ${rideDistance(_controller.routeData?['distance_m'])} remaining'
+        : _controller.routing
+        ? 'Updating route…'
         : 'A current route estimate is unavailable';
     final waitingForTripStart = _controller.status == 'DRIVER_WAITING';
     final start = rideMap(_controller.data!['start']);
@@ -926,7 +929,14 @@ class _RiderTripState extends State<RideDetailPage>
         onSafety: _safety,
         onRefresh: _load,
         onShowTripQr: _showTripStartQr,
-        error: _controller.error ?? _controller.routeError,
+        error: _controller.error,
+        routing: _controller.routing && _controller.needsRoute,
+        onRetryRoute:
+            _controller.routeError != null &&
+                _controller.needsRoute &&
+                _controller.locationFresh
+            ? () => _refreshRoute(force: true)
+            : null,
         busy: _controller.busy,
         locationFresh: _controller.locationFresh,
         remainingDistance: _controller.routeFresh && _controller.locationFresh
@@ -1119,19 +1129,19 @@ class _RiderTripState extends State<RideDetailPage>
                     ),
                   ),
                 if (_controller.needsRoute &&
+                    !_controller.routing &&
                     (!_controller.routeFresh || !_controller.locationFresh))
                   const Text(
                     'A current route estimate is unavailable. Contact the driver or Support if needed.',
                   ),
-                if (_controller.routeError != null && _controller.needsRoute)
-                  TextButton(
-                    onPressed: _controller.routing
+                if (_controller.needsRoute &&
+                    (_controller.routing ||
+                        _controller.routeError != null &&
+                            _controller.locationFresh))
+                  RideRouteUpdate(
+                    onRetry: _controller.routing
                         ? null
                         : () => _refreshRoute(force: true),
-                    child: AppErrorNotice(
-                      message: _controller.routeError,
-                      child: const Text('Retry route'),
-                    ),
                   ),
                 if (driverPoint != null)
                   Text(
@@ -1159,12 +1169,14 @@ class _RiderTripState extends State<RideDetailPage>
         const SizedBox(height: 12),
         RideTripFacts(_controller.trip),
         const SizedBox(height: 14),
-        RideCostDetails(
-          trip: _controller.trip,
-          payment: payment,
-          review: rideMap(_controller.data!['review']),
-        ),
-        const SizedBox(height: 14),
+        if (_controller.status != 'CANCELLED') ...[
+          RideCostDetails(
+            trip: _controller.trip,
+            payment: payment,
+            review: rideMap(_controller.data!['review']),
+          ),
+          const SizedBox(height: 14),
+        ],
         if (needsActions &&
             ([
                   'DRIVER_ASSIGNED',

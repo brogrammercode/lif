@@ -1,5 +1,6 @@
 import 'package:user/core/network/dio_client.dart';
 import 'package:user/core/network/api_result.dart';
+import 'package:user/core/network/checkout_phone.dart' as checkout;
 
 class DriverOperationsRepository {
   final DioClient _client;
@@ -30,6 +31,7 @@ class DriverOperationsRepository {
       _map(await _client.getData('/driver/operations'));
   Future<Map<String, dynamic>> context(String id) async =>
       _map(await _client.getData('${_trip(id)}/context'));
+  Future<String?> checkoutPhone() => checkout.checkoutPhone(_client);
   Future<Map<String, dynamic>> riderRoute(String id) async =>
       _map(await _client.getData('${_trip(id)}/rider-route'));
   Future<void> availability(bool online) async {

@@ -1,6 +1,7 @@
 import 'package:user/core/network/api.constant.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/core/network/dio_client.dart';
+import 'package:user/features/user_app/location_search.dart';
 
 class UserAppRepository {
   final DioClient _client;
@@ -286,6 +287,14 @@ class UserAppRepository {
         '${ApiConstants.SUPPORT_TICKETS}/$id/messages',
         data: {'body': body},
       );
+  Future<LocationSearchResult?> resolveLocation(
+    String text, {
+    bool pickup = false,
+    bool expandShortLinks = true,
+  }) => LocationSearch(
+    redirect: expandShortLinks ? null : (_) async => null,
+  ).resolve(text, reverse: reversePlace, pickup: pickup);
+
   Future<List<Map<String, dynamic>>> searchPlaces(String query) async =>
       List<Map<String, dynamic>>.from(
         (_data(

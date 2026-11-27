@@ -72,7 +72,7 @@ class RideHistoryRoute extends StatelessWidget {
         title: '${ride['pickup_address'] ?? ''}'.trim(),
         subtitle: 'Pickup point',
         fallback: 'Pickup unavailable',
-        fact: fareFact,
+        fact: fare.status == 'CANCELLED' ? null : fareFact,
       ),
       secondRow: HistoryTimelineRow(
         title: '${ride['dropoff_address'] ?? ''}'.trim(),
@@ -190,7 +190,7 @@ class _DottedConnector extends CustomPainter {
 
 class HistoryTimelineRow extends StatelessWidget {
   final String title, subtitle, fallback;
-  final Widget fact;
+  final Widget? fact;
   const HistoryTimelineRow({
     super.key,
     required this.title,
@@ -216,11 +216,13 @@ class HistoryTimelineRow extends StatelessWidget {
             children: [heading, caption],
           ),
         ),
-        const SizedBox(width: 14),
-        Flexible(
-          flex: 2,
-          child: Align(alignment: Alignment.topRight, child: fact),
-        ),
+        if (fact != null) ...[
+          const SizedBox(width: 14),
+          Flexible(
+            flex: 2,
+            child: Align(alignment: Alignment.topRight, child: fact),
+          ),
+        ],
       ],
     );
   }
@@ -347,16 +349,18 @@ class RideHistoryDetails extends StatelessWidget {
             const Text('Unrated', style: _value),
         ],
       ),
-      _HistoryFact('Payment method', method),
+      if (money.status != 'CANCELLED') _HistoryFact('Payment method', method),
       _HistoryFact(
         trip['actual_duration_s'] == null ? 'Est. duration' : 'Travel duration',
         rideDuration(trip['actual_duration_s'] ?? trip['estimated_duration_s']),
       ),
-      _HistoryFact('Ride fare', rideMoney(money.fare ?? money.quote)),
-      if (rideNumber(trip['discount_amount']) case final double discount
-          when discount > 0)
-        _HistoryFact('Discount', rideMoney(discount)),
-      _HistoryFact(money.amountLabel, rideMoney(money.primaryAmount)),
+      if (money.status != 'CANCELLED') ...[
+        _HistoryFact('Ride fare', rideMoney(money.fare ?? money.quote)),
+        if (rideNumber(trip['discount_amount']) case final double discount
+            when discount > 0)
+          _HistoryFact('Discount', rideMoney(discount)),
+        _HistoryFact(money.amountLabel, rideMoney(money.primaryAmount)),
+      ],
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

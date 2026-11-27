@@ -162,9 +162,12 @@ class SolidSurface extends StatelessWidget {
         children: [
           SizedBox(
             height: blackHeight,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: upperChild,
+            child: Material(
+              type: MaterialType.transparency,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: upperChild,
+              ),
             ),
           ),
           Flexible(fit: FlexFit.loose, child: body),

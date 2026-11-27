@@ -288,6 +288,8 @@ class _RidePaymentProgressState extends State<_RidePaymentProgress> {
         'Checkout is still being prepared. Check again shortly.',
       );
     }
+    final phone = await _payment.repository.checkoutPhone();
+    if (!mounted || _payment.resolved) return;
     final checkout = _checkout = Razorpay();
     runZonedGuarded(() {
       checkout
@@ -309,6 +311,7 @@ class _RidePaymentProgressState extends State<_RidePaymentProgress> {
           'currency': 'INR',
           'name': '1More',
           'description': 'Ride fare',
+          if (phone != null) 'prefill': {'contact': phone},
           'config': {
             'display': {
               'blocks': {

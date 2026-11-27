@@ -300,8 +300,13 @@ class _DriverTripPageState extends State<DriverTripPage>
                 children: [
                   if (_controller.error != null)
                     AppLoadError(message: _controller.error!, onRetry: _reload),
-                  if (moving && _controller.navError != null)
-                    AppErrorNotice(message: _controller.navError),
+                  if (_controller.active &&
+                      (_controller.navigating || _controller.navError != null))
+                    RideRouteUpdate(
+                      onRetry: _controller.navigating
+                          ? null
+                          : () => _controller.navigation(force: true),
+                    ),
                   RideVehicleDriverCard(
                     vehicle: rideMap(trip['vehicle']),
                     driver: {'user': rideMap(trip['rider'])},

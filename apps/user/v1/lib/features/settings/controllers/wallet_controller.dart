@@ -1,7 +1,7 @@
 import 'dart:math';
 
 import 'package:user/core/network/api_result.dart';
-import 'package:user/core/network/api.constant.dart';
+import 'package:user/core/network/checkout_phone.dart' as checkout;
 import 'package:user/core/network/dio_client.dart';
 import 'package:user/core/state/feature_controller.dart';
 import 'settings_controller.dart';
@@ -161,17 +161,7 @@ class WalletController extends FeatureController {
     );
   }
 
-  Future<String?> checkoutPhone() async {
-    try {
-      final data = _payload(await _client.getData(ApiConstants.AUTH_ME));
-      final phone = data['phone_e164'];
-      return phone is String && RegExp(r'^\+[1-9]\d{6,14}$').hasMatch(phone)
-          ? phone
-          : null;
-    } catch (_) {
-      return null;
-    }
-  }
+  Future<String?> checkoutPhone() => checkout.checkoutPhone(_client);
 
   Future<WalletTopUp?> checkTopUp(String id, {bool cancelled = false}) async {
     if (!WalletTopUp.isServerId(id)) {

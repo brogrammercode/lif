@@ -19,6 +19,8 @@ class RiderLivePanel extends StatelessWidget {
   final VoidCallback onCancel, onSafety, onRefresh;
   final String? error;
   final bool busy, locationFresh;
+  final bool routing;
+  final VoidCallback? onRetryRoute;
   final double? remainingDistance;
   final VoidCallback? onShowTripQr;
   const RiderLivePanel({
@@ -35,6 +37,8 @@ class RiderLivePanel extends StatelessWidget {
     this.error,
     required this.busy,
     required this.locationFresh,
+    this.routing = false,
+    this.onRetryRoute,
     this.remainingDistance,
     this.onShowTripQr,
   });
@@ -66,6 +70,8 @@ class RiderLivePanel extends StatelessWidget {
           )
         : contactActions;
     final children = <Widget>[
+      if (routing || onRetryRoute != null)
+        RideRouteUpdate(onRetry: routing ? null : onRetryRoute),
       if (error != null && !searching) ...[
         AppErrorNotice(message: 'Connection update failed: $error'),
         TextButton(onPressed: onRefresh, child: const Text('Retry update')),
@@ -112,7 +118,7 @@ class RiderLivePanel extends StatelessWidget {
           ),
         ),
       ] else if (arrivalLayout) ...[
-        if (!locationFresh)
+        if (!locationFresh && !routing)
           const Padding(
             padding: EdgeInsets.only(bottom: 10),
             child: Text(
@@ -132,7 +138,7 @@ class RiderLivePanel extends StatelessWidget {
           child: RideRouteTimeline(trip),
         ),
       ] else ...[
-        if (!locationFresh)
+        if (!locationFresh && !routing)
           const Padding(
             padding: EdgeInsets.only(bottom: 10),
             child: Text(

@@ -5,6 +5,7 @@ import 'package:user/core/state/feature_controller.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:user/features/rides/ride_display.dart';
+import 'package:user/features/user_app/location_search.dart';
 
 /// Owns feature records, query state and asynchronous loading independently of its view.
 class PlacePickerController extends FeatureController {
@@ -18,7 +19,7 @@ class PlacePickerController extends FeatureController {
   List<Map<String, dynamic>> results = [];
   int searchGeneration = 0, reverseGeneration = 0;
   bool searching = false, resolving = false, picking = false;
-  String? error, userId;
+  String? error, userId, searchAddress;
 
   Future<void> loadProfile() async {
     try {
@@ -30,34 +31,47 @@ class PlacePickerController extends FeatureController {
   void find(String value) {
     _searchTimer?.cancel();
     final generation = ++searchGeneration;
+    final resolvingInput = LocationSearch.recognizes(value);
     update(() {
       results = [];
-      searching = false;
+      searching = resolvingInput;
+      searchAddress = null;
       error = null;
     });
     if (value.trim().length < 3) return;
-    _searchTimer = Timer(const Duration(seconds: 3), () async {
-      if (isDisposed) return;
-      update(() => searching = true);
-      try {
-        final rows = await repository.search(value.trim());
-        if (!isDisposed && generation == searchGeneration) {
-          update(
-            () => results = rows
-                .where((p) => ridePoint(p['lat'], p['lon']) != null)
-                .toList(),
-          );
+    _searchTimer = Timer(
+      resolvingInput
+          ? const Duration(milliseconds: 180)
+          : const Duration(seconds: 3),
+      () async {
+        if (isDisposed) return;
+        update(() => searching = true);
+        try {
+          final pasted = await repository.resolveLocation(value);
+          if (isDisposed || generation != searchGeneration) return;
+          if (pasted?.place case final place?) {
+            choose(place);
+            return;
+          }
+          final rows = await repository.search(pasted?.query ?? value.trim());
+          if (!isDisposed && generation == searchGeneration) {
+            update(
+              () => results = rows
+                  .where((p) => ridePoint(p['lat'], p['lon']) != null)
+                  .toList(),
+            );
+          }
+        } catch (error) {
+          if (!isDisposed && generation == searchGeneration) {
+            update(() => this.error = ApiResult.errorMessage(error));
+          }
+        } finally {
+          if (!isDisposed && generation == searchGeneration) {
+            update(() => searching = false);
+          }
         }
-      } catch (error) {
-        if (!isDisposed && generation == searchGeneration) {
-          update(() => this.error = ApiResult.errorMessage(error));
-        }
-      } finally {
-        if (!isDisposed && generation == searchGeneration) {
-          update(() => searching = false);
-        }
-      }
-    });
+      },
+    );
   }
 
   void choose(Map<String, dynamic> place) {
@@ -74,9 +88,10 @@ class PlacePickerController extends FeatureController {
         ...selected,
         'name': '${place['name'] ?? address.split(',').first}',
         'address': address,
-        'place_type': 'OTHER',
+        'place_type': selected['place_type'] ?? 'OTHER',
       };
       results = [];
+      searchAddress = address;
       searching = false;
       resolving = false;
       error = null;
@@ -89,10 +104,15 @@ class PlacePickerController extends FeatureController {
         (point.longitude - this.point!.longitude).abs() < .00001) {
       return;
     }
+    _searchTimer?.cancel();
+    searchGeneration++;
     _reverseTimer?.cancel();
     final generation = ++reverseGeneration;
     update(() {
       this.point = point;
+      searching = false;
+      searchAddress = null;
+      results = [];
       selected = {
         ...selected,
         'name': 'Selected location',

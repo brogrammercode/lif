@@ -19,12 +19,15 @@ class SavedPlaceEditorController extends FeatureController {
   bool searching = false;
   String? error;
   List<Map<String, dynamic>> results = [];
-  Future<void> search(String query, int generation) async {
-    if (isDisposed || generation != this.generation) return;
+  Future<Map<String, dynamic>?> search(String query, int generation) async {
+    if (isDisposed || generation != this.generation) return null;
     update(() => searching = true);
     try {
-      final results = await repository.searchPlaces(query);
-      if (isDisposed || generation != this.generation) return;
+      final pasted = await repository.resolveLocation(query);
+      if (isDisposed || generation != this.generation) return null;
+      if (pasted?.place case final place?) return place;
+      final results = await repository.searchPlaces(pasted?.query ?? query);
+      if (isDisposed || generation != this.generation) return null;
       update(
         () => this.results = results
             .where((v) => ridePoint(v['lat'], v['lon']) != null)
@@ -39,5 +42,6 @@ class SavedPlaceEditorController extends FeatureController {
         update(() => searching = false);
       }
     }
+    return null;
   }
 }

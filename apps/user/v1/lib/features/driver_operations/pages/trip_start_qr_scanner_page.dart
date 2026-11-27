@@ -39,47 +39,72 @@ class _TripStartQrScannerPageState extends State<TripStartQrScannerPage> {
   }
 
   @override
-  Widget build(BuildContext context) => SolidScope(
-    child: Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        foregroundColor: RideTokens.ink,
-        title: const Text('Scan rider QR code'),
-        centerTitle: true,
-      ),
-      body: Stack(
-        fit: StackFit.expand,
+  Widget build(BuildContext context) => SolidPage(
+    title: 'Scan rider QR code',
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+      child: Column(
         children: [
-          MobileScanner(controller: _scanner, onDetect: _onDetect),
-          IgnorePointer(
-            child: Center(
-              child: Container(
-                width: 250,
-                height: 250,
-                decoration: BoxDecoration(
-                  border: Border.all(color: RideTokens.accent, width: 3),
-                  borderRadius: BorderRadius.circular(20),
-                ),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(18),
+              child: LayoutBuilder(
+                builder: (context, bounds) {
+                  final size = bounds.biggest.shortestSide * .72;
+                  final frame = Rect.fromCenter(
+                    center: bounds.biggest.center(Offset.zero),
+                    width: size,
+                    height: size,
+                  );
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      MobileScanner(
+                        controller: _scanner,
+                        onDetect: _onDetect,
+                        scanWindow: frame,
+                        errorBuilder: (_, _) => const ColoredBox(
+                          color: Colors.black,
+                          child: Center(
+                            child: Text(
+                              'Camera unavailable. Use the trip code to start.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.white),
+                            ),
+                          ),
+                        ),
+                      ),
+                      ValueListenableBuilder<MobileScannerState>(
+                        valueListenable: _scanner,
+                        builder: (_, state, _) => state.isRunning
+                            ? IgnorePointer(
+                                child: Center(
+                                  child: Container(
+                                    width: size,
+                                    height: size,
+                                    decoration: BoxDecoration(
+                                      border: Border.all(
+                                        color: Colors.white,
+                                        width: 2,
+                                      ),
+                                      borderRadius: BorderRadius.circular(18),
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : const SizedBox.shrink(),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
           ),
-          Positioned(
-            left: 24,
-            right: 24,
-            bottom: 32,
-            child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: .75),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Text(
-                'Align the rider’s QR code inside the frame to verify and start the trip.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white, fontSize: 14),
-              ),
-            ),
+          const SizedBox(height: 16),
+          const Text(
+            'Place the rider’s QR code inside the frame to verify the pickup.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14, color: RideTokens.ink),
           ),
         ],
       ),

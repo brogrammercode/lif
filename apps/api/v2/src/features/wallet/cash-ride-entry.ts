@@ -38,7 +38,11 @@ export function ride_commission(
       .toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP)
       .toFixed(0),
   );
-  return { percent, commission };
+  return {
+    percent,
+    commission:
+      amount > 0n && percent > 0 && commission === 0n ? 1n : commission,
+  };
 }
 
 export async function record_cash_ride(

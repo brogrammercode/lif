@@ -59,6 +59,9 @@ class _PaymentRepo extends DriverOperationsRepository {
   Future<Map<String, dynamic>> context(String id) async => data;
 
   @override
+  Future<String?> checkoutPhone() async => '+919876543210';
+
+  @override
   Future<Map<String, dynamic>> payment(String id, String selection) async {
     method = selection;
     return data;
@@ -289,6 +292,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
       expect(checkout?.arguments['order_id'], 'order_ride');
       expect(checkout?.arguments['amount'], 15000);
+      expect(checkout?.arguments['prefill'], {'contact': '+919876543210'});
       expect(find.text('Payment progress'), findsOneWidget);
       await tester.binding.handlePopRoute();
       await tester.pump();

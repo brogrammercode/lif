@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:user/components/ui/solid_ui.dart';
 
 class TripStartQrSheet extends StatelessWidget {
   final String code;
@@ -16,20 +17,28 @@ class TripStartQrSheet extends StatelessWidget {
         .clamp(100.0, 300.0)
         .toDouble();
 
-    return Dialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 20),
-      backgroundColor: Colors.white,
-      child: SizedBox(
-        width: qrSize + 40,
-        height: qrSize + 40,
-        child: Center(
+    return SolidSurface(
+      fullRadius: false,
+      blackHeight: 54,
+      radius: 18,
+      upperChild: const Row(
+        children: [
+          Icon(Icons.qr_code_2_rounded, color: Colors.white, size: 20),
+          SizedBox(width: 8),
+          Text('Trip QR code', style: TextStyle(color: Colors.white)),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Align(
+          heightFactor: 1,
           child: QrImageView(
             data: code,
             version: QrVersions.auto,
             size: qrSize,
             backgroundColor: Colors.white,
             errorCorrectionLevel: QrErrorCorrectLevel.H,
-            padding: EdgeInsets.zero,
+            padding: const EdgeInsets.all(12),
           ),
         ),
       ),

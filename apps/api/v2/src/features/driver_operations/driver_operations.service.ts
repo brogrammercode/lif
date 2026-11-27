@@ -28,6 +28,10 @@ import {
   read_wallet_controls,
 } from '../wallet/wallet-controls.js';
 import { record_cash_ride } from '../wallet/cash-ride-entry.js';
+import {
+  resumable_ride_order,
+  ride_payment_pending,
+} from '../ride/ride_payment_pending.js';
 import { rider_vehicle_select } from '../ride/ride.presentation.js';
 import {
   ACTIVE_TRIP,
@@ -567,9 +571,12 @@ export class DriverOperationsService {
     });
     for (const ride of searches) await this.dispatch(ride.id);
     const current = await this.database.client.ride.findFirst({
-      where: { driver_id: profile.id, status: { in: [...ACTIVE_TRIP] } },
+      where: {
+        driver_id: profile.id,
+        OR: [{ status: { in: [...ACTIVE_TRIP] } }, ride_payment_pending],
+      },
       select: { id: true, status: true },
-      orderBy: { created_at: 'asc' },
+      orderBy: resumable_ride_order,
     });
     const exited = profile.user.partner_application?.status === 'EXITED';
     const eligible =

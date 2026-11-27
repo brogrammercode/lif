@@ -37,10 +37,18 @@ class _PickerState extends State<PlacePickerPage> {
     widget.repository,
   )..addListener(_controllerChanged);
   void _controllerChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    final address = _controller.searchAddress;
+    if (address != null && address != _search.text) {
+      _search.text = address;
+      FocusScope.of(context).unfocus();
+    }
+    setState(() {});
   }
 
-  final _search = TextEditingController();
+  late final _search = TextEditingController(
+    text: '${widget.initial?['address'] ?? ''}',
+  );
   LatLng? get _point => _controller.point;
   Map<String, dynamic> get _selected => _controller.selected;
   set _selected(Map<String, dynamic> value) => _controller.selected = value;
@@ -107,7 +115,7 @@ class _PickerState extends State<PlacePickerPage> {
   }
 
   Future<void> _continue() async {
-    if (_point == null || _resolving) return;
+    if (_point == null || _resolving || _searching) return;
     FocusScope.of(context).unfocus();
     final initial = {
       ..._selected,
@@ -251,9 +259,11 @@ class _PickerState extends State<PlacePickerPage> {
               ),
               const SizedBox(height: 16),
               SolidButton(
-                text: widget.initial == null ? 'Continue' : 'Save place',
+                text: widget.initial?['id'] == null ? 'Continue' : 'Save place',
                 minHeight: 54,
-                onPressed: _point == null || _resolving ? null : _continue,
+                onPressed: _point == null || _resolving || _searching
+                    ? null
+                    : _continue,
               ),
             ],
           ),

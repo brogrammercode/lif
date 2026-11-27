@@ -166,9 +166,12 @@ class DriverTripController extends FeatureController {
       steps = [];
       progress = null;
     }
-    navTarget = target;
-    navigating = true;
-    lastNavigation = DateTime.now();
+    update(() {
+      navTarget = target;
+      navigating = true;
+      navError = null;
+      lastNavigation = DateTime.now();
+    });
     try {
       final route = await ops.navigation(id!, fix.latitude, fix.longitude);
       if (isDisposed || this.target != target) {
@@ -200,7 +203,7 @@ class DriverTripController extends FeatureController {
         update(() => navError = ApiResult.errorMessage(e));
       }
     } finally {
-      navigating = false;
+      if (!isDisposed) update(() => navigating = false);
       if (!isDisposed && active && this.target != target) {
         unawaited(navigation(force: true));
       }

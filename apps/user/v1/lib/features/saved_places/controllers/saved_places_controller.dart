@@ -12,6 +12,7 @@ class SavedPlacesController extends FeatureController {
   String scope = 'all', query = '';
   String? selected, error, type;
   int page = 1, total = 0, generation = 0, recenter = 0;
+  int locationSearchGeneration = 0;
   bool loading = false, loaded = false;
 
   Future<void> loadProfile() async {

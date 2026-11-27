@@ -625,6 +625,36 @@ class RideFlowSkeleton extends StatelessWidget {
   );
 }
 
+class RideRouteUpdate extends StatelessWidget {
+  final VoidCallback? onRetry;
+  const RideRouteUpdate({super.key, this.onRetry});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: onRetry != null
+        ? Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('Retry route'),
+            ),
+          )
+        : const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Updating route…',
+                style: TextStyle(color: RideTokens.muted),
+              ),
+              SizedBox(height: 6),
+              LinearProgressIndicator(minHeight: 2, color: RideTokens.accent),
+            ],
+          ),
+  );
+}
+
 class RideArrivalStrip extends StatelessWidget {
   static double heightFor(BuildContext context) => 54;
   final String label, value;
@@ -650,6 +680,7 @@ class RideArrivalStrip extends StatelessWidget {
               fontSize: 14,
               height: 1.35,
               color: Colors.white,
+              decoration: TextDecoration.none,
             ),
           ),
         ),
@@ -680,6 +711,7 @@ class RideArrivalStrip extends StatelessWidget {
                       height: 1.35,
                       fontWeight: FontWeight.w500,
                       color: Colors.white,
+                      decoration: TextDecoration.none,
                     ),
                   ),
                 ),

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:user/core/network/api_result.dart';
 import 'package:user/core/network/dio_client.dart';
+import 'package:user/features/user_app/location_search.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
 class PlacesRepository {
@@ -52,7 +53,10 @@ class PlacesRepository {
 
   Future<void> remove(String id, int version) async => ApiResult.unwrap(
     await _client.dio
-        .delete('/places/${Uri.encodeComponent(id)}', data: {'version': version})
+        .delete(
+          '/places/${Uri.encodeComponent(id)}',
+          data: {'version': version},
+        )
         .then((response) => response.data),
   );
 
@@ -103,8 +107,10 @@ class PlacesRepository {
     );
   }
 
+  Future<LocationSearchResult?> resolveLocation(String text) =>
+      const LocationSearch().resolve(text, reverse: reverse);
   Future<List<Map<String, dynamic>>> search(String query) =>
-      UserAppRepository().searchPlaces(query);
+      UserAppRepository(client: _client).searchPlaces(query);
   Future<Map<String, dynamic>> reverse(
     double latitude,
     double longitude,
