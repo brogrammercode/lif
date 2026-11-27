@@ -60,12 +60,9 @@ Existing generic method/path or “POST administrator request” titles are tran
 - Applies to `admin_activity` (request audit, age measured from `started_at`) and `user_logs` (entity-change audit, age measured from `created_at`).
 - An entry expires at timestamp + 7 × 24 hours, using UTC instants. Audit list queries exclude entries at or beyond the cutoff immediately.
 - Physical deletion happens on the next cleanup pass, in batches of at most 1,000 rows per store/transaction. A PostgreSQL advisory lock prevents overlapping cleanup workers and `SKIP LOCKED` avoids waiting on in-flight entries.
-- Persistent Node servers run cleanup at startup and every 15 minutes. Audit-list requests also schedule a rate-limited background pass.
-- Vercel includes a daily cron at `0 0 * * *`, calling `/api/v2/internal/audit-retention`. By explicit user request, this endpoint is public and requires no login, secret or additional environment variable. Callers cannot supply a retention period, cutoff or record IDs; the seven-day policy and batch limits stay fixed in the service. Responses are not cached. Hosted cron delivery timing is best effort, so physical cleanup is not guaranteed at the exact expiry second.
+- The shared daily cron runs audit cleanup at 05:00 IST. See [API v2 daily cron](DAILY_CRON_PLAN.md). The seven-day cutoff and batch limits are fixed in the service.
 - Run `npm run audit:prune` from `apps/api/v2` to clear an existing backlog manually using the same seven-day policy. No application/user deletion is performed by this command.
 - Migration `202610290001_audit_retention_index` adds the time index for `user_logs`; `admin_activity` already has its time index.
-
-The later request to remove extra environment requirements removes the cron guard and its configuration entirely. Existing authentication and administrator guards on all other routes remain. API compilation and all 215 API unit/HTTP tests passed after this change, including an unauthenticated cleanup request with attempted cutoff overrides that are ignored.
 
 ## Validation
 

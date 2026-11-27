@@ -220,6 +220,13 @@ export class WalletRepository {
     });
   }
 
+  async prepare_due_cycles(now: Date, deadline: number) {
+    for (let batch = 0; batch < 10 && Date.now() < deadline; batch++) {
+      const cycle = await this.prepare_due_cycle(now);
+      if (!cycle.prepared) break;
+    }
+  }
+
   async prepare_due_cycle(now = new Date()) {
     return this.database.client.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(720065)`;

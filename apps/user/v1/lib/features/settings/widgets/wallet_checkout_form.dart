@@ -157,7 +157,12 @@ class _WalletCheckoutFormState extends State<WalletCheckoutForm> {
               busy: wallet.checkoutBusy,
               onPressed: wallet.checkoutBusy ? null : _submit,
             ),
-          ] else if (pending == null && !wallet.checkoutBusy) ...[
+          ] else if (pending == null && wallet.checkoutBusy) ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Center(child: CircularProgressIndicator.adaptive()),
+            ),
+          ] else if (pending == null) ...[
             const Text('Wallet top-ups are unavailable.'),
             TextButton(
               onPressed: wallet.loadTopUps,

@@ -11,32 +11,31 @@ Future<void> showWalletSheet(
   context: context,
   isScrollControlled: true,
   useSafeArea: true,
+  showDragHandle: false,
   backgroundColor: Colors.transparent,
-  builder: (sheetContext) => ClipRRect(
-    borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
-    child: ColoredBox(
-      color: Colors.black,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          RideArrivalStrip(label: title, value: value ?? ''),
-          Flexible(
-            child: SolidSheet(
-              child: SafeArea(
-                top: false,
-                child: Padding(
-                  padding: EdgeInsets.only(
-                    bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
-                  ),
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-                    child: content,
-                  ),
+  builder: (sheetContext) => Padding(
+    padding: EdgeInsets.only(
+      bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+    ),
+    child: SolidScope(
+      child: RideStagePanel(
+        header: RideArrivalStrip(label: title, value: value ?? ''),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Center(child: RideSheetHandle()),
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                  child: content,
                 ),
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     ),
   ),

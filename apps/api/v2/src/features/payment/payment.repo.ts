@@ -33,11 +33,24 @@ export class PaymentRepository {
   ) =>
     this.prismaService.client.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(720046, hashtext(${user_id}))`;
+      const saved_upi = input.type === 'UPI' && !input.provider_method_id;
+      if (saved_upi) {
+        const existing = await tx.paymentMethod.findFirst({
+          where: {
+            user_id,
+            type: 'UPI',
+            provider_method_id: null,
+            upi_handle: { equals: input.upi_handle, mode: 'insensitive' },
+          },
+        });
+        if (existing) return existing;
+      }
       const is_default =
-        input.is_default ||
-        !(await tx.paymentMethod.count({
-          where: { user_id, is_default: true },
-        }));
+        !saved_upi &&
+        (input.is_default ||
+          !(await tx.paymentMethod.count({
+            where: { user_id, is_default: true },
+          })));
       if (is_default)
         await tx.paymentMethod.updateMany({
           where: { user_id },
@@ -69,7 +82,13 @@ export class PaymentRepository {
       await tx.paymentMethod.delete({ where: { id: payment_method_id } });
       if (method.is_default) {
         const next = await tx.paymentMethod.findFirst({
-          where: { user_id },
+          where: {
+            user_id,
+            OR: [
+              { type: { not: 'UPI' } },
+              { provider_method_id: { not: null } },
+            ],
+          },
           orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
           select: { id: true },
         });

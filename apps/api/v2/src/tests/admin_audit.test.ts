@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { AuditRetentionService } from '../core/audit_retention.service.js';
 import { it } from 'node:test';
 import { readFileSync } from 'node:fs';
 import type { Request, Response } from 'express';
@@ -218,10 +217,7 @@ it('finds historical approval labels, separates read traffic and limits retentio
     },
   });
   const response = { status: () => {} } as unknown as Response;
-  const result = await new AdminActivityController(
-    database,
-    new AuditRetentionService(database),
-  ).list(
+  const result = await new AdminActivityController(database).list(
     {
       query: { query: 'APPROVE_PARTNER_APPLICATION', activity: 'changes' },
     } as unknown as Request,

@@ -456,6 +456,10 @@ function SettingsDialog({
           {initial.next_run_at && (
             <p>Scheduled next run {timestamp(initial.next_run_at)}</p>
           )}
+          <p className="text-sm text-muted">
+            Payouts are picked up by the first 5:00 AM IST daily check after
+            their scheduled time.
+          </p>
           <Button
             type="button"
             variant="secondary"

@@ -1,52 +1,13 @@
-import {
-  Injectable,
-  type OnModuleInit,
-  type OnModuleDestroy,
-} from '@nestjs/common';
-import { waitUntil } from '@vercel/functions';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../infra/database/prisma.service.js';
-import { config } from './config.js';
 
 export const AUDIT_RETENTION_DAYS = 7;
 export const audit_cutoff = (now = new Date()) =>
   new Date(now.getTime() - AUDIT_RETENTION_DAYS * 86400000);
 const BATCH = 1000;
 @Injectable()
-export class AuditRetentionService implements OnModuleInit, OnModuleDestroy {
-  private timer?: ReturnType<typeof setInterval>;
-  private running?: Promise<unknown>;
-  private lastRun = 0;
+export class AuditRetentionService {
   constructor(private readonly database: PrismaService) {}
-  onModuleInit() {
-    if (config.NODE_ENV === 'test') return;
-    this.schedule();
-    if (process.env.VERCEL !== '1') {
-      this.timer = setInterval(() => this.schedule(), 15 * 60000);
-      this.timer.unref();
-    }
-  }
-  onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
-  }
-  schedule() {
-    if (
-      config.NODE_ENV === 'test' ||
-      this.running ||
-      Date.now() - this.lastRun < 15 * 60000
-    )
-      return;
-    this.lastRun = Date.now();
-    this.running = this.prune()
-      .catch(() => console.warn({ event: 'AUDIT_RETENTION_RETRY_REQUIRED' }))
-      .finally(() => {
-        this.running = undefined;
-      });
-    try {
-      waitUntil(this.running);
-    } catch {
-      /* Local runtimes keep the promise alive. */
-    }
-  }
   async prune(maxBatches = 25, now = new Date()) {
     const cutoff = audit_cutoff(now),
       totals = { admin_activity: 0, user_logs: 0, has_more: false };

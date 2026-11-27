@@ -168,7 +168,7 @@ export class WalletTopUps {
     return present(await this.sync(row, true));
   }
 
-  async reconcile_pending() {
+  async reconcile_pending(limit = 4, deadline = Infinity) {
     const mode = this.provider.credential_mode;
     if (!mode) return;
     const rows = await this.db.client.walletTopUp.findMany({
@@ -177,20 +177,26 @@ export class WalletTopUps {
         provider_mode: mode,
       },
       orderBy: { updated_at: 'asc' },
-      take: 4,
+      take: limit,
     });
-    await Promise.allSettled(
-      rows.map(async (row) => {
-        try {
-          await this.sync(row, false);
-        } finally {
-          await this.db.client.walletTopUp.updateMany({
-            where: { id: row.id, updated_at: row.updated_at },
-            data: { updated_at: new Date() },
-          });
-        }
-      }),
-    );
+    for (
+      let offset = 0;
+      offset < rows.length && Date.now() < deadline;
+      offset += 4
+    ) {
+      await Promise.allSettled(
+        rows.slice(offset, offset + 4).map(async (row) => {
+          try {
+            await this.sync(row, false);
+          } finally {
+            await this.db.client.walletTopUp.updateMany({
+              where: { id: row.id, updated_at: row.updated_at },
+              data: { updated_at: new Date() },
+            });
+          }
+        }),
+      );
+    }
   }
 
   private async sync(

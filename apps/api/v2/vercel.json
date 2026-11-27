@@ -3,8 +3,5 @@
   "framework": "nestjs",
   "installCommand": "npm ci --include=dev",
   "buildCommand": "npm run build",
-  "crons": [
-    { "path": "/api/v2/internal/audit-retention", "schedule": "0 0 * * *" },
-    { "path": "/api/v2/internal/payout-cycles", "schedule": "* * * * *" }
-  ]
+  "crons": [{ "path": "/api/v2/internal/cron", "schedule": "30 23 * * *" }]
 }

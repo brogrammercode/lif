@@ -169,9 +169,9 @@ class _WalletPageState extends State<WalletPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    _wallet.loaded
-                        ? rideMoney(_wallet.availablePaise / 100)
-                        : '—',
+                    _wallet.availablePaise == 0
+                        ? '₹0'
+                        : rideMoney(_wallet.availablePaise / 100),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 38,

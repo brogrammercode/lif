@@ -56,6 +56,7 @@ Read `context/MOBILE_DESIGN.md` before all new mobile UI or future mobile UI rew
 - Keep transport concerns, business rules and persistence separated. Validate untrusted input on the server even when the client validates it.
 - Reuse centralized admin API/session code and Flutter Dio/token refresh code. Handle transient failures separately from expired or revoked sessions; do not log out a valid shared session because a request timed out.
 - Keep API V2 routes, response envelopes, error codes and `route-manifest.json` consistent. Preserve existing compatibility routes unless the user requests their removal.
+- API V2 has exactly one scheduled trigger, `GET /api/v2/internal/cron` at 05:00 IST. Implement every new scheduled job as a service method and register it in `apps/api/v2/src/features/cron/cron.jobs.ts`. Keep a single Vercel cron entry and route all scheduled work through this dispatcher. See `context/DAILY_CRON_PLAN.md`.
 - Treat IDs as opaque values using existing ID validation helpers. Do not coerce them through lossy numeric conversions. Handle case-insensitive matching deliberately for emails, catalog names and CSV dependencies while preserving display text.
 - Return paginated, bounded lists; counts endpoints return counts rather than loading complete records. Use database counts/aggregations for totals.
 - Avoid duplicate polling, hidden-tab requests and serial optional work on critical loading paths. Do not introduce caching that bypasses current account/role/ownership checks or serves another user's data.

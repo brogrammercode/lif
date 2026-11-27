@@ -1,11 +1,10 @@
-import 'package:user/features/payments/controllers/payment_methods_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:user/components/ui/app_page.dart';
-import 'package:user/components/ui/liquid_glass.dart';
-import 'package:user/core/color.dart';
-import 'package:user/core/network/api_result.dart';
+import 'package:user/components/ui/solid_ui.dart';
+import 'package:user/features/payments/controllers/payment_methods_controller.dart';
 import 'package:user/features/settings/widgets/settings_secondary.dart';
-import 'package:user/features/user_app/user_app.constant.dart';
+import 'package:user/features/settings/widgets/wallet_checkout_form.dart';
+import 'package:user/features/settings/widgets/wallet_sheet.dart';
 import 'package:user/features/user_app/user_app.repo.dart';
 
 class PaymentMethodsPage extends StatefulWidget {
@@ -19,388 +18,188 @@ class PaymentMethodsPage extends StatefulWidget {
 class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
   late final _controller = PaymentMethodsController(
     widget.repository ?? UserAppRepository(),
-  )..addListener(_controllerChanged);
-  void _controllerChanged() {
-    if (mounted) setState(() {});
-  }
-
-  UserAppRepository get _repository => _controller.repository;
-  List<Map<String, dynamic>> get _methods => _controller.methods;
-  Object? get _error => _controller.error;
-  bool get _loading => _controller.loading;
-  bool get _saving => _controller.saving;
-  set _saving(bool value) => _controller.saving = value;
-
-  bool get _hasCash => _methods.any((method) => method['type'] == 'CASH');
+  );
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _controller.load();
   }
 
-  Future<void> _load({bool preserve = false}) async {
-    await _controller.load(preserve: preserve);
-    final notice = _controller.notice;
-    _controller.notice = null;
-    if (mounted && notice != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(notice)));
-    }
-  }
-
-  Future<void> _addCash() async {
-    if (_saving || _hasCash) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => LiquidGlassDialog(
-        title: const Text('Use cash for rides?'),
-        content: const Text(
-          'Cash is paid directly to the assigned driver after the ride. 1More records the method, but the driver confirms collection.',
-          style: TextStyle(color: GlassTokens.muted, height: 1.45),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Add cash'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    setState(() => _saving = true);
-    try {
-      await _repository.addPaymentMethod({'type': 'CASH', 'is_default': true});
-      await _load(preserve: true);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Cash added as a payment method.')),
-        );
-      }
-    } catch (error) {
-      if (mounted) _showError(error);
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 
   Future<void> _remove(Map<String, dynamic> method) async {
+    final id = method['id'] as String;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => LiquidGlassDialog(
+      builder: (context) => AlertDialog(
         title: const Text('Remove payment method?'),
-        content: Text(
-          '${_label(method)} will no longer be available for new rides. Existing ride records are retained.',
-          style: const TextStyle(color: GlassTokens.muted, height: 1.45),
-        ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Keep method'),
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: TextButton.styleFrom(foregroundColor: AppColors.googleRed),
+            onPressed: () => Navigator.pop(context, true),
             child: const Text('Remove'),
           ),
         ],
       ),
     );
-    if (confirmed != true || _saving) return;
-    setState(() => _saving = true);
-    try {
-      await _repository.deletePaymentMethod('${method['id']}');
-      await _load(preserve: true);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Payment method removed.')),
-        );
-      }
-    } catch (error) {
-      if (mounted) _showError(error);
-    } finally {
-      if (mounted) setState(() => _saving = false);
+    if (confirmed != true || !mounted) return;
+    final error = await _controller.remove(id);
+    if (error != null && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error)));
     }
   }
 
-  void _showError(Object error) => ScaffoldMessenger.of(
-    context,
-  ).showSnackBar(SnackBar(content: Text(ApiResult.errorMessage(error))));
+  @override
+  Widget build(BuildContext context) => SolidPage(
+    title: 'Payment methods',
+    child: ListenableBuilder(
+      listenable: _controller,
+      builder: (context, _) {
+        if (_controller.loading) return const SettingsListSkeleton(rows: 2);
+        if (_controller.error case final error?) {
+          return AppLoadError(message: error, onRetry: _controller.load);
+        }
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          children: [
+            SolidSurface(
+              padding: EdgeInsets.zero,
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.credit_card_outlined),
+                    title: const Text('Debit card'),
+                    subtitle: const Text(
+                      'Enter card details in Razorpay checkout',
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => showWalletSheet(
+                      context,
+                      title: 'Add money by card',
+                      content: const StandaloneWalletCheckoutForm(),
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.qr_code_2_outlined),
+                    title: const Text('Add UPI ID'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => showWalletSheet(
+                      context,
+                      title: 'Add UPI ID',
+                      content: _UpiForm(controller: _controller),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (_controller.methods.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              const Text(
+                'Saved methods',
+                style: TextStyle(fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 8),
+              SolidSurface(
+                padding: EdgeInsets.zero,
+                child: Column(
+                  children: [
+                    for (final method in _controller.methods)
+                      ListTile(
+                        leading: Icon(
+                          method['type'] == 'CARD'
+                              ? Icons.credit_card_outlined
+                              : Icons.qr_code_2_outlined,
+                        ),
+                        title: Text(
+                          method['type'] == 'CARD'
+                              ? '${method['card_brand'] ?? 'Card'} •••• ${method['card_last4'] ?? ''}'
+                              : '${method['upi_handle'] ?? 'UPI'}',
+                        ),
+                        trailing: IconButton(
+                          tooltip: 'Remove method',
+                          onPressed: _controller.saving
+                              ? null
+                              : () => _remove(method),
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    ),
+  );
+}
+
+class _UpiForm extends StatefulWidget {
+  const _UpiForm({required this.controller});
+  final PaymentMethodsController controller;
+
+  @override
+  State<_UpiForm> createState() => _UpiFormState();
+}
+
+class _UpiFormState extends State<_UpiForm> {
+  final _id = TextEditingController();
+  String? _error;
 
   @override
   void dispose() {
-    _controller.removeListener(_controllerChanged);
-    _controller.dispose();
+    _id.dispose();
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) => AppPage(
-    title: UserAppCopy.PAYMENT_METHODS,
-    glass: true,
-    scrollable: true,
-    action: !_loading && !_hasCash
-        ? IconButton(
-            tooltip: 'Add cash method',
-            onPressed: _saving ? null : _addCash,
-            icon: const Icon(
-              Icons.add_card_outlined,
-              color: GlassTokens.accent,
-            ),
-          )
-        : null,
-    child: _body(),
-  );
-
-  Widget _body() {
-    if (_loading && _methods.isEmpty) {
-      return const SettingsListSkeleton(rows: 3);
+  Future<void> _save() async {
+    final error = await widget.controller.saveUpi(_id.text);
+    if (!mounted) return;
+    if (error == null) {
+      Navigator.pop(context);
+    } else {
+      setState(() => _error = error);
     }
-    if (_error != null && _methods.isEmpty) {
-      return AppLoadError(
-        message: ApiResult.errorMessage(_error!),
-        onRetry: _load,
-      );
-    }
-    return RefreshIndicator(
-      onRefresh: () => _load(preserve: true),
-      color: GlassTokens.accent,
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 30),
-        children: [
-          SettingsIntroCard(
-            icon: Icons.account_balance_wallet_outlined,
-            title: 'Pay the driver directly',
-            body:
-                'At launch, fares go directly to your driver by cash or the driver’s registered UPI. 1More currently takes no commission or platform fee.',
-            footer: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: const [
-                SettingsStatusPill(
-                  label: 'Cash',
-                  color: Color(0xFF397864),
-                  icon: Icons.payments_outlined,
-                ),
-                SettingsStatusPill(
-                  label: 'Direct UPI',
-                  color: GlassTokens.accent,
-                  icon: Icons.qr_code_rounded,
-                ),
-                SettingsStatusPill(
-                  label: 'Zero commission',
-                  color: Color(0xFF785B9B),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 22),
-          const SettingsSectionHeader(
-            title: 'How payment works',
-            helper: 'Choose an available method for each ride.',
-          ),
-          const SizedBox(height: 12),
-          _availability(
-            icon: Icons.payments_outlined,
-            title: 'Cash',
-            body:
-                'Pay the assigned driver after the ride. The driver confirms collection in 1More.',
-            status: 'Available',
-            statusColor: const Color(0xFF397864),
-          ),
-          const SizedBox(height: 12),
-          _availability(
-            icon: Icons.qr_code_2_rounded,
-            title: 'Direct UPI',
-            body:
-                'Pay the driver’s registered UPI after the ride when the selected vehicle category enables it. Opening a UPI app is not proof of payment.',
-            status: 'Per ride',
-            statusColor: GlassTokens.accent,
-          ),
-          const SizedBox(height: 12),
-          _availability(
-            icon: Icons.credit_card_off_outlined,
-            title: 'In-app card and wallet',
-            body:
-                'Provider-managed online collection is not enabled yet. No card or wallet details are collected by this screen.',
-            status: 'Coming later',
-            statusColor: GlassTokens.muted,
-          ),
-          const SizedBox(height: 24),
-          SettingsSectionHeader(
-            title: 'Saved methods',
-            helper: _methods.isEmpty
-                ? 'No method has been saved to your account.'
-                : '${_methods.length} ${_methods.length == 1 ? 'method' : 'methods'} available for checkout.',
-          ),
-          const SizedBox(height: 12),
-          if (_methods.isEmpty)
-            SettingsEmptyCard(
-              icon: Icons.wallet_outlined,
-              title: UserAppCopy.EMPTY_PAYMENTS,
-              body: UserAppCopy.EMPTY_PAYMENTS_DESCRIPTION,
-              action: LiquidGlassButton(
-                text: 'Add cash method',
-                icon: const Icon(Icons.add),
-                onPressed: _saving ? null : _addCash,
-                busy: _saving,
-              ),
-            )
-          else
-            for (var index = 0; index < _methods.length; index++) ...[
-              _method(_methods[index]),
-              if (index != _methods.length - 1) const SizedBox(height: 12),
-            ],
-          const SizedBox(height: 18),
-          const Text(
-            'Never share an OTP, PIN or UPI PIN with a driver or support agent. Unpaid or disputed rides can be reported from My rides.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: GlassTokens.muted,
-              fontSize: 11,
-              height: 1.45,
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
-  Widget _availability({
-    required IconData icon,
-    required String title,
-    required String body,
-    required String status,
-    required Color statusColor,
-  }) => LiquidGlassSurface(
-    padding: const EdgeInsets.all(17),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([_id, widget.controller]),
+    builder: (context, _) => Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      spacing: 12,
       children: [
-        LiquidGlassSurface(
-          radius: 99,
-          padding: const EdgeInsets.all(11),
-          child: Icon(icon, color: statusColor, size: 21),
+        SolidTextFormField(
+          controller: _id,
+          label: 'UPI ID',
+          hint: 'name@bank',
+          keyboardType: TextInputType.emailAddress,
+          textCapitalization: TextCapitalization.none,
+          enabled: !widget.controller.saving,
         ),
-        const SizedBox(width: 13),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(
-                        color: GlassTokens.ink,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  SettingsStatusPill(label: status, color: statusColor),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                body,
-                style: const TextStyle(
-                  color: GlassTokens.muted,
-                  fontSize: 12,
-                  height: 1.45,
-                ),
-              ),
-            ],
+        if (_error case final error?)
+          Text(
+            error,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
+        SolidButton(
+          text: 'Save UPI ID',
+          busy: widget.controller.saving,
+          onPressed: _id.text.trim().isEmpty ? null : _save,
         ),
       ],
     ),
   );
-
-  Widget _method(Map<String, dynamic> method) {
-    final type = '${method['type'] ?? ''}';
-    final provider = '${method['provider'] ?? ''}'.trim();
-    return LiquidGlassSurface(
-      padding: const EdgeInsets.all(17),
-      child: Row(
-        children: [
-          LiquidGlassSurface(
-            radius: 99,
-            padding: const EdgeInsets.all(11),
-            child: Icon(_icon(type), size: 21, color: GlassTokens.accent),
-          ),
-          const SizedBox(width: 13),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _label(method),
-                  style: const TextStyle(
-                    color: GlassTokens.ink,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 7),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    SettingsStatusPill(
-                      label: readableEnum(type),
-                      color: GlassTokens.accent,
-                    ),
-                    if (method['is_default'] == true)
-                      const SettingsStatusPill(
-                        label: 'Default',
-                        color: Color(0xFF397864),
-                        icon: Icons.check,
-                      ),
-                    if (provider.isNotEmpty)
-                      SettingsStatusPill(
-                        label: provider,
-                        color: GlassTokens.muted,
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            tooltip: 'Remove ${_label(method)}',
-            onPressed: _saving ? null : () => _remove(method),
-            icon: const Icon(Icons.delete_outline, color: GlassTokens.muted),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _label(Map<String, dynamic> method) {
-    final type = '${method['type'] ?? ''}';
-    return switch (type) {
-      'CARD' =>
-        '${method['card_brand'] ?? 'Card'} •••• ${method['card_last4'] ?? ''}',
-      'UPI' => '${method['upi_handle'] ?? 'UPI method'}',
-      'WALLET' => '${method['provider'] ?? 'Wallet'}',
-      _ => 'Cash',
-    };
-  }
-
-  IconData _icon(String type) => switch (type) {
-    'CARD' => Icons.credit_card,
-    'UPI' => Icons.qr_code_2_rounded,
-    'WALLET' => Icons.account_balance_wallet_outlined,
-    _ => Icons.payments_outlined,
-  };
 }

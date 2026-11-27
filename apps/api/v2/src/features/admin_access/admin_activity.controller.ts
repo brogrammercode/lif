@@ -6,7 +6,6 @@ import { PrismaService } from '../../infra/database/prisma.service.js';
 import { AuthGuard, AdminGuard } from '../../core/guards.js';
 import { send_success } from '../../core/response.js';
 import {
-  AuditRetentionService,
   AUDIT_RETENTION_DAYS,
   audit_cutoff,
 } from '../../core/audit_retention.service.js';
@@ -25,10 +24,7 @@ const filter = z.object({
 });
 @Controller()
 export class AdminActivityController {
-  constructor(
-    private readonly database: PrismaService,
-    private readonly retention: AuditRetentionService,
-  ) {}
+  constructor(private readonly database: PrismaService) {}
   @Get('admin/activity')
   @UseGuards(AuthGuard, AdminGuard)
   async list(
@@ -36,7 +32,6 @@ export class AdminActivityController {
     @Res({ passthrough: true }) response: Response,
   ) {
     const input = filter.parse(request.query);
-    this.retention.schedule();
     const where: Prisma.AdminActivityWhereInput = {
       started_at: { gt: audit_cutoff() },
       ...(input.activity === 'changes'

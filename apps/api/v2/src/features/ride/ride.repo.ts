@@ -218,7 +218,14 @@ export class RideRepository {
           return { kind: 'quote_expired' as const };
         const payment_method = input.payment_method_id
           ? await tx.paymentMethod.findFirst({
-              where: { id: input.payment_method_id, user_id },
+              where: {
+                id: input.payment_method_id,
+                user_id,
+                OR: [
+                  { type: { not: 'UPI' } },
+                  { provider_method_id: { not: null } },
+                ],
+              },
               select: { id: true, type: true },
             })
           : null;

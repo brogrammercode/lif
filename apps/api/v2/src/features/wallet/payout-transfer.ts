@@ -77,9 +77,15 @@ export class PayoutTransfer {
     });
   }
 
-  async tick() {
+  async tick(max_batches = 1, deadline = Infinity) {
     if (!this.credentials_ready) return;
-    const accepting_submissions = await this.reserve();
+    for (let batch = 0; batch < max_batches && Date.now() < deadline; batch++) {
+      if (!(await this.process_batch())) break;
+    }
+  }
+
+  private async process_batch() {
+    const { accepting_submissions, worked } = await this.reserve();
     const now = new Date();
     const attempts = await this.db.client.driverPayoutAttempt.findMany({
       where: {
@@ -109,6 +115,7 @@ export class PayoutTransfer {
     await Promise.allSettled(
       attempts.map((attempt) => this.submit(attempt.id)),
     );
+    return worked || attempts.length > 0;
   }
 
   private async reserve() {
@@ -118,7 +125,7 @@ export class PayoutTransfer {
         where: { id: payout_schedule_id },
       });
       if ((await payout_submission_state(tx, schedule, true)) !== 'ready')
-        return false;
+        return { accepting_submissions: false, worked: false };
       const automatic = await tx.payoutCycle.findFirst({
         where: {
           status: 'DRAFT',
@@ -273,7 +280,10 @@ export class PayoutTransfer {
         });
         await this.update_cycle(tx, row.cycle_id);
       }
-      return true;
+      return {
+        accepting_submissions: true,
+        worked: automatic !== null || empty.length > 0 || rows.length > 0,
+      };
     });
   }
 

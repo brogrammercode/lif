@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { WalletController } from './wallet.controller.js';
-import { PayoutCronController } from './payout-cron.controller.js';
 import { WalletRepository } from './wallet.repo.js';
 import { WalletTopUps } from './wallet-topups.js';
 import { RazorpayWallet } from './razorpay-wallet.js';
@@ -10,11 +9,7 @@ import { PayoutMethods } from './payout-methods.js';
 import { PayoutTransfer } from './payout-transfer.js';
 
 @Module({
-  controllers: [
-    WalletController,
-    PayoutCronController,
-    WalletWebhookController,
-  ],
+  controllers: [WalletController, WalletWebhookController],
   providers: [
     WalletRepository,
     WalletTopUps,
@@ -23,5 +18,6 @@ import { PayoutTransfer } from './payout-transfer.js';
     PayoutMethods,
     PayoutTransfer,
   ],
+  exports: [WalletRepository, WalletTopUps, PayoutTransfer],
 })
 export class WalletModule {}

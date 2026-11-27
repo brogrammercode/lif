@@ -300,33 +300,30 @@ void main() {
     },
   );
 
-  testWidgets(
-    'payments explain direct collection and avoid duplicate cash setup',
-    (tester) async {
-      final repository = FakeSecondarySettingsRepository();
-      await tester.pumpWidget(
-        screen(PaymentMethodsPage(repository: repository)),
-      );
-      await tester.pumpAndSettle();
+  testWidgets('payment methods validate and save a UPI ID', (tester) async {
+    final repository = FakeSecondarySettingsRepository();
+    await tester.pumpWidget(screen(PaymentMethodsPage(repository: repository)));
+    await tester.pumpAndSettle();
 
-      expect(find.text('Pay the driver directly'), findsOneWidget);
-      expect(find.text('Direct UPI'), findsWidgets);
-      expect(find.text('Zero commission'), findsOneWidget);
-      await tester.tap(find.byTooltip('Add cash method'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Add cash'));
-      await tester.pumpAndSettle();
+    expect(find.text('Debit card'), findsOneWidget);
+    await tester.tap(find.text('Add UPI ID'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField), 'invalid');
+    await tester.pump();
+    await tester.tap(find.text('Save UPI ID'));
+    await tester.pumpAndSettle();
+    expect(repository.createdPayments, 0);
+    expect(find.textContaining('Enter a valid UPI ID'), findsOneWidget);
 
-      expect(repository.createdPayments, 1);
-      expect(find.byTooltip('Add cash method'), findsNothing);
-      await tester.scrollUntilVisible(
-        find.text('Default'),
-        300,
-        scrollable: find.byType(Scrollable).first,
-      );
-      expect(find.text('Default'), findsOneWidget);
-    },
-  );
+    await tester.enterText(find.byType(TextFormField), 'rider@bank');
+    await tester.pump();
+    await tester.tap(find.text('Save UPI ID'));
+    await tester.pumpAndSettle();
+
+    expect(repository.createdPayments, 1);
+    expect(find.text('rider@bank'), findsOneWidget);
+    expect(repository.paymentRows.single['type'], 'UPI');
+  });
 
   testWidgets(
     'secondary settings remain reachable at small size with large text',

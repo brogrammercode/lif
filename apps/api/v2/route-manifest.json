@@ -1488,10 +1488,10 @@
     "idempotent": false
   },
   {
-    "feature": "audit_retention",
-    "handler": "cleanup",
+    "feature": "cron",
+    "handler": "run",
     "method": "get",
-    "path": "internal/audit-retention",
+    "path": "internal/cron",
     "guards": [],
     "idempotent": false
   },
@@ -1653,14 +1653,6 @@
     "method": "put",
     "path": "admin/payouts/settings",
     "guards": ["AuthGuard", "AdminGuard"],
-    "idempotent": false
-  },
-  {
-    "feature": "payout_cron",
-    "handler": "tick",
-    "method": "get",
-    "path": "internal/payout-cycles",
-    "guards": [],
     "idempotent": false
   },
   {

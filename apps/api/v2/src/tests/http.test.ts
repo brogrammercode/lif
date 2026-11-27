@@ -1,5 +1,8 @@
 import { PendingService } from '../features/admin_pending/pending.service.js';
 import { AuditRetentionService } from '../core/audit_retention.service.js';
+import { PayoutTransfer } from '../features/wallet/payout-transfer.js';
+import { WalletRepository } from '../features/wallet/wallet.repo.js';
+import { WalletTopUps } from '../features/wallet/wallet-topups.js';
 import { DriverOperationsService } from '../features/driver_operations/driver_operations.service.js';
 import assert from 'node:assert/strict';
 import { after, afterEach, before, it, mock } from 'node:test';
@@ -182,24 +185,76 @@ after(async () => {
   if (app) await app.close();
 });
 
-it('allows audit cleanup without credentials and does not accept caller-selected retention settings', async () => {
+it('dispatches all daily cron jobs through one protected route and isolates failures', async (t) => {
+  const original_secret = config.CRON_SECRET;
+  const secret = 'fixture-daily-cron-secret';
+  config.CRON_SECRET = secret;
+  t.after(() => {
+    config.CRON_SECRET = original_secret;
+  });
+  const completed: string[] = [];
   const cleanup = mock.method(
     app.get(AuditRetentionService),
     'prune',
     async () => ({ admin_activity: 0, user_logs: 0, has_more: false }),
   );
-  const result = await request(
-    '/api/v2/internal/audit-retention?days=0&cutoff=2100-01-01',
+  const prepare = mock.method(
+    app.get(WalletRepository),
+    'prepare_due_cycles',
+    async () => {
+      completed.push('cycles');
+    },
   );
+  const transfer = mock.method(app.get(PayoutTransfer), 'tick', async () => {
+    assert.equal(completed.at(-1), 'cycles');
+    completed.push('transfers');
+  });
+  const reconcile = mock.method(
+    app.get(WalletTopUps),
+    'reconcile_pending',
+    async () => {},
+  );
+  const path = '/api/v2/internal/cron?days=0&cutoff=2100-01-01';
+  assert.equal((await request(path)).response.status, 401);
+  assert.equal(cleanup.mock.callCount(), 0);
+  const result = await request(path, {
+    headers: { Authorization: `Bearer ${secret}` },
+  });
   assert.equal(result.response.status, 200);
   assert.equal(result.response.headers.get('cache-control'), 'no-store');
   assert.deepEqual(result.body.data, {
-    admin_activity: 0,
-    user_logs: 0,
-    has_more: false,
+    jobs: [
+      { job: 'audit_retention', status: 'completed' },
+      { job: 'wallet_topup_reconciliation', status: 'completed' },
+      { job: 'payout_cycle_preparation', status: 'completed' },
+      { job: 'payout_transfers', status: 'completed' },
+    ],
   });
   assert.equal(cleanup.mock.callCount(), 1);
   assert.deepEqual(cleanup.mock.calls[0]!.arguments, []);
+  cleanup.mock.mockImplementation(async () => {
+    throw new Error('audit fixture');
+  });
+  const failed = await request(path, {
+    headers: { Authorization: `Bearer ${secret}` },
+  });
+  assert.equal(failed.response.status, 500);
+  assert.equal(failed.body.error_code, 'CRON_JOBS_FAILED');
+  assert.equal(prepare.mock.callCount(), 2);
+  assert.equal(transfer.mock.callCount(), 2);
+  assert.equal(reconcile.mock.callCount(), 2);
+  for (const old of ['audit-retention', 'payout-cycles']) {
+    assert.equal(
+      (await request(`/api/v2/internal/${old}`)).response.status,
+      404,
+    );
+  }
+  const vercel = JSON.parse(readFileSync('vercel.json', 'utf8')) as {
+    crons: unknown[];
+  };
+  assert.deepEqual(vercel.crons, [
+    { path: '/api/v2/internal/cron', schedule: '30 23 * * *' },
+  ]);
 });
 
 it('keeps the route manifest aligned with compiled Nest routes and security metadata', () => {

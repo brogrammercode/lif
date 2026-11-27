@@ -10,7 +10,7 @@ export const OPERATIONAL_ACTIONS = [
   ['GET', 'admin/payouts/drivers/:id/lines', 'View driver payout breakdown'],
   ['GET', 'admin/payouts/blocks', 'View driver payout blocks'],
   ['POST', 'rides/:id/payments/wallet', 'Ride paid from wallet'],
-  ['GET', 'internal/payout-cycles', 'Run payout reconciliation'],
+  ['GET', 'internal/cron', 'Run daily scheduled jobs'],
   ['GET', 'wallet/topups', 'View wallet top-ups'],
   ['POST', 'wallet/topups', 'Start wallet top-up'],
   ['POST', 'wallet/topups/:id/check', 'Check wallet top-up'],
@@ -169,5 +169,4 @@ export const OPERATIONAL_ACTIONS = [
   ['GET', 'partner-program/exit-request', 'View partner exit status'],
   ['POST', 'partner-program/exit-request', 'Partner exit requested'],
   ['GET', 'partner-program/geography', 'Browse application locations'],
-  ['GET', 'internal/audit-retention', 'Expired audit history cleared'],
 ] as const;

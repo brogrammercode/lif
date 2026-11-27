@@ -1,7 +1,6 @@
 import { PendingInvalidationInterceptor } from './pending_invalidation.interceptor.js';
 import { Global, Module } from '@nestjs/common';
 import { AuditRetentionService } from './audit_retention.service.js';
-import { AuditRetentionController } from './audit_retention.controller.js';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { AdminAuditService } from './admin_audit.service.js';
 import { AdminAuditInterceptor } from './admin_audit.interceptor.js';
@@ -34,7 +33,6 @@ const PROVIDERS = [
 ];
 @Global()
 @Module({
-  controllers: [AuditRetentionController],
   providers: [
     ...PROVIDERS,
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
