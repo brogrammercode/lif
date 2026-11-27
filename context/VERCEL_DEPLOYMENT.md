@@ -45,17 +45,17 @@ node --input-type=module -e "import { randomBytes } from 'node:crypto'; console.
 
 Set `PAYMENT_WEBHOOK_SECRET` to the actual secret shared with the service signing payment callbacks. If that integration is yours, generate a separate value with the same command and configure it on both ends. Keep both values persistent; do not generate them at application startup. After changing Vercel variables, create a new deployment; existing deployments retain their previous configuration. [Vercel environment variables](https://vercel.com/docs/environment-variables).
 
-The requested API build runs:
+The API build generates Prisma Client and compiles Nest:
 
 ```text
-prisma generate && prisma migrate deploy && prisma db push --skip-generate && npm run build:compile
+prisma generate && npm run build:compile
 ```
 
-It generates the client, deploys migrations, synchronizes the schema, prepares the HTML sanitizer dependency, then compiles Nest. Migrations run before schema push so data backfills such as category fare migration 0013 are preserved. Failures stop the build; there is no reset or `--accept-data-loss` flag. `build:compile` bundles dependencies and compiles without generation/database writes. `prisma:push` runs the schema step separately after migrations are deployed. The sanitizer/parser is bundled into an ESM asset because Vercel does not support its unbundled CommonJS require of an ESM parser; Nest copies that asset into the output.
+Production and Preview builds do not connect to or change the database. When a release includes migrations, run `npm run prisma:deploy` once against the intended database before deploying the API code. Set `DB_DIRECT_STRING` in the migration environment to the provider's direct URL for the same database and schema as `DB_STRING`. Prisma CLI falls back to `DB_STRING` when the direct URL is absent. Keep the pooled `DB_STRING` for runtime traffic. `npm run build:compile` bundles the HTML sanitizer and compiles Nest using the generated client.
 
-`db push` does not execute migration SQL, backfills or seed data. Existing V2 migrations remain available. Provision a fresh database with `prisma:deploy` first if it needs the project's existing category seeds/backfills. Do not run the development seed in production; it creates example accounts. Use `admin:grant -- --email <approved-google-email>` with the production database configuration when initial administrator provisioning is needed.
+Use committed migrations for a fresh database and for releases with schema changes. They preserve SQL backfills such as category fare migration 0013. The standalone `prisma:push` command remains available for local schema prototyping. The development seed creates sample accounts. Use `admin:grant -- --email <approved-google-email>` when initial production administrator provisioning is needed.
 
-Preview builds also run schema synchronization; give them their intended isolated database. No secret or live `.env` file is committed.
+The Vercel build of `9b456f0` failed with `P1002` while waiting for Prisma's PostgreSQL advisory lock over the Neon pooler. The build now leaves schema changes to the migration step, which retains advisory locking. [Prisma migration locking](https://www.prisma.io/docs/orm/v6/prisma-migrate/workflows/development-and-production) · [Prisma with Neon](https://www.prisma.io/docs/orm/v6/overview/databases/neon)
 
 ## Admin environment and API routing
 
@@ -82,6 +82,6 @@ The API uses `@vercel/functions` `waitUntil` for post-response audit writes. Aud
 
 Vercel's 4.5 MB Function request cap is lower than the largest current 5 MB image encoded in JSON/base64. Use smaller files (about 3 MB or less before base64) for uploads on this deployment. Increasing Nest's body limit cannot bypass the platform cap; supporting the full existing input limit requires a separate upload/compression change.
 
-Preparation checks: API TypeScript/Nest compilation and Prisma validation, admin TypeScript/Vite compilation, formatting and Git whitespace. The database-mutating build pipeline is configured but not run locally for this task. No automated tests or live Vercel deployment are performed.
+Use `npm run build` to verify API generation and compilation. Use `prisma migrate status` with the intended direct connection to check for pending migrations before release.
 
 References: [NestJS](https://vercel.com/docs/frameworks/backend/nestjs), [Vite SPA routing](https://vercel.com/docs/frameworks/frontend/vite), [rewrites](https://vercel.com/docs/routing/rewrites), [background tasks](https://vercel.com/docs/functions/functions-api-reference/vercel-functions-package), [Prisma db push](https://www.prisma.io/docs/cli/db/push), [Function limits](https://vercel.com/docs/functions/limitations).

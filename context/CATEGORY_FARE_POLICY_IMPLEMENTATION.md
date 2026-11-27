@@ -47,7 +47,7 @@ Migration 0013_category_fare_policy runs in a transaction under category/fare lo
 
 Applied to the configured lif_test database. Before/after verification confirmed all five category-pricing records retain their previous values. None had a configured legacy rate, so all five remain intentionally unpriced until an administrator enters actual values. No user, vehicle, ride, receipt or payment fixtures were created or altered. PostgreSQL temporary-table tests separately verified a populated backfill, independent same-type edits, unconfigured entries and the database constraint.
 
-Deploy matching API/admin code together. The build runs prisma generate, prisma migrate deploy and then prisma db push before compilation. Do not use schema push alone to bypass the migration backfill. Mobile uses API quote totals already; it has no duplicated family-rate calculation and needs no new native dependency for this change.
+Apply committed migrations before deploying matching API/admin code. The API build generates Prisma Client and compiles the application. Mobile uses API quote totals and needs no native dependency change.
 
 ## Follow-up audit — 25 October 2026
 

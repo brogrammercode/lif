@@ -96,7 +96,7 @@ Use the package's own scripts and lockfiles. Run relevant checks for the changed
 | Working tree | repository root | `git diff --check`; inspect intended changes and ignored sensitive/generated files before committing. |
 
 - **Do not build an APK for ordinary analysis or routine bug checks.** For Android build configuration/native failures, use targeted Gradle configuration/compilation tasks. Build release artifacts only when the task calls for them.
-- **API `npm run build` changes the database:** it runs Prisma generation, migration deployment and schema push. Use `build:compile` for code-only verification. Database-backed integration tests must target an explicitly verified isolated test database or their documented isolated tables.
+- **API builds generate Prisma Client and compile code.** Apply committed migrations separately with `npm run prisma:deploy` against the intended database before releasing code that needs them. Database-backed integration tests must target an explicitly verified isolated test database or their documented isolated tables.
 - Run API `test:unit` and `build:compile` sequentially: both generate a shared dependency file and can race on Windows.
 - Preserve deliberate dependency constraints, notably the documented `html` compatibility pin. A newer-version notice is not evidence that a package must be upgraded.
 - For native changes, report which targeted tasks passed and which device/release checks remain. Do not hide warnings with validation-skip flags.
