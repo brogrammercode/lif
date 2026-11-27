@@ -365,11 +365,6 @@ class _DriverTripPageState extends State<DriverTripPage>
                     if (_payment)
                       actions
                     else if (_status != 'DRIVER_WAITING') ...[
-                      if (_controller.navError != null)
-                        Text(
-                          _controller.navError!,
-                          style: const TextStyle(color: RideTokens.muted),
-                        ),
                       if (_controller.progress != null)
                         Text(_controller.progress!.instruction),
                       if (_controller.tracking.error.value != null)

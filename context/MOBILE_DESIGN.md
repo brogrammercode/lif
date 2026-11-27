@@ -117,7 +117,7 @@ Never show Top Rated Driver, trophies, unread-message badges, exact ETAs or phot
 
 Vehicle Continue submits directly into matching. Do not restore a compulsory review detour. Preserve the distinction between a nearby preview and an accepted driver. Pre-booking identity/locations remain limited to the approved public projection.
 
-Trip QR uses the shared black-header, white-body sheet. Driver scanning uses the shared page frame with a bounded camera area and manual trip code available on return. While routes recalculate, show inline progress and keep the last route for the same destination. If loading fails, offer an inline retry. Cancelled ride cards and details omit fare fields while any separate cancellation review remains available.
+Trip QR uses the shared black-header, white-body sheet. Driver scanning uses the shared page frame with a bounded camera area and a manual trip-code option. While routes recalculate, show inline progress and keep the last route for the same destination. If loading fails, offer an inline retry. Cancelled ride cards and details omit fare fields while any separate cancellation review remains available.
 
 ## Maps
 
