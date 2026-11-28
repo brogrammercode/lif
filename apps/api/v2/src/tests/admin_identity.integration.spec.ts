@@ -1,21 +1,16 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
+import { NestFactory } from '@nestjs/core';
+import { DatabaseModule } from '../database/database.module.js';
+import { PostgresService } from '../database/postgres.service.js';
 import { randomUUID } from 'node:crypto';
-import { prisma } from '../infra/database/client.js';
+import { prisma } from '../../prisma/client.js';
 import { config } from '../core/config.js';
 import { AppError } from '../core/error.js';
-import { PrismaService } from '../infra/database/prisma.service.js';
 import { AdminAccessRepository } from '../features/admin_access/admin_access.repo.js';
 import { AdminAuthRepository } from '../features/admin_auth/admin_auth.repo.js';
 import { AuthRepository } from '../features/auth/auth.repo.js';
 import { AuthService } from '../features/auth/auth.service.js';
-const database = new PrismaService();
-const { grant_access } = new AdminAccessRepository(database);
-const { create_admin_session } = new AdminAuthRepository(database);
-const mobileAuth = new AuthService(new AuthRepository(database));
-const mobile_login = (
-  identity: Parameters<AdminAuthRepository['create_admin_session']>[0],
-) => mobileAuth.login_with_provider('GOOGLE', identity, {});
 
 describe(
   'granted admin and mobile account identity',
@@ -27,6 +22,15 @@ describe(
     const prefix = `access-identity-${randomUUID()}`;
     const ids: string[] = [];
     let actor_id: string;
+    let sqlContext:
+      | Awaited<ReturnType<typeof NestFactory.createApplicationContext>>
+      | undefined;
+    let grant_access: AdminAccessRepository['grant_access'];
+    let create_admin_session: AdminAuthRepository['create_admin_session'];
+    let auth: AuthService;
+    const mobile_login = (
+      identity: Parameters<AdminAuthRepository['create_admin_session']>[0],
+    ) => auth.login_with_provider('GOOGLE', identity, {});
     const emailFor = (name: string) => `${prefix}-${name}@example.test`;
     const identityFor = (name: string, email = emailFor(name)) => ({
       provider_account_id: `${prefix}-google-${name}`,
@@ -66,6 +70,17 @@ describe(
         /test/i,
         'Identity checks require a test database',
       );
+      sqlContext = await NestFactory.createApplicationContext(DatabaseModule, {
+        logger: false,
+      });
+      grant_access = new AdminAccessRepository(sqlContext.get(PostgresService))
+        .grant_access;
+      create_admin_session = new AdminAuthRepository(
+        sqlContext.get(PostgresService),
+      ).create_admin_session;
+      auth = new AuthService(
+        new AuthRepository(sqlContext.get(PostgresService)),
+      );
       const actor = remember(
         await prisma.user.create({
           data: { email: emailFor('actor'), role: 'ADMIN' },
@@ -91,7 +106,7 @@ describe(
             { timeout: 30_000 },
           );
       } finally {
-        await prisma.$disconnect();
+        await Promise.all([prisma.$disconnect(), sqlContext?.close()]);
       }
     });
 

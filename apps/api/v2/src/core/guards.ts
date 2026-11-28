@@ -5,86 +5,13 @@ import {
 } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
-import { PrismaService } from '../infra/database/prisma.service.js';
-import { read_access_token } from '../infra/security/token.js';
 import { config } from './config.js';
 import { AppError } from './error.js';
-import {
-  ACCOUNT_INACTIVE_MESSAGE,
-  AUTHORIZATION_PREFIX,
-  SESSION_EXPIRED_MESSAGE,
-  UNAUTHORIZED_ERROR_MESSAGE,
-} from './constants.js';
 import { HTTP_CONFIG, HTTP_MESSAGES } from './http.constant.js';
 import { ADMIN_AUTH_MESSAGES } from '../features/admin_auth/admin_auth.constant.js';
 import { WEBHOOK_SIGNATURE_HEADER } from '../features/payment/payment.constant.js';
-@Injectable()
-export class AuthGuard implements CanActivate {
-  constructor(private readonly database: PrismaService) {}
-  async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<Request>();
-    const response = context.switchToHttp().getResponse<Response>();
-    const header = request.header('authorization');
-    if (!header?.startsWith(AUTHORIZATION_PREFIX))
-      throw new AppError(401, 'UNAUTHORIZED', UNAUTHORIZED_ERROR_MESSAGE);
-    const auth = read_access_token(header.slice(AUTHORIZATION_PREFIX.length));
-    const user = await this.database.client.user.findUnique({
-      where: { id: auth.user_id },
-      select: {
-        role: true,
-        status: true,
-        deleted_at: true,
-        sessions: auth.session_family_id
-          ? {
-              where: {
-                family_id: auth.session_family_id,
-                revoked_at: null,
-                expires_at: { gt: new Date() },
-              },
-              select: { id: true },
-              take: 1,
-            }
-          : false,
-      },
-    });
-    if (!user)
-      throw new AppError(401, 'INVALID_SESSION', SESSION_EXPIRED_MESSAGE);
-    if (user.role === 'ADMIN') request.admin_actor_id = auth.user_id;
-    if (user.status !== 'ACTIVE' || user.deleted_at)
-      throw new AppError(403, 'USER_INACTIVE', ACCOUNT_INACTIVE_MESSAGE);
-    if (auth.session_family_id && !user.sessions?.length)
-      throw new AppError(401, 'INVALID_SESSION', SESSION_EXPIRED_MESSAGE);
-    request.auth = { ...auth, role: user.role };
-    response.setHeader(HTTP_CONFIG.CACHE_CONTROL_HEADER, HTTP_CONFIG.NO_STORE);
-    return true;
-  }
-}
-@Injectable()
-export class DriverAccessGuard implements CanActivate {
-  constructor(private readonly database: PrismaService) {}
-  async canActivate(context: ExecutionContext): Promise<boolean> {
-    const req = context.switchToHttp().getRequest<Request>();
-    if (!req.auth)
-      throw new AppError(401, 'UNAUTHORIZED', UNAUTHORIZED_ERROR_MESSAGE);
-    const app = await this.database.client.partnerApplication.findUnique({
-      where: { current_user_id: req.auth.user_id },
-      select: { status: true },
-    });
-    if (app?.status === 'EXITED')
-      throw new AppError(
-        403,
-        'DRIVER_EXITED',
-        'Your partner exit is complete. Driver operations are disabled.',
-      );
-    if (app && app.status !== 'ACTIVATED')
-      throw new AppError(
-        403,
-        'DRIVER_ACTIVATION_REQUIRED',
-        'Complete driver activation before using driver operations.',
-      );
-    return true;
-  }
-}
+export { AuthGuard } from '../common/guards/auth.guard.js';
+export { DriverAccessGuard } from '../common/guards/driver-access.guard.js';
 @Injectable()
 export class AdminGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {

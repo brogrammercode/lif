@@ -1,162 +1,112 @@
+import { Injectable } from '@nestjs/common';
+import { AppError } from '../../core/error.js';
 import {
-  queue_new_user_emails,
+  PostgresService,
+  type SqlClient,
+} from '../../database/postgres.service.js';
+import { nextEntityId } from '../../database/entity-id.js';
+import { insertUserLog } from '../../database/user-log.js';
+import {
+  queueNewUserEmailsSql,
   schedule_new_user_emails,
 } from '../../infra/mail/new_user_email.js';
-import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../infra/database/prisma.service.js';
-import { create_user_log } from '../../infra/database/user_log.js';
-import { AppError } from '../../core/error.js';
 import { ADMIN_AUTH_MESSAGES } from '../admin_auth/admin_auth.constant.js';
 import {
   ADMIN_ACCESS_LOCK,
   ADMIN_ACCESS_MESSAGES,
-  ADMIN_ACCESS_TRANSACTION,
 } from './admin_access.constant.js';
 import type {
-  AccessListInput,
   GrantAccessInput,
   RevokeAccessInput,
 } from './admin_access.type.js';
+import { readAccessAccount } from './admin-access.reader.js';
 
-const identity_select = {
-  id: true,
-  first_name: true,
-  last_name: true,
-  email: true,
-  avatar_url: true,
-} satisfies Prisma.UserSelect;
-const access_select = {
-  ...identity_select,
-  role: true,
-  status: true,
-  updated_at: true,
-  last_login_at: true,
-  last_admin_login_at: true,
-  audit_logs: {
-    where: { action: 'ADMIN_SIGN_IN', entity_type: 'Session' },
-    orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
-    take: 1,
-    select: { after_data: true },
-  },
-  auth_accounts: { where: { provider: 'GOOGLE' }, select: { id: true } },
-  admin_access: {
-    select: {
-      granted_at: true,
-      updated_at: true,
-      revoked_at: true,
-      granted_by: { select: identity_select },
-    },
-  },
-} satisfies Prisma.UserSelect;
-export type AccessUserRecord = Prisma.UserGetPayload<{
-  select: typeof access_select;
-}>;
-const visible_admin = {
-  role: 'ADMIN',
-  deleted_at: null,
-  status: { not: 'DELETED' },
-} satisfies Prisma.UserWhereInput;
+type Role = 'ADMIN' | 'RIDER' | 'DRIVER' | 'SUPPORT';
+type Account = {
+  id: string;
+  role: Role;
+  status: 'ACTIVE' | 'SUSPENDED' | 'DELETED';
+  deleted_at: Date | null;
+  created_at: Date;
+  email: string | null;
+  phone_e164: string | null;
+  first_name: string | null;
+  last_name: string | null;
+};
+type RevocationAccount = Account & {
+  has_driver: boolean;
+  partner_status: string | null;
+  previous_role: Role | null;
+  access_version: Date | null;
+};
+
+const accountColumns =
+  'id, role, status, deleted_at, created_at, email, phone_e164, first_name, last_name';
+const conflict = () =>
+  new AppError(409, 'ADMIN_ACCESS_CONFLICT', ADMIN_ACCESS_MESSAGES.CONFLICT);
 
 @Injectable()
 export class AdminAccessRepository {
-  constructor(private readonly prismaService: PrismaService) {}
+  constructor(private readonly db: PostgresService) {}
 
-  readonly list_access = (input: AccessListInput) =>
-    this.prismaService.client.$transaction(
-      async (tx) => {
-        const where: Prisma.UserWhereInput = {
-          ...visible_admin,
-          ...(input.status !== 'all' ? { status: input.status } : {}),
-          ...(input.query
-            ? {
-                AND: input.query.split(/\s+/).map((term) => ({
-                  OR: ['id', 'first_name', 'last_name', 'email'].map(
-                    (field) => ({
-                      [field]: { contains: term, mode: 'insensitive' },
-                    }),
-                  ),
-                })),
-              }
-            : {}),
-        };
-        const total = await tx.user.count({ where });
-        const page = Math.min(
-          input.page,
-          Math.max(1, Math.ceil(total / input.page_size)),
-        );
-        const users = await tx.user.findMany({
-          where,
-          select: access_select,
-          orderBy: [{ created_at: 'desc' }, { id: 'asc' }],
-          skip: (page - 1) * input.page_size,
-          take: input.page_size,
-        });
-        const counts = await tx.user.groupBy({
-          by: ['status'],
-          where: visible_admin,
-          _count: { _all: true },
-        });
-        const awaiting_sign_in = await tx.user.count({
-          where: {
-            ...visible_admin,
-            status: 'ACTIVE',
-            auth_accounts: { none: { provider: 'GOOGLE' } },
-          },
-        });
-        return {
-          users,
-          total,
-          page,
-          page_size: input.page_size,
-          stats: {
-            total_admins: counts.reduce(
-              (sum, group) => sum + group._count._all,
-              0,
-            ),
-            active_admins:
-              counts.find((group) => group.status === 'ACTIVE')?._count._all ??
-              0,
-            awaiting_sign_in,
-          },
-        };
-      },
-      {
-        ...ADMIN_ACCESS_TRANSACTION,
-        isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
-      },
+  private async lockAndAuthorize(tx: SqlClient, actor: string) {
+    await tx.query('SELECT pg_advisory_xact_lock($1::bigint)', [
+      ADMIN_ACCESS_LOCK,
+    ]);
+    const { rows } = await tx.query<{ allowed: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM users WHERE id=$1 AND role='ADMIN'
+        AND status='ACTIVE' AND deleted_at IS NULL) AS allowed`,
+      [actor],
     );
+    if (!rows[0]?.allowed)
+      throw new AppError(
+        403,
+        'ADMIN_ACCESS_DENIED',
+        ADMIN_AUTH_MESSAGES.DENIED,
+      );
+  }
 
-  readonly grant_access = async (actor_id: string, input: GrantAccessInput) => {
-    const result = await this.prismaService.client.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ADMIN_ACCESS_LOCK})`;
-      const actor = await tx.user.findUnique({
-        where: { id: actor_id },
-        select: { role: true, status: true, deleted_at: true },
-      });
-      if (
-        !actor ||
-        actor.role !== 'ADMIN' ||
-        actor.status !== 'ACTIVE' ||
-        actor.deleted_at
-      )
-        throw new AppError(
-          403,
-          'ADMIN_ACCESS_DENIED',
-          ADMIN_AUTH_MESSAGES.DENIED,
-        );
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(720047, hashtext(${input.email}))`;
-      const matches = await tx.user.findMany({
-        where: { email: { equals: input.email, mode: 'insensitive' } },
-        take: 2,
-      });
-      if (matches.length > 1)
+  private async revokeMobileSessions(tx: SqlClient, user: string) {
+    await tx.query(
+      `UPDATE sessions SET revoked_at=clock_timestamp(), updated_at=clock_timestamp()
+      WHERE user_id=$1 AND family_id IS NOT NULL AND revoked_at IS NULL`,
+      [user],
+    );
+  }
+
+  readonly grant_access = async (actor: string, input: GrantAccessInput) => {
+    const result = await this.saveGrant(input.email, actor);
+    schedule_new_user_emails(this.db);
+    return result;
+  };
+
+  provisionAdmin(email: string) {
+    return this.saveGrant(email);
+  }
+
+  private saveGrant(email: string, actor?: string) {
+    return this.db.transaction(async (tx) => {
+      if (actor) await this.lockAndAuthorize(tx, actor);
+      else
+        await tx.query('SELECT pg_advisory_xact_lock($1::bigint)', [
+          ADMIN_ACCESS_LOCK,
+        ]);
+      await tx.query('SELECT pg_advisory_xact_lock(720047, hashtext($1))', [
+        email,
+      ]);
+      const { rows } = await tx.query<Account>(
+        'SELECT ' +
+          accountColumns +
+          ' FROM users WHERE lower(email)=lower($1) LIMIT 2',
+        [email],
+      );
+      if (rows.length > 1)
         throw new AppError(
           409,
           'ADMIN_EMAIL_AMBIGUOUS',
           ADMIN_ACCESS_MESSAGES.AMBIGUOUS,
         );
-      const existing = matches[0];
+      const existing = rows[0];
       if (existing && (existing.status !== 'ACTIVE' || existing.deleted_at))
         throw new AppError(
           409,
@@ -166,171 +116,139 @@ export class AdminAccessRepository {
       if (existing?.role === 'ADMIN')
         return {
           changed: false,
-          user: await tx.user.findUniqueOrThrow({
-            where: { id: existing.id },
-            select: access_select,
-          }),
+          user: await readAccessAccount(tx, existing.id),
         };
-      const previous_role = existing?.role ?? 'RIDER';
-      const user = existing
-        ? await tx.user.update({
-            where: { id: existing.id },
-            data: { role: 'ADMIN' },
-          })
-        : await tx.user.create({ data: { email: input.email, role: 'ADMIN' } });
+
+      const previousRole = existing?.role ?? 'RIDER';
+      const saved = existing
+        ? await tx.query<Account>(
+            "UPDATE users SET role='ADMIN',updated_at=clock_timestamp() WHERE id=$1 RETURNING " +
+              accountColumns,
+            [existing.id],
+          )
+        : await tx.query<Account>(
+            "INSERT INTO users (id,email,role,updated_at) VALUES ($1,$2,'ADMIN',clock_timestamp()) RETURNING " +
+              accountColumns,
+            [nextEntityId(), email],
+          );
+      const user = saved.rows[0]!;
       if (!existing)
-        await queue_new_user_emails(tx, user, 'Admin access provisioning');
-      const record = await tx.adminAccess.findUnique({
-        where: { user_id: user.id },
-        select: { id: true },
-      });
-      const data = {
-        previous_role,
-        granted_by_id: actor_id,
-        granted_at: new Date(),
-        revoked_at: null,
-        revoked_by_id: null,
-      };
-      if (record)
-        await tx.adminAccess.update({ where: { id: record.id }, data });
-      else await tx.adminAccess.create({ data: { ...data, user_id: user.id } });
-      await tx.session.updateMany({
-        where: { user_id: user.id, family_id: { not: null }, revoked_at: null },
-        data: { revoked_at: new Date() },
-      });
-      await create_user_log(tx, {
-        actor_id,
+        await queueNewUserEmailsSql(
+          tx,
+          user,
+          actor ? 'Admin access provisioning' : 'Admin provisioning command',
+        );
+
+      await tx.query(
+        `INSERT INTO admin_access (id,user_id,previous_role,granted_by_id,updated_at)
+        VALUES ($1,$2,$3,$4,clock_timestamp())
+        ON CONFLICT (user_id) DO UPDATE SET previous_role=EXCLUDED.previous_role,
+          granted_by_id=EXCLUDED.granted_by_id,granted_at=clock_timestamp(),
+          revoked_at=NULL,revoked_by_id=NULL,
+          updated_at=GREATEST(clock_timestamp(),admin_access.updated_at+INTERVAL '1 ms')`,
+        [nextEntityId(), user.id, previousRole, actor],
+      );
+      await this.revokeMobileSessions(tx, user.id);
+      await insertUserLog(tx, {
+        actor_id: actor ?? user.id,
         entity_type: 'User',
         entity_id: user.id,
-        action: 'GRANT_ADMIN_ACCESS',
-        before_data: {
-          role: previous_role,
-          account_existed: Boolean(existing),
-        },
-        after_data: { role: 'ADMIN', email: user.email },
+        action: actor ? 'GRANT_ADMIN_ACCESS' : 'PROVISION_ADMIN',
+        before_data: actor
+          ? { role: previousRole, account_existed: Boolean(existing) }
+          : { role: existing?.role ?? null },
+        after_data: actor
+          ? { role: 'ADMIN', email: user.email }
+          : { role: 'ADMIN' },
       });
-      return {
-        changed: true,
-        user: await tx.user.findUniqueOrThrow({
-          where: { id: user.id },
-          select: access_select,
-        }),
-      };
-    }, ADMIN_ACCESS_TRANSACTION);
-    schedule_new_user_emails();
-    return result;
-  };
+      return { changed: true, user: await readAccessAccount(tx, user.id) };
+    });
+  }
 
   readonly revoke_access = (
-    actor_id: string,
-    user_id: string,
+    actor: string,
+    id: string,
     input: RevokeAccessInput,
   ) =>
-    this.prismaService.client.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ADMIN_ACCESS_LOCK})`;
-      const actor = await tx.user.findUnique({
-        where: { id: actor_id },
-        select: { role: true, status: true, deleted_at: true },
-      });
-      if (
-        !actor ||
-        actor.role !== 'ADMIN' ||
-        actor.status !== 'ACTIVE' ||
-        actor.deleted_at
-      )
-        throw new AppError(
-          403,
-          'ADMIN_ACCESS_DENIED',
-          ADMIN_AUTH_MESSAGES.DENIED,
-        );
-      if (actor_id === user_id)
+    this.db.transaction(async (tx) => {
+      await this.lockAndAuthorize(tx, actor);
+      if (actor === id)
         throw new AppError(
           409,
           'ADMIN_SELF_REVOKE',
           ADMIN_ACCESS_MESSAGES.SELF_REVOKE,
         );
-      const user = await tx.user.findFirst({
-        where: { id: user_id, deleted_at: null, status: { not: 'DELETED' } },
-        include: {
-          admin_access: true,
-          driver_profile: { select: { id: true } },
-          partner_application: { select: { status: true } },
-        },
-      });
-      if (!user) return { changed: false, id: user_id, role: null };
-      if (user.role !== 'ADMIN')
-        return { changed: false, id: user.id, role: user.role };
-      if (
-        user.status === 'ACTIVE' &&
-        (await tx.user.count({
-          where: { role: 'ADMIN', status: 'ACTIVE', deleted_at: null },
-        })) <= 1
-      )
-        throw new AppError(
-          409,
-          'ADMIN_LAST_ACTIVE',
-          ADMIN_ACCESS_MESSAGES.LAST_ADMIN,
+      const { rows } = await tx.query<RevocationAccount>(
+        `SELECT u.id,u.role,u.status,u.email,
+          EXISTS (SELECT 1 FROM driver_profiles d WHERE d.user_id=u.id) AS has_driver,
+          p.status AS partner_status,g.previous_role,
+          CASE WHEN g.revoked_at IS NULL THEN g.updated_at END AS access_version
+        FROM users u
+        LEFT JOIN admin_access g ON g.user_id=u.id
+        LEFT JOIN partner_applications p ON p.current_user_id=u.id
+        WHERE u.id=$1 AND u.deleted_at IS NULL AND u.status<>'DELETED'`,
+        [id],
+      );
+      const user = rows[0];
+      if (!user) return { changed: false, id, role: null };
+      if (user.role !== 'ADMIN') return { changed: false, id, role: user.role };
+      if (user.status === 'ACTIVE') {
+        const count = await tx.query<{ total: number }>(
+          "SELECT count(*)::int AS total FROM users WHERE role='ADMIN' AND status='ACTIVE' AND deleted_at IS NULL",
         );
-      const previous = user.admin_access?.previous_role;
-      const actual_version =
-        user.admin_access?.revoked_at === null
-          ? user.admin_access.updated_at.toISOString()
-          : null;
+        if (count.rows[0]!.total <= 1)
+          throw new AppError(
+            409,
+            'ADMIN_LAST_ACTIVE',
+            ADMIN_ACCESS_MESSAGES.LAST_ADMIN,
+          );
+      }
       if (
         input.expected_access_version !== undefined &&
-        input.expected_access_version !== actual_version
+        input.expected_access_version !==
+          (user.access_version?.toISOString() ?? null)
       )
-        throw new AppError(
-          409,
-          'ADMIN_ACCESS_CONFLICT',
-          ADMIN_ACCESS_MESSAGES.CONFLICT,
-        );
-      const previous_or_driver =
+        throw conflict();
+      const previous = user.previous_role;
+      const restored =
         previous &&
         previous !== 'ADMIN' &&
-        !(previous === 'RIDER' && user.driver_profile)
+        !(previous === 'RIDER' && user.has_driver)
           ? previous
-          : user.driver_profile
+          : user.has_driver
             ? 'DRIVER'
             : 'RIDER';
       const role =
-        previous_or_driver === 'DRIVER' &&
-        user.partner_application &&
-        user.partner_application.status !== 'ACTIVATED'
+        restored === 'DRIVER' &&
+        user.partner_status &&
+        user.partner_status !== 'ACTIVATED'
           ? 'RIDER'
-          : previous_or_driver;
-      const changed = await tx.user.updateMany({
-        where: {
-          id: user_id,
-          role: 'ADMIN',
-          ...(input.expected_access_version === undefined
-            ? { updated_at: new Date(input.expected_updated_at!) }
-            : {}),
-        },
-        data: { role },
-      });
-      if (changed.count !== 1)
-        throw new AppError(
-          409,
-          'ADMIN_ACCESS_CONFLICT',
-          ADMIN_ACCESS_MESSAGES.CONFLICT,
-        );
-      await tx.adminAccess.updateMany({
-        where: { user_id, revoked_at: null },
-        data: { revoked_at: new Date(), revoked_by_id: actor_id },
-      });
-      await tx.session.updateMany({
-        where: { user_id, family_id: { not: null }, revoked_at: null },
-        data: { revoked_at: new Date() },
-      });
-      await create_user_log(tx, {
-        actor_id,
+          : restored;
+      const revision =
+        input.expected_access_version === undefined
+          ? new Date(input.expected_updated_at!)
+          : null;
+      const updated = await tx.query(
+        `UPDATE users SET role=$2, updated_at=clock_timestamp()
+        WHERE id=$1 AND role='ADMIN' AND ($3::timestamptz IS NULL OR updated_at=$3)`,
+        [id, role, revision],
+      );
+      if (updated.rowCount !== 1) throw conflict();
+      await tx.query(
+        `UPDATE admin_access SET revoked_at=clock_timestamp(),revoked_by_id=$2,
+          updated_at=GREATEST(clock_timestamp(),updated_at+INTERVAL '1 ms')
+        WHERE user_id=$1 AND revoked_at IS NULL`,
+        [id, actor],
+      );
+      await this.revokeMobileSessions(tx, id);
+      await insertUserLog(tx, {
+        actor_id: actor,
         entity_type: 'User',
-        entity_id: user_id,
+        entity_id: id,
         action: 'REVOKE_ADMIN_ACCESS',
         before_data: { role: 'ADMIN', email: user.email },
         after_data: { role },
       });
-      return { changed: true, id: user_id, role };
-    }, ADMIN_ACCESS_TRANSACTION);
+      return { changed: true, id, role };
+    });
 }

@@ -2,6 +2,7 @@ import { PendingService } from '../features/admin_pending/pending.service.js';
 import { AuditRetentionService } from '../core/audit_retention.service.js';
 import { PayoutTransfer } from '../features/wallet/payout-transfer.js';
 import { WalletRepository } from '../features/wallet/wallet.repo.js';
+import { WalletLedgerRepository } from '../features/wallet/wallet-ledger.repository.js';
 import { WalletTopUps } from '../features/wallet/wallet-topups.js';
 import { DriverOperationsService } from '../features/driver_operations/driver_operations.service.js';
 import assert from 'node:assert/strict';
@@ -12,9 +13,12 @@ import type { AddressInfo } from 'node:net';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ModulesContainer } from '@nestjs/core';
 import { RequestMethod } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { postgres_error } from '../database/postgres-error.js';
 import { create_application } from '../bootstrap.js';
-import { PrismaService } from '../infra/database/prisma.service.js';
+import { PostgresService } from '../database/postgres.service.js';
+import { AdminAuditRepository } from '../database/admin-audit.repository.js';
+import { IdempotencyRepository } from '../database/idempotency.repository.js';
+import { AccessRepository } from '../database/access.repository.js';
 import { create_access_token } from '../infra/security/token.js';
 import { VehicleCategoryService } from '../features/vehicle_category/vehicle_category.service.js';
 import { RideService } from '../features/ride/ride.service.js';
@@ -100,10 +104,7 @@ const fake = {
     }) => {
       const key = `${data.scope}|${data.key}`;
       if (cache.has(key))
-        throw new Prisma.PrismaClientKnownRequestError('Duplicate', {
-          code: 'P2002',
-          clientVersion: '6.19.3',
-        });
+        throw postgres_error({ code: '23505', message: 'Duplicate' });
       const record: Cached = {
         ...data,
         id: randomUUID(),
@@ -172,7 +173,56 @@ const json = (
 });
 before(async () => {
   app = await create_application({ logger: false });
-  Object.defineProperty(app.get(PrismaService), 'client', { value: fake });
+  Object.assign(app.get(AdminAuditRepository), {
+    start: async (data: Record<string, unknown> & { request_id: string }) => {
+      const row = await fake.adminActivity.upsert({
+        where: { request_id: data.request_id },
+        create: data,
+      });
+      return row.id;
+    },
+    complete: (id: string, data: Record<string, unknown>) =>
+      fake.adminActivity.update({ where: { id }, data }),
+  });
+  Object.assign(app.get(AccessRepository), {
+    account: async (id: string, family?: string) => {
+      const user = users.get(id);
+      return (
+        user && {
+          ...user,
+          deleted_at: null,
+          session_valid: !family || user.sessions.length > 0,
+        }
+      );
+    },
+    partnerStatus: async () => undefined,
+  });
+  Object.assign(app.get(IdempotencyRepository), {
+    find: (scope: string, key: string) =>
+      fake.idempotencyKey.findUnique({ where: { scope_key: { scope, key } } }),
+    claim: async (
+      _user: string,
+      scope: string,
+      key: string,
+      request_hash: string,
+      expires_at: Date,
+      now: Date,
+    ) => {
+      const existing = cache.get(`${scope}|${key}`);
+      if (existing && existing.expires_at > now) return undefined;
+      if (existing) cache.delete(`${scope}|${key}`);
+      return fake.idempotencyKey.create({
+        data: { scope, key, request_hash, expires_at },
+      });
+    },
+    complete: (id: string, response_json: unknown, status_code: number) =>
+      fake.idempotencyKey.update({
+        where: { id },
+        data: { response_json, status_code },
+      }),
+    removePending: (id: string) =>
+      fake.idempotencyKey.deleteMany({ where: { id } }),
+  });
   await app.listen(0, '127.0.0.1');
   base = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
 });
@@ -257,6 +307,45 @@ it('dispatches all daily cron jobs through one protected route and isolates fail
   ]);
 });
 
+it('validates checkout input for both route shapes and prioritizes the route ride ID', async () => {
+  const checkout = mock.method(
+    app.get(PaymentService),
+    'create_payment_checkout',
+    async () => ({}),
+  );
+  const method = 'method-fixture';
+  const checkoutRequest = (payload: unknown) =>
+    json(payload, token(), { 'Idempotency-Key': randomUUID() });
+  const legacy = await request(
+    '/api/v2/payments/checkout',
+    checkoutRequest({
+      ride_id: 'body-ride',
+      payment_method_id: method,
+    }),
+  );
+  const scoped = await request(
+    '/api/v2/rides/path-ride/payment/checkout',
+    checkoutRequest({
+      ride_id: 'body-ride',
+      payment_method_id: method,
+    }),
+  );
+  const invalid = await request(
+    '/api/v2/payments/checkout',
+    checkoutRequest({ payment_method_id: method }),
+  );
+  assert.equal(legacy.response.status, 201);
+  assert.equal(scoped.response.status, 201);
+  assert.equal(invalid.response.status, 422);
+  assert.deepEqual(
+    checkout.mock.calls.map((call) => call.arguments[1]),
+    [
+      { ride_id: 'body-ride', payment_method_id: method },
+      { ride_id: 'path-ride', payment_method_id: method },
+    ],
+  );
+});
+
 it('accepts both wallet ID formats and rejects malformed references', async () => {
   const check = mock.method(app.get(WalletTopUps), 'check', async () => ({
     status: 'PENDING',
@@ -292,8 +381,8 @@ it('accepts both wallet ID formats and rejects malformed references', async () =
 
 it('scopes the admin wallet timeline and keeps payment attempts behind admin access', async () => {
   const timeline = mock.method(
-    app.get(WalletRepository),
-    'admin_activity',
+    app.get(WalletLedgerRepository),
+    'adminActivity',
     async () => ({
       available_paise: '100',
       held_paise: '0',
@@ -354,28 +443,29 @@ it('keeps the route manifest aligned with compiled Nest routes and security meta
         }[];
         const interceptors = (Reflect.getMetadata('__interceptors__', fn) ??
           []) as { name: string }[];
-        for (const path of Array.isArray(paths) ? paths : [paths]) {
-          actual.push({
-            feature: Controller.name
-              .replace(/Controller$/, '')
-              .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-              .toLowerCase(),
-            handler,
-            method: RequestMethod[method]!.toLowerCase(),
-            path: [
-              String(Reflect.getMetadata('path', Controller) ?? '').replace(
-                /^\/+|\/+$/g,
-                '',
+        const prefixes = (Reflect.getMetadata('path', Controller) ?? '') as
+          string | string[];
+        for (const prefix of Array.isArray(prefixes) ? prefixes : [prefixes]) {
+          for (const path of Array.isArray(paths) ? paths : [paths]) {
+            actual.push({
+              feature: Controller.name
+                .replace(/Controller$/, '')
+                .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+                .toLowerCase(),
+              handler,
+              method: RequestMethod[method]!.toLowerCase(),
+              path: [
+                prefix.replace(/^\/+|\/+$/g, ''),
+                path.replace(/^\/+|\/+$/g, ''),
+              ]
+                .filter(Boolean)
+                .join('/'),
+              guards: guards.map((guard) => guard.name),
+              idempotent: interceptors.some(
+                (interceptor) => interceptor.name === 'IdempotencyInterceptor',
               ),
-              path.replace(/^\/+|\/+$/g, ''),
-            ]
-              .filter(Boolean)
-              .join('/'),
-            guards: guards.map((guard) => guard.name),
-            idempotent: interceptors.some(
-              (interceptor) => interceptor.name === 'IdempotencyInterceptor',
-            ),
-          });
+            });
+          }
         }
       }
     }
@@ -472,6 +562,13 @@ it('partner uploads and application submissions accept authenticated personal ac
 });
 
 it('returns JSON envelopes, status codes, and unknown-route errors', async () => {
+  mock.method(app.get(PostgresService), 'query', async () => ({
+    rows: [],
+    rowCount: 1,
+    fields: [],
+    command: 'SELECT',
+    oid: 0,
+  }));
   assert.equal((await request('/api/v2/health')).body.status, 'success');
   const missing = await request('/api/v2/not-a-route');
   assert.equal(missing.response.status, 404);
@@ -871,28 +968,25 @@ it('shares duplicate-request protection across route casing, trailing slashes, a
   assert.equal(cancel.mock.callCount(), 2);
 });
 
-it('returns safe client errors for missing records, foreign-key conflicts, and transaction conflicts', async () => {
+it('keeps PostgreSQL failure details private and returns stable errors', async () => {
   for (const [code, status, expected] of [
-    ['P2025', 404, 'NOT_FOUND'],
-    ['P2003', 409, 'REFERENCE_CONFLICT'],
-    ['P2034', 409, 'TRANSACTION_CONFLICT'],
-    ['P1001', 503, 'DATABASE_UNAVAILABLE'],
-    ['P1002', 503, 'DATABASE_UNAVAILABLE'],
-    ['P1008', 503, 'DATABASE_UNAVAILABLE'],
-    ['P1017', 503, 'DATABASE_UNAVAILABLE'],
-    ['P2024', 503, 'DATABASE_BUSY'],
-    ['P2028', 503, 'DATABASE_BUSY'],
-    ['P2037', 503, 'DATABASE_BUSY'],
+    ['23503', 409, 'REFERENCE_CONFLICT'],
+    ['23505', 409, 'RECORD_EXISTS'],
+    ['40001', 409, 'TRANSACTION_CONFLICT'],
+    ['40P01', 409, 'TRANSACTION_CONFLICT'],
+    ['ECONNREFUSED', 503, 'DATABASE_UNAVAILABLE'],
+    ['08006', 503, 'DATABASE_UNAVAILABLE'],
+    ['28P01', 503, 'DATABASE_UNAVAILABLE'],
+    ['55P03', 503, 'DATABASE_BUSY'],
+    ['57014', 503, 'DATABASE_BUSY'],
+    ['53300', 503, 'DATABASE_BUSY'],
   ] as const) {
     mock.restoreAll();
     mock.method(app.get(RideService), 'get_rides', async () => {
-      throw new Prisma.PrismaClientKnownRequestError(
-        'Private SQL diagnostics',
-        { code, clientVersion: '6.19.3' },
-      );
+      throw postgres_error({ code, message: 'Private SQL diagnostics' });
     });
     const result = await request('/api/v2/rides', {
-      headers: { Authorization: `Bearer ${token()}` },
+      headers: { Authorization: 'Bearer ' + token() },
     });
     assert.equal(result.response.status, status, code);
     assert.equal(result.body.error_code, expected);
@@ -900,25 +994,6 @@ it('returns safe client errors for missing records, foreign-key conflicts, and t
       assert.equal(result.response.headers.get('retry-after'), '3');
     assert.ok(!JSON.stringify(result.body).includes('Private SQL diagnostics'));
   }
-});
-
-it('returns a safe service-unavailable response when Prisma cannot initialize a connection', async () => {
-  mock.method(app.get(RideService), 'get_rides', async () => {
-    throw new Prisma.PrismaClientInitializationError(
-      'Private connection diagnostics',
-      '6.19.3',
-      'P1001',
-    );
-  });
-  const result = await request('/api/v2/rides', {
-    headers: { Authorization: `Bearer ${token()}` },
-  });
-  assert.equal(result.response.status, 503);
-  assert.equal(result.body.error_code, 'DATABASE_UNAVAILABLE');
-  assert.equal(result.response.headers.get('retry-after'), '3');
-  assert.ok(
-    !JSON.stringify(result.body).includes('Private connection diagnostics'),
-  );
 });
 
 it('verifies webhook signatures against exact raw bytes', async () => {

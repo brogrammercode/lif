@@ -1,46 +1,50 @@
+import type { output as ZodOutput } from 'zod';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
+import { CurrentUserId } from '../../common/decorators/current-user-id.decorator.js';
 import {
   Controller,
   Get,
   Post,
   Patch,
-  Req,
   Res,
   UseGuards,
+  Query,
+  Body,
+  Param,
 } from '@nestjs/common';
-import type { Request, Response } from 'express';
+import type { Response } from 'express';
 import { background_mail } from '../../infra/mail/background.js';
 import { AuthGuard, AdminGuard } from '../../core/guards.js';
 import { send_success } from '../../core/response.js';
 import { PartnerExitService } from './partner_exit.service.js';
 import { PartnerDeliveryService } from './partner_delivery.service.js';
-import { asset_input, id_input } from './partner_program.type.js';
+import { asset_input, id_input } from './dto/partner-program.dto.js';
 import {
   exit_create_input,
   admin_exit_create_input,
   exit_review_input,
   exit_list_input,
-} from './partner_exit.type.js';
+  exit_mine_query,
+} from './dto/partner-exit.dto.js';
 
 @Controller('partner-program')
 @UseGuards(AuthGuard)
 export class PartnerExitController {
   constructor(private readonly service: PartnerExitService) {}
   @Get('exit-request') async mine(
-    @Req() req: Request,
+    @Query(new ZodValidationPipe(exit_mine_query))
+    filters: ZodOutput<typeof exit_mine_query>,
+    @CurrentUserId() actorId: string,
     @Res({ passthrough: true }) res: Response,
   ) {
-    if (req.query.history === 'true') {
-      const after =
-        req.query.after === undefined
-          ? undefined
-          : id_input.parse(req.query.after);
+    if (filters.history) {
       return send_success(
         res,
-        await this.service.history(req.auth!.user_id, after),
+        await this.service.history(actorId, filters.after),
         'Partner exit history loaded',
       );
     }
-    const row = await this.service.mine(req.auth!.user_id);
+    const row = await this.service.mine(actorId);
     // Internal review notes and reviewer identities stay in the admin workspace.
     return send_success(
       res,
@@ -63,15 +67,14 @@ export class PartnerExitController {
     );
   }
   @Post('exit-request') async create(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Body(new ZodValidationPipe(exit_create_input))
+    input: ZodOutput<typeof exit_create_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.create(
-        req.auth!.user_id,
-        exit_create_input.parse(req.body),
-      ),
+      await this.service.create(actorId, input),
       'Exit request submitted',
     );
   }
@@ -91,24 +94,27 @@ export class AdminPartnerExitController {
     );
   }
   @Get() async list(
-    @Req() req: Request,
+    @Query(new ZodValidationPipe(exit_list_input))
+    filters: ZodOutput<typeof exit_list_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.list(exit_list_input.parse(req.query)),
+      await this.service.list(filters),
       'Exit requests loaded',
     );
   }
   @Post() async create(
-    @Req() req: Request,
+    @Body(new ZodValidationPipe(admin_exit_create_input))
+    validatedInput: ZodOutput<typeof admin_exit_create_input>,
+    @CurrentUserId() actorId: string,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const input = admin_exit_create_input.parse(req.body);
+    const input = validatedInput;
     return send_success(
       res,
       await this.service.create(
-        req.auth!.user_id,
+        actorId,
         { reason: input.reason, version: input.version },
         input.application_id,
       ),
@@ -116,62 +122,61 @@ export class AdminPartnerExitController {
     );
   }
   @Get(':id') async detail(
-    @Req() req: Request,
+    @Param('id', new ZodValidationPipe(id_input))
+    routeId: ZodOutput<typeof id_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.detail(id_input.parse(req.params.id)),
+      await this.service.detail(routeId),
       'Exit request loaded',
     );
   }
   @Patch(':id') async review(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(id_input))
+    routeId: ZodOutput<typeof id_input>,
+    @Body(new ZodValidationPipe(exit_review_input))
+    input: ZodOutput<typeof exit_review_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.service.review(
-      req.auth!.user_id,
-      id_input.parse(req.params.id),
-      exit_review_input.parse(req.body),
-    );
+    const result = await this.service.review(actorId, routeId, input);
     if (result.status === 'COMPLETED') this.queue_email(result.application_id);
     return send_success(res, result, 'Exit request saved');
   }
   @Post(':id/assets') async upload(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(id_input))
+    routeId: ZodOutput<typeof id_input>,
+    @Body(new ZodValidationPipe(asset_input))
+    input: ZodOutput<typeof asset_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.upload(
-        req.auth!.user_id,
-        id_input.parse(req.params.id),
-        asset_input.parse(req.body),
-      ),
+      await this.service.upload(actorId, routeId, input),
       'Settlement PDF saved',
     );
   }
   @Post(':id/shared') async shared(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(id_input))
+    routeId: ZodOutput<typeof id_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.shared(
-        req.auth!.user_id,
-        id_input.parse(req.params.id),
-      ),
+      await this.service.shared(actorId, routeId),
       'Manual sharing recorded',
     );
   }
   @Post(':id/email-retry') async retry(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(id_input))
+    routeId: ZodOutput<typeof id_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const application_id = await this.service.retry_email(
-      req.auth!.user_id,
-      id_input.parse(req.params.id),
-    );
+    const application_id = await this.service.retry_email(actorId, routeId);
     this.queue_email(application_id);
     return send_success(res, { queued: true }, 'Settlement email retry queued');
   }

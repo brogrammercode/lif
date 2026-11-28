@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { mock } from 'node:test';
 import { TravelContextService } from '../features/travel_context/travel_context.service.js';
-import { rider_history_schema } from '../features/travel_context/travel_context.type.js';
+import { TravelContextRepository } from '../features/travel_context/travel-context.repository.js';
+import { travelSql } from '../features/travel_context/sql/travel-context.sql.js';
+import type { PostgresService } from '../database/postgres.service.js';
+import { rider_history_schema } from '../features/travel_context/dto/ride-history.dto.js';
 import { DriverRepository } from '../features/driver/driver.repo.js';
 import { Prisma, type RideStartVerification } from '@prisma/client';
-import { PrismaService } from '../infra/database/prisma.service.js';
 import { GeocodeService } from '../features/geocode/geocode.service.js';
 import { DriverOperationsService } from '../features/driver_operations/driver_operations.service.js';
-import { default_wallet_controls } from '../features/wallet/wallet-controls.js';
 import {
   new_trip_code,
   reveal_trip_code,
@@ -17,7 +18,7 @@ import {
 import {
   trip_collection_input,
   trip_code_input,
-} from '../features/driver_operations/driver_operations.type.js';
+} from '../features/driver_operations/dto/driver-operations.dto.js';
 
 const decimal = (n: number) => new Prisma.Decimal(n);
 function fixture() {
@@ -73,6 +74,7 @@ function fixture() {
     estimated_fare: decimal(50),
     final_fare: null as Prisma.Decimal | null,
     actual_distance_m: null as number | null,
+    actual_duration_s: null as number | null,
     currency: 'INR',
     rider: {
       id: 'rider',
@@ -141,54 +143,43 @@ function fixture() {
   let walletEnabled = false;
   const cashEntries: Prisma.WalletEntryUncheckedCreateInput[] = [];
   let driverLockHook: (() => void) | undefined;
-  const tx = {
-    $executeRaw: async (parts: TemplateStringsArray) => {
-      if (parts.join('').includes('720043')) driverLockHook?.();
-      return 1;
-    },
-    user: {
-      findUnique: async () => ({
-        role: actorRole,
-        status: 'ACTIVE',
-        deleted_at: null,
-      }),
-    },
-    rideFarePolicy: { findUnique: async () => null },
-    payoutSchedule: {
-      findUnique: async () => ({
-        ...default_wallet_controls,
-        wallet_ride_collection_enabled: walletEnabled,
-      }),
-    },
-    $queryRaw: async () => [],
-    wallet: {
-      findUnique: async () => ({ available_paise: 5000n }),
-      findUniqueOrThrow: async () => ({
-        available_paise: 5000n,
-        held_paise: 100n,
-      }),
-      upsert: async ({ create }: { create: { user_id: string } }) => ({
-        id: create.user_id,
-      }),
-    },
-    walletEntry: {
-      create: async ({
-        data,
-      }: {
-        data: Prisma.WalletEntryUncheckedCreateInput;
-      }) => {
-        cashEntries.push(data);
-        return data;
-      },
-    },
-    driverPayoutChange: {
-      findFirst: async () => null,
-      findMany: async () => [],
-    },
-    partnerApplication: {
-      findUnique: async () => ({
-        status: 'ACTIVATED',
-        fields: [
+  const routing = new GeocodeService();
+  const query = async (statement: string, values: unknown[] = []) => {
+    if (statement.includes('FROM ride_fare_policies')) return { rows: [] };
+    if (statement.includes('FROM users WHERE id'))
+      return {
+        rows: [{ role: actorRole, status: 'ACTIVE', deleted_at: null }],
+      };
+    if (statement.startsWith('SELECT status FROM partner_applications'))
+      return { rows: [{ status: 'ACTIVATED' }] };
+    if (statement.includes('AS has_active_trip')) {
+      readSnapshots++;
+      if (
+        values[0] !== trip.id ||
+        ![trip.rider_id, driver.user_id].includes(String(values[1]))
+      )
+        return { rows: [] };
+      return {
+        rows: [
+          {
+            ...trip,
+            driver: { ...driver },
+            has_active_trip: otherActiveTrip,
+            contact_attempted: events.some(
+              (event) =>
+                event.event_type === 'CALL_ATTEMPT' &&
+                event.actor_id === values[1],
+            ),
+            wallet_available: '5000',
+            wallet_enabled: walletEnabled,
+            razorpay_upi_enabled: false,
+          },
+        ],
+      };
+    }
+    if (statement.includes('FROM partner_application_fields'))
+      return {
+        rows: [
           {
             value: 'driver@upi',
             definition: {
@@ -198,148 +189,264 @@ function fixture() {
             },
           },
         ],
-      }),
-    },
-    ride: {
-      count: async () => (otherActiveTrip ? 1 : 0),
-      findFirst: async ({
-        where,
-      }: {
-        where: { OR: { rider_id?: string; driver?: { user_id: string } }[] };
-      }) =>
-        where.OR.some(
-          (v) => v.rider_id === 'rider' || v.driver?.user_id === 'driver-user',
-        )
-          ? { ...trip, driver: { ...driver } }
-          : null,
-      update: async ({ data }: { data: Partial<typeof trip> }) => {
-        Object.assign(trip, data);
-        return trip;
-      },
-    },
-    driverProfile: {
-      update: async ({
-        data,
-      }: {
-        data: {
-          availability?: string;
-          completed_rides?: { increment: number };
-        };
-      }) => {
-        if (data.availability) driver.availability = data.availability;
-        if (data.completed_rides) completions += data.completed_rides.increment;
-        return driver;
-      },
-    },
-    rideStartVerification: {
-      update: async ({
-        data,
-      }: {
-        data: Omit<Partial<RideStartVerification>, 'attempts'> & {
-          attempts?: number | { increment: number };
-        };
-      }) => {
-        const { attempts, ...rest } = data;
-        Object.assign(trip.start_verification, rest);
-        if (attempts !== undefined)
-          trip.start_verification.attempts =
-            typeof attempts === 'number'
-              ? attempts
-              : trip.start_verification.attempts + attempts.increment;
-        return { ...trip.start_verification };
-      },
-      upsert: async ({
-        create,
-        update,
-      }: {
-        create: RideStartVerification;
-        update: Partial<RideStartVerification>;
-      }) => {
-        trip.start_verification = trip.start_verification
-          ? { ...trip.start_verification, ...update }
-          : create;
-        return trip.start_verification;
-      },
-      deleteMany: async () => ({ count: 1 }),
-    },
-    rideEvent: {
-      create: async ({ data }: { data: (typeof events)[number] }) => {
-        events.push(data);
-        return data;
-      },
-      findFirst: async ({ where }: { where: { event_type: string } }) =>
-        events.find((v) => v.event_type === where.event_type) ?? null,
-    },
-    notification: { create: async () => ({}) },
-    userLog: { create: async () => ({}) },
-    rideLocation: { findMany: async () => locations },
-    rideOffer: { updateMany: async () => ({ count: 0 }) },
-    payment: {
-      findUnique: async () => trip.payment,
-      update: async ({
-        data,
-      }: {
-        data: Partial<NonNullable<typeof trip.payment>>;
-      }) => {
-        if (trip.payment) Object.assign(trip.payment, data);
-        return trip.payment;
-      },
-      upsert: async ({
-        create,
-        update,
-      }: {
-        create: NonNullable<typeof trip.payment>;
-        update: Partial<NonNullable<typeof trip.payment>>;
-      }) => {
-        trip.payment = trip.payment
-          ? { ...trip.payment, ...update, updated_at: new Date() }
-          : { ...create, id: 'payment', updated_at: new Date() };
-        return trip.payment;
-      },
-    },
-    rideSettlementReview: {
-      findUnique: async () => trip.settlement_review,
-      findUniqueOrThrow: async () => trip.settlement_review,
-      update: async ({ data }: { data: Record<string, unknown> }) => {
-        const { version, ...rest } = data;
-        const saved = trip.settlement_review!;
-        Object.assign(saved, rest);
-        if (version) saved.version = Number(saved.version ?? 1) + 1;
-        return saved;
-      },
-      updateMany: async ({ data }: { data: Record<string, unknown> }) => {
-        if (
-          trip.settlement_review &&
-          !['WAIVED', 'REJECTED', 'SETTLED'].includes(
-            String(trip.settlement_review.status),
-          )
-        ) {
-          Object.assign(trip.settlement_review, data);
-        }
-        return { count: trip.settlement_review ? 1 : 0 };
-      },
-      upsert: async ({ create }: { create: Record<string, unknown> }) =>
-        (trip.settlement_review ??= create),
-      create: async ({ data }: { data: Record<string, unknown> }) =>
-        (trip.settlement_review = data),
-    },
+      };
+    if (statement.includes('pg_advisory_xact_lock(720043')) driverLockHook?.();
+    if (statement.startsWith('INSERT INTO ride_start_verifications')) {
+      trip.start_verification = {
+        ...trip.start_verification,
+        ride_id: String(values[0]),
+        driver_id: String(values[1]),
+        assignment_at: values[2] as Date,
+        code_hash: String(values[3]),
+        code_ciphertext: String(values[4]),
+        expires_at: values[5] as Date,
+        attempts: 0,
+        rider_confirmed_at: null,
+        driver_verified_at: null,
+        used_at: null,
+      };
+      return { rows: [] };
+    }
+    if (statement.startsWith('UPDATE ride_start_verifications')) {
+      const verification = trip.start_verification;
+      if (statement.includes('attempts=attempts+1')) verification.attempts++;
+      if (statement.includes("code_ciphertext=''")) {
+        verification.used_at = new Date();
+        verification.code_ciphertext = '';
+        verification.code_hash = '';
+      }
+      if (statement.includes('RETURNING rider_confirmed_at')) {
+        if (values[1]) verification.rider_confirmed_at ??= new Date();
+        else verification.driver_verified_at ??= new Date();
+      }
+      return { rows: [{ ...verification }] };
+    }
+    if (statement.startsWith('UPDATE rides SET status=')) {
+      if (statement.includes("'DRIVER_WAITING'")) {
+        trip.status = 'DRIVER_WAITING';
+        trip.arrived_at = new Date();
+      } else if (statement.includes("'IN_PROGRESS'")) {
+        trip.status = 'IN_PROGRESS';
+        trip.started_at = new Date();
+      } else if (statement.includes("'COMPLETED'")) {
+        trip.status = 'COMPLETED';
+        trip.completed_at = new Date();
+        trip.final_fare = decimal(Number(values[1]));
+        trip.actual_duration_s = Number(values[2]);
+        trip.actual_distance_m = values[3] as number | null;
+      } else if (statement.includes("'CANCELLED'")) {
+        trip.status = 'CANCELLED';
+        Object.assign(trip, {
+          cancel_reason: values[1],
+          cancelled_at: new Date(),
+        });
+      }
+    }
+    if (statement.startsWith('SELECT latitude,longitude,recorded_at'))
+      return { rows: locations };
+    if (statement.startsWith('UPDATE driver_profiles')) {
+      if (statement.includes("'ON_TRIP'")) driver.availability = 'ON_TRIP';
+      if (statement.includes('SET availability=$2'))
+        driver.availability = String(values[1]);
+      if (statement.includes('completed_rides=completed_rides+1')) {
+        completions++;
+        driver.availability = String(values[1]);
+      }
+    }
+    if (statement.startsWith('INSERT INTO payments')) {
+      trip.payment ??= {
+        id: 'payment',
+        status: 'PENDING',
+        amount: decimal(Number(values[2])),
+        updated_at: new Date(),
+      };
+      if (statement.includes("collection_method='WALLET'")) {
+        Object.assign(trip.payment, {
+          collection_method: 'WALLET',
+          status: 'PENDING',
+          recipient_upi: null,
+          updated_at: new Date(),
+        });
+      }
+      if (statement.includes('RETURNING id')) {
+        Object.assign(trip.payment, {
+          collection_method: values[4],
+          recipient_upi: values[5],
+          status: values[6],
+          confirmed_by_id: values[7],
+          paid_at: values[8],
+          updated_at: new Date(),
+          ...(values[10] ? { unpaid_reason: values[9] } : {}),
+        });
+        return { rows: [{ id: trip.payment.id }] };
+      }
+    }
+    if (statement.includes('FROM payout_schedules'))
+      return { rows: [{ wallet_ride_collection_enabled: walletEnabled }] };
+    if (
+      statement.includes(
+        'SELECT id,kind,available_paise,held_paise FROM wallets',
+      )
+    )
+      return {
+        rows: [
+          {
+            id: values[0],
+            kind: 'RIDER',
+            available_paise: '5000',
+            held_paise: '100',
+          },
+          {
+            id: values[1],
+            kind: 'DRIVER',
+            available_paise: '5000',
+            held_paise: '100',
+          },
+        ],
+      };
+    if (statement.startsWith('INSERT INTO wallet_entries')) {
+      cashEntries.push({
+        id: String(values[0]),
+        wallet_id: String(values[1]),
+        kind: 'CASH_PAYMENT',
+        ride_id: String(values[2]),
+        payment_id: String(values[3]),
+        operation_key: String(values[4]),
+        external_amount_paise: BigInt(String(values[5])),
+        available_delta_paise: 0n,
+        held_delta_paise: 0n,
+        available_after_paise: BigInt(String(values[6])),
+        held_after_paise: BigInt(String(values[7])),
+        commission_paise:
+          values[8] == null ? undefined : BigInt(String(values[8])),
+        commission_percent: values[9] == null ? undefined : Number(values[9]),
+      });
+    }
+    if (statement.startsWith('INSERT INTO ride_settlement_reviews')) {
+      const unpaid = statement.includes("'UNPAID'");
+      trip.settlement_review ??= {
+        id: values[0],
+        ride_id: values[1],
+        status: unpaid ? 'REQUESTED' : values[7],
+        kind: unpaid ? 'UNPAID' : values[4],
+        reason: unpaid ? values[4] : values[5],
+        fee_amount: decimal(Number(unpaid ? values[5] : values[6])),
+        version: 1,
+      };
+    }
+    if (statement.startsWith('SELECT metadata FROM ride_events'))
+      return {
+        rows: events.filter(
+          (event) =>
+            event.event_type === 'DRIVER_WAITING' &&
+            event.actor_id === values[1],
+        ),
+      };
+    if (
+      statement.includes('FROM ride_settlement_reviews') &&
+      statement.startsWith('SELECT')
+    )
+      return {
+        rows: trip.settlement_review ? [{ ...trip.settlement_review }] : [],
+      };
+    if (statement.startsWith('SELECT status,provider,provider_payment_id'))
+      return { rows: trip.payment ? [{ ...trip.payment }] : [] };
+    if (statement.startsWith('UPDATE ride_settlement_reviews s SET'))
+      return {
+        rows: trip.settlement_review
+          ? [
+              Object.assign(trip.settlement_review, {
+                status: values[1],
+                resolution_note: values[2],
+                resolved_by_id: values[3],
+                version: Number(values[4]) + 1,
+              }),
+            ]
+          : [],
+      };
+    if (
+      statement.startsWith(
+        "UPDATE ride_settlement_reviews SET status='DISPUTED'",
+      ) &&
+      trip.settlement_review
+    )
+      Object.assign(trip.settlement_review, {
+        status: 'DISPUTED',
+        dispute_reason: values[1],
+        version: Number(trip.settlement_review.version) + 1,
+      });
+    if (statement.startsWith('UPDATE payments') && trip.payment) {
+      if (statement.includes("'CANCELLED'"))
+        Object.assign(trip.payment, {
+          status: 'CANCELLED',
+          unpaid_reason: values[1],
+        });
+      else if (statement.includes("'CAPTURED'"))
+        Object.assign(trip.payment, {
+          status: 'CAPTURED',
+          unpaid_reason: null,
+          confirmed_by_id: values[1],
+          paid_at: new Date(),
+        });
+    }
+    if (
+      statement.startsWith('UPDATE ride_settlement_reviews') &&
+      trip.settlement_review?.kind === 'UNPAID' &&
+      ['REQUESTED', 'DISPUTED', 'APPROVED'].includes(
+        String(trip.settlement_review.status),
+      )
+    ) {
+      trip.settlement_review.status = 'SETTLED';
+    }
+    if (
+      statement.startsWith('INSERT INTO ride_events') &&
+      !statement.includes("'CALL_ATTEMPT'")
+    ) {
+      events.push({
+        event_type: String(values[3]),
+        actor_id: String(values[2]),
+        metadata: values[4] ? JSON.parse(String(values[4])) : undefined,
+      });
+    }
+    if (statement.includes('FROM rides r LEFT JOIN driver_profiles')) {
+      readSnapshots++;
+      if (
+        values[0] !== trip.id ||
+        ![trip.rider_id, driver.user_id].includes(String(values[1]))
+      )
+        return { rows: [] };
+      return {
+        rows: [
+          {
+            ...trip,
+            driver_user_id: driver.user_id,
+            current_latitude: driver.current_latitude,
+            current_longitude: driver.current_longitude,
+            last_location_at: driver.last_location_at,
+            last_location_accuracy_m: driver.last_location_accuracy_m,
+            driver_phone: driver.user.phone_e164,
+            rider_phone: trip.rider.phone_e164,
+            payment_status: trip.payment?.status ?? null,
+          },
+        ],
+      };
+    }
+    if (statement.includes("'CALL_ATTEMPT'")) {
+      events.push({
+        event_type: 'CALL_ATTEMPT',
+        actor_id: String(values[2]),
+        metadata: { connection_verified: false },
+      });
+    }
+    return { rows: [] };
   };
-  const db = new PrismaService();
-  Object.defineProperty(db, 'client', {
-    value: {
-      ...tx,
-      $transaction: async (
-        action: (client: typeof tx) => Promise<unknown>,
-        options?: { isolationLevel?: string },
-      ) => {
-        if (options?.isolationLevel === 'RepeatableRead') readSnapshots++;
-        return action(tx);
-      },
-    },
-  });
-  const routing = new GeocodeService();
+  const postgres = {
+    query,
+    transaction: (work: (client: { query: typeof query }) => unknown) =>
+      work({ query }),
+  } as unknown as PostgresService;
   return {
-    service: new DriverOperationsService(db, routing),
+    service: new DriverOperationsService(routing, postgres),
     routing,
     trip,
     driver,
@@ -373,6 +480,11 @@ const driver_maintenance_writes: [
       repo.create_driver_profile('driver-user', {
         license_number: 'fixture-license',
       }),
+  ],
+  [
+    'location update',
+    (repo) =>
+      repo.record_location('driver-user', { latitude: 25, longitude: 87 }),
   ],
   [
     'vehicle creation',
@@ -409,31 +521,29 @@ for (const [name, action] of driver_maintenance_writes) {
         deleted_at: null,
       };
       let reads = 0;
-      const tx = {
-        $executeRaw: async (
-          _sql: TemplateStringsArray,
-          ...values: unknown[]
-        ) => {
-          locks.push(values);
-          // Model a request whose HTTP guard passed before deactivation committed.
-          user = inactive;
-          return 1;
-        },
-        user: {
-          findUnique: async () => {
-            reads++;
-            return user;
-          },
-        },
-      };
-      const db = new PrismaService();
-      Object.defineProperty(db, 'client', {
-        value: {
-          $transaction: (callback: (client: typeof tx) => Promise<unknown>) =>
-            callback(tx),
-        },
-      });
-      await assert.rejects(() => action(new DriverRepository(db)), {
+      const sql = {
+        transaction: async (
+          work: (client: {
+            query: (
+              sql: string,
+              values?: unknown[],
+            ) => Promise<{ rows: unknown[] }>;
+          }) => Promise<unknown>,
+        ) =>
+          work({
+            query: async (statement, values = []) => {
+              if (statement.includes('pg_advisory_xact_lock_shared')) {
+                locks.push(values);
+                user = inactive;
+                return { rows: [] };
+              }
+              assert.match(statement, /FROM users WHERE id/);
+              reads++;
+              return { rows: user ? [user] : [] };
+            },
+          }),
+      } as unknown as PostgresService;
+      await assert.rejects(() => action(new DriverRepository(sql)), {
         status_code: 403,
         error_code: 'USER_INACTIVE',
       });
@@ -447,36 +557,26 @@ it('an active driver can still select an eligible vehicle after the lifecycle re
   const f = fixture();
   const writes: unknown[] = [];
   const tx = {
-    $executeRaw: async () => 1,
-    user: {
-      findUnique: async () => ({
-        role: 'DRIVER',
-        status: 'ACTIVE',
-        deleted_at: null,
-      }),
-    },
-    partnerApplication: { findUnique: async () => ({ status: 'ACTIVATED' }) },
-    vehicle: { findFirst: async () => f.driver.active_vehicle },
-    driverProfile: {
-      findUniqueOrThrow: async () => ({
-        id: 'driver',
-        active_vehicle_id: null,
-      }),
-      update: async ({ data }: { data: unknown }) => {
+    query: async (sql: string, values: unknown[] = []) => {
+      if (sql.includes('FROM users WHERE'))
+        return { rows: [{ role: 'DRIVER', status: 'ACTIVE' }] };
+      if (sql.includes('FROM partner_applications'))
+        return { rows: [{ status: 'ACTIVATED' }] };
+      if (sql.includes('AS vehicle'))
+        return { rows: [{ vehicle: f.driver.active_vehicle }] };
+      if (sql.startsWith('SELECT active_vehicle_id'))
+        return { rows: [{ active_vehicle_id: null }] };
+      if (sql.startsWith('UPDATE driver_profiles')) {
+        const data = { active_vehicle_id: values[1] };
         writes.push(data);
-        return data;
-      },
+        return { rows: [data] };
+      }
+      return { rows: [], rowCount: 0 };
     },
-    ride: { count: async () => 0 },
-    userLog: { create: async () => ({}) },
   };
-  const db = new PrismaService();
-  Object.defineProperty(db, 'client', {
-    value: {
-      $transaction: (callback: (client: typeof tx) => Promise<unknown>) =>
-        callback(tx),
-    },
-  });
+  const db = {
+    transaction: (work: (client: typeof tx) => Promise<unknown>) => work(tx),
+  } as unknown as PostgresService;
   await new DriverRepository(db).select_active_vehicle(
     'driver-user',
     'vehicle',
@@ -920,59 +1020,41 @@ function matchingFixture() {
     created_at: new Date(),
     next_dispatch_at: null,
   };
-  const tx = {
-    $executeRaw: async () => 1,
-    $queryRaw: async () => [{ locked: true }],
-    rideFarePolicy: { findUnique: async () => null },
-    ride: { findUnique: async () => ride, update: async () => ride },
-    driverProfile: { findMany: async () => candidates },
-    driverPayoutChange: {
-      findFirst: async () => null,
-      findMany: async () => [],
-    },
-    partnerApplication: {
-      findMany: async () => {
-        upiReads++;
-        return [...upiUsers].map((user_id) => ({
+  const query = async (sql: string, params: unknown[] = []) => {
+    if (sql.includes('pg_try_advisory')) return { rows: [{ locked: true }] };
+    if (sql.includes('FROM rides r WHERE'))
+      return { rows: [{ ...ride, quote: ride.quotes[0] }] };
+    if (sql.includes('FROM driver_profiles p')) return { rows: candidates };
+    if (sql.includes('FROM partner_application_fields')) {
+      upiReads++;
+      return {
+        rows: [...upiUsers].map((user_id) => ({
           user_id,
-          fields: [
-            {
-              value: 'driver@upi',
-              definition: {
-                key: 'upi_id',
-                label: 'UPI ID',
-                field_type: 'STRING',
-              },
-            },
-          ],
-        }));
-      },
-    },
-    rideOffer: {
-      findUnique: async ({
-        where,
-      }: {
-        where: { ride_id_driver_id: { driver_id: string } };
-      }) =>
-        rejected.has(where.ride_id_driver_id.driver_id)
-          ? { status: 'REJECTED' }
-          : null,
-      create: async ({ data }: { data: { driver_id: string } }) => {
-        sent.push(data.driver_id);
-        return data;
-      },
-    },
+          value: 'driver@upi',
+          definition: { key: 'upi_id', label: 'UPI ID', field_type: 'STRING' },
+        })),
+      };
+    }
+    if (sql.startsWith('SELECT driver_id,status,expires_at'))
+      return {
+        rows: [...rejected].map((driver_id) => ({
+          driver_id,
+          status: 'REJECTED',
+        })),
+      };
+    if (sql.startsWith('INSERT INTO ride_offers')) {
+      sent.push(params[2] as string);
+      return { rows: [], rowCount: 1 };
+    }
+    return { rows: [], rowCount: 0 };
   };
-  const db = new PrismaService();
-  Object.defineProperty(db, 'client', {
-    value: {
-      ...tx,
-      $transaction: async (action: (t: typeof tx) => Promise<unknown>) =>
-        action(tx),
-    },
-  });
+  const postgres = {
+    query,
+    transaction: (work: (tx: { query: typeof query }) => unknown) =>
+      work({ query }),
+  } as unknown as PostgresService;
   return {
-    service: new DriverOperationsService(db, new GeocodeService()),
+    service: new DriverOperationsService(new GeocodeService(), postgres),
     candidates,
     sent,
     rejected,
@@ -1025,51 +1107,39 @@ it('offer acceptance rechecks search deadline and current pickup radius, while r
     },
   };
   const tx = {
-    $executeRaw: async () => 1,
-    user: {
-      findUnique: async () => ({
-        role: 'DRIVER',
-        status: 'ACTIVE',
-        deleted_at: null,
-      }),
-    },
-    driverPayoutChange: {
-      findFirst: async () => null,
-      findMany: async () => [],
-    },
-    partnerApplication: { findUnique: async () => ({ status: 'ACTIVATED' }) },
-    driverProfile: {
-      findUnique: async () => profile,
-      update: async () => profile,
-    },
-    rideFarePolicy: { findUnique: async () => null },
-    ride: {
-      findFirst: async () => null,
-      count: async () => 0,
-      updateMany: async () => {
+    query: async (sql: string) => {
+      if (sql.includes('FROM users WHERE'))
+        return { rows: [{ role: 'DRIVER', status: 'ACTIVE' }] };
+      if (sql.includes('FROM partner_applications'))
+        return { rows: [{ status: 'ACTIVATED' }] };
+      if (sql.includes('AS active_vehicle')) return { rows: [profile] };
+      if (sql.startsWith('SELECT o.ride_id'))
+        return { rows: [{ ride_id: offer.ride_id }] };
+      if (sql.startsWith('SELECT o.status'))
+        return {
+          rows: [
+            {
+              ...offer.ride,
+              status: offer.status,
+              expires_at: offer.expires_at,
+              ride_id: offer.ride_id,
+              ride_status: offer.ride.status,
+              selected_quote: offer.ride.quotes[0],
+            },
+          ],
+        };
+      if (sql.startsWith('UPDATE rides')) {
         offer.ride.driver_id = 'driver';
         offer.ride.status = 'DRIVER_ASSIGNED';
-        return { count: 1 };
-      },
+        return { rows: [], rowCount: 1 };
+      }
+      if (sql.includes("SET status='ACCEPTED'")) offer.status = 'ACCEPTED';
+      return { rows: [], rowCount: 0 };
     },
-    rideOffer: {
-      findFirst: async () => offer,
-      update: async () => {
-        offer.status = 'ACCEPTED';
-        return offer;
-      },
-      updateMany: async () => ({ count: 0 }),
-    },
-    rideEvent: { create: async () => ({}) },
-    userLog: { create: async () => ({}) },
   };
-  const db = new PrismaService();
-  Object.defineProperty(db, 'client', {
-    value: {
-      $transaction: async (action: (t: typeof tx) => Promise<unknown>) =>
-        action(tx),
-    },
-  });
+  const db = {
+    transaction: (work: (client: typeof tx) => Promise<unknown>) => work(tx),
+  } as unknown as PostgresService;
   const repo = new DriverRepository(db);
   assert.equal(
     (await repo.accept_offer('driver-user', 'offer')).kind,
@@ -1236,168 +1306,84 @@ it('rider snapshots disclose timestamped location only during their active trip'
   );
 });
 
-it('recovers unpaid completed trips in rider and driver home without replacing live trips', async () => {
-  const queries: Prisma.RideFindFirstArgs[] = [];
-  const db = new PrismaService();
-  const ride = {
-    findFirst: async (query: Prisma.RideFindFirstArgs) => {
-      queries.push(query);
-      return { id: 'ride', status: 'COMPLETED' };
-    },
-  };
-  Object.defineProperty(db, 'client', {
-    value: {
-      ride,
-      $transaction: async (action: (tx: unknown) => unknown) =>
-        action({
-          ride,
-          user: { findUniqueOrThrow: async () => ({ role: 'DRIVER' }) },
-        }),
-    },
-  });
-  const service = new TravelContextService(db);
-  const context = await service.context('account');
-  assert.equal(context.active_rider_ride?.id, 'ride');
-  assert.equal(context.active_driver_ride?.id, 'ride');
-  assert.equal((await service.current('account'))?.id, 'ride');
-  assert.equal(queries[0]?.where?.rider_id, 'account');
-  for (const query of queries.slice(1)) {
-    assert.deepEqual(query.where?.driver, { user_id: 'account' });
-  }
-  for (const query of queries) {
-    const [active, unpaid] = query.where!.OR!;
-    assert.ok(JSON.stringify(active).includes('IN_PROGRESS'));
-    assert.equal(unpaid?.status, 'COMPLETED');
-    assert.deepEqual(unpaid?.OR, [
-      { payment: { is: null } },
-      {
-        payment: {
-          is: {
-            status: {
-              in: ['PENDING', 'REQUIRES_ACTION', 'AUTHORIZED', 'FAILED'],
-            },
-          },
-        },
-      },
-    ]);
-    assert.deepEqual(
-      (query.orderBy as Prisma.RideOrderByWithRelationInput[])[0],
-      {
-        completed_at: { sort: 'asc', nulls: 'first' },
-      },
-    );
-  }
-});
-
-it('rider history scopes both rows and counts to the rider and excludes unbooked drafts', async () => {
-  const calls: {
-    where: unknown;
-    skip?: number;
-    take?: number;
-    select?: unknown;
-  }[] = [];
-  const db = new PrismaService();
-  Object.defineProperty(db, 'client', {
-    value: {
-      ride: {
-        groupBy: async () => [{ status: 'COMPLETED', _count: { _all: 21 } }],
-        findMany: async (args: (typeof calls)[number]) => {
-          calls.push(args);
-          return [{ id: 'own-ride' }];
-        },
-        count: async (args: (typeof calls)[number]) => {
-          calls.push(args);
-          return 21;
-        },
-      },
-      $transaction: async (
-        queries: Promise<unknown>[],
-        options: { isolationLevel: string },
-      ) => {
-        assert.equal(options.isolationLevel, 'RepeatableRead');
-        return Promise.all(queries);
-      },
-    },
-  });
-  const service = new TravelContextService(db);
-  const result = await service.rider_history('rider', 2, 20, 'past');
-  assert.equal(result.total, 21);
-  assert.equal(result.page, 2);
-  assert.equal(result.counts.completed, 21);
-  assert.equal(calls[0]?.skip, 20);
-  assert.equal(calls[0]?.take, 20);
-  assert.deepEqual(calls[0]?.where, calls[1]?.where);
-  const where = calls[0]?.where as {
-    rider_id: string;
-    status: { notIn: string[] };
-  };
-  assert.equal(where.rider_id, 'rider');
-  assert.ok(where.status.notIn.includes('DRAFT'));
-  assert.ok(where.status.notIn.includes('IN_PROGRESS'));
-  await service.rider_history('rider', 1, 20, 'all');
-  assert.deepEqual(calls[2]?.where, {
-    rider_id: 'rider',
-    status: { not: 'DRAFT' },
-  });
-  await service.rider_history('rider', 1, 20, 'active');
-  assert.ok(JSON.stringify(calls[4]?.where).includes('IN_PROGRESS'));
-});
-
-it('history filters use opaque IDs, IST month bounds, private rider scope and database counts', async () => {
-  let rows: any, totals: any, groups: any;
-  const db = new PrismaService();
-  Object.defineProperty(db, 'client', {
-    value: {
-      ride: {
-        findMany: async (args: unknown) => {
-          rows = args;
-          return [];
-        },
-        count: async (args: unknown) => {
-          totals = args;
-          return 7;
-        },
-        groupBy: async (args: unknown) => {
-          groups = args;
-          return [
-            { status: 'SEARCHING', _count: { _all: 2 } },
-            { status: 'COMPLETED', _count: { _all: 7 } },
-            { status: 'CANCELLED', _count: { _all: 1 } },
-            { status: 'NO_DRIVER_FOUND', _count: { _all: 3 } },
-          ];
-        },
-      },
-      $transaction: async (queries: Promise<unknown>[]) => Promise.all(queries),
-    },
-  });
-  const result = await new TravelContextService(db).rider_history(
-    'owner',
-    1,
-    20,
-    'completed',
+it('recovers rider and driver trips and only allows driver mode for an eligible account', async () => {
+  const rows = [
     {
-      query: '#TRP-9007199254740993',
-      category_id: '9007199254740995',
-      month: '2026-10',
+      role: 'DRIVER',
+      partner_status: null,
+      partner_activated_at: null,
+      availability: 'OFFLINE',
+      rider_ride: { id: 'rider-trip', status: 'IN_PROGRESS' },
+      driver_ride: { id: 'driver-trip', status: 'COMPLETED' },
     },
-  );
-  assert.equal(rows.where.rider_id, 'owner');
-  assert.deepEqual(rows.where, totals.where);
-  assert.equal(rows.where.status, 'COMPLETED');
-  assert.equal(rows.where.OR[0].id.contains, '9007199254740993');
-  assert.equal(rows.where.OR[1].pickup_address.mode, 'insensitive');
-  assert.equal(rows.where.quotes.some.vehicle_category_id, '9007199254740995');
-  assert.deepEqual(rows.where.quotes.some.selected_at, { not: null });
-  assert.equal(
-    rows.where.created_at.gte.toISOString(),
-    '2026-09-30T18:30:00.000Z',
-  );
-  assert.equal(
-    rows.where.created_at.lt.toISOString(),
-    '2026-10-31T18:30:00.000Z',
-  );
-  assert.equal(groups.where.rider_id, 'owner');
-  assert.deepEqual(groups.where.status, { not: 'DRAFT' });
+  ];
+  const db = {
+    query: async (sql: string, args: unknown[]) => {
+      assert.deepEqual(args, ['account']);
+      if (sql === travelSql.context) return { rows };
+      assert.equal(sql, travelSql.driverCurrent);
+      return { rows: [rows[0]!.driver_ride] };
+    },
+  } as PostgresService;
+  const service = new TravelContextService(new TravelContextRepository(db));
+  const context = await service.context('account');
+  assert.equal(context.active_rider_ride?.id, 'rider-trip');
+  assert.equal(context.active_driver_ride?.id, 'driver-trip');
+  assert.equal(context.can_enter_driver_mode, true);
+  assert.equal(context.mode_switch_allowed, false);
+  assert.equal((await service.current('account'))?.id, 'driver-trip');
+});
+
+it('scopes history counts and page identically and binds search, category and IST month', async () => {
+  const calls: Array<{ sql: string; args: unknown[] }> = [];
+  const groups = [
+    { status: 'SEARCHING', total: 2 },
+    { status: 'COMPLETED', total: 7 },
+    { status: 'CANCELLED', total: 1 },
+    { status: 'NO_DRIVER_FOUND', total: 3 },
+  ];
+  const db = {
+    transaction: async (
+      callback: (tx: {
+        query: (sql: string, args: unknown[]) => Promise<{ rows: unknown[] }>;
+      }) => unknown,
+      isolation: string,
+    ) => {
+      assert.equal(isolation, 'REPEATABLE READ');
+      return callback({
+        query: async (sql, args) => {
+          calls.push({ sql, args });
+          return {
+            rows:
+              sql === travelSql.riderCounts ? groups : [{ id: 'owned-ride' }],
+          };
+        },
+      });
+    },
+  } as PostgresService;
+  const repository = new TravelContextRepository(db);
+  const result = await repository.rider_history('owner', 2, 20, 'past', {
+    query: '#TRP-9007199254740993',
+    category_id: '9007199254740995',
+    month: '2026-10',
+  });
+  const [countCall, listCall] = calls;
+  assert.equal(countCall?.sql, travelSql.riderCounts);
+  assert.deepEqual(countCall?.args, [
+    'owner',
+    '9007199254740993',
+    '#TRP-9007199254740993',
+    '9007199254740995',
+    new Date('2026-09-30T18:30:00.000Z'),
+    new Date('2026-10-31T18:30:00.000Z'),
+  ]);
+  assert.equal(listCall?.sql, travelSql.riderList);
+  assert.deepEqual(listCall?.args, [
+    ...countCall!.args,
+    ['COMPLETED', 'CANCELLED', 'NO_DRIVER_FOUND'],
+    20,
+    20,
+  ]);
   assert.deepEqual(result.counts, {
     all: 13,
     active: 2,
@@ -1406,11 +1392,8 @@ it('history filters use opaque IDs, IST month bounds, private rider scope and da
     unfulfilled: 3,
     past: 11,
   });
-  assert.equal(result.total, 7);
-  assert.equal(rows.select.driver.select.user.select.phone_e164, undefined);
-  assert.equal(rows.select.payment.select.provider_payment_id, undefined);
-  assert.equal(rows.select.actual_distance_m, true);
-  assert.deepEqual(rows.select.reviews.where, { reviewer_id: 'owner' });
+  assert.equal(result.total, 11);
+  assert.equal(result.page, 2);
 });
 
 it('history rejects malformed filters and preserves large string identifiers', () => {

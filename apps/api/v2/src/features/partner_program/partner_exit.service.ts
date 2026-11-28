@@ -1,217 +1,192 @@
-import { pending_exit_where } from '../admin_pending/pending.rules.js';
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { z } from 'zod';
 import { createHash } from 'node:crypto';
-import { PrismaService } from '../../infra/database/prisma.service.js';
+import type { z } from 'zod';
 import {
-  require_active_account,
-  require_active_admin,
-} from '../../infra/database/account_lifecycle.js';
-import { create_user_log } from '../../infra/database/user_log.js';
+  requireActiveAccount,
+  requireActiveAdmin,
+} from '../../database/account-locks.js';
+import { nextEntityId } from '../../database/entity-id.js';
+import {
+  PostgresService,
+  type SqlClient,
+} from '../../database/postgres.service.js';
+import { insertUserLog } from '../../database/user-log.js';
 import { AppError } from '../../core/error.js';
-import { partner_lock } from './partner_program.security.js';
-import type { AssetInput } from './partner_program.type.js';
+import { findDriverActiveRide } from '../driver/sql/driver-profile.sql.js';
+import type { AssetInput } from './dto/partner-program.dto.js';
 import type {
   exit_create_input,
   exit_review_input,
   exit_list_input,
-} from './partner_exit.type.js';
+} from './dto/partner-exit.dto.js';
+import {
+  exitAdminFields,
+  exitAdminFilter,
+  exitAdminFrom,
+  exitById,
+  exitColumns,
+  exitHistory,
+  exitMine,
+  exitOwner,
+} from './sql/partner-exit.sql.js';
 
-const options = { maxWait: 10000, timeout: 30000 };
-const application = {
-  select: {
-    id: true,
-    user_id: true,
-    contact_email: true,
-    whatsapp_phone: true,
-    user: { select: { first_name: true, last_name: true } },
-    deliveries: {
-      where: { channel: 'EXIT_EMAIL' },
-      select: {
-        status: true,
-        attempts: true,
-        sent_at: true,
-        claimed_at: true,
-        updated_at: true,
-        last_error: true,
-      },
-    },
-  },
-} as const;
+type ExitRow = {
+  id: string;
+  application_id: string;
+  status: string;
+  version: number;
+  settlement_pdf_id: string | null;
+};
+
+const options = { checkoutMs: 10000, statementMs: 30000 };
 const changed = () =>
   new AppError(
     409,
     'EXIT_REQUEST_CHANGED',
     'This exit request changed. Refresh it before continuing.',
   );
+const notFound = () =>
+  new AppError(404, 'EXIT_NOT_FOUND', 'Exit request not found.');
+
+async function lockPartner(tx: SqlClient, userId: string) {
+  await requireActiveAccount(tx, userId);
+  await tx.query('SELECT pg_advisory_xact_lock(720061,hashtext($1))', [userId]);
+}
+
+async function findExitOwner(tx: SqlClient, id: string) {
+  const {
+    rows: [row],
+  } = await tx.query<ExitRow & { user_id: string }>(exitOwner, [id]);
+  return row;
+}
+
 @Injectable()
 export class PartnerExitService {
-  constructor(private readonly database: PrismaService) {}
+  constructor(private readonly database: PostgresService) {}
+
   async mine(user_id: string) {
-    return this.database.client.partnerExitRequest.findFirst({
-      where: { application: { current_user_id: user_id } },
-    });
+    return (await this.database.query(exitMine, [user_id])).rows[0] ?? null;
   }
+
   async history(user_id: string, after?: string) {
-    const where = { application: { user_id }, status: 'COMPLETED' as const };
-    if (
-      after &&
-      !(await this.database.client.partnerExitRequest.findFirst({
-        where: { ...where, id: after },
-        select: { id: true },
-      }))
-    )
-      return { items: [], next_cursor: null };
-    const rows = await this.database.client.partnerExitRequest.findMany({
-      where,
-      orderBy: [{ completed_at: 'desc' }, { id: 'desc' }],
-      take: 21,
-      ...(after ? { cursor: { id: after }, skip: 1 } : {}),
-      select: {
-        id: true,
-        completed_at: true,
-        dues_amount: true,
-        dues_direction: true,
-        currency: true,
-        settlement_pdf_id: true,
-        application: { select: { final_pdf_id: true } },
-      },
-    });
+    const { rows } = await this.database.query<{ id: string }>(exitHistory, [
+      user_id,
+      after ?? null,
+    ]);
     const items = rows.slice(0, 20);
     return { items, next_cursor: rows.length > 20 ? items.at(-1)!.id : null };
   }
+
   async create(
     actor_id: string,
     input: z.infer<typeof exit_create_input>,
     application_id?: string,
   ) {
-    return this.database.client.$transaction(async (tx) => {
-      if (application_id) await require_active_admin(tx, actor_id);
-      else await require_active_account(tx, actor_id);
-      const app = await tx.partnerApplication.findUnique({
-        where: application_id
-          ? { id: application_id }
-          : { current_user_id: actor_id },
-      });
-      if (!app)
-        throw new AppError(
-          404,
-          'APPLICATION_NOT_FOUND',
-          'Partner application not found.',
+    return this.database.transaction(
+      async (tx) => {
+        if (application_id) await requireActiveAdmin(tx, actor_id);
+        else await requireActiveAccount(tx, actor_id);
+        const {
+          rows: [app],
+        } = await tx.query<{ id: string; user_id: string }>(
+          application_id
+            ? 'SELECT id,user_id FROM partner_applications WHERE id=$1'
+            : 'SELECT id,user_id FROM partner_applications WHERE current_user_id=$1',
+          [application_id ?? actor_id],
         );
-      await require_active_account(tx, app.user_id);
-      await partner_lock(tx, app.user_id);
-      // Re-read after the lock; exits must only start for active partners.
-      const current = await tx.partnerApplication.findUnique({
-        where: { id: app.id },
-        select: { status: true },
-      });
-      if (current?.status !== 'ACTIVATED')
-        throw new AppError(
-          409,
-          'PARTNER_NOT_ACTIVE',
-          'Only an activated driver can request an exit.',
+        if (!app)
+          throw new AppError(
+            404,
+            'APPLICATION_NOT_FOUND',
+            'Partner application not found.',
+          );
+        await lockPartner(tx, app.user_id);
+        const {
+          rows: [current],
+        } = await tx.query<{ status: string }>(
+          'SELECT status FROM partner_applications WHERE id=$1',
+          [app.id],
         );
-      const before = await tx.partnerExitRequest.findUnique({
-        where: { application_id: app.id },
-      });
-      if (
-        before &&
-        (before.status !== 'REJECTED' || before.version !== input.version)
-      )
-        throw changed();
-      if (!before && input.version !== 0) throw changed();
-      const row = before
-        ? await tx.partnerExitRequest.update({
-            where: { id: before.id },
-            data: {
-              reason: input.reason,
-              status: 'REQUESTED',
-              rejection_reason: null,
-              version: { increment: 1 },
-            },
-          })
-        : await tx.partnerExitRequest.create({
-            data: { application_id: app.id, reason: input.reason },
-          });
-      await create_user_log(tx, {
-        actor_id,
-        entity_type: 'PartnerExitRequest',
-        entity_id: row.id,
-        action: before ? 'RESUBMIT_PARTNER_EXIT' : 'REQUEST_PARTNER_EXIT',
-        before_data: before,
-        after_data: row,
-      });
-      return row;
-    }, options);
+        if (current?.status !== 'ACTIVATED')
+          throw new AppError(
+            409,
+            'PARTNER_NOT_ACTIVE',
+            'Only an activated driver can request an exit.',
+          );
+
+        const {
+          rows: [before],
+        } = await tx.query<ExitRow>(
+          `SELECT ${exitColumns} FROM partner_exit_requests e WHERE e.application_id=$1`,
+          [app.id],
+        );
+        if (
+          before
+            ? before.status !== 'REJECTED' || before.version !== input.version
+            : input.version !== 0
+        )
+          throw changed();
+        const {
+          rows: [row],
+        } = before
+          ? await tx.query<ExitRow>(
+              `UPDATE partner_exit_requests e SET reason=$2,status='REQUESTED',rejection_reason=NULL,
+              version=version+1,updated_at=clock_timestamp()
+              WHERE e.id=$1 AND e.version=$3 RETURNING ${exitColumns}`,
+              [before.id, input.reason, input.version],
+            )
+          : await tx.query<ExitRow>(
+              `INSERT INTO partner_exit_requests AS e (id,application_id,reason,updated_at)
+              VALUES ($1,$2,$3,clock_timestamp()) RETURNING ${exitColumns}`,
+              [nextEntityId(), app.id, input.reason],
+            );
+        if (!row) throw changed();
+        await insertUserLog(tx, {
+          actor_id,
+          entity_type: 'PartnerExitRequest',
+          entity_id: row.id,
+          action: before ? 'RESUBMIT_PARTNER_EXIT' : 'REQUEST_PARTNER_EXIT',
+          before_data: before,
+          after_data: row,
+        });
+        return row;
+      },
+      'READ COMMITTED',
+      options,
+    );
   }
+
   async list(input: z.infer<typeof exit_list_input>) {
-    const where: Prisma.PartnerExitRequestWhereInput = {
-      ...(input.status === 'PENDING'
-        ? {
-            AND: [
-              pending_exit_where(),
-              {
-                application: {
-                  user: { deleted_at: null, status: 'ACTIVE' },
-                },
-              },
-            ],
-          }
-        : input.status === 'all'
-          ? {}
-          : { status: input.status }),
-      ...(input.query
-        ? {
-            OR: [
-              { id: { contains: input.query } },
-              { application: { user_id: { contains: input.query } } },
-              {
-                application: {
-                  contact_email: { contains: input.query, mode: 'insensitive' },
-                },
-              },
-              {
-                application: {
-                  user: {
-                    first_name: { contains: input.query, mode: 'insensitive' },
-                  },
-                },
-              },
-              {
-                application: {
-                  user: {
-                    last_name: { contains: input.query, mode: 'insensitive' },
-                  },
-                },
-              },
-            ],
-          }
-        : {}),
-    };
-    const total = await this.database.client.partnerExitRequest.count({
-      where,
-    });
-    const page = Math.min(input.page, Math.max(1, Math.ceil(total / 20)));
-    const rows = await this.database.client.partnerExitRequest.findMany({
-      where,
-      include: { application },
-      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
-      take: 20,
-      skip: (page - 1) * 20,
-    });
-    return { rows, total, page, page_size: 20 };
+    return this.database.transaction(async (tx) => {
+      const params = [input.status, input.query];
+      const {
+        rows: [count],
+      } = await tx.query<{ total: number }>(
+        `SELECT count(*)::int AS total ${exitAdminFrom} ${exitAdminFilter}`,
+        params,
+      );
+      const total = count?.total ?? 0;
+      const page = Math.min(input.page, Math.max(1, Math.ceil(total / 20)));
+      const { rows } = await tx.query(
+        `SELECT ${exitAdminFields} ${exitAdminFrom} ${exitAdminFilter}
+          ORDER BY e.created_at DESC,e.id DESC LIMIT 20 OFFSET $3`,
+        [...params, (page - 1) * 20],
+      );
+      return { rows, total, page, page_size: 20 };
+    }, 'REPEATABLE READ');
   }
+
   async detail(id: string) {
-    const row = await this.database.client.partnerExitRequest.findUnique({
-      where: { id },
-      include: { application },
-    });
-    if (!row)
-      throw new AppError(404, 'EXIT_NOT_FOUND', 'Exit request not found.');
+    const {
+      rows: [row],
+    } = await this.database.query(
+      `SELECT ${exitAdminFields} ${exitAdminFrom} WHERE e.id=$1`,
+      [id],
+    );
+    if (!row) throw notFound();
     return row;
   }
+
   async upload(actor_id: string, id: string, input: AssetInput) {
     const match = /^data:application\/pdf;base64,([A-Za-z0-9+/]+={0,2})$/.exec(
       input.data_url,
@@ -226,283 +201,278 @@ export class PartnerExitService {
       bytes.subarray(0, 5).toString() !== '%PDF-'
     )
       throw new AppError(422, 'INVALID_PDF', 'Choose a valid PDF up to 3 MB.');
-    return this.database.client.$transaction(async (tx) => {
-      await require_active_admin(tx, actor_id);
-      const exit = await tx.partnerExitRequest.findUnique({
-        where: { id },
-        include: { application },
-      });
-      if (!exit)
-        throw new AppError(404, 'EXIT_NOT_FOUND', 'Exit request not found.');
-      await require_active_account(tx, exit.application.user_id);
-      await partner_lock(tx, exit.application.user_id);
-      const current = await tx.partnerExitRequest.findUnique({ where: { id } });
-      if (!current || !['REQUESTED', 'REVIEWING'].includes(current.status))
-        throw changed();
-      const digest = createHash('sha256').update(bytes).digest('hex');
-      const duplicate = await tx.partnerAsset.findFirst({
-        where: {
-          owner_id: exit.application.user_id,
-          purpose: 'EXIT_PDF',
-          field_id: id,
-          sha256: digest,
-          file_name: input.file_name,
-        },
-        select: { id: true },
-      });
-      if (duplicate) return duplicate;
-      const quota = await tx.partnerAsset.aggregate({
-        where: { owner_id: exit.application.user_id },
-        _sum: { size: true },
-        _count: true,
-      });
-      if (
-        (quota._sum.size ?? 0) + bytes.length > 100_000_000 ||
-        quota._count >= 2000
-      )
-        throw new AppError(
-          422,
-          'UPLOAD_LIMIT',
-          'This account has reached its upload allowance.',
+    const digest = createHash('sha256').update(bytes).digest('hex');
+
+    return this.database.transaction(
+      async (tx) => {
+        await requireActiveAdmin(tx, actor_id);
+        const exit = await findExitOwner(tx, id);
+        if (!exit) throw notFound();
+        await lockPartner(tx, exit.user_id);
+        const {
+          rows: [current],
+        } = await tx.query<ExitRow>(exitById, [id]);
+        if (!current || !['REQUESTED', 'REVIEWING'].includes(current.status))
+          throw changed();
+
+        const {
+          rows: [duplicate],
+        } = await tx.query<{ id: string }>(
+          `SELECT id FROM partner_assets WHERE owner_id=$1 AND purpose='EXIT_PDF' AND field_id=$2
+          AND sha256=$3 AND file_name=$4 LIMIT 1`,
+          [exit.user_id, id, digest, input.file_name],
         );
-      const asset = await tx.partnerAsset.create({
-        data: {
-          owner_id: exit.application.user_id,
-          purpose: 'EXIT_PDF',
-          field_id: id,
-          file_name: input.file_name,
-          mime_type: 'application/pdf',
-          size: bytes.length,
-          content: Uint8Array.from(bytes),
-          sha256: digest,
-        },
-        select: { id: true },
-      });
-      await create_user_log(tx, {
-        actor_id,
-        entity_type: 'PartnerExitRequest',
-        entity_id: id,
-        action: 'UPLOAD_EXIT_PDF',
-        after_data: { asset_id: asset.id },
-      });
-      return asset;
-    }, options);
+        if (duplicate) return duplicate;
+        const {
+          rows: [quota],
+        } = await tx.query<{ bytes: string; total: number }>(
+          `SELECT COALESCE(sum(size),0)::text AS bytes,count(*)::int AS total
+          FROM partner_assets WHERE owner_id=$1`,
+          [exit.user_id],
+        );
+        if (
+          Number(quota?.bytes ?? 0) + bytes.length > 100_000_000 ||
+          (quota?.total ?? 0) >= 2000
+        )
+          throw new AppError(
+            422,
+            'UPLOAD_LIMIT',
+            'This account has reached its upload allowance.',
+          );
+
+        const asset_id = nextEntityId();
+        await tx.query(
+          `INSERT INTO partner_assets (id,owner_id,purpose,field_id,file_name,mime_type,size,content,sha256,updated_at)
+          VALUES ($1,$2,'EXIT_PDF',$3,$4,'application/pdf',$5,$6,$7,clock_timestamp())`,
+          [
+            asset_id,
+            exit.user_id,
+            id,
+            input.file_name,
+            bytes.length,
+            bytes,
+            digest,
+          ],
+        );
+        await insertUserLog(tx, {
+          actor_id,
+          entity_type: 'PartnerExitRequest',
+          entity_id: id,
+          action: 'UPLOAD_EXIT_PDF',
+          after_data: { asset_id },
+        });
+        return { id: asset_id };
+      },
+      'READ COMMITTED',
+      options,
+    );
   }
+
   async review(
     actor_id: string,
     id: string,
     input: z.infer<typeof exit_review_input>,
   ) {
-    return this.database.client.$transaction(async (tx) => {
-      await require_active_admin(tx, actor_id);
-      const initial = await tx.partnerExitRequest.findUnique({
-        where: { id },
-        include: { application },
-      });
-      if (!initial)
-        throw new AppError(404, 'EXIT_NOT_FOUND', 'Exit request not found.');
-      const user_id = initial.application.user_id;
-      const user = await require_active_account(tx, user_id);
-      await partner_lock(tx, user_id);
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
-      const before = await tx.partnerExitRequest.findUnique({ where: { id } });
-      if (
-        !before ||
-        before.version !== input.version ||
-        !['REQUESTED', 'REVIEWING'].includes(before.status)
-      )
-        throw changed();
-      if (input.status === 'COMPLETED') {
-        const app = await tx.partnerApplication.findUnique({
-          where: { id: initial.application_id },
-          select: { status: true },
-        });
-        if (app?.status !== 'ACTIVATED') throw changed();
-        const pdf = await tx.partnerAsset.findFirst({
-          where: {
-            id: input.settlement_pdf_id!,
-            owner_id: user_id,
-            purpose: 'EXIT_PDF',
-            field_id: id,
-            mime_type: 'application/pdf',
-          },
-          select: { id: true },
-        });
-        if (!pdf)
-          throw new AppError(
-            422,
-            'EXIT_PDF_REQUIRED',
-            'Upload the settlement PDF for this exit request.',
-          );
-        const profile = await tx.driverProfile.findUnique({
-          where: { user_id },
-          select: { id: true },
-        });
+    return this.database.transaction(
+      async (tx) => {
+        await requireActiveAdmin(tx, actor_id);
+        const initial = await findExitOwner(tx, id);
+        if (!initial) throw notFound();
+        const user_id = initial.user_id;
+        await lockPartner(tx, user_id);
+        await tx.query('SELECT pg_advisory_xact_lock(720043,hashtext($1))', [
+          user_id,
+        ]);
+        const {
+          rows: [before],
+        } = await tx.query<ExitRow>(exitById, [id]);
         if (
-          profile &&
-          (await tx.ride.count({
-            where: {
-              driver_id: profile.id,
-              status: {
-                in: [
-                  'DRIVER_ASSIGNED',
-                  'DRIVER_ARRIVING',
-                  'DRIVER_WAITING',
-                  'IN_PROGRESS',
-                ],
-              },
-            },
-          }))
+          !before ||
+          before.version !== input.version ||
+          !['REQUESTED', 'REVIEWING'].includes(before.status)
         )
+          throw changed();
+
+        if (input.status === 'COMPLETED') {
+          const {
+            rows: [app],
+          } = await tx.query<{ status: string }>(
+            'SELECT status FROM partner_applications WHERE id=$1',
+            [initial.application_id],
+          );
+          if (app?.status !== 'ACTIVATED') throw changed();
+          const pdf = await tx.query(
+            `SELECT id FROM partner_assets WHERE id=$1 AND owner_id=$2 AND field_id=$3
+            AND purpose='EXIT_PDF' AND mime_type='application/pdf'`,
+            [input.settlement_pdf_id, user_id, id],
+          );
+          if (!pdf.rowCount)
+            throw new AppError(
+              422,
+              'EXIT_PDF_REQUIRED',
+              'Upload the settlement PDF for this exit request.',
+            );
+          const {
+            rows: [profile],
+          } = await tx.query<{ id: string }>(
+            'SELECT id FROM driver_profiles WHERE user_id=$1',
+            [user_id],
+          );
+          if (
+            profile &&
+            (await tx.query(findDriverActiveRide, [profile.id])).rowCount
+          )
+            throw new AppError(
+              409,
+              'DRIVER_ON_TRIP',
+              'Complete or reassign the current ride before finalizing the exit.',
+            );
+          if (profile) {
+            await tx.query(
+              `UPDATE driver_profiles SET availability='SUSPENDED',verification_status='EXPIRED',
+              updated_at=clock_timestamp() WHERE id=$1`,
+              [profile.id],
+            );
+            await tx.query(
+              `UPDATE ride_offers SET status='CANCELLED',responded_at=statement_timestamp(),updated_at=clock_timestamp()
+              WHERE driver_id=$1 AND status='SENT'`,
+              [profile.id],
+            );
+          }
+          await tx.query(
+            `UPDATE partner_applications SET status='EXITED',version=version+1,activation_hash=NULL,
+            activation_salt=NULL,activation_ciphertext=NULL,updated_at=clock_timestamp() WHERE id=$1`,
+            [initial.application_id],
+          );
+          await tx.query(
+            `UPDATE users SET role=CASE WHEN role='DRIVER' THEN 'RIDER' ELSE role END,
+            partner_activated_at=NULL,updated_at=clock_timestamp() WHERE id=$1`,
+            [user_id],
+          );
+          await tx.query(
+            `INSERT INTO partner_deliveries (id,application_id,channel,updated_at)
+            VALUES ($1,$2,'EXIT_EMAIL',clock_timestamp())
+            ON CONFLICT (application_id,channel) DO UPDATE SET status='PENDING',
+              last_error=NULL,claimed_at=NULL,updated_at=clock_timestamp()`,
+            [nextEntityId(), initial.application_id],
+          );
+        }
+
+        const completed = input.status === 'COMPLETED';
+        const {
+          rows: [row],
+        } = await tx.query<ExitRow>(
+          `UPDATE partner_exit_requests e SET status=$2,admin_notes=$3,rejection_reason=$4,dues_amount=$5,
+          dues_direction=$6,reviewed_by_id=$7,version=version+1,
+          settlement_pdf_id=CASE WHEN $8 THEN $9 ELSE settlement_pdf_id END,
+          completed_at=CASE WHEN $8 THEN statement_timestamp() ELSE completed_at END,
+          updated_at=clock_timestamp() WHERE e.id=$1 AND e.version=$10 RETURNING ${exitColumns}`,
+          [
+            id,
+            input.status,
+            input.admin_notes || null,
+            input.status === 'REJECTED' ? input.rejection_reason : null,
+            input.dues_amount,
+            input.dues_direction,
+            actor_id,
+            completed,
+            input.settlement_pdf_id ?? null,
+            input.version,
+          ],
+        );
+        if (!row) throw changed();
+        await insertUserLog(tx, {
+          actor_id,
+          entity_type: 'PartnerExitRequest',
+          entity_id: id,
+          action: completed ? 'COMPLETE_PARTNER_EXIT' : 'REVIEW_PARTNER_EXIT',
+          before_data: before,
+          after_data: row,
+        });
+        const title = completed
+          ? 'Partner exit completed'
+          : 'Partner exit request updated';
+        const body = completed
+          ? 'Your settlement PDF is ready. You can continue using 1More as a rider.'
+          : input.status === 'REJECTED'
+            ? input.rejection_reason
+            : 'Your exit request is being reviewed.';
+        await tx.query(
+          `INSERT INTO notifications (id,user_id,type,title,body,data,updated_at)
+          VALUES ($1,$2,'ACCOUNT',$3,$4,$5::jsonb,clock_timestamp())`,
+          [
+            nextEntityId(),
+            user_id,
+            title,
+            body,
+            JSON.stringify({
+              route: '/driver/exit',
+              exit_request_id: id,
+              exit_completed: completed,
+            }),
+          ],
+        );
+        return row;
+      },
+      'READ COMMITTED',
+      options,
+    );
+  }
+
+  async shared(actor_id: string, id: string) {
+    return this.database.transaction(
+      async (tx) => {
+        await requireActiveAdmin(tx, actor_id);
+        const row = await findExitOwner(tx, id);
+        if (!row || row.status !== 'COMPLETED' || !row.settlement_pdf_id)
           throw new AppError(
             409,
-            'DRIVER_ON_TRIP',
-            'Complete or reassign the current ride before finalizing the exit.',
+            'EXIT_PDF_NOT_READY',
+            'Complete the exit before recording manual sharing.',
           );
-        await tx.driverProfile.updateMany({
-          where: { user_id },
-          data: { availability: 'SUSPENDED', verification_status: 'EXPIRED' },
-        });
-        if (profile)
-          await tx.rideOffer.updateMany({
-            where: { driver_id: profile.id, status: 'SENT' },
-            data: { status: 'CANCELLED', responded_at: new Date() },
-          });
-        await tx.partnerApplication.update({
-          where: { id: initial.application_id },
-          data: {
-            status: 'EXITED',
-            version: { increment: 1 },
-            activation_hash: null,
-            activation_salt: null,
-            activation_ciphertext: null,
-          },
-        });
-        await tx.user.update({
-          where: { id: user_id },
-          data: {
-            ...(user.role === 'DRIVER' ? { role: 'RIDER' as const } : {}),
-            partner_activated_at: null,
-          },
-        });
-        await tx.partnerDelivery.upsert({
-          where: {
-            application_id_channel: {
-              application_id: initial.application_id,
-              channel: 'EXIT_EMAIL',
-            },
-          },
-          create: {
-            application_id: initial.application_id,
-            channel: 'EXIT_EMAIL',
-          },
-          update: { status: 'PENDING', last_error: null, claimed_at: null },
-        });
-      }
-      const row = await tx.partnerExitRequest.update({
-        where: { id },
-        data: {
-          status: input.status,
-          admin_notes: input.admin_notes || null,
-          rejection_reason:
-            input.status === 'REJECTED' ? input.rejection_reason : null,
-          dues_amount: input.dues_amount,
-          dues_direction: input.dues_direction,
-          reviewed_by_id: actor_id,
-          version: { increment: 1 },
-          ...(input.status === 'COMPLETED'
-            ? {
-                settlement_pdf_id: input.settlement_pdf_id!,
-                completed_at: new Date(),
-              }
-            : {}),
-        },
-      });
-      await create_user_log(tx, {
-        actor_id,
-        entity_type: 'PartnerExitRequest',
-        entity_id: id,
-        action:
-          input.status === 'COMPLETED'
-            ? 'COMPLETE_PARTNER_EXIT'
-            : 'REVIEW_PARTNER_EXIT',
-        before_data: before,
-        after_data: row,
-      });
-      await tx.notification.create({
-        data: {
-          user_id,
-          type: 'ACCOUNT',
-          title:
-            input.status === 'COMPLETED'
-              ? 'Partner exit completed'
-              : 'Partner exit request updated',
-          body:
-            input.status === 'COMPLETED'
-              ? 'Your settlement PDF is ready. You can continue using 1More as a rider.'
-              : input.status === 'REJECTED'
-                ? input.rejection_reason
-                : 'Your exit request is being reviewed.',
-          data: {
-            route: '/driver/exit',
-            exit_request_id: row.id,
-            exit_completed: input.status === 'COMPLETED',
-          },
-        },
-      });
-      return row;
-    }, options);
-  }
-  async shared(actor_id: string, id: string) {
-    return this.database.client.$transaction(async (tx) => {
-      await require_active_admin(tx, actor_id);
-      const row = await tx.partnerExitRequest.findUnique({
-        where: { id },
-        include: { application },
-      });
-      if (!row || row.status !== 'COMPLETED' || !row.settlement_pdf_id)
-        throw new AppError(
-          409,
-          'EXIT_PDF_NOT_READY',
-          'Complete the exit before recording manual sharing.',
+        await lockPartner(tx, row.user_id);
+        const {
+          rows: [updated],
+        } = await tx.query(
+          `UPDATE partner_exit_requests e SET manually_shared_at=statement_timestamp(),updated_at=clock_timestamp()
+          WHERE e.id=$1 RETURNING ${exitColumns}`,
+          [id],
         );
-      await require_active_account(tx, row.application.user_id);
-      await partner_lock(tx, row.application.user_id);
-      const updated = await tx.partnerExitRequest.update({
-        where: { id },
-        data: { manually_shared_at: new Date() },
-      });
-      await create_user_log(tx, {
-        actor_id,
-        entity_type: 'PartnerExitRequest',
-        entity_id: id,
-        action: 'MANUALLY_SHARE_EXIT_PDF',
-      });
-      return updated;
-    }, options);
+        await insertUserLog(tx, {
+          actor_id,
+          entity_type: 'PartnerExitRequest',
+          entity_id: id,
+          action: 'MANUALLY_SHARE_EXIT_PDF',
+        });
+        return updated;
+      },
+      'READ COMMITTED',
+      options,
+    );
   }
+
   async retry_email(actor_id: string, id: string) {
-    return this.database.client.$transaction(async (tx) => {
-      await require_active_admin(tx, actor_id);
-      const row = await tx.partnerExitRequest.findUnique({
-        where: { id },
-        include: { application },
-      });
-      if (!row || row.status !== 'COMPLETED' || !row.settlement_pdf_id)
-        throw new AppError(
-          409,
-          'EXIT_PDF_NOT_READY',
-          'Complete the exit before sending its settlement PDF.',
-        );
-      await require_active_account(tx, row.application.user_id);
-      await partner_lock(tx, row.application.user_id);
-      await create_user_log(tx, {
-        actor_id,
-        entity_type: 'PartnerExitRequest',
-        entity_id: id,
-        action: 'RETRY_PARTNER_EXIT_EMAIL',
-      });
-      return row.application_id;
-    }, options);
+    return this.database.transaction(
+      async (tx) => {
+        await requireActiveAdmin(tx, actor_id);
+        const row = await findExitOwner(tx, id);
+        if (!row || row.status !== 'COMPLETED' || !row.settlement_pdf_id)
+          throw new AppError(
+            409,
+            'EXIT_PDF_NOT_READY',
+            'Complete the exit before sending its settlement PDF.',
+          );
+        await lockPartner(tx, row.user_id);
+        await insertUserLog(tx, {
+          actor_id,
+          entity_type: 'PartnerExitRequest',
+          entity_id: id,
+          action: 'RETRY_PARTNER_EXIT_EMAIL',
+        });
+        return row.application_id;
+      },
+      'READ COMMITTED',
+      options,
+    );
   }
 }

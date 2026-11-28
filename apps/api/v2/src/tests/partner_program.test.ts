@@ -1,6 +1,6 @@
+import type { PostgresService } from '../database/postgres.service.js';
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
-import { PrismaService } from '../infra/database/prisma.service.js';
 import { PartnerProgramService } from '../features/partner_program/partner_program.service.js';
 import { PartnerExitService } from '../features/partner_program/partner_exit.service.js';
 import { clean_document } from '../features/partner_program/partner_document.service.js';
@@ -76,159 +76,141 @@ function fixture() {
     mime_type: string;
     size: number;
   }[] = [];
-  const tx = {
-    $executeRaw: async (strings: TemplateStringsArray) => {
-      if (strings.join('').includes('720061')) state.onPartnerLock();
-      return 1;
-    },
-    user: {
-      findMany: async () => [
-        { id: 'fixture-admin', email: 'admin@example.test' },
-      ],
-      findUnique: async ({ where }: { where: { id: string } }) => ({
-        role: where.id === 'fixture-admin' ? 'ADMIN' : state.role,
-        status: 'ACTIVE',
-        deleted_at: null,
-      }),
-      updateMany: async ({ where }: { where: { role: string } }) => {
-        if (state.losePromotion) state.role = 'ADMIN';
-        if (state.role !== where.role) return { count: 0 };
-        state.role = 'DRIVER';
-        return { count: 1 };
-      },
-      update: async () => ({ role: state.role }),
-    },
-    session: { create: async () => ({ id: 'fixture-session' }) },
-    partnerApplication: {
-      findUnique: async () => ({ ...app }),
-      create: async ({ data }: { data: Record<string, unknown> }) => {
-        state.newApplication = {
-          ...data,
-          id: 'fresh-application',
-          status: 'SUBMITTED',
-          version: 1,
-        };
-        return state.newApplication;
-      },
-      findFirst: async ({
-        where,
-      }: {
-        where: { final_pdf_id?: string; status?: { in: string[] } };
-      }) => {
-        if (where.final_pdf_id !== undefined) {
-          return app.final_pdf_id === where.final_pdf_id &&
-            where.status?.in.includes(app.status)
-            ? app
-            : null;
-        }
-        return state.returning ? { id: 'previous-exit' } : null;
-      },
-      update: async ({ data }: { data: Record<string, unknown> }) => {
-        const version = data.version as { increment?: number } | undefined;
-        if (version?.increment)
-          data = { ...data, version: app.version + version.increment };
-        const attempts = data.activation_attempts as
-          { increment?: number } | undefined;
-        if (attempts?.increment)
-          data = {
-            ...data,
-            activation_attempts: app.activation_attempts + attempts.increment,
-          };
-        Object.assign(app, data);
-        return app;
-      },
-    },
-    partnerApplicationField: {
-      createMany: async ({ data }: { data: Record<string, unknown>[] }) => {
-        state.newFields = data;
-      },
-    },
-    partnerRequirement: { findMany: async () => state.requirements },
-    partnerDocument: {
-      findUnique: async () =>
+  const query = async (sql: string, args: unknown[] = []) => {
+    const result = (rows: unknown[] = [], rowCount = rows.length) => ({
+      rows,
+      rowCount,
+    });
+    if (sql.includes('pg_advisory_xact_lock(720061')) state.onPartnerLock();
+    if (sql.includes('email IS NOT NULL'))
+      return result([{ id: 'fixture-admin', email: 'admin@example.test' }]);
+    if (sql.includes('FROM users WHERE'))
+      return result([
+        {
+          role: args[0] === 'fixture-admin' ? 'ADMIN' : state.role,
+          status: 'ACTIVE',
+          deleted_at: null,
+        },
+      ]);
+    if (sql.includes('UPDATE users SET role=')) {
+      if (state.losePromotion) state.role = 'ADMIN';
+      if (state.role !== args[1]) return result();
+      if (state.role === 'RIDER') state.role = 'DRIVER';
+      return result([], 1);
+    }
+    if (sql.includes('INSERT INTO driver_profiles')) state.driverWrites++;
+    if (sql.includes("UPDATE driver_profiles SET availability='OFFLINE'"))
+      state.resumedOffline = state.returning;
+    if (sql.includes('FROM partner_applications a WHERE'))
+      return result([{ ...app }]);
+    if (sql.includes('FROM partner_requirements'))
+      return result(state.requirements);
+    if (sql.includes('FROM partner_documents'))
+      return result(
         state.publishedConfirmation
-          ? {
-              title: 'Confirmation',
-              published_title: 'Confirmation',
-              published_html: '<p>Accepted terms</p>',
-              published_version: 1,
-              published_at: new Date(),
-            }
-          : null,
-    },
-    partnerConfirmation: { upsert: async () => ({}) },
-    notification: {
-      create: async () => ({}),
-      createMany: async ({ data }: { data: Record<string, unknown>[] }) => {
-        queuedEmails.push(...data);
-        return { count: data.length };
-      },
-    },
-    partnerAsset: {
-      findMany: async ({
-        where,
-      }: {
-        where: {
-          owner_id: string;
-          application_id?: string | null;
-          purpose?: string | { in: string[] };
-          field_id?: string;
-          id?: { in: string[] };
-        };
-      }) => {
-        state.assetReads++;
-        return assetRows.filter(
+          ? [
+              {
+                title: 'Confirmation',
+                published_title: 'Confirmation',
+                published_html: '<p>Accepted terms</p>',
+                published_version: 1,
+                published_at: new Date(),
+              },
+            ]
+          : [],
+      );
+    if (sql.includes('FROM partner_assets WHERE owner_id')) {
+      state.assetReads++;
+      return result(
+        assetRows.filter(
           (asset) =>
-            asset.owner_id === where.owner_id &&
+            asset.owner_id === args[0] &&
             (asset.application_id === undefined ||
-              asset.application_id === where.application_id) &&
-            (!where.purpose ||
-              (typeof where.purpose === 'string'
-                ? asset.purpose === where.purpose
-                : where.purpose.in.includes(asset.purpose))) &&
-            (!where.field_id || asset.field_id === where.field_id) &&
-            (!where.id || where.id.in.includes(asset.id)),
-        );
-      },
-      findUnique: async () => assetRows[0] ?? null,
-      updateMany: async ({ data }: { data: { application_id: string } }) => {
-        for (const asset of assetRows) {
-          if (asset.application_id === null)
-            asset.application_id = data.application_id;
-        }
-      },
-    },
-    driverProfile: {
-      upsert: async () => {
-        state.driverWrites++;
-        return {};
-      },
-      updateMany: async ({ data }: { data: { availability: string } }) => {
-        state.resumedOffline = data.availability === 'OFFLINE';
-        return { count: 1 };
-      },
-    },
-    userLog: {
-      create: async ({ data }: { data: Record<string, unknown> }) => {
-        audits.push(data);
-        return {};
-      },
-    },
+              asset.application_id === args[1]) &&
+            (!Array.isArray(args[2]) || args[2].includes(asset.id)) &&
+            (!args[3] || args[3] === asset.field_id) &&
+            (!args[4] || args[4] === asset.purpose),
+        ),
+      );
+    }
+    if (sql.includes('FROM partner_assets a JOIN users')) {
+      const row = assetRows.find((asset) => asset.id === args[1]);
+      return result(
+        row &&
+          (args[0] === 'fixture-admin' ||
+            (args[0] === row.owner_id &&
+              (row.purpose !== 'FINAL_PDF' ||
+                (app.final_pdf_id === row.id &&
+                  ['COMPLETED', 'ACTIVATED', 'EXITED'].includes(app.status)))))
+          ? [row]
+          : [],
+      );
+    }
+    if (sql.includes('UPDATE partner_assets SET application_id')) {
+      for (const asset of assetRows)
+        if (asset.application_id === null)
+          asset.application_id = String(args[1]);
+    }
+    if (sql.includes('INSERT INTO partner_applications')) {
+      state.newApplication = {
+        id: 'fresh-application',
+        user_id: args[1],
+        current_user_id: args[1],
+        contact_email: args[2],
+        whatsapp_phone: args[3],
+        policy_snapshot: JSON.parse(String(args[4])),
+        status: 'SUBMITTED',
+        version: 1,
+      };
+      return result([state.newApplication]);
+    }
+    if (sql.includes('INSERT INTO partner_application_fields')) {
+      state.newFields = JSON.parse(String(args[1]));
+    }
+    if (sql.includes('UPDATE partner_applications SET')) {
+      if (sql.includes('current_user_id=NULL')) app.current_user_id = null;
+      if (sql.includes('activation_attempts=activation_attempts+1'))
+        app.activation_attempts++;
+      if (sql.includes('version=version+1')) app.version++;
+      if (sql.includes("status='ACTIVATED'"))
+        Object.assign(app, {
+          status: 'ACTIVATED',
+          activation_hash: null,
+          activation_salt: null,
+          activation_ciphertext: null,
+        });
+      if (sql.includes("status='APPROVED'")) app.status = 'APPROVED';
+      if (sql.includes("status='SUBMITTED'")) app.status = 'SUBMITTED';
+      if (sql.includes('status=$2::')) app.status = String(args[1]);
+      return result([app]);
+    }
+    if (sql.includes('INSERT INTO user_logs'))
+      audits.push({
+        actor_id: args[1],
+        entity_type: args[2],
+        entity_id: args[3],
+        action: args[4],
+        after_data: JSON.parse(String(args[6])),
+      });
+    if (
+      sql.includes('INSERT INTO notifications') &&
+      sql.includes('jsonb_to_recordset')
+    )
+      queuedEmails.push(...JSON.parse(String(args[0])));
+    return result();
   };
-  const database = new PrismaService();
-  Object.defineProperty(database, 'client', {
-    value: {
-      ...tx,
-      $transaction: async (action: (client: typeof tx) => Promise<unknown>) => {
-        const result = await action(tx);
-        state.committed++;
-        return result;
-      },
+  const database = {
+    query,
+    transaction: async (
+      action: (tx: { query: typeof query }) => Promise<unknown>,
+    ) => {
+      const result = await action({ query });
+      state.committed++;
+      return result;
     },
-  });
+  } as unknown as PostgresService;
   return {
     service: new PartnerProgramService(database),
-    database,
     state,
     app,
     audits,
@@ -367,48 +349,42 @@ for (const role of ['DRIVER', 'ADMIN', 'SUPPORT'] as const) {
       version: 2,
     };
     const tx = {
-      $executeRaw: async () => {},
-      user: {
-        findUnique: async ({ where }: { where: { id: string } }) => ({
-          status: 'ACTIVE',
-          deleted_at: null,
-          role: where.id === 'admin' ? 'ADMIN' : role,
-        }),
-        update: async (value: unknown) => {
-          updates.push(value);
-        },
+      query: async (sql: string, values: unknown[] = []) => {
+        const rows: unknown[] = [];
+        if (sql.includes('FROM users WHERE'))
+          rows.push({
+            status: 'ACTIVE',
+            deleted_at: null,
+            role: values[0] === 'admin' ? 'ADMIN' : role,
+          });
+        if (
+          sql.includes('a.user_id') &&
+          sql.includes('FROM partner_exit_requests')
+        )
+          rows.push({ ...exit, user_id: 'owner' });
+        if (sql.startsWith('SELECT e.*')) rows.push(exit);
+        if (sql.startsWith('SELECT status FROM partner_applications'))
+          rows.push({ status: 'ACTIVATED' });
+        if (sql.includes('FROM partner_assets')) rows.push({ id: 'pdf' });
+        if (sql.includes('FROM driver_profiles')) rows.push({ id: 'profile' });
+        if (sql.includes('FROM rides') && active)
+          rows.push({ id: 'live-ride' });
+        if (sql.startsWith('UPDATE users')) {
+          assert.match(
+            sql,
+            /role=CASE WHEN role='DRIVER' THEN 'RIDER' ELSE role END/,
+          );
+          assert.match(sql, /partner_activated_at=NULL/);
+          updates.push(values);
+        }
+        if (sql.startsWith('UPDATE partner_exit_requests'))
+          rows.push({ ...exit, status: 'COMPLETED' });
+        return { rows, rowCount: rows.length };
       },
-      partnerApplication: {
-        findUnique: async () => ({
-          id: 'application',
-          user_id: 'owner',
-          status: 'ACTIVATED',
-        }),
-        update: async () => {},
-      },
-      partnerAsset: { findFirst: async () => ({ id: 'pdf' }) },
-      partnerExitRequest: {
-        findUnique: async () => ({
-          ...exit,
-          application: { user_id: 'owner' },
-        }),
-        update: async () => ({ ...exit, status: 'COMPLETED' }),
-      },
-      driverProfile: {
-        findUnique: async () => ({ id: 'profile' }),
-        updateMany: async () => {},
-      },
-      ride: { count: async () => Number(active) },
-      rideOffer: { updateMany: async () => {} },
-      partnerDelivery: { upsert: async () => {} },
-      userLog: { create: async () => {} },
-      notification: { create: async () => {} },
     };
     const service = new PartnerExitService({
-      client: {
-        $transaction: (work: (client: typeof tx) => unknown) => work(tx),
-      },
-    } as unknown as PrismaService);
+      transaction: (work: (client: typeof tx) => unknown) => work(tx),
+    } as unknown as PostgresService);
     const input = {
       version: 2,
       status: 'COMPLETED',
@@ -428,15 +404,7 @@ for (const role of ['DRIVER', 'ADMIN', 'SUPPORT'] as const) {
       (await service.review('admin', 'exit', input)).status,
       'COMPLETED',
     );
-    assert.deepEqual(updates, [
-      {
-        where: { id: 'owner' },
-        data: {
-          partner_activated_at: null,
-          ...(role === 'DRIVER' ? { role: 'RIDER' } : {}),
-        },
-      },
-    ]);
+    assert.deepEqual(updates, [['owner']]);
   });
 }
 
@@ -464,34 +432,32 @@ for (const operation of ['create-field', 'enable-category'] as const) {
   it(`configuration cannot exceed the application's field limit through ${operation}`, async () => {
     const changedAt = new Date('2026-10-18T00:00:00.000Z');
     const tx = {
-      $executeRaw: async () => 1,
-      user: {
-        findUnique: async () => ({
-          role: 'ADMIN',
-          status: 'ACTIVE',
-          deleted_at: null,
-        }),
-      },
-      requirementCategory: {
-        findUnique: async () => ({
-          id: 'category',
-          is_active: operation === 'create-field',
-          updated_at: changedAt,
-        }),
-      },
-      partnerRequirement: {
-        findUnique: async () => null,
-        count: async () => (operation === 'create-field' ? 200 : 201),
+      query: async (sql: string) => {
+        if (sql.includes('FROM users'))
+          return {
+            rows: [{ role: 'ADMIN', status: 'ACTIVE', deleted_at: null }],
+          };
+        if (sql.includes('count(*)'))
+          return {
+            rows: [{ total: operation === 'create-field' ? 200 : 201 }],
+          };
+        if (sql.startsWith('SELECT * FROM requirement_categories'))
+          return {
+            rows: [
+              {
+                id: 'category',
+                is_active: operation === 'create-field',
+                updated_at: changedAt,
+              },
+            ],
+          };
+        return { rows: [] };
       },
     };
-    const database = new PrismaService();
-    Object.defineProperty(database, 'client', {
-      value: {
-        $transaction: async (
-          callback: (transaction: typeof tx) => Promise<unknown>,
-        ) => callback(tx),
-      },
-    });
+    const database = {
+      transaction: (callback: (transaction: typeof tx) => Promise<unknown>) =>
+        callback(tx),
+    } as unknown as PostgresService;
     const repository = new PartnerRequirementRepository(database);
     const action =
       operation === 'create-field'
@@ -518,7 +484,30 @@ for (const operation of ['create-field', 'enable-category'] as const) {
 
 it('only the first fresh login after final approval generates an activation code', async () => {
   const f = fixture();
-  const auth = new AuthRepository(f.database);
+  const query = async (sql: string, params: unknown[] = []) => {
+    if (sql.includes('FROM users'))
+      return { rows: [{ role: 'RIDER', status: 'ACTIVE', deleted_at: null }] };
+    if (sql.includes('FROM partner_applications')) return { rows: [f.app] };
+    if (sql.startsWith('INSERT INTO sessions'))
+      return { rows: [{ id: params[0] }] };
+    if (sql.startsWith('UPDATE partner_applications')) {
+      Object.assign(f.app, {
+        activation_hash: params[1],
+        activation_salt: params[2],
+        activation_ciphertext: params[3],
+        activation_attempts: params[4],
+        activation_issued_at: params[5],
+      });
+    }
+    if (sql.includes('INSERT INTO user_logs'))
+      f.audits.push({ action: String(params[4]) });
+    return { rows: [] };
+  };
+  const auth = new AuthRepository({
+    transaction: (work: (tx: { query: typeof query }) => Promise<unknown>) =>
+      work({ query }),
+  } as unknown as PostgresService);
+
   await auth.create_session(
     f.app.user_id,
     'fixture-refresh-hash',

@@ -1,22 +1,16 @@
-import type {
-  DriverAvailability,
-  Prisma,
-  UserStatus,
-  VerificationStatus,
-} from '@prisma/client';
 import {
   is_vehicle_eligible,
-  MATCHING_VEHICLE_INCLUDE,
+  type MatchingVehicle,
 } from '../vehicle_category/vehicle_category.security.js';
 
+type DriverAvailability =
+  'OFFLINE' | 'AVAILABLE' | 'EN_ROUTE' | 'ON_TRIP' | 'PAUSED' | 'SUSPENDED';
 type DriverForAvailability = {
   id: string;
   availability: DriverAvailability;
-  verification_status: VerificationStatus;
-  user: { status: UserStatus };
-  active_vehicle: Prisma.VehicleGetPayload<{
-    include: typeof MATCHING_VEHICLE_INCLUDE;
-  }> | null;
+  verification_status: string;
+  user: { status: string };
+  active_vehicle: MatchingVehicle | null;
 };
 
 /** Cancellation and completion must apply the same current eligibility rules. */

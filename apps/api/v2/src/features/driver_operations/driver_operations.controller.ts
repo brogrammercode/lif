@@ -1,19 +1,22 @@
+import { opaqueIdSchema } from '../../common/dto/opaque-id.dto.js';
+import type { output as ZodOutput } from 'zod';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
+import { CurrentUserId } from '../../common/decorators/current-user-id.decorator.js';
 import {
   Controller,
   Get,
   Post,
   Patch,
-  Req,
   Res,
   Param,
   Query,
   UseGuards,
+  Body,
 } from '@nestjs/common';
-import type { Request, Response } from 'express';
-import { z } from 'zod';
+import type { Response } from 'express';
 import { AuthGuard, AdminGuard, DriverAccessGuard } from '../../core/guards.js';
 import { send_success } from '../../core/response.js';
-import { reverse_schema } from '../geocode/geocode.type.js';
+import { reverse_schema } from '../geocode/dto/geocode.dto.js';
 import { DriverOperationsService } from './driver_operations.service.js';
 import {
   trip_collection_input,
@@ -21,8 +24,9 @@ import {
   trip_payment_input,
   trip_issue_input,
   trip_review_input,
+  trip_reviews_query,
   trip_dispute_input,
-} from './driver_operations.type.js';
+} from './dto/driver-operations.dto.js';
 
 @Controller()
 @UseGuards(AuthGuard)
@@ -30,52 +34,53 @@ export class DriverOperationsController {
   constructor(private readonly service: DriverOperationsService) {}
   @Get('driver/operations')
   async dashboard(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.dashboard(req.auth!.user_id),
+      await this.service.dashboard(actorId),
       'Driver readiness loaded',
     );
   }
   @Get('trips/:id/context')
   async context(
-    @Req() req: Request,
-    @Param('id') id: string,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.context(req.auth!.user_id, id),
+      await this.service.context(actorId, id),
       'Trip context loaded',
     );
   }
   @Post('trips/:id/start-code/refresh')
   async refresh_code(
-    @Req() req: Request,
-    @Param('id') id: string,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.refresh_code(req.auth!.user_id, id),
+      await this.service.refresh_code(actorId, id),
       'Trip code refreshed',
     );
   }
   @Get('driver/rides/:id/navigation')
   @UseGuards(DriverAccessGuard)
   async navigation(
-    @Req() req: Request,
-    @Param('id') id: string,
-    @Query() query: unknown,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
+    @Query(new ZodValidationPipe(reverse_schema))
+    query: ZodOutput<typeof reverse_schema>,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const input = reverse_schema.parse(query);
+    const input = query;
     return send_success(
       res,
       await this.service.navigation(
-        req.auth!.user_id,
+        actorId,
         id,
         input.latitude,
         input.longitude,
@@ -85,66 +90,72 @@ export class DriverOperationsController {
   }
   @Get('trips/:id/rider-route')
   async rider_route(
-    @Req() req: Request,
-    @Param('id') id: string,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.rider_route(req.auth!.user_id, id),
+      await this.service.rider_route(actorId, id),
       'Ride progress route loaded',
     );
   }
   @Post('trips/:id/payment')
   async payment(
-    @Req() req: Request,
-    @Param('id') id: string,
+    @Body(new ZodValidationPipe(trip_payment_input))
+    validatedInput: ZodOutput<typeof trip_payment_input>,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const input = trip_payment_input.parse(req.body);
+    const input = validatedInput;
     return send_success(
       res,
-      await this.service.payment(req.auth!.user_id, id, input.method),
+      await this.service.payment(actorId, id, input.method),
       'Payment method selected',
     );
   }
   @Post('driver/rides/:id/collection')
   @UseGuards(DriverAccessGuard)
   async collection(
-    @Req() req: Request,
-    @Param('id') id: string,
+    @Body(new ZodValidationPipe(trip_collection_input))
+    validatedInput: ZodOutput<typeof trip_collection_input>,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const input = trip_collection_input.parse(req.body);
+    const input = validatedInput;
     return send_success(
       res,
-      await this.service.payment(req.auth!.user_id, id, input.method, input),
+      await this.service.payment(actorId, id, input.method, input),
       'Collection report saved',
     );
   }
   @Get('trips/:id/messages')
   async messages(
-    @Req() req: Request,
-    @Param('id') id: string,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.messages(req.auth!.user_id, id),
+      await this.service.messages(actorId, id),
       'Trip messages loaded',
     );
   }
   @Post('trips/:id/messages')
   async message(
-    @Req() req: Request,
-    @Param('id') id: string,
+    @Body(new ZodValidationPipe(trip_message_input))
+    validatedInput: ZodOutput<typeof trip_message_input>,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const input = trip_message_input.parse(req.body);
+    const input = validatedInput;
     return send_success(
       res,
       await this.service.send_message(
-        req.auth!.user_id,
+        actorId,
         id,
         input.body,
         input.client_key,
@@ -154,27 +165,29 @@ export class DriverOperationsController {
   }
   @Post('trips/:id/contact-attempt')
   async contact(
-    @Req() req: Request,
-    @Param('id') id: string,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.contact_attempt(req.auth!.user_id, id),
+      await this.service.contact_attempt(actorId, id),
       'Call attempt recorded',
     );
   }
   @Post('trips/:id/issues')
   async issue(
-    @Req() req: Request,
-    @Param('id') id: string,
+    @Body(new ZodValidationPipe(trip_issue_input))
+    validatedInput: ZodOutput<typeof trip_issue_input>,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const input = trip_issue_input.parse(req.body);
+    const input = validatedInput;
     return send_success(
       res,
       await this.service.report_issue(
-        req.auth!.user_id,
+        actorId,
         id,
         input.kind,
         input.reason,
@@ -185,59 +198,44 @@ export class DriverOperationsController {
   }
   @Post('trips/:id/dispute')
   async dispute(
-    @Req() req: Request,
-    @Param('id') id: string,
+    @Body(new ZodValidationPipe(trip_dispute_input))
+    validatedInput: ZodOutput<typeof trip_dispute_input>,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const input = trip_dispute_input.parse(req.body);
+    const input = validatedInput;
     return send_success(
       res,
-      await this.service.dispute(req.auth!.user_id, id, input.reason),
+      await this.service.dispute(actorId, id, input.reason),
       'Dispute submitted',
     );
   }
   @Get('admin/trip-reviews')
   @UseGuards(AdminGuard)
   async reviews(
-    @Query('status') status: unknown,
-    @Query('page') page: unknown,
+    @Query(new ZodValidationPipe(trip_reviews_query))
+    query: ZodOutput<typeof trip_reviews_query>,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const filter = z
-      .enum([
-        'PENDING',
-        'REQUESTED',
-        'DISPUTED',
-        'APPROVED',
-        'WAIVED',
-        'REJECTED',
-        'SETTLED',
-      ])
-      .optional()
-      .parse(status);
     return send_success(
       res,
-      await this.service.reviews(
-        filter,
-        z.coerce.number().int().min(1).max(1000000).default(1).parse(page),
-      ),
+      await this.service.reviews(query.status, query.page),
       'Trip reviews loaded',
     );
   }
   @Patch('admin/trip-reviews/:id')
   @UseGuards(AdminGuard)
   async review(
-    @Req() req: Request,
-    @Param('id') id: string,
+    @CurrentUserId() actorId: string,
+    @Body(new ZodValidationPipe(trip_review_input))
+    input: ZodOutput<typeof trip_review_input>,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.review(
-        req.auth!.user_id,
-        id,
-        trip_review_input.parse(req.body),
-      ),
+      await this.service.review(actorId, id, input),
       'Trip review saved',
     );
   }

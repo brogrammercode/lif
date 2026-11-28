@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { DatabaseModule } from '../../database/database.module.js';
 import { PartnerApplicationDeletionService } from './partner_application_deletion.service.js';
 import { PartnerExitService } from './partner_exit.service.js';
 import {
@@ -13,6 +14,7 @@ import {
   AdminPartnerProgramController,
 } from './partner_program.controller.js';
 @Module({
+  imports: [DatabaseModule],
   controllers: [
     PartnerProgramController,
     AdminPartnerProgramController,

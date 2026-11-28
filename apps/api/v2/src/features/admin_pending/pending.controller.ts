@@ -1,30 +1,25 @@
-import { RegistrationEmailController } from './registration_email.controller.js';
-import { Controller, Get, Module, Req, Res, UseGuards } from '@nestjs/common';
-import type { Request, Response } from 'express';
+import { Controller, Get, Header, Query, UseGuards } from '@nestjs/common';
+import type { z } from 'zod';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { AuthGuard, AdminGuard } from '../../core/guards.js';
-import { send_success } from '../../core/response.js';
+import { success } from '../../core/response.js';
 import { PendingService } from './pending.service.js';
 import { pending_query } from './pending.rules.js';
 @Controller('admin/pending-counts')
 @UseGuards(AuthGuard, AdminGuard)
 export class PendingController {
   constructor(private readonly service: PendingService) {}
-  @Get() async counts(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+  @Get()
+  @Header('Cache-Control', 'private, no-store')
+  @Header('X-Pending-Counts-Version', '1')
+  @Header('X-Pending-Counts-TTL', '30')
+  async counts(
+    @Query(new ZodValidationPipe(pending_query))
+    input: z.infer<typeof pending_query>,
   ) {
-    res.setHeader('Cache-Control', 'private, no-store');
-    res.setHeader('X-Pending-Counts-Version', '1');
-    res.setHeader('X-Pending-Counts-TTL', '30');
-    return send_success(
-      res,
-      await this.service.counts(pending_query.parse(req.query)),
+    return success(
+      await this.service.counts(input),
       'Pending counts retrieved',
     );
   }
 }
-@Module({
-  controllers: [PendingController, RegistrationEmailController],
-  providers: [PendingService],
-})
-export class PendingModule {}

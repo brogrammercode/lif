@@ -1,5 +1,3 @@
-export const CATEGORY_ROUTE = '/vehicle-categories';
-export const ADMIN_CATEGORY_ROUTE = '/admin/vehicle-categories';
 export const CATEGORY_MESSAGES = {
   LOADED: 'Vehicle categories loaded',
   CREATED: 'Vehicle category created',

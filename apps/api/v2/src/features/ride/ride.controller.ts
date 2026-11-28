@@ -1,22 +1,24 @@
-import { DriverOperationsService } from '../driver_operations/driver_operations.service.js';
+import { opaqueIdSchema } from '../../common/dto/opaque-id.dto.js';
 import {
+  Body,
   Controller,
-  HttpCode,
-  Req,
-  Res,
-  Post,
   Get,
+  HttpCode,
+  Param,
+  Post,
   Query,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { RideService } from './ride.service.js';
+import type { z } from 'zod';
+import { CurrentUserId } from '../../common/decorators/current-user-id.decorator.js';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { AuthGuard } from '../../core/guards.js';
 import { IdempotencyInterceptor } from '../../core/idempotency.interceptor.js';
+import { success } from '../../core/response.js';
+import { DriverOperationsService } from '../driver_operations/driver_operations.service.js';
+import { RideService } from './ride.service.js';
 import { RIDE_ROUTES } from './ride.route.js';
-import type { Request, Response } from 'express';
-import { AppError } from '../../core/error.js';
-import { send_success } from '../../core/response.js';
 import {
   QUOTE_CREATED_MESSAGE,
   RIDE_CANCELLED_MESSAGE,
@@ -36,157 +38,114 @@ import {
   ride_list_schema,
   availability_schema,
 } from './ride.type.js';
+
 @Controller()
+@UseGuards(AuthGuard)
 export class RideController {
   constructor(
     private readonly rideService: RideService,
     private readonly operations: DriverOperationsService,
   ) {}
-  readonly current_user_id = (request: Request): string => {
-    if (!request.auth)
-      throw new AppError(401, 'UNAUTHORIZED', 'Authentication is required');
-    return request.auth.user_id;
-  };
 
   @Get('rides/availability')
-  @UseGuards(AuthGuard)
   async availability(
-    @Req() request: Request,
-    @Query() query: unknown,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() user: string,
+    @Query(new ZodValidationPipe(availability_schema))
+    input: z.output<typeof availability_schema>,
   ) {
-    return send_success(
-      response,
-      await this.operations.rider_availability(
-        this.current_user_id(request),
-        availability_schema.parse(query),
-      ),
+    return success(
+      await this.operations.rider_availability(user, input),
       'Nearby availability loaded',
     );
   }
 
   @Post(RIDE_ROUTES.QUOTE)
-  @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @HttpCode(201)
   async quote(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() user: string,
+    @Body(new ZodValidationPipe(quote_schema))
+    input: z.output<typeof quote_schema>,
   ) {
-    return send_success(
-      response,
-      await this.rideService.build_quote(
-        this.current_user_id(request),
-        quote_schema.parse(request.body),
-      ),
+    return success(
+      await this.rideService.build_quote(user, input),
       QUOTE_CREATED_MESSAGE,
-      201,
     );
   }
 
   @Post(RIDE_ROUTES.CREATE)
-  @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @HttpCode(201)
   @UseInterceptors(IdempotencyInterceptor)
   async create(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() user: string,
+    @Body(new ZodValidationPipe(create_ride_schema))
+    input: z.output<typeof create_ride_schema>,
   ) {
-    return send_success(
-      response,
-      await this.rideService.submit_ride(
-        this.current_user_id(request),
-        create_ride_schema.parse(request.body),
-      ),
+    return success(
+      await this.rideService.submit_ride(user, input),
       RIDE_CREATED_MESSAGE,
-      201,
     );
   }
 
   @Get(RIDE_ROUTES.LIST)
-  @HttpCode(200)
-  @UseGuards(AuthGuard)
   async list(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() user: string,
+    @Query(new ZodValidationPipe(ride_list_schema))
+    input: z.output<typeof ride_list_schema>,
   ) {
-    const pagination = ride_list_schema.parse(request.query);
-    return send_success(
-      response,
-      await this.rideService.get_rides(
-        this.current_user_id(request),
-        pagination.page,
-        pagination.page_size,
-      ),
+    return success(
+      await this.rideService.get_rides(user, input.page, input.page_size),
       RIDES_LOADED_MESSAGE,
     );
   }
 
   @Get(RIDE_ROUTES.DETAIL)
-  @HttpCode(200)
-  @UseGuards(AuthGuard)
   async detail(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() user: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
   ) {
-    return send_success(
-      response,
-      await this.rideService.get_ride(
-        this.current_user_id(request),
-        request.params.id as string,
-      ),
+    return success(
+      await this.rideService.get_ride(user, id),
       RIDE_LOADED_MESSAGE,
     );
   }
 
   @Get(RIDE_ROUTES.EVENTS)
-  @HttpCode(200)
-  @UseGuards(AuthGuard)
   async events(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() user: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
   ) {
-    return send_success(
-      response,
-      await this.rideService.get_ride_events(
-        this.current_user_id(request),
-        request.params.id as string,
-      ),
+    return success(
+      await this.rideService.get_ride_events(user, id),
       RIDE_EVENTS_LOADED_MESSAGE,
     );
   }
 
   @Get(RIDE_ROUTES.LOCATIONS)
-  @HttpCode(200)
-  @UseGuards(AuthGuard)
   async locations(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() user: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
   ) {
-    return send_success(
-      response,
-      await this.rideService.get_ride_locations(
-        this.current_user_id(request),
-        request.params.id as string,
-      ),
+    return success(
+      await this.rideService.get_ride_locations(user, id),
       RIDE_LOCATIONS_LOADED_MESSAGE,
     );
   }
 
   @Post(RIDE_ROUTES.CANCEL)
   @HttpCode(200)
-  @UseGuards(AuthGuard)
   @UseInterceptors(IdempotencyInterceptor)
   async cancel(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() user: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
+    @Body(new ZodValidationPipe(cancel_ride_schema))
+    input: z.output<typeof cancel_ride_schema>,
   ) {
-    return send_success(
-      response,
+    return success(
       await this.operations.report_issue(
-        this.current_user_id(request),
-        request.params.id as string,
+        user,
+        id,
         'CANCELLATION',
-        cancel_ride_schema.parse(request.body).cancel_reason,
+        input.cancel_reason,
       ),
       RIDE_CANCELLED_MESSAGE,
     );
@@ -194,38 +153,28 @@ export class RideController {
 
   @Post(RIDE_ROUTES.CONFIRM_START)
   @HttpCode(200)
-  @UseGuards(AuthGuard)
   @UseInterceptors(IdempotencyInterceptor)
   async confirm_start(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() user: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
   ) {
-    return send_success(
-      response,
-      await this.operations.start_proof(
-        this.current_user_id(request),
-        request.params.id as string,
-      ),
+    return success(
+      await this.operations.start_proof(user, id),
       RIDE_START_CONFIRMED_MESSAGE,
     );
   }
 
   @Post(RIDE_ROUTES.REVIEW)
-  @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @HttpCode(201)
   async review(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() user: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
+    @Body(new ZodValidationPipe(review_schema))
+    input: z.output<typeof review_schema>,
   ) {
-    return send_success(
-      response,
-      await this.rideService.submit_review(
-        this.current_user_id(request),
-        request.params.id as string,
-        review_schema.parse(request.body),
-      ),
+    return success(
+      await this.rideService.submit_review(user, id, input),
       REVIEW_CREATED_MESSAGE,
-      201,
     );
   }
 }

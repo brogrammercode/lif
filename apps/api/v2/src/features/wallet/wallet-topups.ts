@@ -1,22 +1,33 @@
+import { nextEntityId } from '../../database/entity-id.js';
+import {
+  applyTopupDelta,
+  ownTopups,
+  requiredTopup,
+  topupRows,
+  walletDisputes,
+} from './sql/wallet-topups.sql.js';
 import { Injectable, Optional } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import type { WalletTopUp } from '@prisma/client';
+import type { WalletTopUp } from './wallet.rows.js';
 import { z } from 'zod';
 import { config } from '../../core/config.js';
 import { AppError } from '../../core/error.js';
 import {
-  require_active_account,
-  require_active_admin,
-} from '../../infra/database/account_lifecycle.js';
-import { PrismaService } from '../../infra/database/prisma.service.js';
-import { create_user_log } from '../../infra/database/user_log.js';
+  requireActiveAccount,
+  requireActiveAdmin,
+} from '../../database/account-locks.js';
+import {
+  PostgresService,
+  type SqlClient,
+} from '../../database/postgres.service.js';
+import { insertUserLog } from '../../database/user-log.js';
 import { RazorpayWallet } from './razorpay-wallet.js';
 import { RideUpi } from './ride-upi.js';
 import {
   active_topup_mode,
   gateway_credential_mode,
   payout_schedule_lock,
-  read_wallet_controls,
+  readWalletControls,
 } from './wallet-controls.js';
 
 export const start_topup = z
@@ -88,19 +99,19 @@ const topups_disabled = () =>
 @Injectable()
 export class WalletTopUps {
   constructor(
-    private readonly db: PrismaService,
+    private readonly db: PostgresService,
     private readonly provider: RazorpayWallet,
     @Optional() private readonly ride_upi?: RideUpi,
   ) {}
 
   async list(user_id: string) {
     const [rows, controls] = await Promise.all([
-      this.db.client.walletTopUp.findMany({
-        where: { wallet: { user_id, kind: 'RIDER' } },
-        orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
-        take: 20,
-      }),
-      read_wallet_controls(this.db.client),
+      topupRows(
+        this.db,
+        `SELECT t.* ${ownTopups} ORDER BY t.created_at DESC,t.id DESC LIMIT 20`,
+        [user_id],
+      ),
+      readWalletControls(this.db),
     ]);
     return {
       enabled:
@@ -110,11 +121,12 @@ export class WalletTopUps {
   }
 
   async admin_reviews(user_id: string) {
-    const rows = await this.db.client.walletTopUp.findMany({
-      where: { wallet: { user_id, kind: 'RIDER' }, status: 'REVIEW_REQUIRED' },
-      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
-      take: 20,
-    });
+    const rows = await topupRows(
+      this.db,
+      `SELECT t.* ${ownTopups} AND t.status='REVIEW_REQUIRED'
+      ORDER BY t.created_at DESC,t.id DESC LIMIT 20`,
+      [user_id],
+    );
     return rows.map((row) => ({
       ...present(row),
       provider_payment_id: row.provider_payment_id,
@@ -122,38 +134,40 @@ export class WalletTopUps {
   }
 
   async start(user_id: string, input: z.infer<typeof start_topup>) {
-    const row = await this.db.client.$transaction(async (tx) => {
-      await require_active_account(tx, user_id);
-      // Serialize creating funding records with admin mode changes and payout reservation.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${payout_schedule_lock}::int)`;
+    const row = await this.db.transaction(async (tx) => {
+      await requireActiveAccount(tx, user_id);
+      await tx.query('SELECT pg_advisory_xact_lock_shared($1::int)', [
+        payout_schedule_lock,
+      ]);
       const mode = active_topup_mode(
-        await read_wallet_controls(tx),
+        await readWalletControls(tx),
         this.provider.credential_mode,
       );
-      const key = { user_id_kind: { user_id, kind: 'RIDER' as const } };
-      let wallet = await tx.wallet.findUnique({
-        where: key,
-        select: { id: true },
-      });
+      const walletSql =
+        "SELECT id FROM wallets WHERE user_id=$1 AND kind='RIDER'";
+      let wallet = (await tx.query<{ id: string }>(walletSql, [user_id]))
+        .rows[0];
       if (!wallet) {
         if (!mode) throw topups_disabled();
-        wallet = await tx.wallet.upsert({
-          where: key,
-          create: { user_id, kind: 'RIDER' },
-          update: {},
-          select: { id: true },
-        });
+        await tx.query(
+          `INSERT INTO wallets (id,user_id,kind) VALUES ($1,$2,'RIDER')
+          ON CONFLICT(user_id,kind) DO NOTHING`,
+          [nextEntityId(), user_id],
+        );
+        wallet = (await tx.query<{ id: string }>(walletSql, [user_id])).rows[0];
+        if (!wallet)
+          throw new Error('Funding wallet was unavailable after creation');
       }
-      // One open checkout per account. This also bounds ambiguous provider creates.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lock_topup}::int, hashtext(${wallet.id}))`;
-      const existing = await tx.walletTopUp.findUnique({
-        where: {
-          wallet_id_request_key: {
-            wallet_id: wallet.id,
-            request_key: input.request_key,
-          },
-        },
-      });
+
+      await tx.query('SELECT pg_advisory_xact_lock($1::int,hashtext($2))', [
+        lock_topup,
+        wallet.id,
+      ]);
+      const [existing] = await topupRows(
+        tx,
+        'SELECT * FROM wallet_topups WHERE wallet_id=$1 AND request_key=$2',
+        [wallet.id, input.request_key],
+      );
       if (existing) {
         if (existing.amount_paise !== BigInt(input.amount_paise))
           throw new AppError(
@@ -164,76 +178,74 @@ export class WalletTopUps {
         return existing;
       }
       if (!mode) throw topups_disabled();
-      const open = await tx.walletTopUp.findFirst({
-        where: {
-          wallet_id: wallet.id,
-          status: { in: ['CREATING', 'PENDING'] },
-        },
-        select: { id: true },
-      });
-      if (open)
+      const opened = await tx.query(
+        "SELECT id FROM wallet_topups WHERE wallet_id=$1 AND status IN ('CREATING','PENDING') LIMIT 1",
+        [wallet.id],
+      );
+      if (opened.rowCount)
         throw new AppError(
           409,
           'TOPUP_ALREADY_OPEN',
           'Check your existing top-up before starting another one.',
         );
-      return tx.walletTopUp.create({
-        data: {
-          wallet_id: wallet.id,
-          amount_paise: input.amount_paise,
-          request_key: input.request_key,
-          provider_mode: mode,
-          checkout_kind: input.checkout_kind,
-        },
-      });
+      const [created] = await topupRows(
+        tx,
+        `INSERT INTO wallet_topups
+        (id,wallet_id,amount_paise,request_key,provider_mode,checkout_kind,updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,clock_timestamp()) RETURNING *`,
+        [
+          nextEntityId(),
+          wallet.id,
+          input.amount_paise,
+          input.request_key,
+          mode,
+          input.checkout_kind ?? 'LINK',
+        ],
+      );
+      if (!created) throw new Error('No top-up returned after creation');
+      return created;
     });
     return present(await this.sync(row, true));
   }
 
   async check(user_id: string, id: string, cancelled = false) {
-    const row = await this.db.client.walletTopUp.findFirst({
-      where: { id, wallet: { user_id, kind: 'RIDER' } },
-    });
+    const [row] = await topupRows(
+      this.db,
+      `SELECT t.* ${ownTopups} AND t.id=$2`,
+      [user_id, id],
+    );
     if (!row) throw new AppError(404, 'TOPUP_NOT_FOUND', 'Top-up not found.');
     const synced = await this.sync(row, !cancelled);
     if (!cancelled || !['CREATING', 'PENDING'].includes(synced.status))
       return present(synced);
-    // A checkout dismissal closes the in-app attempt. Confirmed late
-    // captures can still reconcile the same reference through the provider.
-    await this.db.client.walletTopUp.updateMany({
-      where: { id, status: { in: ['CREATING', 'PENDING'] } },
-      data: { status: 'CANCELLED' },
-    });
-    return present(
-      await this.db.client.walletTopUp.findUniqueOrThrow({ where: { id } }),
+    // Keep provider references for a late capture after checkout dismissal.
+    await this.db.query(
+      `UPDATE wallet_topups SET status='CANCELLED',updated_at=clock_timestamp()
+        WHERE id=$1 AND status IN ('CREATING','PENDING')`,
+      [id],
     );
+    return present(await requiredTopup(this.db, id));
   }
 
   async reconcile_pending(limit = 4, deadline = Infinity) {
     const mode = this.provider.credential_mode;
     if (!mode) return;
-    const rows = await this.db.client.walletTopUp.findMany({
-      where: {
-        status: { in: ['PENDING', 'CREATING'] },
-        provider_mode: mode,
-      },
-      orderBy: { updated_at: 'asc' },
-      take: limit,
-    });
-    if (Date.now() < deadline) {
+    const rows = await topupRows(
+      this.db,
+      `SELECT * FROM wallet_topups WHERE status IN ('PENDING','CREATING') AND provider_mode=$1
+        ORDER BY updated_at,id LIMIT $2`,
+      [mode, limit],
+    );
+    if (Date.now() < deadline)
       rows.push(
-        ...(await this.db.client.walletTopUp.findMany({
-          where: {
-            status: { in: ['CANCELLED', 'FAILED'] },
-            provider_order_id: { not: null },
-            provider_mode: mode,
-            created_at: { gte: new Date(Date.now() - 7 * 86400000) },
-          },
-          orderBy: { updated_at: 'asc' },
-          take: Math.min(limit, 4),
-        })),
+        ...(await topupRows(
+          this.db,
+          `SELECT * FROM wallet_topups
+        WHERE status IN ('CANCELLED','FAILED') AND provider_order_id IS NOT NULL AND provider_mode=$1
+          AND created_at>=$2 ORDER BY updated_at,id LIMIT $3`,
+          [mode, new Date(Date.now() - 7 * 86400000), Math.min(limit, 4)],
+        )),
       );
-    }
     for (
       let offset = 0;
       offset < rows.length && Date.now() < deadline;
@@ -244,10 +256,10 @@ export class WalletTopUps {
           try {
             await this.sync(row, false);
           } finally {
-            await this.db.client.walletTopUp.updateMany({
-              where: { id: row.id, updated_at: row.updated_at },
-              data: { updated_at: new Date() },
-            });
+            await this.db.query(
+              'UPDATE wallet_topups SET updated_at=clock_timestamp() WHERE id=$1 AND updated_at=$2',
+              [row.id, row.updated_at],
+            );
           }
         }),
       );
@@ -281,8 +293,7 @@ export class WalletTopUps {
       !link &&
       allow_create &&
       Date.now() < expires &&
-      active_topup_mode(await read_wallet_controls(this.db.client), mode) ===
-        mode
+      active_topup_mode(await readWalletControls(this.db), mode) === mode
     ) {
       try {
         link = await this.provider.create(
@@ -299,13 +310,12 @@ export class WalletTopUps {
     }
     if (!link) {
       if (Date.now() < expires) return row;
-      await this.db.client.walletTopUp.updateMany({
-        where: { id: row.id, status: 'CREATING', provider_link_id: null },
-        data: { status: 'FAILED' },
-      });
-      return this.db.client.walletTopUp.findUniqueOrThrow({
-        where: { id: row.id },
-      });
+      await this.db.query(
+        `UPDATE wallet_topups SET status='FAILED',updated_at=clock_timestamp()
+          WHERE id=$1 AND status='CREATING' AND provider_link_id IS NULL`,
+        [row.id],
+      );
+      return requiredTopup(this.db, row.id);
     }
     if (
       link.reference_id !== row.id ||
@@ -375,15 +385,13 @@ export class WalletTopUps {
       }
     }
     if (!order) {
-      if (expired) {
-        await this.db.client.walletTopUp.updateMany({
-          where: { id: row.id, status: 'CREATING', provider_order_id: null },
-          data: { status: 'FAILED' },
-        });
-      }
-      return this.db.client.walletTopUp.findUniqueOrThrow({
-        where: { id: row.id },
-      });
+      if (expired)
+        await this.db.query(
+          `UPDATE wallet_topups SET status='FAILED',updated_at=clock_timestamp()
+            WHERE id=$1 AND status='CREATING' AND provider_order_id IS NULL`,
+          [row.id],
+        );
+      return requiredTopup(this.db, row.id);
     }
     if (order.receipt !== row.id || BigInt(order.amount) !== row.amount_paise)
       throw new AppError(
@@ -413,26 +421,24 @@ export class WalletTopUps {
   }
 
   private async claim_order_creation(row: WalletTopUp) {
-    return this.db.client.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${payout_schedule_lock}::int)`;
+    return this.db.transaction(async (tx) => {
+      await tx.query('SELECT pg_advisory_xact_lock_shared($1::int)', [
+        payout_schedule_lock,
+      ]);
       if (
+        !row.provider_mode ||
         active_topup_mode(
-          await read_wallet_controls(tx),
+          await readWalletControls(tx),
           this.provider.credential_mode,
-        ) !== row.provider_mode ||
-        !row.provider_mode
+        ) !== row.provider_mode
       )
         return false;
-      const claimed = await tx.walletTopUp.updateMany({
-        where: {
-          id: row.id,
-          status: 'CREATING',
-          provider_order_id: null,
-          provider_order_create_claimed: false,
-        },
-        data: { provider_order_create_claimed: true },
-      });
-      return claimed.count === 1;
+      const claimed = await tx.query(
+        `UPDATE wallet_topups SET provider_order_create_claimed=true,updated_at=clock_timestamp()
+           WHERE id=$1 AND status='CREATING' AND provider_order_id IS NULL AND NOT provider_order_create_claimed`,
+        [row.id],
+      );
+      return claimed.rowCount === 1;
     });
   }
 
@@ -448,9 +454,12 @@ export class WalletTopUps {
     captured: string | null,
     refunded: boolean,
   ) {
-    return this.db.client.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lock_topup}::int, hashtext(${id}))`;
-      const row = await tx.walletTopUp.findUniqueOrThrow({ where: { id } });
+    return this.db.transaction(async (tx) => {
+      await tx.query('SELECT pg_advisory_xact_lock($1::int,hashtext($2))', [
+        lock_topup,
+        id,
+      ]);
+      const row = await requiredTopup(tx, id);
       if (!reconcilable(row.status)) return row;
       if (
         !captured &&
@@ -460,11 +469,14 @@ export class WalletTopUps {
         if (
           checkout.failure_reason &&
           checkout.failure_reason !== row.failure_reason
-        )
-          return tx.walletTopUp.update({
-            where: { id },
-            data: { failure_reason: checkout.failure_reason },
-          });
+        ) {
+          const [updated] = await topupRows(
+            tx,
+            'UPDATE wallet_topups SET failure_reason=$2,updated_at=clock_timestamp() WHERE id=$1 RETURNING *',
+            [id, checkout.failure_reason],
+          );
+          return updated ?? row;
+        }
         return row;
       }
       if (
@@ -480,49 +492,50 @@ export class WalletTopUps {
         );
       let review = false;
       if (captured) {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(720067, hashtext(${captured}))`;
+        await tx.query('SELECT pg_advisory_xact_lock(720067,hashtext($1))', [
+          captured,
+        ]);
         review =
           refunded ||
           Boolean(
-            await tx.walletProviderEvent.findFirst({
-              where: { provider: 'razorpay-wallet', subject_id: captured },
-              select: { event_id: true },
-            }),
+            (
+              await tx.query(
+                "SELECT event_id FROM wallet_provider_events WHERE provider='razorpay-wallet' AND subject_id=$1 LIMIT 1",
+                [captured],
+              )
+            ).rowCount,
           );
       }
-      if (captured && !review) {
-        const wallet = await tx.wallet.update({
-          where: { id: row.wallet_id },
-          data: { available_paise: { increment: row.amount_paise } },
+      if (captured && !review)
+        await applyTopupDelta(tx, {
+          walletId: row.wallet_id,
+          topupId: id,
+          operationKey: `topup:${id}`,
+          delta: row.amount_paise,
         });
-        await tx.walletEntry.create({
-          data: {
-            kind: 'TOP_UP',
-            wallet_id: wallet.id,
-            topup_id: id,
-            operation_key: `topup:${id}`,
-            available_delta_paise: row.amount_paise,
-            held_delta_paise: 0,
-            available_after_paise: wallet.available_paise,
-            held_after_paise: wallet.held_paise,
-          },
-        });
-      }
-      return tx.walletTopUp.update({
-        where: { id },
-        data: {
-          provider_link_id: checkout.link_id,
-          checkout_url: checkout.checkout_url,
-          provider_order_id: checkout.order_id ?? undefined,
-          provider_payment_id: captured ?? undefined,
-          failure_reason: captured ? null : checkout.failure_reason,
-          status: captured
+      const [updated] = await topupRows(
+        tx,
+        `UPDATE wallet_topups SET
+        provider_link_id=COALESCE($2,provider_link_id),checkout_url=COALESCE($3,checkout_url),
+        provider_order_id=COALESCE($4,provider_order_id),provider_payment_id=COALESCE($5,provider_payment_id),
+        failure_reason=CASE WHEN $5 IS NOT NULL THEN NULL ELSE COALESCE($6,failure_reason) END,
+        status=$7,updated_at=clock_timestamp() WHERE id=$1 RETURNING *`,
+        [
+          id,
+          checkout.link_id ?? null,
+          checkout.checkout_url ?? null,
+          checkout.order_id ?? null,
+          captured,
+          checkout.failure_reason ?? null,
+          captured
             ? review
               ? 'REVIEW_REQUIRED'
               : 'CAPTURED'
             : (checkout.terminal ?? 'PENDING'),
-        },
-      });
+        ],
+      );
+      if (!updated) throw new Error('Top-up missing during capture');
+      return updated;
     });
   }
 
@@ -549,12 +562,12 @@ export class WalletTopUps {
         'EVENT_ID_REQUIRED',
         'A provider event ID is required.',
       );
-    const where = {
-      provider_event_id: { provider: 'razorpay-wallet', event_id },
-    };
-    const already = await this.db.client.walletProviderEvent.findUnique({
-      where,
-    });
+    const {
+      rows: [already],
+    } = await this.db.query<{ processed_at: Date | null }>(
+      "SELECT processed_at FROM wallet_provider_events WHERE provider='razorpay-wallet' AND event_id=$1",
+      [event_id],
+    );
     if (already?.processed_at) return;
     const link = input.payload.payment_link?.entity;
     if (
@@ -562,9 +575,11 @@ export class WalletTopUps {
       topup_reference.safeParse(link.reference_id).success &&
       /^payment_link\.(paid|expired|cancelled)$/.test(input.event)
     ) {
-      const row = await this.db.client.walletTopUp.findUnique({
-        where: { id: link.reference_id },
-      });
+      const [row] = await topupRows(
+        this.db,
+        'SELECT * FROM wallet_topups WHERE id=$1',
+        [link.reference_id],
+      );
       if (row && row.checkout_kind !== 'SDK') {
         const synced = await this.sync(row, false, link.id);
         if (input.event === 'payment_link.paid' && reconcilable(synced.status))
@@ -588,9 +603,11 @@ export class WalletTopUps {
       order &&
       topup_reference.safeParse(order.receipt).success
     ) {
-      const row = await this.db.client.walletTopUp.findUnique({
-        where: { id: order.receipt! },
-      });
+      const [row] = await topupRows(
+        this.db,
+        'SELECT * FROM wallet_topups WHERE id=$1',
+        [order.receipt!],
+      );
       if (row?.checkout_kind === 'SDK') {
         const synced = await this.sync(row, false, order.id);
         if (reconcilable(synced.status)) throw capture_pending();
@@ -606,9 +623,11 @@ export class WalletTopUps {
       ['payment.failed', 'payment.captured'].includes(input.event) &&
       input.payload.payment?.entity.order_id
     ) {
-      const row = await this.db.client.walletTopUp.findUnique({
-        where: { provider_order_id: input.payload.payment.entity.order_id },
-      });
+      const [row] = await topupRows(
+        this.db,
+        'SELECT * FROM wallet_topups WHERE provider_order_id=$1',
+        [input.payload.payment.entity.order_id],
+      );
       if (row) {
         const synced = await this.sync(row, false);
         if (input.event === 'payment.captured' && reconcilable(synced.status))
@@ -634,17 +653,12 @@ export class WalletTopUps {
       );
       return;
     }
-    const data = { processed_at: new Date() };
-    await this.db.client.walletProviderEvent.upsert({
-      where,
-      update: data,
-      create: {
-        provider: 'razorpay-wallet',
-        event_id,
-        event_type: input.event,
-        ...data,
-      },
-    });
+    await this.db.query(
+      `INSERT INTO wallet_provider_events (provider,event_id,event_type,processed_at)
+        VALUES ('razorpay-wallet',$1,$2,clock_timestamp())
+        ON CONFLICT(provider,event_id) DO UPDATE SET processed_at=EXCLUDED.processed_at`,
+      [event_id, input.event],
+    );
   }
 
   async admin_reconcile(
@@ -654,13 +668,11 @@ export class WalletTopUps {
     reason: string,
     legacy_dispute_id?: string,
   ) {
-    const row = await this.db.client.walletTopUp.findFirst({
-      where: {
-        id,
-        wallet: { user_id, kind: 'RIDER' },
-        status: 'REVIEW_REQUIRED',
-      },
-    });
+    const [row] = await topupRows(
+      this.db,
+      `SELECT t.* ${ownTopups} AND t.id=$2 AND t.status='REVIEW_REQUIRED'`,
+      [user_id, id],
+    );
     if (
       !row?.provider_payment_id ||
       !this.provider.credential_mode ||
@@ -671,11 +683,13 @@ export class WalletTopUps {
         'TOPUP_REVIEW_UNAVAILABLE',
         'A matching provider payment is required.',
       );
-    const disputes = await this.db.client.walletProviderEvent.findMany({
-      where: this.open_disputes(row.provider_payment_id),
-      select: { event_id: true, object_id: true },
-      take: 6,
-    });
+    const { rows: disputes } = await this.db.query<{
+      event_id: string;
+      object_id: string | null;
+    }>(
+      `SELECT event_id,object_id ${walletDisputes} ORDER BY received_at,event_id LIMIT 6`,
+      [row.provider_payment_id],
+    );
     const dispute_ids = [
       ...new Set(disputes.map((event) => event.object_id ?? legacy_dispute_id)),
     ];
@@ -719,15 +733,6 @@ export class WalletTopUps {
     return { id };
   }
 
-  private open_disputes(payment_id: string) {
-    return {
-      provider: 'razorpay-wallet',
-      subject_id: payment_id,
-      event_type: 'payment.dispute.created',
-      reconciled_at: null,
-    };
-  }
-
   private async flag_review(
     payment_id: string,
     event_type: string,
@@ -745,27 +750,22 @@ export class WalletTopUps {
       event_type === 'refund.processed' && this.provider.credential_mode
         ? await this.provider.payment(payment_id)
         : null;
-    await this.db.client.$transaction(async (tx) => {
-      if (admin) await require_active_admin(tx, admin.actor_id);
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(720067, hashtext(${payment_id}))`;
+    await this.db.transaction(async (tx) => {
+      if (admin) await requireActiveAdmin(tx, admin.actor_id);
+      await tx.query('SELECT pg_advisory_xact_lock(720067,hashtext($1))', [
+        payment_id,
+      ]);
       if (event_id)
-        await tx.walletProviderEvent.upsert({
-          where: {
-            provider_event_id: { provider: 'razorpay-wallet', event_id },
-          },
-          update: {},
-          create: {
-            provider: 'razorpay-wallet',
-            event_id,
-            event_type,
-            subject_id: payment_id,
-            object_id,
-            processed_at: new Date(),
-          },
-        });
-      const row = await tx.walletTopUp.findUnique({
-        where: { provider_payment_id: payment_id },
-      });
+        await tx.query(
+          `INSERT INTO wallet_provider_events (provider,event_id,event_type,subject_id,object_id,processed_at)
+          VALUES ('razorpay-wallet',$1,$2,$3,$4,clock_timestamp()) ON CONFLICT(provider,event_id) DO NOTHING`,
+          [event_id, event_type, payment_id, object_id ?? null],
+        );
+      const [row] = await topupRows(
+        tx,
+        'SELECT * FROM wallet_topups WHERE provider_payment_id=$1',
+        [payment_id],
+      );
       if (!row || !['CAPTURED', 'REVIEW_REQUIRED'].includes(row.status)) {
         if (admin)
           throw new AppError(
@@ -775,20 +775,26 @@ export class WalletTopUps {
           );
         return;
       }
-      const disputed = await tx.walletProviderEvent.findFirst({
-        where: {
-          ...this.open_disputes(payment_id),
-          ...(admin ? { event_id: { notIn: admin.event_ids } } : {}),
-        },
-        select: { event_id: true },
-      });
+      const {
+        rows: [disputed],
+      } = await tx.query(
+        `SELECT event_id ${walletDisputes} AND NOT(event_id=ANY($2::text[])) LIMIT 1`,
+        [payment_id, admin?.event_ids ?? []],
+      );
       if (admin && disputed)
         throw new AppError(
           409,
           'TOPUP_DISPUTE_REQUIRES_REVIEW',
           'The provider dispute must be resolved before releasing the wallet hold.',
         );
-      await tx.$queryRaw`SELECT id FROM wallets WHERE id = ${row.wallet_id} FOR UPDATE`;
+      const {
+        rows: [wallet],
+      } = await tx.query<{ id: string; available_paise: string }>(
+        'SELECT id,available_paise FROM wallets WHERE id=$1 FOR UPDATE',
+        [row.wallet_id],
+      );
+      if (!wallet)
+        throw new Error('Funding wallet unavailable for reconciliation');
       const chargeback =
         row.reviewed_chargeback_paise + (admin?.chargeback ?? 0n);
       const refunded = BigInt(payment?.amount_refunded ?? 0);
@@ -809,82 +815,66 @@ export class WalletTopUps {
         !(chargeback > 0n && refunded > 0n) &&
         cumulative <= row.amount_paise
       ) {
-        const previous = await tx.walletEntry.aggregate({
-          where: { topup_id: row.id, kind: 'REFUND' },
-          _sum: { available_delta_paise: true },
-        });
-        const delta = cumulative + (previous._sum.available_delta_paise ?? 0n);
-        const source = await tx.walletEntry.findUnique({
-          where: { operation_key: `topup:${row.id}` },
-        });
-        const wallet = await tx.wallet.findUniqueOrThrow({
-          where: { id: row.wallet_id },
-        });
+        const {
+          rows: [previous],
+        } = await tx.query<{ net: string }>(
+          "SELECT COALESCE(sum(available_delta_paise),0)::text AS net FROM wallet_entries WHERE topup_id=$1 AND kind='REFUND'",
+          [row.id],
+        );
+        const delta = cumulative + BigInt(previous?.net ?? 0);
+        const {
+          rows: [source],
+        } = await tx.query<{ id: string }>(
+          'SELECT id FROM wallet_entries WHERE operation_key=$1',
+          [`topup:${row.id}`],
+        );
         if (admin && !source) {
           const net = row.amount_paise - cumulative;
-          if (net > 0n) {
-            const balance = await tx.wallet.update({
-              where: { id: wallet.id },
-              data: { available_paise: { increment: net } },
+          if (net > 0n)
+            await applyTopupDelta(tx, {
+              walletId: wallet.id,
+              topupId: row.id,
+              operationKey: `topup:${row.id}`,
+              delta: net,
             });
-            await tx.walletEntry.create({
-              data: {
-                kind: 'TOP_UP',
-                wallet_id: wallet.id,
-                topup_id: row.id,
-                operation_key: `topup:${row.id}`,
-                available_delta_paise: net,
-                held_delta_paise: 0,
-                available_after_paise: balance.available_paise,
-                held_after_paise: balance.held_paise,
-              },
-            });
-          }
-          await tx.walletTopUp.update({
-            where: { id: row.id },
-            data: {
-              status: cumulative === row.amount_paise ? 'REFUNDED' : 'CAPTURED',
-              credited_net_of_refund_paise: cumulative,
-              reviewed_chargeback_paise: chargeback,
-            },
-          });
+          await tx.query(
+            `UPDATE wallet_topups SET status=$2,credited_net_of_refund_paise=$3,
+            reviewed_chargeback_paise=$4,updated_at=clock_timestamp() WHERE id=$1`,
+            [
+              row.id,
+              cumulative === row.amount_paise ? 'REFUNDED' : 'CAPTURED',
+              String(cumulative),
+              String(chargeback),
+            ],
+          );
           await this.log_reconciliation(tx, row, admin, cumulative);
           return;
         }
         if (!admin && delta <= 0n && source) return;
         if (
           source &&
-          wallet.available_paise >= delta - row.credited_net_of_refund_paise
+          BigInt(wallet.available_paise) >=
+            delta - row.credited_net_of_refund_paise
         ) {
           const remaining = delta - row.credited_net_of_refund_paise;
-          if (remaining > 0n) {
-            const balance = await tx.wallet.update({
-              where: { id: wallet.id },
-              data: { available_paise: { decrement: remaining } },
+          if (remaining > 0n)
+            await applyTopupDelta(tx, {
+              walletId: wallet.id,
+              topupId: row.id,
+              operationKey: `topup-refund:${row.id}:${cumulative}`,
+              delta: -remaining,
+              reverses: source.id,
             });
-            await tx.walletEntry.create({
-              data: {
-                wallet_id: balance.id,
-                topup_id: row.id,
-                kind: 'REFUND',
-                reverses_entry_id: source.id,
-                operation_key: `topup-refund:${row.id}:${cumulative}`,
-                available_delta_paise: -remaining,
-                held_delta_paise: 0,
-                available_after_paise: balance.available_paise,
-                held_after_paise: balance.held_paise,
-              },
-            });
-          }
           if (cumulative === row.amount_paise || admin)
-            await tx.walletTopUp.update({
-              where: { id: row.id },
-              data: {
-                status:
-                  cumulative === row.amount_paise ? 'REFUNDED' : 'CAPTURED',
-                reviewed_chargeback_paise: chargeback,
-              },
-            });
+            await tx.query(
+              `UPDATE wallet_topups SET status=$2,reviewed_chargeback_paise=$3,
+                updated_at=clock_timestamp() WHERE id=$1`,
+              [
+                row.id,
+                cumulative === row.amount_paise ? 'REFUNDED' : 'CAPTURED',
+                String(chargeback),
+              ],
+            );
           if (admin) await this.log_reconciliation(tx, row, admin, cumulative);
           return;
         }
@@ -895,15 +885,15 @@ export class WalletTopUps {
           'TOPUP_REFUND_UNRESOLVED',
           'The provider refund could not be verified or the wallet balance is insufficient.',
         );
-      await tx.walletTopUp.updateMany({
-        where: { id: row.id, status: 'CAPTURED' },
-        data: { status: 'REVIEW_REQUIRED' },
-      });
+      await tx.query(
+        "UPDATE wallet_topups SET status='REVIEW_REQUIRED',updated_at=clock_timestamp() WHERE id=$1 AND status='CAPTURED'",
+        [row.id],
+      );
     });
   }
 
   private async log_reconciliation(
-    tx: import('../../infra/database/client.js').TransactionClient,
+    tx: SqlClient,
     row: WalletTopUp,
     admin: {
       actor_id: string;
@@ -913,11 +903,11 @@ export class WalletTopUps {
     },
     cumulative: bigint,
   ) {
-    await tx.walletProviderEvent.updateMany({
-      where: { provider: 'razorpay-wallet', event_id: { in: admin.event_ids } },
-      data: { reconciled_at: new Date() },
-    });
-    return create_user_log(tx, {
+    await tx.query(
+      "UPDATE wallet_provider_events SET reconciled_at=clock_timestamp() WHERE provider='razorpay-wallet' AND event_id=ANY($1::text[])",
+      [admin.event_ids],
+    );
+    return insertUserLog(tx, {
       actor_id: admin.actor_id,
       entity_type: 'WalletTopUp',
       entity_id: row.id,

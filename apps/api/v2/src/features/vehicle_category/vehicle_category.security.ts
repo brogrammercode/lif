@@ -1,39 +1,72 @@
-import type { FareQuote, Prisma } from '@prisma/client';
 import { has_approved_vehicle_fields } from '../vehicle_verification/vehicle_verification.type.js';
-export const MATCHING_VEHICLE_INCLUDE = {
-  vehicle_category: {
-    include: { parent: true, _count: { select: { children: true } } },
-  },
+import type { Vehicle } from './vehicle.rows.js';
+type EligibilityVehicle = {
+  driver_id: string;
+  status: string;
+  verification_version: number;
+  verification_fields: unknown;
+  brand_id: string | null;
+  type: string;
+  capacity: number;
+  vehicle_category_id: string | null;
   brand: {
-    select: {
-      id: true,
-      name: true,
-      logo_url: true,
-      status: true,
-      is_active: true,
-    },
-  },
+    id: string;
+    name: string;
+    logo_url: string | null;
+    is_active: boolean;
+    status: string;
+  } | null;
   catalog_model: {
-    select: {
-      id: true,
-      name: true,
-      brand_id: true,
-      status: true,
-      is_active: true,
-      vehicle_type: true,
-      seating_capacity: true,
-    },
-  },
-} as const;
-type MatchingVehicle = Prisma.VehicleGetPayload<{
-  include: typeof MATCHING_VEHICLE_INCLUDE;
-}>;
-type MatchingQuote = Pick<
-  FareQuote,
-  'vehicle_category_id' | 'vehicle_type' | 'category_snapshot'
->;
+    id: string;
+    name: string;
+    logo_url?: string | null;
+    is_active: boolean;
+    status: string;
+    brand_id: string;
+    vehicle_type: string;
+    seating_capacity: number;
+  } | null;
+  vehicle_category: {
+    id: string;
+    name: string;
+    image_url: string | null;
+    logo_url?: string | null;
+    is_active: boolean;
+    _count: { children: number };
+    parent: { is_active: boolean } | null;
+    capacity: number;
+    vehicle_type: string;
+  } | null;
+};
+type MatchingQuote = {
+  vehicle_category_id: string | null;
+  vehicle_type: string;
+  category_snapshot: unknown;
+};
+export type MatchingVehicle = Vehicle & EligibilityVehicle;
 export const is_vehicle_eligible = (
-  vehicle: MatchingVehicle | null,
+  vehicle:
+    | (Pick<
+        EligibilityVehicle,
+        Exclude<
+          keyof EligibilityVehicle,
+          'brand' | 'catalog_model' | 'vehicle_category'
+        >
+      > & {
+        brand: Pick<
+          NonNullable<EligibilityVehicle['brand']>,
+          'is_active' | 'status'
+        > | null;
+        catalog_model: Omit<
+          NonNullable<EligibilityVehicle['catalog_model']>,
+          'id' | 'name' | 'logo_url'
+        > | null;
+        vehicle_category: Omit<
+          NonNullable<EligibilityVehicle['vehicle_category']>,
+          'id' | 'name' | 'image_url' | 'logo_url'
+        > | null;
+      })
+    | null,
   quote: MatchingQuote | undefined,
   driver_id: string,
 ) => {
@@ -69,6 +102,7 @@ export const is_vehicle_eligible = (
     snapshot &&
     typeof snapshot === 'object' &&
     !Array.isArray(snapshot) &&
+    'capacity' in snapshot &&
     typeof snapshot.capacity === 'number'
       ? snapshot.capacity
       : category.capacity;

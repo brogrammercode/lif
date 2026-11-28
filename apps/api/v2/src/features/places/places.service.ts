@@ -85,7 +85,7 @@ export class PlacesService {
     } catch (error) {
       // A domain rejection proves no attachment was committed. For an ambiguous
       // database failure retain the object rather than deleting a committed image.
-      if (error instanceof AppError)
+      if (error instanceof AppError && error.status_code < 500)
         await this.images.discard_image(uploaded.public_id);
       else
         console.error({

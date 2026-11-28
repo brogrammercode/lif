@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
+import { DatabaseModule } from '../../database/database.module.js';
 import { AdminAuthController } from './admin_auth.controller.js';
 import { AdminAuthRepository } from './admin_auth.repo.js';
 import { AdminAuthService } from './admin_auth.service.js';
 @Module({
-  imports: [],
+  imports: [DatabaseModule],
   controllers: [AdminAuthController],
   providers: [AdminAuthRepository, AdminAuthService],
   exports: [AdminAuthRepository, AdminAuthService],

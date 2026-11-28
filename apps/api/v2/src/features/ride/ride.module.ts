@@ -1,5 +1,6 @@
 import { DriverOperationsModule } from '../driver_operations/driver_operations.module.js';
 import { Module } from '@nestjs/common';
+import { DatabaseModule } from '../../database/database.module.js';
 import { AppConfigurationModule } from '../app_configuration/app_configuration.module.js';
 import { RideController } from './ride.controller.js';
 import { RideRepository } from './ride.repo.js';
@@ -8,6 +9,7 @@ import { VehicleCategoryModule } from '../vehicle_category/vehicle_category.modu
 import { GeocodeModule } from '../geocode/geocode.module.js';
 @Module({
   imports: [
+    DatabaseModule,
     DriverOperationsModule,
     AppConfigurationModule,
     VehicleCategoryModule,

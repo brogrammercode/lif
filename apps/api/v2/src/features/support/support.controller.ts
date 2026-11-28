@@ -1,104 +1,80 @@
+import { opaqueIdSchema } from '../../common/dto/opaque-id.dto.js';
 import {
+  Body,
   Controller,
-  HttpCode,
-  Req,
-  Res,
   Get,
+  HttpCode,
+  Param,
   Post,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { SupportService } from './support.service.js';
+import { CurrentUserId } from '../../common/decorators/current-user-id.decorator.js';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { AuthGuard } from '../../core/guards.js';
 import { IdempotencyInterceptor } from '../../core/idempotency.interceptor.js';
-import { SUPPORT_ROUTES } from './support.route.js';
-import type { Request, Response } from 'express';
-import { AppError } from '../../core/error.js';
-import { send_success } from '../../core/response.js';
+import { success } from '../../core/response.js';
+import { SupportService } from './support.service.js';
 import {
   MESSAGE_CREATED_MESSAGE,
   TICKET_CREATED_MESSAGE,
   TICKET_LOADED_MESSAGE,
   TICKETS_LOADED_MESSAGE,
 } from './support.constant.js';
-import { message_schema, ticket_schema } from './support.type.js';
-@Controller()
+import {
+  message_schema,
+  ticket_schema,
+  type MessageInput,
+  type TicketInput,
+} from './dto/support.dto.js';
+
+@Controller('support/tickets')
+@UseGuards(AuthGuard)
 export class SupportController {
   constructor(private readonly supportService: SupportService) {}
-  readonly current_user_id = (request: Request): string => {
-    if (!request.auth)
-      throw new AppError(401, 'UNAUTHORIZED', 'Authentication is required');
-    return request.auth.user_id;
-  };
 
-  @Get(SUPPORT_ROUTES.LIST)
-  @HttpCode(200)
-  @UseGuards(AuthGuard)
-  async list(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
-  ) {
-    return send_success(
-      response,
-      await this.supportService.get_support_tickets(
-        this.current_user_id(request),
-      ),
+  @Get()
+  async list(@CurrentUserId() userId: string) {
+    return success(
+      await this.supportService.get_support_tickets(userId),
       TICKETS_LOADED_MESSAGE,
     );
   }
 
-  @Get(SUPPORT_ROUTES.DETAIL)
-  @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @Get(':id')
   async detail(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() userId: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
   ) {
-    return send_success(
-      response,
-      await this.supportService.get_support_ticket(
-        this.current_user_id(request),
-        request.params.id as string,
-      ),
+    return success(
+      await this.supportService.get_support_ticket(userId, id),
       TICKET_LOADED_MESSAGE,
     );
   }
 
-  @Post(SUPPORT_ROUTES.CREATE)
-  @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @Post()
+  @HttpCode(201)
   @UseInterceptors(IdempotencyInterceptor)
   async create(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() userId: string,
+    @Body(new ZodValidationPipe(ticket_schema)) input: TicketInput,
   ) {
-    return send_success(
-      response,
-      await this.supportService.open_support_ticket(
-        this.current_user_id(request),
-        ticket_schema.parse(request.body),
-      ),
+    return success(
+      await this.supportService.open_support_ticket(userId, input),
       TICKET_CREATED_MESSAGE,
-      201,
     );
   }
 
-  @Post(SUPPORT_ROUTES.MESSAGE)
-  @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @Post(':id/messages')
+  @HttpCode(201)
   async message(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() userId: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
+    @Body(new ZodValidationPipe(message_schema)) input: MessageInput,
   ) {
-    return send_success(
-      response,
-      await this.supportService.add_support_message(
-        this.current_user_id(request),
-        request.params.id as string,
-        message_schema.parse(request.body),
-      ),
+    return success(
+      await this.supportService.add_support_message(userId, id, input),
       MESSAGE_CREATED_MESSAGE,
-      201,
     );
   }
 }

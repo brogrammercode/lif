@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { SupportRepository } from './support.repo.js';
+import { SupportRepository } from './support.repository.js';
 import { AppError } from '../../core/error.js';
 import { TICKET_NOT_FOUND_MESSAGE } from './support.constant.js';
-import type { MessageInput, TicketInput } from './support.type.js';
+import type { MessageInput, TicketInput } from './dto/support.dto.js';
 @Injectable()
 export class SupportService {
   constructor(private readonly supportRepository: SupportRepository) {}

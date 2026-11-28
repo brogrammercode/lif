@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { EmergencyRepository } from './emergency.repo.js';
+import { EmergencyRepository } from './emergency.repository.js';
 import { AppError } from '../../core/error.js';
 import { EMERGENCY_CONTACT_NOT_FOUND_MESSAGE } from './emergency.constant.js';
-import type { EmergencyContactInput } from './emergency.type.js';
+import type { EmergencyContactInput } from './dto/emergency-contact.dto.js';
 @Injectable()
 export class EmergencyService {
   constructor(private readonly emergencyRepository: EmergencyRepository) {}

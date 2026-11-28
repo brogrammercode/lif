@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
-import type { PrismaService } from '../infra/database/prisma.service.js';
+import type { PostgresService } from '../database/postgres.service.js';
 import {
   PartnerApplicationDeletionService,
   application_delete_input,
@@ -40,74 +40,59 @@ function fixture() {
     exit_request: null as { id: string } | null,
     _count: { fields: 4, deliveries: 2 },
   };
-  const tx = {
-    $executeRaw: async () => 1,
-    $queryRaw: async () => [],
-    user: {
-      findUnique: async () => ({
-        role: state.role,
-        status: 'ACTIVE',
-        deleted_at: null,
-      }),
-    },
-    partnerApplication: {
-      findUnique: async () => (state.exists ? app : null),
-      findFirst: async () => null,
-      delete: async () => {
-        state.writes.push('application');
-        return app;
-      },
-    },
-    partnerAsset: {
-      aggregate: async () => ({ _count: { _all: 5 }, _sum: { size: 1024 } }),
-      deleteMany: async ({
-        where,
-      }: {
-        where: {
-          owner_id: string;
-          application_id: string;
-          purpose: { in: string[] };
-        };
-      }) => {
-        assert.equal(where.owner_id, 'applicant');
-        assert.equal(where.application_id, 'application');
-        assert.deepEqual(where.purpose.in, [
-          'APPLICATION_DOCUMENT',
-          'APPLICATION_SELFIE',
-          'FINAL_PDF',
-        ]);
-        state.writes.push('uploads');
-        return { count: 5 };
-      },
-    },
-    notification: {
-      count: async ({ where }: { where: { AND?: unknown } }) =>
-        where.AND ? Number(state.sending) : 6,
-      deleteMany: async ({ where }: { where: unknown }) => {
-        assert.ok(JSON.stringify(where).includes('application_id'));
-        state.writes.push('notifications');
-        return { count: 6 };
-      },
-    },
-    partnerDelivery: { count: async () => 0 },
-    userLog: {
-      create: async ({
-        data,
-      }: {
-        data: { action: string; after_data: unknown };
-      }) => {
-        assert.equal(data.action, 'DELETE_PARTNER_APPLICATION');
-        assert.ok(data.after_data);
-        state.writes.push('audit');
-        return {};
-      },
-    },
+  const query = async (sql: string, args: unknown[] = []) => {
+    if (sql.includes('FROM users WHERE'))
+      return {
+        rows: [{ role: state.role, status: 'ACTIVE', deleted_at: null }],
+      };
+    if (
+      sql.trimStart().startsWith('SELECT') &&
+      sql.includes('FROM partner_applications')
+    )
+      return {
+        rows: state.exists
+          ? [
+              {
+                ...app,
+                ...app.user,
+                has_exit: !!app.exit_request,
+                fields: app._count.fields,
+                confirmations: 1,
+                deliveries: app._count.deliveries,
+                sending_pdf: 0,
+              },
+            ]
+          : [],
+      };
+    if (sql.includes('FROM partner_assets') && sql.startsWith('SELECT'))
+      return { rows: [{ total: 5, bytes: 1024 }] };
+    if (sql.includes('sending_mail'))
+      return { rows: [{ total: 6, sending_mail: Number(state.sending) }] };
+    if (sql.startsWith('DELETE FROM notifications')) {
+      assert.match(sql, /data->>'application_id'=\$1/);
+      state.writes.push('notifications');
+    }
+    if (sql.startsWith('DELETE FROM partner_assets')) {
+      assert.deepEqual(args, [
+        'application',
+        'applicant',
+        ['APPLICATION_DOCUMENT', 'APPLICATION_SELFIE', 'FINAL_PDF'],
+      ]);
+      state.writes.push('uploads');
+    }
+    if (sql.startsWith('DELETE FROM partner_applications'))
+      state.writes.push('application');
+    if (sql.includes('INSERT INTO user_logs')) {
+      assert.equal(args[4], 'DELETE_PARTNER_APPLICATION');
+      assert.ok(args[6]);
+      state.writes.push('audit');
+    }
+    return { rows: [] };
   };
   const database = {
-    client: {
-      $transaction: (work: (client: typeof tx) => unknown) => work(tx),
-    },
-  } as unknown as PrismaService;
+    transaction: (work: (tx: { query: typeof query }) => unknown) =>
+      work({ query }),
+  } as unknown as PostgresService;
   return {
     state,
     app,
@@ -189,25 +174,22 @@ it('retention uses each record timestamp, batches its deletes and stops when ano
   const calls: { sql: string; values: unknown[] }[] = [];
   let acquired = true;
   const tx = {
-    $queryRaw: async () => [{ acquired }],
-    $executeRaw: async (sql: TemplateStringsArray, ...values: unknown[]) => {
-      calls.push({ sql: sql.join('?'), values });
-      return 2;
+    query: async (sql: string, values: unknown[]) => {
+      calls.push({ sql, values });
+      return { rows: acquired ? [{ admin_activity: 2, user_logs: 2 }] : [] };
     },
   };
   const service = new AuditRetentionService({
-    client: { $transaction: (work: (tx: unknown) => unknown) => work(tx) },
-  } as unknown as PrismaService);
+    transaction: (work: (tx: unknown) => unknown) => work(tx),
+  } as unknown as PostgresService);
   assert.deepEqual(await service.prune(1, now), {
     admin_activity: 2,
     user_logs: 2,
     has_more: false,
   });
-  assert.equal(calls.length, 2);
-  for (const call of calls) {
-    assert.ok(call.sql.includes('FOR UPDATE SKIP LOCKED'));
-    assert.deepEqual(call.values, [cutoff, 1000]);
-  }
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.sql.match(/FOR UPDATE SKIP LOCKED/g)?.length, 2);
+  assert.deepEqual(calls[0]?.values, [cutoff, 1000]);
   acquired = false;
   calls.length = 0;
   assert.deepEqual(await service.prune(1, now), {
@@ -215,7 +197,7 @@ it('retention uses each record timestamp, batches its deletes and stops when ano
     user_logs: 0,
     has_more: false,
   });
-  assert.equal(calls.length, 0);
+  assert.equal(calls.length, 1);
 });
 it('requires an exact application deletion payload', () => {
   assert.equal(

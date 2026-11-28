@@ -11,7 +11,7 @@ Import this repository as **two separate Vercel projects**:
 
 Both roots have `vercel.json`, an npm lockfile and `npm ci` installation. Gym's configurations were reviewed. API V2 uses Vercel's native NestJS support and existing `src/main.ts`, adapting Gym's single-entry API approach. Admin uses Gym's SPA fallback pattern and preserves the local Google popup header.
 
-The API install command is `npm ci --include=dev`: Nest CLI, TypeScript and Prisma CLI are build dependencies. This explicitly includes them even with `NODE_ENV=production` or an npm omit setting. Keep the API Root Directory set to `apps/api/v2` so Vercel reads this configuration. If a previous deployment failed with `nest: command not found`, redeploy the updated commit without the old build cache. [npm include behavior](https://docs.npmjs.com/cli/v11/commands/npm-ci/#include).
+The API install command is `npm ci --include=dev`: Nest CLI and TypeScript are build dependencies. This explicitly includes them even with `NODE_ENV=production` or an npm omit setting. Keep the API Root Directory set to `apps/api/v2` so Vercel reads this configuration. If a previous deployment failed with `nest: command not found`, redeploy the updated commit without the old build cache. [npm include behavior](https://docs.npmjs.com/cli/v11/commands/npm-ci/#include).
 
 `src/main.ts` creates the Nest application with a direct `@nestjs/core` import, then applies the shared configuration from `bootstrap.ts`. This import also survives compilation into `dist/src/main.js`. Vercel's Nest builder checks the entry file itself for that import; delegating all Nest creation to another module caused `No entrypoint found which imports nestjs`. The existing `create_application` helper uses the same configuration for other callers. [Nest builder source](https://github.com/vercel/vercel/blob/main/packages/nestjs/src/build.ts).
 
@@ -45,13 +45,13 @@ node --input-type=module -e "import { randomBytes } from 'node:crypto'; console.
 
 Set `PAYMENT_WEBHOOK_SECRET` to the actual secret shared with the service signing payment callbacks. If that integration is yours, generate a separate value with the same command and configure it on both ends. Keep both values persistent; do not generate them at application startup. After changing Vercel variables, create a new deployment; existing deployments retain their previous configuration. [Vercel environment variables](https://vercel.com/docs/environment-variables).
 
-The API build generates Prisma Client and compiles Nest:
+The API build verifies PostgreSQL-only runtime imports and compiles Nest.
 
 ```text
-prisma generate && npm run build:compile
+npm run build:compile
 ```
 
-Production and Preview builds do not connect to or change the database. When a release includes migrations, run `npm run prisma:deploy` once against the intended database before deploying the API code. Set `DB_DIRECT_STRING` in the migration environment to the provider's direct URL for the same database and schema as `DB_STRING`. Prisma CLI falls back to `DB_STRING` when the direct URL is absent. Keep the pooled `DB_STRING` for runtime traffic. `npm run build:compile` bundles the HTML sanitizer and compiles Nest using the generated client.
+Production and Preview builds do not connect to or change the database. When a release includes migrations, run `npm run prisma:deploy` once against the intended database before deploying the API code. Set `DB_DIRECT_STRING` in the migration environment to the provider's direct URL for the same database and schema as `DB_STRING`. Prisma CLI falls back to `DB_STRING` when the direct URL is absent. Keep the pooled `DB_STRING` for runtime traffic. `npm run build:compile` bundles the HTML sanitizer and compiles Nest. Prisma Client is used by development seeds and test fixtures.
 
 Use committed migrations for a fresh database and for releases with schema changes. They preserve SQL backfills such as category fare migration 0013. The standalone `prisma:push` command remains available for local schema prototyping. The development seed creates sample accounts. Use `admin:grant -- --email <approved-google-email>` when initial production administrator provisioning is needed.
 
@@ -82,6 +82,6 @@ The API uses `@vercel/functions` `waitUntil` for post-response audit writes. Aud
 
 Vercel's 4.5 MB Function request cap is lower than the largest current 5 MB image encoded in JSON/base64. Use smaller files (about 3 MB or less before base64) for uploads on this deployment. Increasing Nest's body limit cannot bypass the platform cap; supporting the full existing input limit requires a separate upload/compression change.
 
-Use `npm run build` to verify API generation and compilation. Use `prisma migrate status` with the intended direct connection to check for pending migrations before release.
+Use `npm run build` to verify the API runtime dependency check and compilation. Use `prisma migrate status` with the intended direct connection to check for pending migrations before release.
 
 References: [NestJS](https://vercel.com/docs/frameworks/backend/nestjs), [Vite SPA routing](https://vercel.com/docs/frameworks/frontend/vite), [rewrites](https://vercel.com/docs/routing/rewrites), [background tasks](https://vercel.com/docs/functions/functions-api-reference/vercel-functions-package), [Prisma db push](https://www.prisma.io/docs/cli/db/push), [Function limits](https://vercel.com/docs/functions/limitations).

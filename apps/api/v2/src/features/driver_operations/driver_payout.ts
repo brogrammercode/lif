@@ -1,9 +1,9 @@
-import type { TransactionClient } from '../../infra/database/client.js';
+import type { SqlClient } from '../../database/postgres.service.js';
 import {
   input_kind,
   upi_pattern,
 } from '../partner_program/partner_field.rules.js';
-import type { Prisma } from '@prisma/client';
+import type { JsonValue } from '../../database/json-value.js';
 import { reveal_payout } from '../driver_account/payout_security.js';
 /** An unreadable current destination must not revive a retired application UPI. */
 function current_upi(ciphertext: string) {
@@ -14,14 +14,7 @@ function current_upi(ciphertext: string) {
   }
 }
 
-const approved_fields = {
-  where: { status: 'APPROVED' as const },
-  select: { value: true, definition: true },
-};
-
-function unique_upi(
-  fields: { value: Prisma.JsonValue; definition: Prisma.JsonValue }[],
-) {
+function unique_upi(fields: { value: JsonValue; definition: JsonValue }[]) {
   const handles = new Set(
     fields.flatMap((field) => {
       const definition = field.definition;
@@ -49,52 +42,69 @@ function unique_upi(
   );
   return handles.size === 1 ? [...handles][0]! : null;
 }
-export async function approved_driver_upi(
-  tx: TransactionClient,
-  user_id: string,
-) {
-  const change = await tx.driverPayoutChange.findFirst({
-    where: { user_id, status: 'APPROVED' },
-    orderBy: [{ reviewed_at: 'desc' }, { id: 'desc' }],
-    select: { details_ciphertext: true },
-  });
+
+export async function findApprovedDriverUpi(tx: SqlClient, userId: string) {
+  const {
+    rows: [change],
+  } = await tx.query<{ details_ciphertext: string }>(
+    `SELECT details_ciphertext FROM driver_payout_changes WHERE user_id=$1 AND status='APPROVED'
+      ORDER BY reviewed_at DESC,id DESC LIMIT 1`,
+    [userId],
+  );
   if (change) return current_upi(change.details_ciphertext);
-  const app = await tx.partnerApplication.findUnique({
-    where: { current_user_id: user_id },
-    select: {
-      fields: approved_fields,
-    },
-  });
-  return unique_upi(app?.fields ?? []);
+  const { rows } = await tx.query<{
+    value: JsonValue;
+    definition: JsonValue;
+  }>(
+    `SELECT f.value,f.definition FROM partner_application_fields f
+      JOIN partner_applications a ON a.id=f.application_id
+      WHERE a.current_user_id=$1 AND f.status='APPROVED'`,
+    [userId],
+  );
+  return unique_upi(rows);
 }
 
-/** Matching checks a bounded candidate pool in one database round trip. */
-export async function approved_driver_upis(
-  tx: TransactionClient,
-  user_ids: string[],
+export async function findApprovedDriverUpis(
+  tx: SqlClient,
+  userIds: readonly string[],
 ) {
-  if (!user_ids.length) return new Map<string, string>();
-  const changes = await tx.driverPayoutChange.findMany({
-    where: { user_id: { in: user_ids }, status: 'APPROVED' },
-    orderBy: [{ reviewed_at: 'desc' }, { id: 'desc' }],
-    select: { user_id: true, details_ciphertext: true },
-  });
-  const apps = await tx.partnerApplication.findMany({
-    where: { current_user_id: { in: user_ids } },
-    select: { user_id: true, fields: approved_fields },
-  });
   const result = new Map<string, string>();
-  for (const app of apps) {
-    const upi = unique_upi(app.fields);
-    if (upi) result.set(app.user_id, upi);
+  if (!userIds.length) return result;
+  const { rows: changes } = await tx.query<{
+    user_id: string;
+    details_ciphertext: string;
+  }>(
+    `SELECT DISTINCT ON (user_id) user_id,details_ciphertext FROM driver_payout_changes
+      WHERE user_id=ANY($1::text[]) AND status='APPROVED' ORDER BY user_id,reviewed_at DESC,id DESC`,
+    [userIds],
+  );
+  const currentDestinations = new Set<string>();
+  for (const { user_id, details_ciphertext } of changes) {
+    currentDestinations.add(user_id);
+    const upi = current_upi(details_ciphertext);
+    if (upi) result.set(user_id, upi);
   }
-  const seen = new Set<string>();
-  for (const change of changes) {
-    if (seen.has(change.user_id)) continue;
-    seen.add(change.user_id);
-    result.delete(change.user_id);
-    const upi = current_upi(change.details_ciphertext);
-    if (upi) result.set(change.user_id, upi);
+  const legacyUsers = userIds.filter((id) => !currentDestinations.has(id));
+  if (!legacyUsers.length) return result;
+  const { rows: fields } = await tx.query<{
+    user_id: string;
+    value: JsonValue;
+    definition: JsonValue;
+  }>(
+    `SELECT a.current_user_id AS user_id,f.value,f.definition FROM partner_application_fields f
+      JOIN partner_applications a ON a.id=f.application_id
+      WHERE a.current_user_id=ANY($1::text[]) AND f.status='APPROVED'`,
+    [legacyUsers],
+  );
+  const byUser = new Map<string, typeof fields>();
+  for (const field of fields) {
+    const userFields = byUser.get(field.user_id) ?? [];
+    userFields.push(field);
+    byUser.set(field.user_id, userFields);
+  }
+  for (const [id, userFields] of byUser) {
+    const upi = unique_upi(userFields);
+    if (upi) result.set(id, upi);
   }
   return result;
 }

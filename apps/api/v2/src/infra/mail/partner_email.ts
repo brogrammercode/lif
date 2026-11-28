@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Prisma } from '@prisma/client';
-import type { TransactionClient } from '../database/client.js';
+import type { SqlClient } from '../../database/postgres.service.js';
 import { config } from '../../core/config.js';
 
 export const PARTNER_EMAIL_TITLE = 'Partner Program email';
@@ -12,7 +11,7 @@ type Application = {
   status?: string;
 };
 export async function queue_partner_email(
-  tx: TransactionClient,
+  tx: SqlClient,
   app: Application,
   event: string,
   subject: string,
@@ -20,16 +19,12 @@ export async function queue_partner_email(
   admins = false,
 ) {
   const recipients = admins
-    ? await tx.user.findMany({
-        where: {
-          role: 'ADMIN',
-          status: 'ACTIVE',
-          deleted_at: null,
-          email: { not: null },
-        },
-        select: { id: true, email: true },
-        orderBy: { id: 'asc' },
-      })
+    ? (
+        await tx.query<{ id: string; email: string }>(
+          `SELECT id,email FROM users WHERE role='ADMIN' AND status='ACTIVE'
+          AND deleted_at IS NULL AND email IS NOT NULL ORDER BY id`,
+        )
+      ).rows
     : [{ id: app.user_id, email: app.contact_email }];
   const seen = new Set<string>();
   const rows = recipients.flatMap((person) => {
@@ -59,9 +54,15 @@ export async function queue_partner_email(
           ...(app.status ? { expected_status: app.status } : {}),
           subject,
           text: `${message}\n\n${admins ? config.ADMIN_NOTIFICATION_ORIGIN + path : 'Open the 1More app > Settings > Partner Program to see your application.'}\n\nApplication reference: ${app.id}\n1More Partner Program`,
-        } as Prisma.InputJsonObject,
+        },
       },
     ];
   });
-  if (rows.length) await tx.notification.createMany({ data: rows });
+  if (rows.length)
+    await tx.query(
+      `INSERT INTO notifications(id,user_id,type,channel,title,body,data,updated_at)
+      SELECT n.id,n.user_id,'SYSTEM','EMAIL',n.title,n.body,n.data,clock_timestamp()
+      FROM jsonb_to_recordset($1::jsonb) n(id text,user_id text,title text,body text,data jsonb)`,
+      [JSON.stringify(rows)],
+    );
 }

@@ -1,92 +1,129 @@
+import type { JsonValue } from '../../database/json-value.js';
+import { requireActiveAdmin } from '../../database/account-locks.js';
+import { settlementReviewsPage } from './sql/trip-settlements.sql.js';
 import { pending_review_statuses } from '../admin_pending/pending.rules.js';
-import {
-  ride_person,
-  admin_vehicle_select,
-} from '../admin_user/admin_user.rides.js';
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../infra/database/prisma.service.js';
-import type { TransactionClient } from '../../infra/database/client.js';
+import { Decimal } from 'decimal.js';
 import {
-  require_active_account,
-  require_active_admin,
-  require_driver_participation,
-} from '../../infra/database/account_lifecycle.js';
-import { create_user_log } from '../../infra/database/user_log.js';
+  PostgresService,
+  type SqlClient,
+} from '../../database/postgres.service.js';
+import { insertUserLog } from '../../database/user-log.js';
 import { AppError } from '../../core/error.js';
 import { GeocodeService } from '../geocode/geocode.service.js';
-import {
-  MATCHING_VEHICLE_INCLUDE,
-  is_vehicle_eligible,
-} from '../vehicle_category/vehicle_category.security.js';
+import { is_vehicle_eligible } from '../vehicle_category/vehicle_category.security.js';
 import { availability_after_trip } from '../driver/driver_eligibility.js';
-import { approved_driver_upi, approved_driver_upis } from './driver_payout.js';
+import {
+  findApprovedDriverUpi,
+  findApprovedDriverUpis,
+} from './driver_payout.js';
+import {
+  availabilityDraftQuote,
+  availabilityDrivers,
+  dashboardDispatchQueue,
+  dashboardOffers,
+  dispatchCandidates,
+  dispatchRide,
+  matchingSettings,
+} from './sql/matching-read.sql.js';
+import { findDriverMatchingProfile } from '../driver/sql/driver-profile.sql.js';
+import { driverResumableRideId } from '../travel_context/sql/travel-context.sql.js';
+import { nextEntityId } from '../../database/entity-id.js';
+import {
+  readRideAccess,
+  writeRideAccess,
+  type RideAccess,
+} from './sql/trip-access.sql.js';
+import { tripContextSnapshot } from './sql/trip-context.sql.js';
+import {
+  notifyTripParticipant,
+  recordTripEvent,
+  resetTripVerification,
+} from './sql/trip-lifecycle.sql.js';
 import { require_supported_ride_payment } from '../app_configuration/payment_policy.js';
 import {
   gateway_credential_mode,
   payout_schedule_lock,
-  read_wallet_controls,
 } from '../wallet/wallet-controls.js';
 import { record_cash_ride } from '../wallet/cash-ride-entry.js';
-import {
-  resumable_ride_order,
-  ride_payment_pending,
-} from '../ride/ride_payment_pending.js';
-import { rider_vehicle_select } from '../ride/ride.presentation.js';
+import type { ContextTrip, Trip } from './trip-context.types.js';
 import {
   ACTIVE_TRIP,
   trip_distance_m,
   search_radius_km,
-  new_trip_code,
   matches_trip_code,
   reveal_trip_code,
 } from './trip.rules.js';
 
-const options = { maxWait: 10000, timeout: 30000 };
-const include = {
-  rider: {
-    select: {
-      id: true,
-      first_name: true,
-      last_name: true,
-      avatar_url: true,
-      phone_e164: true,
-    },
-  },
-  driver: {
-    include: {
-      user: {
-        select: {
-          id: true,
-          status: true,
-          first_name: true,
-          last_name: true,
-          avatar_url: true,
-          phone_e164: true,
-        },
-      },
-      active_vehicle: { include: MATCHING_VEHICLE_INCLUDE },
-    },
-  },
-  quotes: { where: { selected_at: { not: null } } },
-  start_verification: true,
-  payment: true,
-  settlement_review: true,
-  vehicle: { select: rider_vehicle_select },
-  route: true,
-  events: {
-    select: { id: true, event_type: true, created_at: true },
-    orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
-    take: 200,
-  },
-  reviews: {
-    select: { id: true, reviewer_id: true, score: true, comment: true },
-  },
-} satisfies Prisma.RideInclude;
-type Trip = Prisma.RideGetPayload<{ include: typeof include }>;
+type MatchingSettings = {
+  arrival_radius_m: number;
+  location_max_age_s: number;
+  matching_initial_radius_km: number;
+  matching_max_radius_km: number;
+  matching_expansion_s: number;
+  search_timeout_s: number;
+  offer_lifetime_s: number;
+};
+type AvailabilityDraft = NonNullable<
+  Parameters<typeof is_vehicle_eligible>[1]
+> & {
+  pickup_latitude: string;
+  pickup_longitude: string;
+  category_snapshot: JsonValue;
+};
+type AvailabilityDriver = {
+  id: string;
+  user_id: string;
+  first_name: string | null;
+  avatar_url: string | null;
+  current_latitude: string;
+  current_longitude: string;
+  rating_average: string;
+  ratings_count: number;
+  active_vehicle: NonNullable<Trip['driver']>['active_vehicle'];
+};
+type DashboardDriver = Parameters<typeof availability_after_trip>[0] & {
+  last_location_at: Date | null;
+  last_location_accuracy_m: number | null;
+};
+type DispatchRide = Pick<
+  AvailabilityDraft,
+  'pickup_latitude' | 'pickup_longitude'
+> & {
+  status: string;
+  rider_id: string;
+  requested_at: Date | null;
+  created_at: Date;
+  next_dispatch_at: Date | null;
+  passenger_count: number;
+  collection_preference: string | null;
+  quote: Omit<AvailabilityDraft, 'pickup_latitude' | 'pickup_longitude'> | null;
+};
+type DispatchDriver = Pick<
+  AvailabilityDriver,
+  'id' | 'user_id' | 'current_latitude' | 'current_longitude' | 'active_vehicle'
+> & {
+  availability: string;
+};
+function matchingBounds(latitude: number, longitude: number, radius: number) {
+  const latDelta = radius / 111;
+  const lonDelta =
+    radius / (111 * Math.max(0.01, Math.cos((latitude * Math.PI) / 180)));
+  return [
+    Math.max(-90, latitude - latDelta),
+    Math.min(90, latitude + latDelta),
+    Math.max(-180, longitude - lonDelta),
+    Math.min(180, longitude + lonDelta),
+  ];
+}
 const active = (status: string) =>
   (ACTIVE_TRIP as readonly string[]).includes(status);
-const object = (v: Prisma.JsonValue | undefined) =>
+const allowsTripContact = (trip: RideAccess) =>
+  active(trip.status) ||
+  (trip.status === 'COMPLETED' &&
+    (!trip.payment_status ||
+      ['PENDING', 'FAILED'].includes(trip.payment_status)));
+const object = (v: JsonValue | undefined) =>
   v && typeof v === 'object' && !Array.isArray(v) ? v : {};
 const payment_policy = (trip: Trip) =>
   object(object(trip.quotes[0]?.category_snapshot).payment_policy);
@@ -99,28 +136,17 @@ const awaiting_wallet = (trip: Trip) =>
   trip.payment?.status === 'PENDING' &&
   trip.payment.collection_method === 'WALLET' &&
   trip.payment.updated_at.getTime() + 120_000 > Date.now();
-const notify = (
-  tx: TransactionClient,
-  user_id: string,
-  ride_id: string,
-  title: string,
-  body: string,
-) =>
-  tx.notification.create({
-    data: { user_id, type: 'RIDE_UPDATE', title, body, data: { ride_id } },
-  });
-
 @Injectable()
 export class DriverOperationsService {
   constructor(
-    private readonly database: PrismaService,
     private readonly routing: GeocodeService,
+    private readonly postgres: PostgresService,
   ) {}
 
   async settings() {
-    const row = await this.database.client.rideFarePolicy.findUnique({
-      where: { key: 'default' },
-    });
+    const {
+      rows: [row],
+    } = await this.postgres.query<MatchingSettings>(matchingSettings);
     return {
       arrival_radius_m: row?.arrival_radius_m ?? 150,
       location_max_age_s: row?.location_max_age_s ?? 60,
@@ -143,21 +169,14 @@ export class DriverOperationsService {
     },
   ) {
     const settings = await this.settings();
-    const draft = await this.database.client.ride.findFirst({
-      where: {
-        id: input.draft_ride_id,
-        rider_id: user_id,
-        status: 'DRAFT',
-        rider: { status: 'ACTIVE', deleted_at: null },
-      },
-      include: {
-        quotes: {
-          where: { id: input.quote_id, expires_at: { gt: new Date() } },
-        },
-      },
-    });
-    const quote = draft?.quotes[0];
-    if (!draft || !quote || !quote.vehicle_category_id)
+    const {
+      rows: [quote],
+    } = await this.postgres.query<AvailabilityDraft>(availabilityDraftQuote, [
+      input.draft_ride_id,
+      user_id,
+      input.quote_id,
+    ]);
+    if (!quote?.vehicle_category_id)
       throw new AppError(
         409,
         'QUOTE_UNAVAILABLE',
@@ -167,62 +186,20 @@ export class DriverOperationsService {
       quote.category_snapshot,
       input.payment_preference,
     );
-    const latitude = draft.pickup_latitude.toNumber(),
-      longitude = draft.pickup_longitude.toNumber();
+    const latitude = Number(quote.pickup_latitude),
+      longitude = Number(quote.pickup_longitude);
     const radius = settings.matching_initial_radius_km;
-    const lat_delta = radius / 111;
-    const lon_delta =
-      radius / (111 * Math.max(0.01, Math.cos((latitude * Math.PI) / 180)));
-    const rows = await this.database.client.driverProfile.findMany({
-      where: {
-        user_id: { not: user_id },
-        verification_status: 'VERIFIED',
-        availability: 'AVAILABLE',
-        current_latitude: {
-          gte: Math.max(-90, latitude - lat_delta),
-          lte: Math.min(90, latitude + lat_delta),
-        },
-        current_longitude: {
-          gte: Math.max(-180, longitude - lon_delta),
-          lte: Math.min(180, longitude + lon_delta),
-        },
-        last_location_at: {
-          gte: new Date(Date.now() - settings.location_max_age_s * 1000),
-        },
-        last_location_accuracy_m: { lte: settings.arrival_radius_m },
-        active_vehicle: {
-          status: 'ACTIVE',
-          vehicle_category_id: quote.vehicle_category_id,
-          capacity: { gte: input.passenger_count },
-        },
-        rides: {
-          none: {
-            status: {
-              in: [
-                'DRIVER_ASSIGNED',
-                'DRIVER_ARRIVING',
-                'DRIVER_WAITING',
-                'IN_PROGRESS',
-              ],
-            },
-          },
-        },
-        user: {
-          status: 'ACTIVE',
-          deleted_at: null,
-          OR: [
-            { partner_application: null },
-            { partner_application: { status: 'ACTIVATED' } },
-          ],
-        },
-      },
-      include: {
-        active_vehicle: { include: MATCHING_VEHICLE_INCLUDE },
-        user: { select: { first_name: true, avatar_url: true } },
-      },
-      orderBy: { last_location_at: 'desc' },
-      take: 100,
-    });
+    const { rows } = await this.postgres.query<AvailabilityDriver>(
+      availabilityDrivers,
+      [
+        user_id,
+        ...matchingBounds(latitude, longitude, radius),
+        new Date(Date.now() - settings.location_max_age_s * 1000),
+        settings.arrival_radius_m,
+        quote.vehicle_category_id,
+        input.passenger_count,
+      ],
+    );
     const eligible = rows.filter(
       (d) =>
         d.current_latitude &&
@@ -231,15 +208,15 @@ export class DriverOperationsService {
         trip_distance_m(
           latitude,
           longitude,
-          d.current_latitude.toNumber(),
-          d.current_longitude.toNumber(),
+          Number(d.current_latitude),
+          Number(d.current_longitude),
         ) <=
           radius * 1000,
     );
     const upis =
       input.payment_preference === 'UPI'
-        ? await approved_driver_upis(
-            this.database.client,
+        ? await findApprovedDriverUpis(
+            this.postgres,
             eligible.map((d) => d.user_id),
           )
         : null;
@@ -256,18 +233,18 @@ export class DriverOperationsService {
               trip_distance_m(
                 latitude,
                 longitude,
-                d.current_latitude!.toNumber(),
-                d.current_longitude!.toNumber(),
+                Number(d.current_latitude),
+                Number(d.current_longitude),
               ) / 50,
             ) * 50,
           map_position: {
-            latitude: Number(d.current_latitude!.toNumber().toFixed(3)),
-            longitude: Number(d.current_longitude!.toNumber().toFixed(3)),
+            latitude: Number(Number(d.current_latitude).toFixed(3)),
+            longitude: Number(Number(d.current_longitude).toFixed(3)),
           },
           driver: {
             user: {
-              first_name: d.user.first_name,
-              avatar_url: d.user.avatar_url,
+              first_name: d.first_name,
+              avatar_url: d.avatar_url,
             },
             rating_average: d.rating_average,
             ratings_count: d.ratings_count,
@@ -292,293 +269,238 @@ export class DriverOperationsService {
     };
   }
 
-  private async owned(
+  private async read_owned(
     user_id: string,
-    id: string,
-    tx: TransactionClient = this.database.client,
-  ): Promise<Trip> {
-    const trip = await tx.ride.findFirst({
-      where: { id, OR: [{ rider_id: user_id }, { driver: { user_id } }] },
-      include,
-    });
+    ride_id: string,
+    db: SqlClient = this.postgres,
+  ) {
+    const {
+      rows: [trip],
+    } = await db.query<ContextTrip>(tripContextSnapshot, [ride_id, user_id]);
     if (!trip)
       throw new AppError(
         404,
         'RIDE_NOT_FOUND',
         'This trip is not available to your account.',
       );
-    return trip;
-  }
-
-  private async write<T>(
-    user_id: string,
-    id: string,
-    driver_only: boolean,
-    action: (tx: TransactionClient, trip: Trip) => Promise<T>,
-  ) {
-    return this.database.client.$transaction(async (tx) => {
-      await require_active_account(tx, user_id);
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(720041)`;
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(720044, hashtext(${id}))`;
-      const trip = await this.owned(user_id, id, tx);
-      if (driver_only && trip.driver?.user_id !== user_id)
-        throw new AppError(
-          403,
-          'ASSIGNED_DRIVER_REQUIRED',
-          'Only the assigned driver can perform this action.',
-        );
-      if (trip.driver) {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${trip.driver.user_id}))`;
-        if (driver_only) await require_driver_participation(tx, user_id);
-      }
-      // Re-read after waiting for the driver lock: verification/vehicle writes
-      // coordinate there and must not be overwritten by an earlier snapshot.
-      return action(tx, await this.owned(user_id, id, tx));
-    }, options);
-  }
-
-  private read_owned(user_id: string, ride_id: string) {
-    // Related proofs/payment rows must belong to the same database snapshot
-    // as the ride state, even when a start/completion commits during polling.
-    return this.database.client.$transaction(
-      (tx) => this.owned(user_id, ride_id, tx),
-      {
-        ...options,
-        isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
-      },
-    );
-  }
-
-  async approved_upi(
-    user_id: string,
-    tx: TransactionClient = this.database.client,
-  ) {
-    return approved_driver_upi(tx, user_id);
+    const date = (value: Date) =>
+      value instanceof Date ? value : new Date(value);
+    return {
+      ...trip,
+      estimated_fare:
+        trip.estimated_fare == null ? null : new Decimal(trip.estimated_fare),
+      final_fare: trip.final_fare == null ? null : new Decimal(trip.final_fare),
+      driver: trip.driver
+        ? {
+            ...trip.driver,
+            last_location_at: trip.driver.last_location_at
+              ? date(trip.driver.last_location_at)
+              : null,
+          }
+        : null,
+      payment: trip.payment
+        ? { ...trip.payment, updated_at: date(trip.payment.updated_at) }
+        : null,
+      start_verification: trip.start_verification
+        ? {
+            ...trip.start_verification,
+            assignment_at: date(trip.start_verification.assignment_at),
+            expires_at: date(trip.start_verification.expires_at),
+          }
+        : null,
+      settlement_review: trip.settlement_review
+        ? {
+            ...trip.settlement_review,
+            fee_amount: new Decimal(trip.settlement_review.fee_amount),
+          }
+        : null,
+    };
   }
 
   async dispatch(ride_id: string) {
     const settings = await this.settings();
-    await this.database.client.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(720041)`;
-      const acquired = await tx.$queryRaw<
-        { locked: boolean }[]
-      >`SELECT pg_try_advisory_xact_lock(720044, hashtext(${ride_id})) AS locked`;
-      if (!acquired[0]?.locked) return;
-      const ride = await tx.ride.findUnique({
-        where: { id: ride_id },
-        include: { quotes: { where: { selected_at: { not: null } } } },
-      });
-      if (
-        !ride ||
-        ride.status !== 'SEARCHING' ||
-        (ride.next_dispatch_at && ride.next_dispatch_at > new Date())
-      )
-        return;
-      const age_s =
-        (Date.now() - (ride.requested_at ?? ride.created_at).getTime()) / 1000;
-      if (age_s >= settings.search_timeout_s) {
-        await tx.ride.update({
-          where: { id: ride_id },
-          data: { status: 'NO_DRIVER_FOUND' },
-        });
-        await tx.rideOffer.updateMany({
-          where: { ride_id, status: 'SENT' },
-          data: { status: 'EXPIRED' },
-        });
-        await tx.rideEvent.create({
-          data: { ride_id, event_type: 'NO_DRIVER_FOUND' },
-        });
-        await notify(
-          tx,
-          ride.rider_id,
-          ride_id,
-          'No driver available',
-          'No driver accepted this request. You have not been charged.',
+    await this.postgres.transaction(
+      async (tx) => {
+        await tx.query('SELECT pg_advisory_xact_lock_shared(720041)');
+        const {
+          rows: [lock],
+        } = await tx.query<{ locked: boolean }>(
+          'SELECT pg_try_advisory_xact_lock(720044,hashtext($1)) AS locked',
+          [ride_id],
         );
-        return;
-      }
-      const radius = search_radius_km(
-        age_s,
-        settings.matching_initial_radius_km,
-        settings.matching_max_radius_km,
-        settings.matching_expansion_s,
-      );
-      await tx.ride.update({
-        where: { id: ride_id },
-        data: {
-          search_radius_km: radius,
-          next_dispatch_at: new Date(Date.now() + 5000),
-        },
-      });
-      const candidates = await tx.driverProfile.findMany({
-        where: {
-          user_id: { not: ride.rider_id },
-          active_vehicle: {
-            vehicle_category_id: ride.quotes[0]?.vehicle_category_id,
-            status: 'ACTIVE',
-          },
-          current_latitude: {
-            gte: Math.max(-90, ride.pickup_latitude.toNumber() - radius / 111),
-            lte: Math.min(90, ride.pickup_latitude.toNumber() + radius / 111),
-          },
-          current_longitude: {
-            gte: Math.max(
-              -180,
-              ride.pickup_longitude.toNumber() -
-                radius /
-                  (111 *
-                    Math.max(
-                      0.01,
-                      Math.cos(
-                        (ride.pickup_latitude.toNumber() * Math.PI) / 180,
-                      ),
-                    )),
-            ),
-            lte: Math.min(
-              180,
-              ride.pickup_longitude.toNumber() +
-                radius /
-                  (111 *
-                    Math.max(
-                      0.01,
-                      Math.cos(
-                        (ride.pickup_latitude.toNumber() * Math.PI) / 180,
-                      ),
-                    )),
-            ),
-          },
-          last_location_accuracy_m: { lte: settings.arrival_radius_m },
-          verification_status: 'VERIFIED',
-          availability: { in: ['AVAILABLE', 'ON_TRIP'] },
-          last_location_at: {
-            gte: new Date(Date.now() - settings.location_max_age_s * 1000),
-          },
-          user: {
-            status: 'ACTIVE',
-            deleted_at: null,
-            OR: [
-              { partner_application: null },
-              { partner_application: { status: 'ACTIVATED' } },
-            ],
-          },
-        },
-        include: { active_vehicle: { include: MATCHING_VEHICLE_INCLUDE } },
-        orderBy: [{ availability: 'asc' }, { last_location_at: 'desc' }],
-        take: 100,
-      });
-      const ranked = candidates
-        .filter(
-          (d) =>
-            d.current_latitude &&
-            d.current_longitude &&
-            is_vehicle_eligible(d.active_vehicle, ride.quotes[0], d.id),
+        if (!lock?.locked) return;
+        const {
+          rows: [ride],
+        } = await tx.query<DispatchRide>(dispatchRide, [ride_id]);
+        const now = Date.now();
+        if (
+          !ride ||
+          ride.status !== 'SEARCHING' ||
+          (ride.next_dispatch_at && ride.next_dispatch_at.getTime() > now)
         )
-        .filter(
-          (d) =>
-            (d.active_vehicle?.capacity ?? 0) >= (ride.passenger_count ?? 1),
-        )
-        .map((d) => ({
-          driver: d,
-          distance: trip_distance_m(
-            d.current_latitude!.toNumber(),
-            d.current_longitude!.toNumber(),
-            ride.pickup_latitude.toNumber(),
-            ride.pickup_longitude.toNumber(),
-          ),
-        }))
-        .filter((d) => d.distance <= radius * 1000)
-        .sort(
-          (a, b) =>
-            Number(a.driver.availability !== 'AVAILABLE') -
-              Number(b.driver.availability !== 'AVAILABLE') ||
-            a.distance - b.distance,
-        );
-      const policy = object(
-        object(ride.quotes[0]?.category_snapshot).payment_policy,
-      );
-      const needs_upi =
-        policy.cash_enabled === false || ride.collection_preference === 'UPI';
-      const upis = needs_upi
-        ? await approved_driver_upis(
-            tx,
-            ranked.map(({ driver }) => driver.user_id),
-          )
-        : null;
-      let offered = 0;
-      for (const { driver } of ranked) {
-        if (needs_upi && !upis?.has(driver.user_id)) continue;
-        const old = await tx.rideOffer.findUnique({
-          where: { ride_id_driver_id: { ride_id, driver_id: driver.id } },
-        });
-        if (old && ['REJECTED', 'ACCEPTED'].includes(old.status)) continue;
-        if (old?.status === 'SENT' && old.expires_at > new Date()) {
-          if (++offered >= 8) break;
-          continue;
+          return;
+        const ageSeconds =
+          (now - (ride.requested_at ?? ride.created_at).getTime()) / 1000;
+        if (ageSeconds >= settings.search_timeout_s) {
+          await tx.query(
+            "UPDATE rides SET status='NO_DRIVER_FOUND',updated_at=clock_timestamp() WHERE id=$1",
+            [ride_id],
+          );
+          await tx.query(
+            "UPDATE ride_offers SET status='EXPIRED',updated_at=clock_timestamp() WHERE ride_id=$1 AND status='SENT'",
+            [ride_id],
+          );
+          await tx.query(
+            `INSERT INTO ride_events (id,ride_id,event_type,updated_at)
+            VALUES ($1,$2,'NO_DRIVER_FOUND',clock_timestamp())`,
+            [nextEntityId(), ride_id],
+          );
+          await tx.query(
+            `INSERT INTO notifications (id,user_id,type,title,body,data,updated_at)
+            VALUES ($1,$2,'RIDE_UPDATE','No driver available',
+              'No driver accepted this request. You have not been charged.',
+              jsonb_build_object('ride_id',$3::text),clock_timestamp())`,
+            [nextEntityId(), ride.rider_id, ride_id],
+          );
+          return;
         }
-        const expires_at = new Date(
-          Date.now() + settings.offer_lifetime_s * 1000,
+
+        const radius = search_radius_km(
+          ageSeconds,
+          settings.matching_initial_radius_km,
+          settings.matching_max_radius_km,
+          settings.matching_expansion_s,
         );
-        if (old)
-          await tx.rideOffer.update({
-            where: { id: old.id },
-            data: {
-              status: 'SENT',
-              sent_at: new Date(),
-              responded_at: null,
-              expires_at,
-            },
-          });
-        else
-          await tx.rideOffer.create({
-            data: { ride_id, driver_id: driver.id, expires_at },
-          });
-        if (++offered >= 8) break;
-      }
-    }, options);
+        await tx.query(
+          'UPDATE rides SET search_radius_km=$2,next_dispatch_at=$3,updated_at=clock_timestamp() WHERE id=$1',
+          [ride_id, radius, new Date(now + 5000)],
+        );
+        const quote = ride.quote;
+        if (!quote?.vehicle_category_id) return;
+        const latitude = Number(ride.pickup_latitude),
+          longitude = Number(ride.pickup_longitude);
+        const { rows: candidates } = await tx.query<DispatchDriver>(
+          dispatchCandidates,
+          [
+            ride.rider_id,
+            ...matchingBounds(latitude, longitude, radius),
+            new Date(now - settings.location_max_age_s * 1000),
+            settings.arrival_radius_m,
+            quote.vehicle_category_id,
+          ],
+        );
+        const ranked = candidates
+          .filter(
+            (driver) =>
+              is_vehicle_eligible(driver.active_vehicle, quote, driver.id) &&
+              (driver.active_vehicle?.capacity ?? 0) >=
+                (ride.passenger_count ?? 1),
+          )
+          .map((driver) => ({
+            driver,
+            distance: trip_distance_m(
+              Number(driver.current_latitude),
+              Number(driver.current_longitude),
+              latitude,
+              longitude,
+            ),
+          }))
+          .filter(({ distance }) => distance <= radius * 1000)
+          .sort(
+            (a, b) =>
+              Number(a.driver.availability !== 'AVAILABLE') -
+                Number(b.driver.availability !== 'AVAILABLE') ||
+              a.distance - b.distance,
+          );
+        const policy = object(object(quote.category_snapshot).payment_policy);
+        const needsUpi =
+          policy.cash_enabled === false || ride.collection_preference === 'UPI';
+        const destinations = needsUpi
+          ? await findApprovedDriverUpis(
+              tx,
+              ranked.map(({ driver }) => driver.user_id),
+            )
+          : null;
+        const eligible = ranked.filter(
+          ({ driver }) => !destinations || destinations.has(driver.user_id),
+        );
+        if (!eligible.length) return;
+
+        const { rows: existing } = await tx.query<{
+          driver_id: string;
+          status: string;
+          expires_at: Date;
+        }>(
+          'SELECT driver_id,status,expires_at FROM ride_offers WHERE ride_id=$1 AND driver_id=ANY($2::text[])',
+          [ride_id, eligible.map(({ driver }) => driver.id)],
+        );
+        const offers = new Map(
+          existing.map((offer) => [offer.driver_id, offer]),
+        );
+        let offered = 0;
+        for (const { driver } of eligible) {
+          const old = offers.get(driver.id);
+          if (old && ['REJECTED', 'ACCEPTED'].includes(old.status)) continue;
+          if (old?.status === 'SENT' && old.expires_at.getTime() > now) {
+            if (++offered >= 8) break;
+            continue;
+          }
+          const result = await tx.query(
+            `INSERT INTO ride_offers (id,ride_id,driver_id,expires_at,updated_at)
+            VALUES ($1,$2,$3,$4,clock_timestamp())
+            ON CONFLICT (ride_id,driver_id) DO UPDATE SET status='SENT',sent_at=statement_timestamp(),
+              responded_at=NULL,expires_at=EXCLUDED.expires_at,updated_at=clock_timestamp()
+            WHERE ride_offers.status NOT IN ('REJECTED','ACCEPTED')`,
+            [
+              nextEntityId(),
+              ride_id,
+              driver.id,
+              new Date(now + settings.offer_lifetime_s * 1000),
+            ],
+          );
+          if (result.rowCount === 1 && ++offered >= 8) break;
+        }
+      },
+      'READ COMMITTED',
+      { checkoutMs: 10000, statementMs: 30000 },
+    );
   }
 
   async dashboard(user_id: string) {
     const settings = await this.settings();
-    const profile = await this.database.client.driverProfile.findUnique({
-      where: { user_id },
-      include: {
-        user: {
-          select: {
-            status: true,
-            partner_application: { select: { status: true } },
-          },
-        },
-        active_vehicle: { include: MATCHING_VEHICLE_INCLUDE },
-      },
-    });
+    const {
+      rows: [profile],
+    } = await this.postgres.query<DashboardDriver>(findDriverMatchingProfile, [
+      user_id,
+    ]);
     if (!profile)
       throw new AppError(
         403,
         'DRIVER_PROFILE_REQUIRED',
         'Complete driver activation and vehicle verification first.',
       );
-    const searches = await this.database.client.ride.findMany({
-      where: {
-        status: 'SEARCHING',
-        OR: [
-          { next_dispatch_at: null },
-          { next_dispatch_at: { lte: new Date() } },
-        ],
-      },
-      select: { id: true },
-      orderBy: { requested_at: 'asc' },
-      take: 3,
-    });
+    const { rows: searches } = await this.postgres.query<{ id: string }>(
+      dashboardDispatchQueue,
+    );
     for (const ride of searches) await this.dispatch(ride.id);
-    const current = await this.database.client.ride.findFirst({
-      where: {
-        driver_id: profile.id,
-        OR: [{ status: { in: [...ACTIVE_TRIP] } }, ride_payment_pending],
+    const [
+      {
+        rows: [current],
       },
-      select: { id: true, status: true },
-      orderBy: resumable_ride_order,
-    });
-    const exited = profile.user.partner_application?.status === 'EXITED';
+      {
+        rows: [partner],
+      },
+    ] = await Promise.all([
+      this.postgres.query<{ id: string; status: string }>(
+        driverResumableRideId,
+        [profile.id],
+      ),
+      this.postgres.query<{ status: string }>(
+        'SELECT status FROM partner_applications WHERE current_user_id=$1',
+        [user_id],
+      ),
+    ]);
+    const exited = partner?.status === 'EXITED';
     const eligible =
       !exited && availability_after_trip(profile) === 'AVAILABLE';
     const fresh =
@@ -591,44 +513,13 @@ export class DriverOperationsService {
       eligible &&
       fresh &&
       ['AVAILABLE', 'ON_TRIP'].includes(profile.availability)
-        ? await this.database.client.rideOffer.findMany({
-            where: {
-              driver_id: profile.id,
-              status: 'SENT',
-              expires_at: { gt: new Date() },
-              ride: { status: 'SEARCHING' },
-            },
-            select: {
-              id: true,
-              expires_at: true,
-              ride: {
-                select: {
-                  id: true,
-                  pickup_address: true,
-                  pickup_latitude: true,
-                  pickup_longitude: true,
-                  dropoff_address: true,
-                  dropoff_latitude: true,
-                  dropoff_longitude: true,
-                  estimated_fare: true,
-                  estimated_distance_m: true,
-                  estimated_duration_s: true,
-                  passenger_count: true,
-                  rider_note: true,
-                  rider: {
-                    select: {
-                      id: true,
-                      first_name: true,
-                      last_name: true,
-                      avatar_url: true,
-                    },
-                  },
-                },
-              },
-            },
-            orderBy: { sent_at: 'desc' },
-            take: 20,
-          })
+        ? (
+            await this.postgres.query<{
+              id: string;
+              expires_at: Date;
+              ride: Record<string, unknown>;
+            }>(dashboardOffers, [profile.id])
+          ).rows
         : [];
     return {
       availability: profile.availability,
@@ -636,7 +527,7 @@ export class DriverOperationsService {
       exited,
       location_fresh: fresh,
       settings,
-      current_trip: current,
+      current_trip: current ?? null,
       vehicle: profile.active_vehicle
         ? {
             id: profile.active_vehicle.id,
@@ -683,14 +574,7 @@ export class DriverOperationsService {
     }
     const is_driver = trip.driver?.user_id === user_id;
     const driver_has_active_trip =
-      is_driver &&
-      (active(trip.status) ||
-        (await this.database.client.ride.count({
-          where: {
-            driver_id: trip.driver_id!,
-            status: { in: [...ACTIVE_TRIP] },
-          },
-        })) > 0);
+      is_driver && (active(trip.status) || trip.has_active_trip);
     const verification = trip.start_verification;
     const current_challenge =
       verification &&
@@ -703,7 +587,9 @@ export class DriverOperationsService {
       verification.attempts < 5;
     const upi =
       trip.payment?.recipient_upi ??
-      (trip.driver ? await this.approved_upi(trip.driver.user_id) : null);
+      (trip.driver
+        ? await findApprovedDriverUpi(this.postgres, trip.driver.user_id)
+        : null);
     const contact = is_driver ? trip.rider : trip.driver?.user;
     const policy = payment_policy(trip);
     const manageable_payment =
@@ -711,42 +597,22 @@ export class DriverOperationsService {
       (['PENDING', 'FAILED'].includes(trip.payment.status) &&
         !trip.payment.provider &&
         !trip.payment.provider_payment_id);
-    const payment_controls =
-      trip.status === 'COMPLETED'
-        ? await read_wallet_controls(this.database.client)
-        : null;
     const pending_wallet_choice = awaiting_wallet(trip);
     const wallet_active =
       manageable_payment &&
       wallet_available_for(trip) &&
       (trip.rider_id === user_id || pending_wallet_choice) &&
-      payment_controls?.wallet_ride_collection_enabled === true;
+      trip.wallet_enabled === true;
     const wallet_selected = wallet_active && pending_wallet_choice;
     const wallet_enabled = trip.rider_id === user_id && wallet_active;
     const show_wallet_balance =
       trip.rider_id === user_id && wallet_available_for(trip);
-    const wallet = show_wallet_balance
-      ? await this.database.client.wallet.findUnique({
-          where: { user_id_kind: { user_id, kind: 'RIDER' } },
-          select: { available_paise: true },
-        })
-      : null;
     const free_wait_minutes =
       typeof policy.free_pickup_wait_minutes === 'number'
         ? policy.free_pickup_wait_minutes
         : 5;
     const no_show_contact_attempted =
-      is_driver && trip.status === 'DRIVER_WAITING' && trip.arrived_at
-        ? !!(await this.database.client.rideEvent.findFirst({
-            where: {
-              ride_id,
-              actor_id: user_id,
-              event_type: 'CALL_ATTEMPT',
-              created_at: { gte: trip.arrived_at },
-            },
-            select: { id: true },
-          }))
-        : false;
+      is_driver && trip.status === 'DRIVER_WAITING' && trip.contact_attempted;
     return {
       ride_id,
       collection_preference: trip.collection_preference,
@@ -870,8 +736,8 @@ export class DriverOperationsService {
             )
           : null,
         maximum_proposed_fee: trip.driver_id
-          ? Prisma.Decimal.min(
-              (trip.estimated_fare ?? new Prisma.Decimal(0))
+          ? Decimal.min(
+              (trip.estimated_fare ?? new Decimal(0))
                 .mul(
                   typeof policy.cancellation_fee_percent === 'number'
                     ? policy.cancellation_fee_percent
@@ -882,7 +748,7 @@ export class DriverOperationsService {
                 ? policy.maximum_cancellation_fee
                 : 0,
             ).toDecimalPlaces(2)
-          : new Prisma.Decimal(0),
+          : new Decimal(0),
         requires_review: true,
       },
       contact:
@@ -923,11 +789,11 @@ export class DriverOperationsService {
           (trip.payment?.provider === 'razorpay-ride' ||
             (manageable_payment &&
               policy.direct_upi_enabled === true &&
-              payment_controls?.razorpay_ride_upi_enabled === true &&
+              trip.razorpay_upi_enabled === true &&
               gateway_credential_mode() === 'live')),
         wallet: wallet_enabled,
         wallet_available_paise: show_wallet_balance
-          ? String(wallet?.available_paise ?? 0)
+          ? (trip.wallet_available ?? '0')
           : null,
         upi_handle: trip.status === 'COMPLETED' ? upi : null,
       },
@@ -963,9 +829,24 @@ export class DriverOperationsService {
       );
   }
 
+  private writeTrip<T>(
+    userId: string,
+    rideId: string,
+    driverOnly: boolean,
+    action: (tx: SqlClient, trip: Trip) => Promise<T>,
+  ) {
+    return writeRideAccess(
+      this.postgres,
+      rideId,
+      userId,
+      async (tx) => action(tx, await this.read_owned(userId, rideId, tx)),
+      driverOnly,
+    );
+  }
+
   async arrive(user_id: string, ride_id: string) {
     const settings = await this.settings();
-    await this.write(user_id, ride_id, true, async (tx, trip) => {
+    await this.writeTrip(user_id, ride_id, true, async (tx, trip) => {
       if (trip.status === 'DRIVER_WAITING' || trip.status === 'IN_PROGRESS')
         return;
       if (!['DRIVER_ASSIGNED', 'DRIVER_ARRIVING'].includes(trip.status))
@@ -982,8 +863,8 @@ export class DriverOperationsService {
           settings.location_max_age_s * 1000 ||
         driver.last_location_accuracy_m === null ||
         driver.last_location_accuracy_m > settings.arrival_radius_m ||
-        !driver.current_latitude ||
-        !driver.current_longitude
+        driver.current_latitude === null ||
+        driver.current_longitude === null
       )
         throw new AppError(
           409,
@@ -991,10 +872,10 @@ export class DriverOperationsService {
           'Wait for an accurate, fresh GPS fix before marking arrived.',
         );
       const distance = trip_distance_m(
-        driver.current_latitude.toNumber(),
-        driver.current_longitude.toNumber(),
-        trip.pickup_latitude.toNumber(),
-        trip.pickup_longitude.toNumber(),
+        Number(driver.current_latitude),
+        Number(driver.current_longitude),
+        Number(trip.pickup_latitude),
+        Number(trip.pickup_longitude),
       );
       if (distance > settings.arrival_radius_m)
         throw new AppError(
@@ -1002,41 +883,19 @@ export class DriverOperationsService {
           'OUTSIDE_PICKUP_RADIUS',
           `Reach within ${settings.arrival_radius_m} metres of pickup before marking arrived.`,
         );
-      await tx.ride.update({
-        where: { id: ride_id },
-        data: { status: 'DRIVER_WAITING', arrived_at: new Date() },
+      await tx.query(
+        `UPDATE rides SET status='DRIVER_WAITING',arrived_at=statement_timestamp(),
+          updated_at=clock_timestamp() WHERE id=$1`,
+        [ride_id],
+      );
+      await resetTripVerification(tx, ride_id, driver.id, trip.matched_at!);
+      await recordTripEvent(tx, ride_id, user_id, 'DRIVER_WAITING', {
+        distance_m: Math.round(distance),
+        gps_verified: true,
+        arrival_radius_m: settings.arrival_radius_m,
+        accuracy_m: driver.last_location_accuracy_m,
       });
-      await tx.rideStartVerification.upsert({
-        where: { ride_id },
-        create: {
-          ride_id,
-          driver_id: driver.id,
-          assignment_at: trip.matched_at!,
-          ...new_trip_code(ride_id),
-        },
-        update: {
-          driver_id: driver.id,
-          assignment_at: trip.matched_at!,
-          ...new_trip_code(ride_id),
-          rider_confirmed_at: null,
-          driver_verified_at: null,
-          used_at: null,
-        },
-      });
-      await tx.rideEvent.create({
-        data: {
-          ride_id,
-          actor_id: user_id,
-          event_type: 'DRIVER_WAITING',
-          metadata: {
-            distance_m: Math.round(distance),
-            gps_verified: true,
-            arrival_radius_m: settings.arrival_radius_m,
-            accuracy_m: driver.last_location_accuracy_m,
-          },
-        },
-      });
-      await notify(
+      await notifyTripParticipant(
         tx,
         trip.rider_id,
         ride_id,
@@ -1048,7 +907,7 @@ export class DriverOperationsService {
   }
 
   async refresh_code(user_id: string, ride_id: string) {
-    await this.write(user_id, ride_id, false, async (tx, trip) => {
+    await this.writeTrip(user_id, ride_id, false, async (tx, trip) => {
       if (trip.rider_id !== user_id || trip.status !== 'DRIVER_WAITING')
         throw new AppError(
           409,
@@ -1064,32 +923,19 @@ export class DriverOperationsService {
           'TRIP_CODE_ACTIVE',
           'Wait until the current code expires before requesting a new one.',
         );
-      await tx.rideStartVerification.upsert({
-        where: { ride_id },
-        create: {
-          ride_id,
-          driver_id: trip.driver_id!,
-          assignment_at: trip.matched_at!,
-          ...new_trip_code(ride_id),
-        },
-        update: {
-          driver_id: trip.driver_id!,
-          assignment_at: trip.matched_at!,
-          ...new_trip_code(ride_id),
-          rider_confirmed_at: null,
-          driver_verified_at: null,
-          used_at: null,
-        },
-      });
-      await tx.rideEvent.create({
-        data: { ride_id, actor_id: user_id, event_type: 'TRIP_CODE_REFRESHED' },
-      });
+      await resetTripVerification(
+        tx,
+        ride_id,
+        trip.driver_id!,
+        trip.matched_at!,
+      );
+      await recordTripEvent(tx, ride_id, user_id, 'TRIP_CODE_REFRESHED');
     });
     return this.context(user_id, ride_id);
   }
 
   async start_proof(user_id: string, ride_id: string, code?: string) {
-    const result = await this.write(
+    const result = await this.writeTrip(
       user_id,
       ride_id,
       code !== undefined,
@@ -1131,41 +977,47 @@ export class DriverOperationsService {
           !v.driver_verified_at &&
           !matches_trip_code(ride_id, code, v.code_hash)
         ) {
-          await tx.rideStartVerification.update({
-            where: { ride_id },
-            data: { attempts: { increment: 1 } },
-          });
+          await tx.query(
+            'UPDATE ride_start_verifications SET attempts=attempts+1,updated_at=clock_timestamp() WHERE ride_id=$1',
+            [ride_id],
+          );
           return { error: 'TRIP_CODE_INVALID' as const };
         }
-        const saved = await tx.rideStartVerification.update({
-          where: { ride_id },
-          data:
-            code === undefined
-              ? { rider_confirmed_at: v.rider_confirmed_at ?? new Date() }
-              : { driver_verified_at: v.driver_verified_at ?? new Date() },
-        });
-        if (saved.rider_confirmed_at && saved.driver_verified_at) {
-          await tx.ride.update({
-            where: { id: ride_id },
-            data: { status: 'IN_PROGRESS', started_at: new Date() },
+        const {
+          rows: [saved],
+        } = await tx.query<{
+          rider_confirmed_at: Date | null;
+          driver_verified_at: Date | null;
+        }>(
+          `UPDATE ride_start_verifications SET
+          rider_confirmed_at=CASE WHEN $2::boolean THEN COALESCE(rider_confirmed_at,statement_timestamp()) ELSE rider_confirmed_at END,
+          driver_verified_at=CASE WHEN $2::boolean THEN driver_verified_at ELSE COALESCE(driver_verified_at,statement_timestamp()) END,
+          updated_at=clock_timestamp() WHERE ride_id=$1 RETURNING rider_confirmed_at,driver_verified_at`,
+          [ride_id, code === undefined],
+        );
+        const started = Boolean(
+          saved?.rider_confirmed_at && saved.driver_verified_at,
+        );
+        if (started) {
+          await tx.query(
+            `UPDATE rides SET status='IN_PROGRESS',started_at=statement_timestamp(),
+            updated_at=clock_timestamp() WHERE id=$1`,
+            [ride_id],
+          );
+          await tx.query(
+            "UPDATE driver_profiles SET availability='ON_TRIP',updated_at=clock_timestamp() WHERE id=$1",
+            [trip.driver_id],
+          );
+          await tx.query(
+            `UPDATE ride_start_verifications SET used_at=statement_timestamp(),code_ciphertext='',code_hash='',
+            updated_at=clock_timestamp() WHERE ride_id=$1`,
+            [ride_id],
+          );
+          await recordTripEvent(tx, ride_id, user_id, 'TRIP_STARTED', {
+            rider_confirmed: true,
+            driver_verified: true,
           });
-          await tx.driverProfile.update({
-            where: { id: trip.driver_id! },
-            data: { availability: 'ON_TRIP' },
-          });
-          await tx.rideStartVerification.update({
-            where: { ride_id },
-            data: { used_at: new Date(), code_ciphertext: '', code_hash: '' },
-          });
-          await tx.rideEvent.create({
-            data: {
-              ride_id,
-              actor_id: user_id,
-              event_type: 'TRIP_STARTED',
-              metadata: { rider_confirmed: true, driver_verified: true },
-            },
-          });
-          await notify(
+          await notifyTripParticipant(
             tx,
             trip.rider_id,
             ride_id,
@@ -1173,9 +1025,7 @@ export class DriverOperationsService {
             'Your ride has started after both start checks were completed.',
           );
         }
-        return {
-          started: !!(saved.rider_confirmed_at && saved.driver_verified_at),
-        };
+        return { started };
       },
     );
     if ('error' in result)
@@ -1184,7 +1034,7 @@ export class DriverOperationsService {
   }
 
   async complete(user_id: string, ride_id: string) {
-    await this.write(user_id, ride_id, true, async (tx, trip) => {
+    await this.writeTrip(user_id, ride_id, true, async (tx, trip) => {
       if (trip.status === 'COMPLETED') return;
       if (
         trip.status !== 'IN_PROGRESS' ||
@@ -1196,22 +1046,25 @@ export class DriverOperationsService {
           'RIDE_STATE_INVALID',
           'Only an ongoing ride can be completed.',
         );
-      const points = await tx.rideLocation.findMany({
-        where: { ride_id, recorded_at: { gte: trip.started_at } },
-        select: { latitude: true, longitude: true, recorded_at: true },
-        orderBy: { recorded_at: 'asc' },
-        take: 10000,
-      });
+      const { rows: points } = await tx.query<{
+        latitude: string;
+        longitude: string;
+        recorded_at: Date;
+      }>(
+        `SELECT latitude,longitude,recorded_at FROM ride_locations WHERE ride_id=$1 AND recorded_at >= $2
+          ORDER BY recorded_at,id LIMIT 10000`,
+        [ride_id, trip.started_at],
+      );
       let distance = 0;
-      let valid_segments = 0;
+      let validSegments = 0;
       for (let i = 1; i < points.length; i++) {
         const a = points[i - 1]!,
           b = points[i]!;
         const segment = trip_distance_m(
-          a.latitude.toNumber(),
-          a.longitude.toNumber(),
-          b.latitude.toNumber(),
-          b.longitude.toNumber(),
+          Number(a.latitude),
+          Number(a.longitude),
+          Number(b.latitude),
+          Number(b.longitude),
         );
         if (
           segment /
@@ -1222,60 +1075,49 @@ export class DriverOperationsService {
           60
         ) {
           distance += segment;
-          valid_segments++;
+          validSegments++;
         }
       }
-      await tx.ride.update({
-        where: { id: ride_id },
-        data: {
-          status: 'COMPLETED',
-          completed_at: new Date(),
-          final_fare: trip.estimated_fare,
-          actual_duration_s: Math.max(
+      const finalFare = trip.estimated_fare.toString();
+      await tx.query(
+        `UPDATE rides SET status='COMPLETED',completed_at=statement_timestamp(),final_fare=$2,
+          actual_duration_s=$3,actual_distance_m=$4,updated_at=clock_timestamp() WHERE id=$1`,
+        [
+          ride_id,
+          finalFare,
+          Math.max(
             1,
             Math.round((Date.now() - trip.started_at.getTime()) / 1000),
           ),
-          actual_distance_m: valid_segments > 0 ? Math.round(distance) : null,
-        },
+          validSegments ? Math.round(distance) : null,
+        ],
+      );
+      await tx.query(
+        `INSERT INTO payments (id,ride_id,amount,currency,status,updated_at)
+          VALUES ($1,$2,$3,$4,'PENDING',clock_timestamp()) ON CONFLICT(ride_id) DO NOTHING`,
+        [nextEntityId(), ride_id, finalFare, trip.currency],
+      );
+      await tx.query(
+        `UPDATE driver_profiles SET completed_rides=completed_rides+1,availability=$2,
+          updated_at=clock_timestamp() WHERE id=$1`,
+        [trip.driver_id, availability_after_trip(trip.driver!)],
+      );
+      await recordTripEvent(tx, ride_id, user_id, 'TRIP_COMPLETED', {
+        fare_source: 'ACCEPTED_QUOTE',
       });
-      await tx.payment.upsert({
-        where: { ride_id },
-        create: {
-          ride_id,
-          amount: trip.estimated_fare,
-          currency: trip.currency,
-          status: 'PENDING',
-        },
-        update: {},
-      });
-      await tx.driverProfile.update({
-        where: { id: trip.driver_id! },
-        data: {
-          completed_rides: { increment: 1 },
-          availability: availability_after_trip(trip.driver!),
-        },
-      });
-      await tx.rideEvent.create({
-        data: {
-          ride_id,
-          actor_id: user_id,
-          event_type: 'TRIP_COMPLETED',
-          metadata: { fare_source: 'ACCEPTED_QUOTE' },
-        },
-      });
-      await notify(
+      await notifyTripParticipant(
         tx,
         trip.rider_id,
         ride_id,
         'Ride completed',
         'Choose an available method to pay the displayed fare.',
       );
-      await create_user_log(tx, {
+      await insertUserLog(tx, {
         actor_id: user_id,
         entity_type: 'Ride',
         entity_id: ride_id,
         action: 'COMPLETE_OPERATIONAL_TRIP',
-        after_data: { final_fare: trip.estimated_fare.toString() },
+        after_data: { final_fare: finalFare },
       });
     });
     return this.context(user_id, ride_id);
@@ -1287,7 +1129,7 @@ export class DriverOperationsService {
     method: 'CASH' | 'UPI' | 'WALLET',
     receipt?: { received: boolean; reason?: string },
   ) {
-    await this.write(user_id, ride_id, !!receipt, async (tx, trip) => {
+    await this.writeTrip(user_id, ride_id, !!receipt, async (tx, trip) => {
       if (trip.status !== 'COMPLETED' || !trip.final_fare || !trip.driver)
         throw new AppError(
           409,
@@ -1319,10 +1161,16 @@ export class DriverOperationsService {
         (method === 'WALLET' || (!!receipt && wallet_selected)) &&
         wallet_available_for(trip);
       if (check_wallet)
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${payout_schedule_lock}::int)`;
+        await tx.query('SELECT pg_advisory_xact_lock_shared($1::int)', [
+          payout_schedule_lock,
+        ]);
       const wallet_active =
         check_wallet &&
-        (await read_wallet_controls(tx)).wallet_ride_collection_enabled;
+        (
+          await tx.query<{ wallet_ride_collection_enabled: boolean }>(
+            "SELECT wallet_ride_collection_enabled FROM payout_schedules WHERE id='default'",
+          )
+        ).rows[0]?.wallet_ride_collection_enabled === true;
       if (receipt && wallet_active && wallet_selected)
         throw new AppError(
           409,
@@ -1336,29 +1184,20 @@ export class DriverOperationsService {
             'WALLET_UNAVAILABLE',
             'Wallet payment is unavailable for this ride.',
           );
-        await tx.payment.upsert({
-          where: { ride_id },
-          create: {
-            ride_id,
-            amount: trip.final_fare,
-            currency: trip.currency,
-            collection_method: 'WALLET',
-            status: 'PENDING',
-          },
-          update: {
-            collection_method: 'WALLET',
-            status: 'PENDING',
-            recipient_upi: null,
-            failed_at: null,
-          },
-        });
+        await tx.query(
+          `INSERT INTO payments (id,ride_id,amount,currency,collection_method,status,updated_at)
+            VALUES ($1,$2,$3,$4,'WALLET','PENDING',clock_timestamp())
+            ON CONFLICT(ride_id) DO UPDATE SET collection_method='WALLET',status='PENDING',
+              recipient_upi=NULL,failed_at=NULL,updated_at=clock_timestamp()`,
+          [nextEntityId(), ride_id, trip.final_fare.toString(), trip.currency],
+        );
         return;
       }
       require_supported_ride_payment(trip.quotes[0]?.category_snapshot, method);
       const upi =
         method === 'UPI'
           ? (trip.payment?.recipient_upi ??
-            (await this.approved_upi(trip.driver.user_id, tx)))
+            (await findApprovedDriverUpi(tx, trip.driver.user_id)))
           : null;
       if (method === 'UPI' && !upi)
         throw new AppError(
@@ -1367,32 +1206,32 @@ export class DriverOperationsService {
           'The driver has no uniquely approved UPI account. Use enabled cash payment or contact support.',
         );
       const paid = receipt?.received === true;
-      const recorded = await tx.payment.upsert({
-        where: { ride_id },
-        create: {
+      const {
+        rows: [recorded],
+      } = await tx.query<{ id: string }>(
+        `INSERT INTO payments (id,ride_id,amount,currency,collection_method,recipient_upi,status,
+            confirmed_by_id,paid_at,unpaid_reason,updated_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,clock_timestamp())
+          ON CONFLICT(ride_id) DO UPDATE SET collection_method=EXCLUDED.collection_method,
+            recipient_upi=EXCLUDED.recipient_upi,status=EXCLUDED.status,confirmed_by_id=EXCLUDED.confirmed_by_id,
+            paid_at=EXCLUDED.paid_at,updated_at=clock_timestamp(),
+            unpaid_reason=CASE WHEN $11::boolean THEN EXCLUDED.unpaid_reason ELSE payments.unpaid_reason END
+          RETURNING id`,
+        [
+          nextEntityId(),
           ride_id,
-          amount: trip.final_fare,
-          currency: trip.currency,
-          collection_method: method,
-          recipient_upi: upi,
-          status: paid ? 'CAPTURED' : 'PENDING',
-          confirmed_by_id: paid ? user_id : null,
-          paid_at: paid ? new Date() : null,
-          unpaid_reason: receipt?.received === false ? receipt.reason : null,
-        },
-        update: {
-          collection_method: method,
-          recipient_upi: upi,
-          status: paid ? 'CAPTURED' : 'PENDING',
-          confirmed_by_id: paid ? user_id : null,
-          paid_at: paid ? new Date() : null,
-          unpaid_reason: receipt
-            ? receipt.received
-              ? null
-              : receipt.reason
-            : undefined,
-        },
-      });
+          trip.final_fare.toString(),
+          trip.currency,
+          method,
+          upi,
+          paid ? 'CAPTURED' : 'PENDING',
+          paid ? user_id : null,
+          paid ? new Date() : null,
+          receipt?.received === false ? (receipt.reason ?? null) : null,
+          !!receipt && (receipt.received || receipt.reason !== undefined),
+        ],
+      );
+      if (!recorded) throw new Error('Ride collection returned no payment');
       if (
         paid &&
         method === 'CASH' &&
@@ -1409,46 +1248,38 @@ export class DriverOperationsService {
         });
       }
       if (paid)
-        await tx.rideSettlementReview.updateMany({
-          where: {
-            ride_id,
-            kind: 'UNPAID',
-            status: { in: ['REQUESTED', 'DISPUTED', 'APPROVED'] },
-          },
-          data: {
-            status: 'SETTLED',
-            resolved_by_id: user_id,
-            resolution_note:
-              'The assigned driver confirmed receipt of the full fare.',
-            version: { increment: 1 },
-          },
-        });
+        await tx.query(
+          `UPDATE ride_settlement_reviews SET status='SETTLED',resolved_by_id=$2,
+            resolution_note='The assigned driver confirmed receipt of the full fare.',
+            version=version+1,updated_at=clock_timestamp()
+            WHERE ride_id=$1 AND kind='UNPAID' AND status IN ('REQUESTED','DISPUTED','APPROVED')`,
+          [ride_id, user_id],
+        );
       if (receipt?.received === false)
-        await tx.rideSettlementReview.upsert({
-          where: { ride_id },
-          create: {
+        await tx.query(
+          `INSERT INTO ride_settlement_reviews (id,ride_id,reported_by_id,driver_id,kind,reason,fee_amount,updated_at)
+            VALUES ($1,$2,$3,$4,'UNPAID',$5,$6,clock_timestamp()) ON CONFLICT(ride_id) DO NOTHING`,
+          [
+            nextEntityId(),
             ride_id,
-            reported_by_id: user_id,
-            driver_id: trip.driver_id,
-            kind: 'UNPAID',
-            reason: receipt.reason!,
-            fee_amount: trip.final_fare,
-          },
-          update: {},
-        });
-      await tx.rideEvent.create({
-        data: {
-          ride_id,
-          actor_id: user_id,
-          event_type: receipt
-            ? paid
-              ? 'COLLECTION_CONFIRMED'
-              : 'FARE_UNPAID_REPORTED'
-            : 'PAYMENT_METHOD_SELECTED',
-          metadata: { method, received: paid },
-        },
-      });
-      await create_user_log(tx, {
+            user_id,
+            trip.driver_id,
+            receipt.reason,
+            trip.final_fare.toString(),
+          ],
+        );
+      await recordTripEvent(
+        tx,
+        ride_id,
+        user_id,
+        receipt
+          ? paid
+            ? 'COLLECTION_CONFIRMED'
+            : 'FARE_UNPAID_REPORTED'
+          : 'PAYMENT_METHOD_SELECTED',
+        { method, received: paid },
+      );
+      await insertUserLog(tx, {
         actor_id: user_id,
         entity_type: 'Payment',
         entity_id: ride_id,
@@ -1456,7 +1287,7 @@ export class DriverOperationsService {
         after_data: { method, received: paid },
       });
       if (paid)
-        await notify(
+        await notifyTripParticipant(
           tx,
           trip.rider_id,
           ride_id,
@@ -1473,8 +1304,8 @@ export class DriverOperationsService {
     latitude: number,
     longitude: number,
   ) {
-    const trip = await this.owned(user_id, ride_id);
-    if (trip.driver?.user_id !== user_id || !active(trip.status))
+    const trip = await readRideAccess(this.postgres, ride_id, user_id);
+    if (trip.driver_user_id !== user_id || !active(trip.status))
       throw new AppError(
         403,
         'TRIP_NAVIGATION_UNAVAILABLE',
@@ -1485,14 +1316,12 @@ export class DriverOperationsService {
       {
         from_latitude: latitude,
         from_longitude: longitude,
-        to_latitude: (destination
-          ? trip.dropoff_latitude
-          : trip.pickup_latitude
-        ).toNumber(),
-        to_longitude: (destination
-          ? trip.dropoff_longitude
-          : trip.pickup_longitude
-        ).toNumber(),
+        to_latitude: Number(
+          destination ? trip.dropoff_latitude : trip.pickup_latitude,
+        ),
+        to_longitude: Number(
+          destination ? trip.dropoff_longitude : trip.pickup_longitude,
+        ),
       },
       true,
     );
@@ -1500,7 +1329,7 @@ export class DriverOperationsService {
   }
 
   async rider_route(user_id: string, ride_id: string) {
-    const trip = await this.read_owned(user_id, ride_id);
+    const trip = await readRideAccess(this.postgres, ride_id, user_id);
     if (trip.rider_id !== user_id || !active(trip.status))
       throw new AppError(
         403,
@@ -1508,7 +1337,7 @@ export class DriverOperationsService {
         'Route progress is available only to the rider during an assigned trip.',
       );
     const settings = await this.settings();
-    const driver = trip.driver;
+    const driver = trip;
     if (
       !driver?.current_latitude ||
       !driver.current_longitude ||
@@ -1527,16 +1356,14 @@ export class DriverOperationsService {
       );
     const target = trip.status === 'IN_PROGRESS' ? 'DROPOFF' : 'PICKUP';
     const route = await this.routing.driving_route({
-      from_latitude: driver.current_latitude.toNumber(),
-      from_longitude: driver.current_longitude.toNumber(),
-      to_latitude: (target === 'DROPOFF'
-        ? trip.dropoff_latitude
-        : trip.pickup_latitude
-      ).toNumber(),
-      to_longitude: (target === 'DROPOFF'
-        ? trip.dropoff_longitude
-        : trip.pickup_longitude
-      ).toNumber(),
+      from_latitude: Number(driver.current_latitude),
+      from_longitude: Number(driver.current_longitude),
+      to_latitude: Number(
+        target === 'DROPOFF' ? trip.dropoff_latitude : trip.pickup_latitude,
+      ),
+      to_longitude: Number(
+        target === 'DROPOFF' ? trip.dropoff_longitude : trip.pickup_longitude,
+      ),
     });
     if (
       Date.now() - driver.last_location_at.getTime() >
@@ -1556,108 +1383,101 @@ export class DriverOperationsService {
   }
 
   async messages(user_id: string, ride_id: string) {
-    await this.owned(user_id, ride_id);
-    const rows = await this.database.client.rideMessage.findMany({
-      where: { ride_id },
-      select: {
-        id: true,
-        sender_id: true,
-        body: true,
-        created_at: true,
-        client_key: true,
-      },
-      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
-      take: 100,
-    });
-    return rows.reverse();
+    return this.postgres.transaction(async (tx) => {
+      await readRideAccess(tx, ride_id, user_id);
+      const { rows } = await tx.query(
+        `SELECT id,sender_id,body,created_at,client_key FROM ride_messages WHERE ride_id=$1
+          ORDER BY created_at DESC,id DESC LIMIT 100`,
+        [ride_id],
+      );
+      return rows.reverse();
+    }, 'REPEATABLE READ');
   }
+
   async send_message(
     user_id: string,
     ride_id: string,
     body: string,
     client_key: string,
   ) {
-    return this.write(user_id, ride_id, false, async (tx, trip) => {
-      if (
-        !active(trip.status) &&
-        !(
-          trip.status === 'COMPLETED' &&
-          (!trip.payment || ['PENDING', 'FAILED'].includes(trip.payment.status))
-        )
-      )
-        throw new AppError(
-          409,
-          'TRIP_CHAT_CLOSED',
-          'Trip chat is available only while the ride is active.',
-        );
-      const existing = await tx.rideMessage.findUnique({
-        where: {
-          ride_id_sender_id_client_key: {
-            ride_id,
-            sender_id: user_id,
-            client_key,
-          },
-        },
-      });
-      if (existing) {
-        if (existing.body !== body)
+    return writeRideAccess(
+      this.postgres,
+      ride_id,
+      user_id,
+      async (tx, trip) => {
+        if (!allowsTripContact(trip))
           throw new AppError(
             409,
-            'MESSAGE_RETRY_CONFLICT',
-            'This message retry changed.',
+            'TRIP_CHAT_CLOSED',
+            'Trip chat is available only while the ride is active.',
           );
-        return { id: existing.id };
-      }
-      const recent = await tx.rideMessage.count({
-        where: {
-          ride_id,
-          sender_id: user_id,
-          created_at: { gte: new Date(Date.now() - 10000) },
-        },
-      });
-      if (recent >= 5)
-        throw new AppError(
-          429,
-          'TRIP_CHAT_RATE_LIMIT',
-          'Wait a moment before sending another message.',
+        const {
+          rows: [existing],
+        } = await tx.query<{ id: string; body: string }>(
+          'SELECT id,body FROM ride_messages WHERE ride_id=$1 AND sender_id=$2 AND client_key=$3',
+          [ride_id, user_id, client_key],
         );
-      const message = await tx.rideMessage.create({
-        data: { ride_id, sender_id: user_id, body, client_key },
-      });
-      return { id: message.id };
-    });
+        if (existing) {
+          if (existing.body !== body)
+            throw new AppError(
+              409,
+              'MESSAGE_RETRY_CONFLICT',
+              'This message retry changed.',
+            );
+          return { id: existing.id };
+        }
+        const {
+          rows: [recent],
+        } = await tx.query<{ total: number }>(
+          `SELECT count(*)::int AS total FROM ride_messages WHERE ride_id=$1 AND sender_id=$2
+          AND created_at>=$3`,
+          [ride_id, user_id, new Date(Date.now() - 10000)],
+        );
+        if ((recent?.total ?? 0) >= 5)
+          throw new AppError(
+            429,
+            'TRIP_CHAT_RATE_LIMIT',
+            'Wait a moment before sending another message.',
+          );
+        const id = nextEntityId();
+        await tx.query(
+          `INSERT INTO ride_messages (id,ride_id,sender_id,client_key,body,updated_at)
+          VALUES ($1,$2,$3,$4,$5,clock_timestamp())`,
+          [id, ride_id, user_id, client_key, body],
+        );
+        return { id };
+      },
+    );
   }
+
   async contact_attempt(user_id: string, ride_id: string) {
-    return this.write(user_id, ride_id, false, async (tx, trip) => {
-      if (
-        !active(trip.status) &&
-        !(
-          trip.status === 'COMPLETED' &&
-          (!trip.payment || ['PENDING', 'FAILED'].includes(trip.payment.status))
-        )
-      )
-        throw new AppError(
-          409,
-          'TRIP_CONTACT_CLOSED',
-          'Calling is available only while the trip is active.',
+    return writeRideAccess(
+      this.postgres,
+      ride_id,
+      user_id,
+      async (tx, trip) => {
+        if (!allowsTripContact(trip))
+          throw new AppError(
+            409,
+            'TRIP_CONTACT_CLOSED',
+            'Calling is available only while the trip is active.',
+          );
+        const phone =
+          trip.rider_id === user_id ? trip.driver_phone : trip.rider_phone;
+        if (!phone)
+          throw new AppError(
+            409,
+            'CONTACT_PHONE_UNAVAILABLE',
+            'The other person has no available phone number. Use trip chat or Support.',
+          );
+        await tx.query(
+          `INSERT INTO ride_events (id,ride_id,actor_id,event_type,metadata,updated_at)
+          VALUES ($1,$2,$3,'CALL_ATTEMPT','{"connection_verified":false}'::jsonb,clock_timestamp())`,
+          [nextEntityId(), ride_id, user_id],
         );
-      const other = trip.rider_id === user_id ? trip.driver?.user : trip.rider;
-      if (!other?.phone_e164)
-        throw new AppError(
-          409,
-          'CONTACT_PHONE_UNAVAILABLE',
-          'The other person has no available phone number. Use trip chat or Support.',
-        );
-      await tx.rideEvent.create({
-        data: {
-          ride_id,
-          actor_id: user_id,
-          event_type: 'CALL_ATTEMPT',
-          metadata: { connection_verified: false },
-        },
-      });
-      return { phone: other.phone_e164 };
-    });
+        return { phone };
+      },
+    );
   }
 
   async report_issue(
@@ -1668,7 +1488,7 @@ export class DriverOperationsService {
     reason_code?: string,
   ) {
     const settings = await this.settings();
-    await this.write(user_id, ride_id, false, async (tx, trip) => {
+    await this.writeTrip(user_id, ride_id, false, async (tx, trip) => {
       if (trip.status === 'CANCELLED' || trip.settlement_review) return;
       if (
         !['DRAFT', 'REQUESTED', 'SEARCHING', ...ACTIVE_TRIP].includes(
@@ -1683,7 +1503,7 @@ export class DriverOperationsService {
         );
       const driver = trip.driver?.user_id === user_id;
       const policy = payment_policy(trip);
-      let amount = new Prisma.Decimal(0);
+      let amount = new Decimal(0);
       if (kind === 'NO_SHOW') {
         if (!driver || trip.status !== 'DRIVER_WAITING' || !trip.arrived_at)
           throw new AppError(
@@ -1701,19 +1521,17 @@ export class DriverOperationsService {
             'WAITING_PERIOD_ACTIVE',
             'The free pickup waiting period has not ended.',
           );
-        const call = await tx.rideEvent.findFirst({
-          where: {
-            ride_id,
-            actor_id: user_id,
-            event_type: 'CALL_ATTEMPT',
-            created_at: { gte: trip.arrived_at },
-          },
-        });
-        const arrival = await tx.rideEvent.findFirst({
-          where: { ride_id, actor_id: user_id, event_type: 'DRIVER_WAITING' },
-          orderBy: { created_at: 'desc' },
-        });
-        if (!call || object(arrival?.metadata).gps_verified !== true)
+        const {
+          rows: [arrival],
+        } = await tx.query<{ metadata: JsonValue }>(
+          `SELECT metadata FROM ride_events WHERE ride_id=$1 AND actor_id=$2 AND event_type='DRIVER_WAITING'
+            ORDER BY created_at DESC,id DESC LIMIT 1`,
+          [ride_id, user_id],
+        );
+        if (
+          !trip.contact_attempted ||
+          object(arrival?.metadata).gps_verified !== true
+        )
           throw new AppError(
             409,
             'NO_SHOW_EVIDENCE_REQUIRED',
@@ -1729,10 +1547,10 @@ export class DriverOperationsService {
           !d.current_latitude ||
           !d.current_longitude ||
           trip_distance_m(
-            d.current_latitude.toNumber(),
-            d.current_longitude.toNumber(),
-            trip.pickup_latitude.toNumber(),
-            trip.pickup_longitude.toNumber(),
+            Number(d.current_latitude),
+            Number(d.current_longitude),
+            Number(trip.pickup_latitude),
+            Number(trip.pickup_longitude),
           ) > settings.arrival_radius_m
         )
           throw new AppError(
@@ -1759,59 +1577,58 @@ export class DriverOperationsService {
           typeof policy.maximum_cancellation_fee === 'number'
             ? policy.maximum_cancellation_fee
             : 0;
-        amount = Prisma.Decimal.min(
-          (trip.estimated_fare ?? new Prisma.Decimal(0)).mul(percent).div(100),
+        amount = Decimal.min(
+          (trip.estimated_fare ?? new Decimal(0)).mul(percent).div(100),
           cap,
         ).toDecimalPlaces(2);
       }
       if (trip.driver_id)
-        await tx.rideSettlementReview.create({
-          data: {
+        await tx.query(
+          `INSERT INTO ride_settlement_reviews (id,ride_id,reported_by_id,driver_id,kind,reason,
+            fee_amount,status,resolution_note,updated_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,clock_timestamp())`,
+          [
+            nextEntityId(),
             ride_id,
-            reported_by_id: user_id,
-            driver_id: trip.driver_id,
+            user_id,
+            trip.driver_id,
             kind,
             reason,
-            fee_amount: amount,
-            status: !driver && amount.isZero() ? 'WAIVED' : 'REQUESTED',
-            resolution_note: amount.isZero()
+            amount.toString(),
+            !driver && amount.isZero() ? 'WAIVED' : 'REQUESTED',
+            amount.isZero()
               ? 'No passenger fee is due. Any driver conduct concern remains available in the trip audit.'
               : null,
-          },
-        });
-      await tx.ride.update({
-        where: { id: ride_id },
-        data: {
-          status: 'CANCELLED',
-          cancelled_at: new Date(),
-          cancel_reason: reason,
-        },
-      });
-      await tx.rideOffer.updateMany({
-        where: { ride_id, status: { in: ['SENT', 'ACCEPTED'] } },
-        data: { status: 'CANCELLED', responded_at: new Date() },
-      });
+          ],
+        );
+      await tx.query(
+        `UPDATE rides SET status='CANCELLED',cancelled_at=statement_timestamp(),
+          cancel_reason=$2,updated_at=clock_timestamp() WHERE id=$1`,
+        [ride_id, reason],
+      );
+      await tx.query(
+        `UPDATE ride_offers SET status='CANCELLED',responded_at=statement_timestamp(),updated_at=clock_timestamp()
+          WHERE ride_id=$1 AND status IN ('SENT','ACCEPTED')`,
+        [ride_id],
+      );
       if (trip.driver)
-        await tx.driverProfile.update({
-          where: { id: trip.driver.id },
-          data: { availability: availability_after_trip(trip.driver) },
-        });
-      await tx.rideStartVerification.deleteMany({ where: { ride_id } });
-      await tx.rideEvent.create({
-        data: {
-          ride_id,
-          actor_id: user_id,
-          event_type:
-            kind === 'NO_SHOW'
-              ? 'PASSENGER_NO_SHOW_REPORTED'
-              : 'CANCELLATION_REPORTED',
-          metadata: {
-            review_required: true,
-            reason_code: reason_code ?? 'OTHER',
-          },
-        },
-      });
-      await notify(
+        await tx.query(
+          'UPDATE driver_profiles SET availability=$2,updated_at=clock_timestamp() WHERE id=$1',
+          [trip.driver.id, availability_after_trip(trip.driver)],
+        );
+      await tx.query('DELETE FROM ride_start_verifications WHERE ride_id=$1', [
+        ride_id,
+      ]);
+      await recordTripEvent(
+        tx,
+        ride_id,
+        user_id,
+        kind === 'NO_SHOW'
+          ? 'PASSENGER_NO_SHOW_REPORTED'
+          : 'CANCELLATION_REPORTED',
+        { review_required: true, reason_code: reason_code ?? 'OTHER' },
+      );
+      await notifyTripParticipant(
         tx,
         trip.rider_id,
         ride_id,
@@ -1822,7 +1639,7 @@ export class DriverOperationsService {
     return this.context(user_id, ride_id);
   }
   async dispute(user_id: string, ride_id: string, reason: string) {
-    await this.write(user_id, ride_id, false, async (tx, trip) => {
+    await this.writeTrip(user_id, ride_id, false, async (tx, trip) => {
       if (
         !trip.settlement_review ||
         ['WAIVED', 'REJECTED', 'SETTLED'].includes(
@@ -1834,106 +1651,41 @@ export class DriverOperationsService {
           'REVIEW_NOT_DISPUTABLE',
           'No open charge is available to dispute.',
         );
-      await tx.rideSettlementReview.update({
-        where: { ride_id },
-        data: {
-          status: 'DISPUTED',
-          dispute_reason: reason,
-          version: { increment: 1 },
-        },
-      });
-      await tx.rideEvent.create({
-        data: { ride_id, actor_id: user_id, event_type: 'CHARGE_DISPUTED' },
-      });
+      await tx.query(
+        `UPDATE ride_settlement_reviews SET status='DISPUTED',dispute_reason=$2,
+          version=version+1,updated_at=clock_timestamp() WHERE ride_id=$1`,
+        [ride_id, reason],
+      );
+      await recordTripEvent(tx, ride_id, user_id, 'CHARGE_DISPUTED');
     });
     return this.context(user_id, ride_id);
   }
   async reviews(status?: string, page = 1) {
-    const page_size = 20;
-    const where = status
-      ? {
-          status:
-            status === 'PENDING' ? { in: pending_review_statuses } : status,
-        }
-      : {};
-    const result = await this.database.client.$transaction(
-      async (tx) => {
-        const total = await tx.rideSettlementReview.count({ where });
-        const current_page = Math.min(
-          page,
-          Math.max(1, Math.ceil(total / page_size)),
-        );
-        const items = await tx.rideSettlementReview.findMany({
-          where,
-          include: {
-            ride: {
-              select: {
-                rider_id: true,
-                created_at: true,
-                rider: { select: ride_person },
-                driver: { select: { user: { select: ride_person } } },
-                vehicle: { select: admin_vehicle_select },
-                driver_id: true,
-                status: true,
-                pickup_address: true,
-                dropoff_address: true,
-                matched_at: true,
-                arrived_at: true,
-                cancelled_at: true,
-                events: {
-                  where: {
-                    event_type: {
-                      in: [
-                        'DRIVER_WAITING',
-                        'CALL_ATTEMPT',
-                        'CANCELLATION_REPORTED',
-                        'PASSENGER_NO_SHOW_REPORTED',
-                        'FARE_UNPAID_REPORTED',
-                        'CHARGE_DISPUTED',
-                      ],
-                    },
-                  },
-                  select: {
-                    id: true,
-                    event_type: true,
-                    created_at: true,
-                    metadata: true,
-                  },
-                  orderBy: { created_at: 'asc' },
-                },
-                final_fare: true,
-                estimated_fare: true,
-                payment: { select: { status: true, collection_method: true } },
-              },
-            },
-          },
-          orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
-          skip: (current_page - 1) * page_size,
-          take: page_size,
-        });
-        return { total, items, page: current_page };
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
-    );
-    const { total, items } = result;
-    const reporters = items.length
-      ? await this.database.client.user.findMany({
-          where: {
-            id: { in: [...new Set(items.map((row) => row.reported_by_id))] },
-          },
-          select: ride_person,
-        })
-      : [];
-    const by_id = new Map(reporters.map((person) => [person.id, person]));
-    return {
-      items: items.map((row) => ({
-        ...row,
-        reported_by: by_id.get(row.reported_by_id) ?? null,
-      })),
-      total,
-      page: result.page,
-      page_size,
-    };
+    const pageSize = 20;
+    const statuses = !status
+      ? null
+      : status === 'PENDING'
+        ? pending_review_statuses
+        : [status];
+    return this.postgres.transaction(async (tx) => {
+      const {
+        rows: [count],
+      } = await tx.query<{ total: number }>(
+        'SELECT count(*)::int AS total FROM ride_settlement_reviews WHERE $1::text[] IS NULL OR status=ANY($1)',
+        [statuses],
+      );
+      const total = count?.total ?? 0;
+      const currentPage = Math.min(
+        page,
+        Math.max(1, Math.ceil(total / pageSize)),
+      );
+      const { rows: items } = await tx.query(settlementReviewsPage, [
+        statuses,
+        pageSize,
+        (currentPage - 1) * pageSize,
+      ]);
+      return { items, total, page: currentPage, page_size: pageSize };
+    }, 'REPEATABLE READ');
   }
   async review(
     actor_id: string,
@@ -1944,89 +1696,124 @@ export class DriverOperationsService {
       note: string;
     },
   ) {
-    return this.database.client.$transaction(async (tx) => {
-      await require_active_admin(tx, actor_id);
-      const initial = await tx.rideSettlementReview.findUnique({
-        where: { id },
-        select: { ride_id: true },
-      });
-      if (!initial)
-        throw new AppError(
-          404,
-          'REVIEW_NOT_FOUND',
-          'This review no longer exists.',
+    return this.postgres.transaction(
+      async (tx) => {
+        await requireActiveAdmin(tx, actor_id);
+        const {
+          rows: [initial],
+        } = await tx.query<{ ride_id: string }>(
+          'SELECT ride_id FROM ride_settlement_reviews WHERE id=$1',
+          [id],
         );
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(720044, hashtext(${initial.ride_id}))`;
-      const before = await tx.rideSettlementReview.findUniqueOrThrow({
-        where: { id },
-      });
-      if (before.version !== input.expected_version)
-        throw new AppError(
-          409,
-          'REVIEW_CONFLICT',
-          'This review changed. Reload before saving.',
+        if (!initial)
+          throw new AppError(
+            404,
+            'REVIEW_NOT_FOUND',
+            'This review no longer exists.',
+          );
+        await tx.query('SELECT pg_advisory_xact_lock(720044,hashtext($1))', [
+          initial.ride_id,
+        ]);
+        const {
+          rows: [before],
+        } = await tx.query<{
+          ride_id: string;
+          kind: string;
+          version: number;
+          status: string;
+          fee_amount: string;
+        }>(
+          'SELECT s.*,trim_scale(s.fee_amount)::text AS fee_amount FROM ride_settlement_reviews s WHERE s.id=$1',
+          [id],
         );
-      if (['WAIVED', 'REJECTED', 'SETTLED'].includes(before.status))
-        throw new AppError(
-          409,
-          'REVIEW_CLOSED',
-          'This review has already been resolved.',
-        );
-      if (input.status === 'SETTLED' && before.status !== 'APPROVED')
-        throw new AppError(
-          409,
-          'APPROVAL_REQUIRED',
-          'Approve the charge before recording manual settlement.',
-        );
-      if (before.kind === 'UNPAID' && input.status !== 'REJECTED') {
-        const payment = await tx.payment.findUnique({
-          where: { ride_id: before.ride_id },
-        });
-        if (
-          !payment ||
-          !['PENDING', 'FAILED'].includes(payment.status) ||
-          payment.provider ||
-          payment.provider_payment_id
-        )
+        if (!before)
+          throw new AppError(
+            404,
+            'REVIEW_NOT_FOUND',
+            'This review no longer exists.',
+          );
+        if (before.version !== input.expected_version)
           throw new AppError(
             409,
-            'REVIEW_PAYMENT_STATE_CHANGED',
-            'The payment is already resolved or managed through another flow. Refresh the review and verify its payment history before acting.',
+            'REVIEW_CONFLICT',
+            'This review changed. Reload before saving.',
           );
-      }
-      const saved = await tx.rideSettlementReview.update({
-        where: { id },
-        data: {
-          status: input.status,
-          resolution_note: input.note,
-          resolved_by_id: actor_id,
-          version: { increment: 1 },
-        },
-      });
-      if (before.kind === 'UNPAID' && input.status === 'WAIVED')
-        await tx.payment.update({
-          where: { ride_id: before.ride_id },
-          data: { status: 'CANCELLED', unpaid_reason: input.note },
+        if (['WAIVED', 'REJECTED', 'SETTLED'].includes(before.status))
+          throw new AppError(
+            409,
+            'REVIEW_CLOSED',
+            'This review has already been resolved.',
+          );
+        if (input.status === 'SETTLED' && before.status !== 'APPROVED')
+          throw new AppError(
+            409,
+            'APPROVAL_REQUIRED',
+            'Approve the charge before recording manual settlement.',
+          );
+        if (before.kind === 'UNPAID' && input.status !== 'REJECTED') {
+          const {
+            rows: [payment],
+          } = await tx.query<{
+            status: string;
+            provider: string | null;
+            provider_payment_id: string | null;
+          }>(
+            'SELECT status,provider,provider_payment_id FROM payments WHERE ride_id=$1',
+            [before.ride_id],
+          );
+          if (
+            !payment ||
+            !['PENDING', 'FAILED'].includes(payment.status) ||
+            payment.provider ||
+            payment.provider_payment_id
+          )
+            throw new AppError(
+              409,
+              'REVIEW_PAYMENT_STATE_CHANGED',
+              'The payment is already resolved or managed through another flow. Refresh the review and verify its payment history before acting.',
+            );
+        }
+        const {
+          rows: [saved],
+        } = await tx.query<{
+          status: string;
+          version: number;
+          fee_amount: string;
+        }>(
+          `UPDATE ride_settlement_reviews s SET status=$2,resolution_note=$3,resolved_by_id=$4,
+          version=version+1,updated_at=clock_timestamp() WHERE s.id=$1 AND s.version=$5
+          RETURNING s.*,trim_scale(s.fee_amount)::text AS fee_amount`,
+          [id, input.status, input.note, actor_id, input.expected_version],
+        );
+        if (!saved)
+          throw new AppError(
+            409,
+            'REVIEW_CONFLICT',
+            'This review changed. Reload before saving.',
+          );
+        if (before.kind === 'UNPAID' && input.status === 'WAIVED')
+          await tx.query(
+            `UPDATE payments SET status='CANCELLED',unpaid_reason=$2,updated_at=clock_timestamp() WHERE ride_id=$1`,
+            [before.ride_id, input.note],
+          );
+        if (before.kind === 'UNPAID' && input.status === 'SETTLED')
+          await tx.query(
+            `UPDATE payments SET status='CAPTURED',paid_at=statement_timestamp(),confirmed_by_id=$2,
+            unpaid_reason=NULL,updated_at=clock_timestamp() WHERE ride_id=$1`,
+            [before.ride_id, actor_id],
+          );
+        await insertUserLog(tx, {
+          actor_id,
+          entity_type: 'RideSettlementReview',
+          entity_id: id,
+          action: 'REVIEW_TRIP_SETTLEMENT',
+          before_data: before,
+          after_data: saved,
         });
-      if (before.kind === 'UNPAID' && input.status === 'SETTLED')
-        await tx.payment.update({
-          where: { ride_id: before.ride_id },
-          data: {
-            status: 'CAPTURED',
-            paid_at: new Date(),
-            confirmed_by_id: actor_id,
-            unpaid_reason: null,
-          },
-        });
-      await create_user_log(tx, {
-        actor_id,
-        entity_type: 'RideSettlementReview',
-        entity_id: id,
-        action: 'REVIEW_TRIP_SETTLEMENT',
-        before_data: before,
-        after_data: saved,
-      });
-      return saved;
-    }, options);
+        return saved;
+      },
+      'READ COMMITTED',
+      { checkoutMs: 10000, statementMs: 30000 },
+    );
   }
 }

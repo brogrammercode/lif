@@ -2,14 +2,13 @@ import { Injectable } from '@nestjs/common';
 import type { Transporter } from 'nodemailer';
 import { smtp_transport, smtp_failure } from '../../infra/mail/smtp.js';
 import { config } from '../../core/config.js';
-import { PrismaService } from '../../infra/database/prisma.service.js';
+import { PostgresService } from '../../database/postgres.service.js';
 import { reveal_activation } from './partner_program.security.js';
-import { claimable_delivery } from './partner_delivery.constant.js';
 
 @Injectable()
 export class PartnerDeliveryService {
   private mailer?: Transporter;
-  constructor(private readonly database: PrismaService) {}
+  constructor(private readonly database: PostgresService) {}
   send_email(application_id: string) {
     return this.send_document(application_id, 'EMAIL');
   }
@@ -25,66 +24,84 @@ export class PartnerDeliveryService {
   ) {
     const is_exit = channel === 'EXIT_EMAIL';
     const is_activation = channel === 'ACTIVATION_EMAIL';
-    const delivery = await this.database.client.partnerDelivery.findUnique({
-      where: { application_id_channel: { application_id, channel } },
-    });
-    if (!delivery || delivery.status === 'SENT') return;
     const now = new Date();
-    const claimed = await this.database.client.partnerDelivery.updateMany({
-      where: {
-        id: delivery.id,
-        ...claimable_delivery(now),
-      },
-      data: {
-        status: 'SENDING',
-        claimed_at: now,
-        attempts: { increment: 1 },
-        last_error: null,
-      },
-    });
-    if (!claimed.count) return;
+    const claim = await this.database.query<{ id: string }>(
+      `UPDATE partner_deliveries SET status='SENDING',claimed_at=$3,attempts=attempts+1,
+        last_error=NULL,updated_at=clock_timestamp()
+      WHERE application_id=$1 AND channel=$2 AND (
+        status IN ('PENDING','FAILED') OR
+        (status='SENDING' AND COALESCE(claimed_at,updated_at)<$4)
+      ) RETURNING id`,
+      [application_id, channel, now, new Date(now.getTime() - 300000)],
+    );
+    const delivery = claim.rows[0];
+    if (!delivery) return;
+    const finish = (
+      status: 'SENT' | 'SKIPPED' | 'FAILED',
+      reason: string | null,
+      provider?: string,
+    ) =>
+      this.database.query(
+        `UPDATE partner_deliveries SET status=$3,last_error=$4,
+          sent_at=CASE WHEN $3='SENT' THEN clock_timestamp() ELSE sent_at END,
+          provider_id=CASE WHEN $3='SENT' THEN $5 ELSE provider_id END,updated_at=clock_timestamp()
+        WHERE id=$1 AND status='SENDING' AND claimed_at=$2`,
+        [delivery.id, now, status, reason, provider],
+      );
     try {
-      const app = await this.database.client.partnerApplication.findUnique({
-        where: { id: application_id },
-        include: {
-          exit_request: true,
-          user: {
-            select: { status: true, deleted_at: true, first_name: true },
-          },
-        },
-      });
+      const { rows } = await this.database.query<{
+        user_id: string;
+        status: string;
+        contact_email: string;
+        activation_ciphertext: string | null;
+        final_pdf_id: string | null;
+        exit_id: string | null;
+        exit_status: string | null;
+        settlement_pdf_id: string | null;
+        user_status: string;
+        deleted_at: Date | null;
+        first_name: string | null;
+      }>(
+        `SELECT a.user_id,a.status,a.contact_email,a.activation_ciphertext,a.final_pdf_id,
+          e.id AS exit_id,e.status AS exit_status,e.settlement_pdf_id,
+          u.status AS user_status,u.deleted_at,u.first_name
+        FROM partner_applications a JOIN users u ON u.id=a.user_id
+          LEFT JOIN partner_exit_requests e ON e.application_id=a.id WHERE a.id=$1`,
+        [application_id],
+      );
+      const app = rows[0];
+      const assetId = is_exit ? app?.settlement_pdf_id : app?.final_pdf_id;
       if (
         !app ||
+        !assetId ||
         !(is_exit
-          ? app.status === 'EXITED' && app.exit_request?.status === 'COMPLETED'
+          ? app.status === 'EXITED' && app.exit_status === 'COMPLETED'
           : ['COMPLETED', 'ACTIVATED'].includes(app.status)) ||
-        app.user.status !== 'ACTIVE' ||
-        app.user.deleted_at ||
+        app.user_status !== 'ACTIVE' ||
+        app.deleted_at ||
         (is_activation &&
-          (app.status !== 'COMPLETED' || !app.activation_ciphertext)) ||
-        !(is_exit ? app.exit_request?.settlement_pdf_id : app.final_pdf_id)
+          (app.status !== 'COMPLETED' || !app.activation_ciphertext))
       ) {
-        await this.database.client.partnerDelivery.updateMany({
-          where: { id: delivery.id, status: 'SENDING', claimed_at: now },
-          data: {
-            status: 'SKIPPED',
-            last_error:
-              'This recipient or workflow is no longer eligible for this email.',
-          },
-        });
+        await finish(
+          'SKIPPED',
+          'This recipient or workflow is no longer eligible for this email.',
+        );
         return;
       }
-      const asset = await this.database.client.partnerAsset.findFirst({
-        where: {
-          id: (is_exit
-            ? app.exit_request?.settlement_pdf_id
-            : app.final_pdf_id)!,
-          owner_id: app.user_id,
-          purpose: is_exit ? 'EXIT_PDF' : 'FINAL_PDF',
-          ...(is_exit ? { field_id: app.exit_request!.id } : {}),
-          mime_type: 'application/pdf',
-        },
-      });
+      const assets = await this.database.query<{
+        file_name: string;
+        content: Buffer;
+      }>(
+        `SELECT file_name,content FROM partner_assets WHERE id=$1 AND owner_id=$2
+          AND purpose=$3 AND mime_type='application/pdf' AND ($4::text IS NULL OR field_id=$4)`,
+        [
+          assetId,
+          app.user_id,
+          is_exit ? 'EXIT_PDF' : 'FINAL_PDF',
+          is_exit ? app.exit_id : null,
+        ],
+      );
+      const asset = assets.rows[0];
       if (!asset) throw new Error('The approved final PDF is unavailable.');
       if (!config.MAIL_USER || !config.GOOGLE_APP_PASSWORD)
         throw new Error(
@@ -101,10 +118,10 @@ export class PartnerDeliveryService {
             ? 'Your 1More partner exit settlement'
             : 'Your 1More Partner Program confirmation',
         text: is_activation
-          ? `Hello ${app.user.first_name ?? 'there'},\n\nYour 1More driver activation code is ${reveal_activation(app.activation_ciphertext!)}.\n\nEnter this code in the 1More app after signing in. This code has no expiry and can be used once. Do not share it with anyone. Your approved confirmation PDF is attached for reference.\n\n1More Partner Program`
+          ? `Hello ${app.first_name ?? 'there'},\n\nYour 1More driver activation code is ${reveal_activation(app.activation_ciphertext!)}.\n\nEnter this code in the 1More app after signing in. This code has no expiry and can be used once. Do not share it with anyone. Your approved confirmation PDF is attached for reference.\n\n1More Partner Program`
           : is_exit
-            ? `Hello ${app.user.first_name ?? 'there'},\n\nYour Partner Program exit is complete. You can continue using the same account as a rider. Your settlement PDF is attached and is also available in the app under Past Driver Settlements. Please refer to the attached document for dues and settlement details.\n\n1More Partner Program`
-            : `Hello ${app.user.first_name ?? 'there'},\n\nYour Partner Program confirmation has been approved. Your final document is attached and is also available in the 1More app.\n\nSign out and sign in again to begin driver activation. Your administrator will send your activation code separately.\n\n1More Partner Program`,
+            ? `Hello ${app.first_name ?? 'there'},\n\nYour Partner Program exit is complete. You can continue using the same account as a rider. Your settlement PDF is attached and is also available in the app under Past Driver Settlements. Please refer to the attached document for dues and settlement details.\n\n1More Partner Program`
+            : `Hello ${app.first_name ?? 'there'},\n\nYour Partner Program confirmation has been approved. Your final document is attached and is also available in the 1More app.\n\nSign out and sign in again to begin driver activation. Your administrator will send your activation code separately.\n\n1More Partner Program`,
         attachments: [
           {
             filename: asset.file_name,
@@ -115,29 +132,16 @@ export class PartnerDeliveryService {
       });
       if (!result.accepted?.length)
         throw new Error('The email server did not accept the recipient.');
-      await this.database.client.partnerDelivery.updateMany({
-        where: { id: delivery.id, status: 'SENDING', claimed_at: now },
-        data: {
-          status: 'SENT',
-          sent_at: new Date(),
-          provider_id: String(result.messageId).slice(0, 500),
-          last_error: null,
-        },
-      });
+      await finish('SENT', null, String(result.messageId).slice(0, 500));
     } catch (error) {
+      const reason = smtp_failure(error);
       console.warn({
         event: 'PARTNER_EMAIL_FAILED',
         application_id,
         channel,
-        reason: smtp_failure(error),
+        reason,
       });
-      await this.database.client.partnerDelivery.updateMany({
-        where: { id: delivery.id, status: 'SENDING', claimed_at: now },
-        data: {
-          status: 'FAILED',
-          last_error: smtp_failure(error),
-        },
-      });
+      await finish('FAILED', reason);
     }
   }
 }

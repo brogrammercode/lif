@@ -1,4 +1,4 @@
-import { prisma } from '../src/infra/database/client.js';
+import { prisma } from './client.js';
 
 const seed = async (): Promise<void> => {
   const rider = await prisma.user.upsert({

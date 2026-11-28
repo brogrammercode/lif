@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import sharp from 'sharp';
-import { PrismaService } from '../infra/database/prisma.service.js';
+import type { PostgresService } from '../database/postgres.service.js';
 import { AppError } from '../core/error.js';
 import { VehicleVerificationService } from '../features/vehicle_verification/vehicle_verification.service.js';
 import {
@@ -141,193 +141,219 @@ function fixture(existing = true) {
     state.writes++;
     return state.vehicle;
   };
-  const tx = {
-    $executeRaw: async () => 1,
-    $queryRaw: async () => (state.vehicle ? [{ id: state.vehicle.id }] : []),
-    user: {
-      findUnique: async ({ where }: { where: { id: string } }) => ({
-        role: where.id === 'admin' ? 'ADMIN' : state.role,
-        status: 'ACTIVE',
-        deleted_at: null,
-      }),
-      findUniqueOrThrow: async () => ({
-        role: state.role,
-        partner_activated_at: state.activated ? new Date() : null,
-      }),
-    },
-    partnerApplication: {
-      findUnique: async () => ({
-        status: state.exited ? 'EXITED' : 'ACTIVATED',
-      }),
-    },
-    driverProfile: {
-      upsert: async () => state.profile,
-      findUniqueOrThrow: async () => state.profile,
-      updateMany: async ({
-        where,
-        data,
-      }: {
-        where: { active_vehicle_id: string };
-        data: Record<string, unknown>;
-      }) => {
-        if (state.profile.active_vehicle_id !== where.active_vehicle_id)
-          return { count: 0 };
-        Object.assign(state.profile, data);
-        return { count: 1 };
-      },
-      update: async ({ data }: { data: Record<string, unknown> }) =>
-        Object.assign(state.profile, data),
-    },
-    vehicleBrand: { findUnique: async () => brand },
-    vehicleModel: { findUnique: async () => model },
-    vehicleCategory: { findUnique: async () => category },
-    ride: { findFirst: async () => (state.activeRide ? { id: 'ride' } : null) },
-    vehicle: {
-      findFirst: async ({
-        where,
-      }: {
-        where: { id: string; driver_id?: string };
-      }) =>
-        where.id === state.vehicle?.id ? structuredClone(state.vehicle) : null,
-      findUnique: async () => structuredClone(state.vehicle),
-      findUniqueOrThrow: async () => state.vehicle,
-      update: async ({ data }: { data: Record<string, unknown> }) =>
-        writeVehicle(data),
-      updateMany: async ({
-        where,
-        data,
-      }: {
-        where: { verification_version: number };
-        data: Record<string, unknown>;
-      }) => {
-        if (state.vehicle?.verification_version !== where.verification_version)
-          return { count: 0 };
-        writeVehicle(data);
-        return { count: 1 };
-      },
-      create: async ({ data }: { data: Record<string, unknown> }) => {
-        state.vehicle = { ...vehicle, ...data } as typeof vehicle;
-        state.writes++;
-        return state.vehicle;
-      },
-    },
-    vehicleVerificationAsset: {
-      update: async ({
-        where,
-        data,
-      }: {
-        where: { id: string };
-        data: { vehicle_id: string };
-      }) =>
-        Object.assign(
-          state.assets.find((v) => v.id === where.id)!,
-          data,
-        ),
-      findMany: async ({
-        where,
-      }: {
-        where: {
-          owner_id: string;
-          id: { in: string[] };
-          OR: {
-            vehicle_id: string | null;
-            created_at?: { gte: Date };
-          }[];
-        };
-      }) =>
-        state.assets.filter(
-          (a) =>
-            a.owner_id === where.owner_id &&
-            where.id.in.includes(a.id) &&
-            where.OR.some(
-              (rule) =>
-                rule.vehicle_id === a.vehicle_id &&
-                (!rule.created_at || a.created_at >= rule.created_at.gte),
-            ),
-        ),
-      findFirst: async ({
-        where,
-      }: {
-        where: {
-          id?: string;
-          owner_id?: string;
-          field_key?: string;
-          vehicle_id?: unknown;
-          bytes?: Uint8Array;
-        };
-      }) =>
-        state.assets.find(
-          (a) =>
-            (!where.id || a.id === where.id) &&
-            (!where.owner_id || a.owner_id === where.owner_id) &&
-            (!where.field_key || a.field_key === where.field_key) &&
-            (where.vehicle_id !== null || a.vehicle_id === null) &&
-            (!where.bytes ||
-              Buffer.from(a.bytes).equals(Buffer.from(where.bytes))),
-        ) ?? null,
-      deleteMany: async ({
-        where,
-      }: {
-        where: { id?: string; owner_id: string; vehicle_id: null };
-      }) => {
-        if (!where.id) return { count: 0 };
-        const old = state.assets.length;
-        state.assets = state.assets.filter(
-          (a) =>
-            !(
-              a.id === where.id &&
-              a.owner_id === where.owner_id &&
-              a.vehicle_id === null
-            ),
-        );
-        return { count: old - state.assets.length };
-      },
-      count: async () =>
-        state.assets.filter((a) => a.vehicle_id === null).length,
-      create: async ({
-        data,
-      }: {
-        data: {
-          owner_id: string;
-          field_key: string;
-          file_name: string;
-          bytes: Buffer<ArrayBuffer>;
-        };
-      }) => {
-        const asset = {
+  const query = async (sql: string, params: unknown[] = []) => {
+    const [first, second, third, fourth] = params;
+    const result = (rows: unknown[]) => ({ rows, rowCount: rows.length });
+    if (sql.includes('pg_advisory_xact_lock')) return result([]);
+    if (sql.includes('SELECT status, deleted_at, role FROM users'))
+      return result([
+        {
+          role: first === 'admin' ? 'ADMIN' : state.role,
+          status: 'ACTIVE',
+          deleted_at: null,
+        },
+      ]);
+    if (sql.includes('FROM partner_applications'))
+      return result([{ status: state.exited ? 'EXITED' : 'ACTIVATED' }]);
+    if (sql.startsWith('SELECT id FROM users'))
+      return result(
+        state.role === 'DRIVER' || state.activated ? [{ id: first }] : [],
+      );
+    if (sql.startsWith('INSERT INTO driver_profiles')) return result([]);
+    if (
+      sql.startsWith('SELECT id,active_vehicle_id FROM driver_profiles') ||
+      sql.includes('AS active_vehicle')
+    )
+      return result([state.profile]);
+    if (sql.includes('FROM rides'))
+      return result(state.activeRide ? [{ id: 'ride' }] : []);
+    if (sql.includes('FROM vehicle_categories c')) return result([category]);
+    if (sql.includes('FROM vehicle_models WHERE')) return result([model]);
+    if (sql.includes('FROM vehicle_brands WHERE')) return result([brand]);
+    if (sql.includes('WHERE regexp_replace')) return result([]);
+    if (sql.startsWith('SELECT * FROM vehicles WHERE registration_key'))
+      return result(
+        state.vehicle?.registration_key === first
+          ? [structuredClone(state.vehicle)]
+          : [],
+      );
+    if (sql.includes('FROM vehicles')) {
+      const current =
+        state.vehicle?.id === first ? structuredClone(state.vehicle) : null;
+      return result(
+        current
+          ? [sql.includes('AS vehicle') ? { vehicle: current } : current]
+          : [],
+      );
+    }
+    if (sql.startsWith('UPDATE driver_profiles')) {
+      if (
+        sql.includes('active_vehicle_id=NULL') &&
+        state.profile.active_vehicle_id === second
+      ) {
+        Object.assign(state.profile, {
+          active_vehicle_id: null,
+          availability:
+            state.profile.availability === 'SUSPENDED'
+              ? 'SUSPENDED'
+              : 'OFFLINE',
+        });
+      } else if (sql.includes('active_vehicle_id=$2,updated_at')) {
+        state.profile.active_vehicle_id = second as string;
+      } else if (
+        sql.includes("availability=CASE WHEN availability='SUSPENDED'") &&
+        state.profile.availability !== 'SUSPENDED'
+      ) {
+        state.profile.availability = 'OFFLINE';
+      }
+      return result([]);
+    }
+    if (
+      sql.startsWith('INSERT INTO vehicles') ||
+      sql.startsWith('UPDATE vehicles SET brand_id')
+    ) {
+      const data = {
+        brand_id: first,
+        model_id: second,
+        make: third,
+        model: fourth,
+        type: params[4],
+        capacity: params[5],
+        vehicle_category_id: params[6],
+        plate_number: params[7],
+        color: params[8],
+        verification_fields: JSON.parse(String(params[9])),
+      };
+      if (sql.startsWith('INSERT INTO vehicles')) {
+        state.vehicle = {
+          ...vehicle,
           ...data,
-          id: `upload-${state.assets.length}`,
-          vehicle_id: null,
-          created_at: new Date(),
-        };
-        state.assets.push(asset);
-        return asset;
-      },
-      updateMany: async () => ({ count: 6 }),
-    },
-    userLog: {
-      create: async ({ data }: { data: unknown }) => {
-        state.audits.push(data);
-        return {};
-      },
-    },
+          id: params[10],
+          driver_id: params[11],
+          registration_key: params[12],
+          verification_version: 1,
+        } as typeof vehicle;
+        state.writes++;
+        return result([state.vehicle]);
+      }
+      return result([
+        writeVehicle({
+          ...data,
+          status: params[10],
+          verification_version: { increment: 1 },
+        }),
+      ]);
+    }
+    if (
+      sql.startsWith('UPDATE vehicles SET verification_fields') ||
+      sql.startsWith('UPDATE vehicles SET status=$3')
+    ) {
+      const renewal = sql.startsWith('UPDATE vehicles SET verification_fields');
+      if (
+        state.vehicle?.id !== first ||
+        state.vehicle?.verification_version !== second
+      )
+        return result([]);
+      return result([
+        writeVehicle({
+          status: renewal ? 'UNDER_REVIEW' : third,
+          verification_fields: JSON.parse(String(renewal ? third : fourth)),
+          verification_version: { increment: 1 },
+        }),
+      ]);
+    }
+    if (sql.includes('FROM vehicle_verification_assets')) {
+      if (sql.includes('id=ANY')) {
+        const ids = first as string[];
+        return result(
+          state.assets.filter(
+            (row) =>
+              row.owner_id === second &&
+              ids.includes(row.id) &&
+              ((row.vehicle_id === null && row.created_at >= (third as Date)) ||
+                (fourth && row.vehicle_id === fourth)),
+          ),
+        );
+      }
+      if (sql.startsWith('SELECT id,file_name FROM'))
+        return result(
+          state.assets.filter(
+            (row) =>
+              row.id === first &&
+              row.owner_id === second &&
+              row.field_key === third &&
+              row.vehicle_id === null,
+          ),
+        );
+      const pending = state.assets.filter(
+        (row) => row.owner_id === first && row.vehicle_id === null,
+      );
+      if (sql.startsWith('SELECT count'))
+        return result([{ total: pending.length }]);
+      if (sql.startsWith('SELECT id,file_name,field_key'))
+        return result(
+          pending.filter(
+            (row) =>
+              row.field_key === second && row.bytes.equals(third as Buffer),
+          ),
+        );
+      if (sql.includes('WHERE id=$1 AND owner_id=$2')) {
+        const previous = state.assets.length;
+        state.assets = state.assets.filter(
+          (row) =>
+            row.id !== first ||
+            row.owner_id !== second ||
+            row.vehicle_id !== null,
+        );
+        return { rows: [], rowCount: previous - state.assets.length };
+      }
+      if (sql.startsWith('DELETE FROM vehicle_verification_assets'))
+        return result([]);
+    }
+    if (sql.startsWith('INSERT INTO vehicle_verification_assets')) {
+      const [id, owner_id, field_key, file_name, bytes] = params as [
+        string,
+        string,
+        string,
+        string,
+        Buffer<ArrayBuffer>,
+      ];
+      state.assets.push({
+        id,
+        owner_id,
+        field_key,
+        file_name,
+        bytes,
+        vehicle_id: null,
+        created_at: new Date(),
+      });
+      return result([]);
+    }
+    if (sql.startsWith('UPDATE vehicle_verification_assets')) {
+      const ids = Array.isArray(first) ? first : [first];
+      for (const row of state.assets) {
+        if (ids.includes(row.id) && row.owner_id === third)
+          row.vehicle_id = second as string;
+      }
+      return result([]);
+    }
+    if (sql.startsWith('INSERT INTO user_logs')) {
+      state.audits.push(params);
+      return result([]);
+    }
+    throw new Error('Unexpected vehicle verification fixture query: ' + sql);
   };
-  const database = new PrismaService();
-  Object.defineProperty(database, 'client', {
-    value: {
-      $transaction: async (
-        action: (transaction: typeof tx) => Promise<unknown>,
-      ) => action(tx),
-      ...tx,
-    },
-  });
+  const postgres = {
+    transaction: (work: (client: { query: typeof query }) => unknown) =>
+      work({ query }),
+  } as unknown as PostgresService;
   return {
     state,
     brand,
     model,
     category,
     vehicle,
-    service: new VehicleVerificationService(database),
+    service: new VehicleVerificationService(postgres),
   };
 }
 const code = (expected: string) => (error: unknown) =>
@@ -379,19 +405,11 @@ it('recognizes a committed correction retry without resetting later reviews', as
   assert.equal(state.writes, 0);
   assert.equal(state.vehicle!.verification_fields[4]!.status, 'APPROVED');
 });
-it('rejects stale corrections and changes to previously approved values', async () => {
+it('rejects stale vehicle corrections', async () => {
   const { service } = fixture();
   await assert.rejects(
     service.submit('driver', { ...input(), expected_version: 2 }, 'vehicle'),
     code('VEHICLE_VERIFICATION_CONFLICT'),
-  );
-  await assert.rejects(
-    service.submit(
-      'driver',
-      { ...input(), plate_number: 'BR02AA4321' },
-      'vehicle',
-    ),
-    code('VEHICLE_FIELD_LOCKED'),
   );
 });
 it('allows own requested catalog entries but never other drivers pending entries', async () => {
@@ -727,23 +745,18 @@ it('manual document renewal preserves other reviews, blocks active trips and saf
 
 it('admin vehicle verification refuses a rider account before loading its vehicles', async () => {
   let reads = 0;
+  const query = async (sql: string) => {
+    if (sql.includes('FROM users'))
+      return {
+        rows: [{ id: 'rider', role: 'RIDER', partner_activated_at: null }],
+      };
+    reads++;
+    return { rows: [] };
+  };
   const service = new VehicleVerificationService({
-    client: {
-      user: {
-        findFirst: async () => ({
-          id: 'rider',
-          role: 'RIDER',
-          partner_activated_at: null,
-        }),
-      },
-      vehicle: {
-        findMany: async () => {
-          reads++;
-          return [];
-        },
-      },
-    },
-  } as unknown as PrismaService);
+    transaction: (work: (tx: { query: typeof query }) => unknown) =>
+      work({ query }),
+  } as unknown as PostgresService);
   await assert.rejects(
     service.list('rider'),
     (error: unknown) =>

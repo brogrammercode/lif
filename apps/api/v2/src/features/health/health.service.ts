@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../infra/database/prisma.service.js';
+import { PostgresService } from '../../database/postgres.service.js';
 @Injectable()
 export class HealthService {
-  constructor(private readonly database: PrismaService) {}
+  constructor(private readonly database: PostgresService) {}
   async database_status(): Promise<boolean> {
     try {
-      await this.database.client.$queryRaw`SELECT 1`;
+      await this.database.query('SELECT 1');
       return true;
     } catch {
       return false;

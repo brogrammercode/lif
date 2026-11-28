@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { AuthRepository } from './auth.repo.js';
-import type { AuthProvider } from '@prisma/client';
+import { AuthRepository, type AuthProvider } from './auth.repo.js';
 import { config } from '../../core/config.js';
 import { AppError } from '../../core/error.js';
 import {
@@ -12,7 +11,7 @@ import {
   INVALID_SESSION_MESSAGE,
   USER_NOT_FOUND_MESSAGE,
 } from './auth.constant.js';
-import type { AuthResponse, ExternalLoginInput } from './auth.type.js';
+import type { AuthResponse, ExternalLoginInput } from './dto/auth.dto.js';
 @Injectable()
 export class AuthService {
   constructor(private readonly authRepository: AuthRepository) {}
@@ -25,12 +24,8 @@ export class AuthService {
     email: string | null;
     phone_e164: string | null;
     avatar_url: string | null;
-    last_known_latitude: {
-      toNumber(): number;
-    } | null;
-    last_known_longitude: {
-      toNumber(): number;
-    } | null;
+    last_known_latitude: string | null;
+    last_known_longitude: string | null;
     driver_profile?: unknown;
     _count?: { partner_applications: number };
     partner_application?: {
@@ -46,8 +41,14 @@ export class AuthService {
     email: user.email,
     phone_e164: user.phone_e164,
     avatar_url: user.avatar_url,
-    last_known_latitude: user.last_known_latitude?.toNumber() ?? null,
-    last_known_longitude: user.last_known_longitude?.toNumber() ?? null,
+    last_known_latitude:
+      user.last_known_latitude === null
+        ? null
+        : Number(user.last_known_latitude),
+    last_known_longitude:
+      user.last_known_longitude === null
+        ? null
+        : Number(user.last_known_longitude),
     driver_profile: user.driver_profile,
     partner_status: user.partner_application?.status ?? null,
     has_partner_exit:

@@ -1,8 +1,3 @@
-import {
-  DUPLICATE_RECORD_MESSAGE,
-  NOT_FOUND_ERROR_MESSAGE,
-} from './constants.js';
-
 export const HTTP_CONFIG = {
   PREFIX: 'api',
   VERSIONS: ['1', '2'],
@@ -23,74 +18,6 @@ export const HTTP_CONFIG = {
   IDEMPOTENCY_VERSION_PATH: /^\/api\/v2(?=\/)/,
   IDEMPOTENCY_COMPATIBILITY_PATH: '/api/v1',
   ROUTE_PARAMETER_PATTERN: /:([A-Za-z_][A-Za-z0-9_]*)/g,
-} as const;
-export const HTTP_DATABASE_ERRORS = {
-  P1000: {
-    status_code: 503,
-    error_code: 'DATABASE_UNAVAILABLE',
-    message:
-      'The database is temporarily unavailable. Please try again shortly.',
-  },
-  P1001: {
-    status_code: 503,
-    error_code: 'DATABASE_UNAVAILABLE',
-    message:
-      'The database is temporarily unavailable. Please try again shortly.',
-  },
-  P1002: {
-    status_code: 503,
-    error_code: 'DATABASE_UNAVAILABLE',
-    message:
-      'The database is temporarily unavailable. Please try again shortly.',
-  },
-  P1008: {
-    status_code: 503,
-    error_code: 'DATABASE_UNAVAILABLE',
-    message:
-      'The database is temporarily unavailable. Please try again shortly.',
-  },
-  P1017: {
-    status_code: 503,
-    error_code: 'DATABASE_UNAVAILABLE',
-    message:
-      'The database is temporarily unavailable. Please try again shortly.',
-  },
-  P2024: {
-    status_code: 503,
-    error_code: 'DATABASE_BUSY',
-    message: 'The database is busy. Please try again shortly.',
-  },
-  P2028: {
-    status_code: 503,
-    error_code: 'DATABASE_BUSY',
-    message:
-      'The database transaction could not finish. Please try again shortly.',
-  },
-  P2037: {
-    status_code: 503,
-    error_code: 'DATABASE_BUSY',
-    message: 'The database is busy. Please try again shortly.',
-  },
-  P2002: {
-    status_code: 409,
-    error_code: 'RECORD_EXISTS',
-    message: DUPLICATE_RECORD_MESSAGE,
-  },
-  P2025: {
-    status_code: 404,
-    error_code: 'NOT_FOUND',
-    message: NOT_FOUND_ERROR_MESSAGE,
-  },
-  P2003: {
-    status_code: 409,
-    error_code: 'REFERENCE_CONFLICT',
-    message: 'A referenced record is unavailable or still in use.',
-  },
-  P2034: {
-    status_code: 409,
-    error_code: 'TRANSACTION_CONFLICT',
-    message: 'The data changed during this request. Please try again.',
-  },
 } as const;
 export const HTTP_MESSAGES = {
   STARTED: '1More Nest API listening on port',

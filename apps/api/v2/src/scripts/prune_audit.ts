@@ -1,8 +1,12 @@
-import { PrismaService } from '../infra/database/prisma.service.js';
+import { NestFactory } from '@nestjs/core';
 import { AuditRetentionService } from '../core/audit_retention.service.js';
-const database = new PrismaService();
+import { DatabaseModule } from '../database/database.module.js';
+import { PostgresService } from '../database/postgres.service.js';
+const context = await NestFactory.createApplicationContext(DatabaseModule, {
+  logger: false,
+});
 try {
-  const service = new AuditRetentionService(database);
+  const service = new AuditRetentionService(context.get(PostgresService));
   const totals = { admin_activity: 0, user_logs: 0 };
   for (let pass = 0; pass < 100; pass++) {
     const result = await service.prune();
@@ -23,5 +27,5 @@ try {
   );
   process.exitCode = 1;
 } finally {
-  await database.client.$disconnect();
+  await context.close();
 }

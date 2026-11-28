@@ -1,15 +1,15 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { z } from 'zod';
-import { PrismaService } from '../../infra/database/prisma.service.js';
-import type { TransactionClient } from '../../infra/database/client.js';
 import {
   ACCOUNT_LIFECYCLE_LOCK,
-  require_active_admin,
-} from '../../infra/database/account_lifecycle.js';
-import { create_user_log } from '../../infra/database/user_log.js';
+  requireActiveAdmin,
+} from '../../database/account-locks.js';
+import {
+  PostgresService,
+  type SqlClient,
+} from '../../database/postgres.service.js';
+import { insertUserLog } from '../../database/user-log.js';
 import { AppError } from '../../core/error.js';
-import { partner_lock } from './partner_program.security.js';
 
 export const application_delete_input = z
   .object({
@@ -17,45 +17,11 @@ export const application_delete_input = z
     confirmation: z.string().trim().min(1).max(320),
   })
   .strict();
+
 const purposes = ['APPLICATION_DOCUMENT', 'APPLICATION_SELFIE', 'FINAL_PDF'];
-const selection = {
-  id: true,
-  user_id: true,
-  version: true,
-  status: true,
-  created_at: true,
-  contact_email: true,
-  activated_at: true,
-  user: {
-    select: {
-      first_name: true,
-      last_name: true,
-      role: true,
-      partner_activated_at: true,
-    },
-  },
-  confirmation: { select: { id: true } },
-  exit_request: { select: { id: true } },
-  _count: { select: { fields: true, deliveries: true } },
-} satisfies Prisma.PartnerApplicationSelect;
-const notification_filter = (app: {
-  id: string;
-  user_id: string;
-  created_at: Date;
-}): Prisma.NotificationWhereInput => ({
-  OR: [
-    { data: { path: ['application_id'], equals: app.id } },
-    // Older in-app status notices did not carry application_id. They predate
-    // reapplication, and this fallback is scoped to the current time window.
-    {
-      user_id: app.user_id,
-      type: 'ACCOUNT',
-      channel: 'IN_APP',
-      created_at: { gte: app.created_at },
-      data: { path: ['route'], equals: '/partner-program' },
-    },
-  ],
-});
+const notices = `(data->>'application_id'=$1 OR
+  (data->>'application_id' IS NULL AND user_id=$2 AND type='ACCOUNT' AND channel='IN_APP'
+    AND created_at >= $3 AND data->>'route'='/partner-program'))`;
 const missing = () =>
   new AppError(
     404,
@@ -63,174 +29,182 @@ const missing = () =>
     'Application not found. Refresh the list.',
   );
 
+type Application = {
+  id: string;
+  user_id: string;
+  version: number;
+  status: string;
+  created_at: Date;
+  contact_email: string;
+  activated_at: Date | null;
+  first_name: string | null;
+  last_name: string | null;
+  role: string;
+  partner_activated_at: Date | null;
+  has_exit: boolean;
+  fields: number;
+  confirmations: number;
+  deliveries: number;
+  sending_pdf: number;
+};
+
 @Injectable()
 export class PartnerApplicationDeletionService {
-  constructor(private readonly database: PrismaService) {}
-  private async snapshot(tx: TransactionClient, id: string) {
-    const app = await tx.partnerApplication.findUnique({
-      where: { id },
-      select: selection,
-    });
+  constructor(private readonly database: PostgresService) {}
+
+  private async snapshot(tx: SqlClient, id: string) {
+    const found = await tx.query<Application>(
+      `SELECT a.id,a.user_id,a.version,a.status,a.created_at,a.contact_email,a.activated_at,
+        u.first_name,u.last_name,u.role,u.partner_activated_at,
+        EXISTS(SELECT 1 FROM partner_exit_requests e WHERE e.application_id=a.id) AS has_exit,
+        (SELECT count(*)::int FROM partner_application_fields f WHERE f.application_id=a.id) AS fields,
+        (SELECT count(*)::int FROM partner_confirmations f WHERE f.application_id=a.id) AS confirmations,
+        (SELECT count(*)::int FROM partner_deliveries d WHERE d.application_id=a.id) AS deliveries,
+        (SELECT count(*)::int FROM partner_deliveries d WHERE d.application_id=a.id AND d.status='SENDING') AS sending_pdf
+      FROM partner_applications a JOIN users u ON u.id=a.user_id WHERE a.id=$1`,
+      [id],
+    );
+    const app = found.rows[0];
     if (!app) throw missing();
-    const notifications = notification_filter(app);
-    const [uploads, notification_count, sending_mail, sending_pdf] =
-      await Promise.all([
-        tx.partnerAsset.aggregate({
-          where: {
-            owner_id: app.user_id,
-            application_id: app.id,
-            purpose: { in: purposes },
-          },
-          _count: { _all: true },
-          _sum: { size: true },
-        }),
-        tx.notification.count({ where: notifications }),
-        tx.notification.count({
-          where: {
-            AND: [
-              notifications,
-              {
-                channel: 'EMAIL',
-                sent_at: null,
-                data: { path: ['state'], equals: 'SENDING' },
-              },
-            ],
-          },
-        }),
-        tx.partnerDelivery.count({
-          where: { application_id: id, status: 'SENDING' },
-        }),
-      ]);
+    const noticeFilter = [id, app.user_id, app.created_at];
+    const upload = await tx.query<{ total: number; bytes: number }>(
+      `SELECT count(*)::int AS total,COALESCE(sum(size),0)::double precision AS bytes
+       FROM partner_assets WHERE application_id=$1 AND owner_id=$2 AND purpose=ANY($3::text[])`,
+      [id, app.user_id, purposes],
+    );
+    const notifications = await tx.query<{
+      total: number;
+      sending_mail: number;
+    }>(
+      `SELECT count(*)::int AS total,
+        count(*) FILTER(WHERE channel='EMAIL' AND sent_at IS NULL AND data->>'state'='SENDING')::int AS sending_mail
+      FROM notifications WHERE ${notices}`,
+      noticeFilter,
+    );
     const activated =
       !!app.activated_at ||
-      !!app.user.partner_activated_at ||
-      app.user.role === 'DRIVER' ||
+      !!app.partner_activated_at ||
+      app.role === 'DRIVER' ||
       ['ACTIVATED', 'EXITED'].includes(app.status) ||
-      !!app.exit_request;
+      app.has_exit;
+    const sending =
+      app.sending_pdf > 0 || notifications.rows[0]!.sending_mail > 0;
     return {
       app,
-      notifications,
+      noticeFilter,
       preview: {
-        id: app.id,
+        id,
         version: app.version,
         status: app.status,
         contact_email: app.contact_email,
         name:
-          [app.user.first_name, app.user.last_name].filter(Boolean).join(' ') ||
+          [app.first_name, app.last_name].filter(Boolean).join(' ') ||
           app.contact_email,
-        allowed: !activated && !sending_mail && !sending_pdf,
+        allowed: !activated && !sending,
         blocked_reason: activated
           ? 'Applications can be deleted only before driver activation. Activated or exited driver history must be retained.'
-          : sending_mail || sending_pdf
+          : sending
             ? 'An email delivery is in progress. Wait for it to finish, then refresh this preview.'
             : null,
         counts: {
-          fields: app._count.fields,
-          confirmations: app.confirmation ? 1 : 0,
-          deliveries: app._count.deliveries,
-          uploads: uploads._count._all,
-          upload_bytes: uploads._sum.size ?? 0,
-          notifications: notification_count,
+          fields: app.fields,
+          confirmations: app.confirmations,
+          deliveries: app.deliveries,
+          uploads: upload.rows[0]!.total,
+          upload_bytes: upload.rows[0]!.bytes,
+          notifications: notifications.rows[0]!.total,
         },
       },
     };
   }
-  async preview(actor_id: string, id: string) {
-    return this.database.client.$transaction(
-      async (tx) => {
-        await require_active_admin(tx, actor_id);
-        return (await this.snapshot(tx, id)).preview;
-      },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
-        maxWait: 10000,
-        timeout: 30000,
-      },
-    );
+
+  async preview(actor: string, id: string) {
+    return this.database.transaction(async (tx) => {
+      await requireActiveAdmin(tx, actor);
+      return (await this.snapshot(tx, id)).preview;
+    }, 'REPEATABLE READ');
   }
+
   async remove(
-    actor_id: string,
+    actor: string,
     id: string,
-    input: z.infer<typeof application_delete_input>,
+    input: z.output<typeof application_delete_input>,
   ) {
-    return this.database.client.$transaction(
-      async (tx) => {
-        await require_active_admin(tx, actor_id);
-        const initial = await tx.partnerApplication.findUnique({
-          where: { id },
-          select: { user_id: true, created_at: true },
-        });
-        if (!initial) throw missing();
-        // Match the lifecycle -> partner lock order used by onboarding writes.
-        // The partner lock serializes activation; shared lifecycle access also
-        // prevents an account deactivation from racing the deletion.
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${ACCOUNT_LIFECYCLE_LOCK}::integer, hashtext(${initial.user_id}))`;
-        await partner_lock(tx, initial.user_id);
-        // Serialize deletion against delivery claims. A worker claiming after the
-        // delete sees zero rows; an already running delivery blocks deletion.
-        await tx.$queryRaw`SELECT id FROM partner_deliveries WHERE application_id=${id} ORDER BY id FOR UPDATE`;
-        await tx.$queryRaw`SELECT id FROM notifications WHERE data->>'application_id'=${id} OR (user_id=${initial.user_id} AND type='ACCOUNT' AND channel='IN_APP' AND created_at>=${initial.created_at} AND data->>'route'='/partner-program') ORDER BY id FOR UPDATE`;
-        const { app, preview, notifications } = await this.snapshot(tx, id);
-        if (app.version !== input.version)
-          throw new AppError(
-            409,
-            'APPLICATION_CHANGED',
-            'This application changed. Reload the deletion preview before continuing.',
-          );
-        if (!preview.allowed)
-          throw new AppError(
-            409,
-            'APPLICATION_DELETE_BLOCKED',
-            preview.blocked_reason!,
-          );
-        if (
-          input.confirmation.toLowerCase() !==
-          app.contact_email.trim().toLowerCase()
-        )
-          throw new AppError(
-            422,
-            'CONFIRMATION_REQUIRED',
-            'Enter the applicant email exactly as displayed to confirm deletion.',
-          );
-        await tx.notification.deleteMany({ where: notifications });
-        await tx.partnerAsset.deleteMany({
-          where: {
-            owner_id: app.user_id,
-            application_id: app.id,
-            purpose: { in: purposes },
-          },
-        });
-        // Fields, confirmation and delivery records use FK ON DELETE CASCADE.
-        await tx.partnerApplication.delete({ where: { id } });
-        const previous = await tx.partnerApplication.findFirst({
-          where: {
-            user_id: app.user_id,
-            status: 'EXITED',
-            current_user_id: null,
-          },
-          orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
-          select: { id: true },
-        });
-        if (previous)
-          await tx.partnerApplication.update({
-            where: { id: previous.id },
-            data: { current_user_id: app.user_id },
-          });
-        await create_user_log(tx, {
-          actor_id,
-          entity_type: 'PartnerApplication',
-          entity_id: id,
-          action: 'DELETE_PARTNER_APPLICATION',
-          before_data: {
-            user_id: app.user_id,
-            status: app.status,
-            version: app.version,
-          },
-          after_data: { deleted: preview.counts },
-        });
-        return { id, deleted: preview.counts };
-      },
-      { maxWait: 10000, timeout: 30000 },
-    );
+    return this.database.transaction(async (tx) => {
+      await requireActiveAdmin(tx, actor);
+      const source = await tx.query<{ user_id: string; created_at: Date }>(
+        'SELECT user_id,created_at FROM partner_applications WHERE id=$1',
+        [id],
+      );
+      const initial = source.rows[0];
+      if (!initial) throw missing();
+      // Match onboarding lock order and serialize against active delivery claims.
+      await tx.query(
+        'SELECT pg_advisory_xact_lock_shared($1::integer,hashtext($2))',
+        [ACCOUNT_LIFECYCLE_LOCK, initial.user_id],
+      );
+      await tx.query('SELECT pg_advisory_xact_lock(720061,hashtext($1))', [
+        initial.user_id,
+      ]);
+      await tx.query(
+        'SELECT id FROM partner_deliveries WHERE application_id=$1 ORDER BY id FOR UPDATE',
+        [id],
+      );
+      await tx.query(
+        `SELECT id FROM notifications WHERE ${notices} ORDER BY id FOR UPDATE`,
+        [id, initial.user_id, initial.created_at],
+      );
+      const { app, preview, noticeFilter } = await this.snapshot(tx, id);
+      if (app.version !== input.version)
+        throw new AppError(
+          409,
+          'APPLICATION_CHANGED',
+          'This application changed. Reload the deletion preview before continuing.',
+        );
+      if (!preview.allowed)
+        throw new AppError(
+          409,
+          'APPLICATION_DELETE_BLOCKED',
+          preview.blocked_reason!,
+        );
+      if (
+        input.confirmation.toLowerCase() !==
+        app.contact_email.trim().toLowerCase()
+      )
+        throw new AppError(
+          422,
+          'CONFIRMATION_REQUIRED',
+          'Enter the applicant email exactly as displayed to confirm deletion.',
+        );
+      await tx.query(
+        `DELETE FROM notifications WHERE ${notices}`,
+        noticeFilter,
+      );
+      await tx.query(
+        'DELETE FROM partner_assets WHERE application_id=$1 AND owner_id=$2 AND purpose=ANY($3::text[])',
+        [id, app.user_id, purposes],
+      );
+      // Fields, confirmation and delivery records use the application FK cascade.
+      await tx.query('DELETE FROM partner_applications WHERE id=$1', [id]);
+      await tx.query(
+        `UPDATE partner_applications SET current_user_id=$1,updated_at=clock_timestamp()
+        WHERE id=(SELECT id FROM partner_applications WHERE user_id=$1 AND status='EXITED'
+          AND current_user_id IS NULL ORDER BY created_at DESC,id DESC LIMIT 1)`,
+        [app.user_id],
+      );
+      await insertUserLog(tx, {
+        actor_id: actor,
+        entity_type: 'PartnerApplication',
+        entity_id: id,
+        action: 'DELETE_PARTNER_APPLICATION',
+        before_data: {
+          user_id: app.user_id,
+          status: app.status,
+          version: app.version,
+        },
+        after_data: { deleted: preview.counts },
+      });
+      return { id, deleted: preview.counts };
+    });
   }
 }

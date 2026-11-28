@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { UserRepository } from './user.repo.js';
+import { UserRepository } from './user.repository.js';
 import { CloudinaryService } from '../../infra/media/cloudinary.js';
 import { AppError } from '../../core/error.js';
 import {
@@ -12,7 +12,7 @@ import type {
   LocationUpdateInput,
   ProfileUpdateInput,
   SavedPlaceInput,
-} from './user.type.js';
+} from './dto/user.dto.js';
 @Injectable()
 export class UserService {
   constructor(

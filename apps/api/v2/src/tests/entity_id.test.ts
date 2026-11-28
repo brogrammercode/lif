@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
-import { prepare_entity_data } from '../infra/database/entity_id.js';
+import { prepare_entity_data } from '../../prisma/entity_id.js';
 
 it('assigns timestamp IDs to nested quote/route creates without changing JSON payloads', () => {
   const json = { create: { note: 'This is JSON, not a Prisma relation.' } };
@@ -43,4 +43,23 @@ it('prepares nested update/upsert/connectOrCreate branches and preserves explici
   assert.equal(data.sessions.upsert.where.id, 'session');
   assert.equal(data.sessions.connectOrCreate.where.id, 'linked');
   assert.equal(data.sessions.connectOrCreate.create.id, 'explicit');
+});
+
+it('keeps newly generated IDs numeric and disjoint across API instances in the same millisecond', async (t) => {
+  const time = 1_795_860_000_000;
+  t.mock.method(Date, 'now', () => time);
+  const left = await import(
+    new URL('../database/entity-id.js?instance=1', import.meta.url).href
+  );
+  const right = await import(
+    new URL('../database/entity-id.js?instance=2', import.meta.url).href
+  );
+  const first = left.nextEntityId();
+  const second = left.nextEntityId();
+  const concurrent = right.nextEntityId();
+  assert.match(first, /^\d{33}$/);
+  assert.equal(first.slice(0, 13), String(time));
+  assert.equal(concurrent.slice(0, 13), String(time));
+  assert.notEqual(first, concurrent);
+  assert.ok(second > first);
 });

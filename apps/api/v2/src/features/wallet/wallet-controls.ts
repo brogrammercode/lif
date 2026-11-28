@@ -1,6 +1,6 @@
-import type { PayoutSchedule } from '@prisma/client';
+import type { PayoutSchedule } from './wallet.rows.js';
 import { config } from '../../core/config.js';
-import type { TransactionClient } from '../../infra/database/client.js';
+import type { SqlClient } from '../../database/postgres.service.js';
 
 export const payout_schedule_id = 'default';
 export const payout_schedule_lock = 720065;
@@ -25,48 +25,60 @@ export const default_wallet_controls: WalletControls = {
   razorpay_x_transfers_enabled: false,
 };
 
-export async function read_wallet_controls(
-  db: Pick<TransactionClient, 'payoutSchedule'>,
-) {
-  return (
-    (await db.payoutSchedule.findUnique({
-      where: { id: payout_schedule_id },
-      select: control_fields,
-    })) ?? default_wallet_controls
+export async function readWalletControls(tx: SqlClient) {
+  const {
+    rows: [settings],
+  } = await tx.query<WalletControls>(
+    `SELECT razorpay_ride_upi_enabled,wallet_ride_collection_enabled,wallet_topup_mode,
+      wallet_live_topup_approved,razorpay_x_upi_setup_enabled,razorpay_x_transfers_enabled
+      FROM payout_schedules WHERE id=$1`,
+    [payout_schedule_id],
   );
+  return settings ?? default_wallet_controls;
 }
 
-export async function has_wallet_funding(
-  db: Pick<TransactionClient, 'walletTopUp'>,
-  mode: 'test' | 'live',
-) {
-  return Boolean(
-    await db.walletTopUp.findFirst({
-      where: {
-        provider_mode: mode,
-        OR: [
-          { entries: { some: { kind: 'TOP_UP' } } },
-          { status: { in: ['CREATING', 'PENDING', 'REVIEW_REQUIRED'] } },
-        ],
-      },
-      select: { id: true },
-    }),
+export async function hasWalletFunding(db: SqlClient, mode: 'test' | 'live') {
+  const { rowCount } = await db.query(
+    `SELECT t.id FROM wallet_topups t WHERE t.provider_mode=$1 AND
+      (t.status IN ('CREATING','PENDING','REVIEW_REQUIRED') OR EXISTS(
+        SELECT 1 FROM wallet_entries e WHERE e.topup_id=t.id AND e.kind='TOP_UP'
+      )) LIMIT 1`,
+    [mode],
   );
+  return Boolean(rowCount);
 }
 
-export async function payout_submission_state(
-  db: Pick<TransactionClient, 'walletTopUp'>,
+export async function payoutSubmissionState(
+  db: SqlClient,
   schedule: Pick<
     PayoutSchedule,
     'enabled' | 'razorpay_x_transfers_enabled'
   > | null,
-  credentials_ready: boolean,
+  credentialsReady: boolean,
 ) {
   if (!schedule?.enabled) return 'schedule_paused';
   if (!schedule.razorpay_x_transfers_enabled) return 'transfers_disabled';
-  if (!credentials_ready) return 'credentials_unavailable';
-  if (await has_wallet_funding(db, 'test')) return 'test_funding';
+  if (!credentialsReady) return 'credentials_unavailable';
+  if (await hasWalletFunding(db, 'test')) return 'test_funding';
   return 'ready';
+}
+
+export async function presentWalletSettings<
+  T extends WalletControls & { enabled: boolean },
+>(db: SqlClient, settings: T) {
+  const gatewayMode = gateway_credential_mode();
+  const razorpayXReady = razorpay_x_credentials_ready();
+  const state = await payoutSubmissionState(db, settings, razorpayXReady);
+  return {
+    ...settings,
+    submission_state: state,
+    transfers_enabled: state === 'ready',
+    provider_readiness: {
+      gateway_mode: gatewayMode,
+      topup_active: active_topup_mode(settings, gatewayMode) !== null,
+      razorpay_x_ready: razorpayXReady,
+    },
+  };
 }
 
 export function gateway_credential_mode(): 'test' | 'live' | null {
@@ -106,26 +118,4 @@ export function active_topup_mode(
   if (controls.wallet_topup_mode === 'test' && credential_mode === 'test')
     return 'test';
   return null;
-}
-
-export async function present_wallet_settings<
-  T extends WalletControls & { enabled: boolean },
->(db: Pick<TransactionClient, 'walletTopUp'>, settings: T) {
-  const gateway_mode = gateway_credential_mode();
-  const razorpay_x_ready = razorpay_x_credentials_ready();
-  const submission_state = await payout_submission_state(
-    db,
-    settings,
-    razorpay_x_ready,
-  );
-  return {
-    ...settings,
-    submission_state,
-    transfers_enabled: submission_state === 'ready',
-    provider_readiness: {
-      gateway_mode,
-      topup_active: active_topup_mode(settings, gateway_mode) !== null,
-      razorpay_x_ready,
-    },
-  };
 }

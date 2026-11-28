@@ -6,20 +6,21 @@ import {
 } from '@nestjs/common';
 import { concatMap, catchError } from 'rxjs';
 import type { Request } from 'express';
-import { PrismaService } from '../infra/database/prisma.service.js';
+import { PostgresService } from '../database/postgres.service.js';
 import { changes_pending } from '../features/admin_pending/pending.rules.js';
 
 @Injectable()
 export class PendingInvalidationInterceptor implements NestInterceptor {
-  constructor(private readonly database: PrismaService) {}
+  constructor(private readonly database: PostgresService) {}
   async invalidate(request: Request) {
     try {
-      await this.database.client.$transaction(
+      await this.database.transaction(
         async (tx) => {
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(720091)`;
-          await tx.$executeRaw`DELETE FROM admin_pending_snapshots`;
+          await tx.query('SELECT pg_advisory_xact_lock(720091)');
+          await tx.query('DELETE FROM admin_pending_snapshots');
         },
-        { maxWait: 1000, timeout: 3000 },
+        'READ COMMITTED',
+        { checkoutMs: 1000, statementMs: 3000 },
       );
     } catch {
       console.warn({

@@ -53,6 +53,15 @@ export const checkout_schema = z.object({
   ride_id: z.string().min(1),
   payment_method_id: z.string().min(1),
 });
+// The ride-scoped alias takes its ID from the route.
+export const checkout_request = z
+  .object({ routeId: z.string().optional(), body: z.unknown() })
+  .transform(({ routeId, body }) => {
+    const fields = body as Record<string, unknown> | undefined;
+    return { ...fields, ride_id: routeId ?? fields?.ride_id };
+  })
+  .pipe(checkout_schema);
+
 export const webhook_schema = z.object({
   ride_id: z.string().min(1).optional(),
   provider_payment_id: z.string().min(1),

@@ -1,66 +1,56 @@
+import { opaqueIdSchema } from '../../common/dto/opaque-id.dto.js';
 import {
+  Body,
   Controller,
   HttpCode,
-  Req,
-  Res,
+  Param,
   Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { AdminService } from './admin.service.js';
+import { CurrentUserId } from '../../common/decorators/current-user-id.decorator.js';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { AuthGuard, AdminGuard } from '../../core/guards.js';
-import { ADMIN_ROUTES } from './admin.route.js';
-import type { Request, Response } from 'express';
-import { AppError } from '../../core/error.js';
-import { send_success } from '../../core/response.js';
+import { success } from '../../core/response.js';
+import { AdminService } from './admin.service.js';
 import {
   DRIVER_VERIFICATION_UPDATED_MESSAGE,
   RIDE_OFFER_CREATED_MESSAGE,
 } from './admin.constant.js';
-import { offer_schema, verification_schema } from './admin.type.js';
-@Controller()
+import {
+  offer_schema,
+  verification_schema,
+  type OfferInput,
+  type VerificationInput,
+} from './dto/admin.dto.js';
+
+@Controller('admin')
+@UseGuards(AuthGuard, AdminGuard)
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
-  readonly current_user_id = (request: Request): string => {
-    if (!request.auth)
-      throw new AppError(401, 'UNAUTHORIZED', 'Authentication is required');
-    return request.auth.user_id;
-  };
 
-  @Patch(ADMIN_ROUTES.VERIFICATION)
-  @HttpCode(200)
-  @UseGuards(AuthGuard, AdminGuard)
+  @Patch('drivers/:id/verification')
   async verification(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
+    @Body(new ZodValidationPipe(verification_schema)) input: VerificationInput,
   ) {
-    return send_success(
-      response,
-      await this.adminService.verify_driver(
-        this.current_user_id(request),
-        request.params.id as string,
-        verification_schema.parse(request.body),
-      ),
+    return success(
+      await this.adminService.verify_driver(actorId, id, input),
       DRIVER_VERIFICATION_UPDATED_MESSAGE,
     );
   }
 
-  @Post(ADMIN_ROUTES.OFFER)
-  @HttpCode(200)
-  @UseGuards(AuthGuard, AdminGuard)
+  @Post('rides/:id/offers')
+  @HttpCode(201)
   async offer(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
+    @Body(new ZodValidationPipe(offer_schema)) input: OfferInput,
   ) {
-    return send_success(
-      response,
-      await this.adminService.dispatch_ride_offer(
-        this.current_user_id(request),
-        request.params.id as string,
-        offer_schema.parse(request.body),
-      ),
+    return success(
+      await this.adminService.dispatch_ride_offer(actorId, id, input),
       RIDE_OFFER_CREATED_MESSAGE,
-      201,
     );
   }
 }

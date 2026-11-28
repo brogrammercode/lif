@@ -584,15 +584,15 @@
     "idempotent": false
   },
   {
-    "feature": "vehicle_category",
-    "handler": "admin_catalog",
+    "feature": "admin_vehicle_category",
+    "handler": "catalog",
     "method": "get",
     "path": "admin/vehicle-categories",
     "guards": ["AuthGuard", "AdminGuard"],
     "idempotent": false
   },
   {
-    "feature": "vehicle_category",
+    "feature": "admin_vehicle_category",
     "handler": "create",
     "method": "post",
     "path": "admin/vehicle-categories",
@@ -600,7 +600,7 @@
     "idempotent": false
   },
   {
-    "feature": "vehicle_category",
+    "feature": "admin_vehicle_category",
     "handler": "update",
     "method": "patch",
     "path": "admin/vehicle-categories/:id",
@@ -1600,7 +1600,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "admin_wallet",
     "handler": "user_ledger",
     "method": "get",
     "path": "admin/users/:id/wallet-ledger",
@@ -1632,7 +1632,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "admin_wallet",
     "handler": "cycles",
     "method": "get",
     "path": "admin/payouts/cycles",
@@ -1640,7 +1640,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "admin_wallet",
     "handler": "cycle_drivers",
     "method": "get",
     "path": "admin/payouts/cycles/:id/drivers",
@@ -1648,7 +1648,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "admin_wallet",
     "handler": "payout_lines",
     "method": "get",
     "path": "admin/payouts/drivers/:id/lines",
@@ -1656,7 +1656,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "admin_wallet",
     "handler": "schedule",
     "method": "get",
     "path": "admin/payouts/settings",
@@ -1664,7 +1664,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "admin_wallet",
     "handler": "save_schedule",
     "method": "put",
     "path": "admin/payouts/settings",
@@ -1704,7 +1704,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "admin_wallet",
     "handler": "edit_payout",
     "method": "patch",
     "path": "admin/payouts/drivers/:id",
@@ -1712,7 +1712,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "admin_wallet",
     "handler": "blocks",
     "method": "get",
     "path": "admin/payouts/blocks",
@@ -1720,7 +1720,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "admin_wallet",
     "handler": "block",
     "method": "put",
     "path": "admin/payouts/blocks",
@@ -1728,7 +1728,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "admin_wallet",
     "handler": "cycle_report",
     "method": "get",
     "path": "admin/payouts/cycles/:id/report",
@@ -1736,7 +1736,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "driver_wallet",
     "handler": "payout_methods_list",
     "method": "get",
     "path": "driver/wallet/payout-methods",
@@ -1744,7 +1744,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "driver_wallet",
     "handler": "payout_method_setup",
     "method": "post",
     "path": "driver/wallet/payout-methods",
@@ -1752,7 +1752,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "driver_wallet",
     "handler": "payout_method_default",
     "method": "patch",
     "path": "driver/wallet/payout-methods/:id/default",
@@ -1760,7 +1760,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "driver_wallet",
     "handler": "payout_method_check",
     "method": "post",
     "path": "driver/wallet/payout-methods/:id/check",
@@ -1768,7 +1768,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "admin_wallet",
     "handler": "approve_cycle",
     "method": "post",
     "path": "admin/payouts/cycles/:id/approve",
@@ -1776,7 +1776,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "driver_wallet",
     "handler": "driver_payouts",
     "method": "get",
     "path": "driver/wallet/payouts",
@@ -1784,7 +1784,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "driver_wallet",
     "handler": "driver_payout",
     "method": "get",
     "path": "driver/wallet/payouts/:id",
@@ -1792,7 +1792,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "admin_wallet",
     "handler": "upcoming",
     "method": "get",
     "path": "admin/payouts/upcoming",
@@ -1800,7 +1800,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "admin_wallet",
     "handler": "reconcile_payout",
     "method": "post",
     "path": "admin/payouts/drivers/:id/reconcile",
@@ -1808,7 +1808,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "admin_wallet",
     "handler": "reconcile_topup",
     "method": "post",
     "path": "admin/users/:id/wallet-ledger/topups/:topup_id/reconcile",
@@ -1816,7 +1816,7 @@
     "idempotent": false
   },
   {
-    "feature": "wallet",
+    "feature": "admin_wallet",
     "handler": "refund_ride",
     "method": "post",
     "path": "admin/users/:id/wallet-ledger/rides/:ride_id/refund",

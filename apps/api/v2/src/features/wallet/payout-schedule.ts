@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { PayoutSchedule } from '@prisma/client';
+import type { PayoutSchedule } from './wallet.rows.js';
 import { default_wallet_controls } from './wallet-controls.js';
 
 const legacy_payout_settings_schema = z

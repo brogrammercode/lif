@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { AdminRepository } from './admin.repo.js';
+import { AdminRepository } from './admin.repository.js';
 import { AppError } from '../../core/error.js';
 import {
   DRIVER_NOT_ELIGIBLE_MESSAGE,
@@ -8,7 +8,7 @@ import {
   RIDE_NOT_SEARCHING_MESSAGE,
   RIDE_OFFER_EXISTS_MESSAGE,
 } from './admin.constant.js';
-import type { OfferInput, VerificationInput } from './admin.type.js';
+import type { OfferInput, VerificationInput } from './dto/admin.dto.js';
 @Injectable()
 export class AdminService {
   constructor(private readonly adminRepository: AdminRepository) {}

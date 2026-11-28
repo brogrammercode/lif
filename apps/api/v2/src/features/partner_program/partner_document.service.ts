@@ -1,13 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import sanitizeHtml from '../../infra/vendor/sanitize-html.mjs';
-import type { Prisma } from '@prisma/client';
-import { PrismaService } from '../../infra/database/prisma.service.js';
+import type { PartnerDocument } from './partner.rows.js';
+import {
+  PostgresService,
+  type SqlClient,
+} from '../../database/postgres.service.js';
+import { nextEntityId } from '../../database/entity-id.js';
 import { CloudinaryService } from '../../infra/media/cloudinary.js';
 import { image_upload_schema } from '../../infra/media/image_upload.js';
-import { require_active_admin } from '../../infra/database/account_lifecycle.js';
-import { create_user_log } from '../../infra/database/user_log.js';
+import { requireActiveAdmin } from '../../database/account-locks.js';
+import { insertUserLog } from '../../database/user-log.js';
 import { AppError } from '../../core/error.js';
-import { document_input } from './partner_program.type.js';
+import { document_input } from './dto/partner-program.dto.js';
 import type { z } from 'zod';
 
 export const clean_document = (html: string) =>
@@ -111,11 +115,15 @@ export const published_document = (
 @Injectable()
 export class PartnerDocumentService {
   constructor(
-    private readonly database: PrismaService,
+    private readonly database: PostgresService,
     private readonly media: CloudinaryService,
   ) {}
-  get(kind: string) {
-    return this.database.client.partnerDocument.findUnique({ where: { kind } });
+  async get(kind: string, db: SqlClient = this.database) {
+    const { rows } = await db.query<PartnerDocument>(
+      'SELECT * FROM partner_documents WHERE kind=$1',
+      [kind],
+    );
+    return rows[0] ?? null;
   }
   async save(
     actor_id: string,
@@ -123,6 +131,7 @@ export class PartnerDocumentService {
     input: z.infer<typeof document_input>,
   ) {
     const uploaded: string[] = [];
+    let writeAttempted = false;
     try {
       let html = input.html;
       const images = [
@@ -169,51 +178,58 @@ export class PartnerDocumentService {
           'EMPTY_DOCUMENT',
           'Write the document before publishing.',
         );
-      return await this.database.client.$transaction(
-        async (tx) => {
-          await require_active_admin(tx, actor_id);
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(720062, hashtext(${kind}))`;
-          const old = await tx.partnerDocument.findUnique({ where: { kind } });
-          if ((old?.revision ?? 0) !== input.revision)
-            throw new AppError(
-              409,
-              'STALE_DOCUMENT',
-              'This document changed. Reload it before saving.',
-            );
-          const revision = (old?.revision ?? 0) + 1;
-          const data = {
-            title: input.title,
+      return await this.database.transaction(async (tx) => {
+        await requireActiveAdmin(tx, actor_id);
+        await tx.query('SELECT pg_advisory_xact_lock(720062,hashtext($1))', [
+          kind,
+        ]);
+        const old = await this.get(kind, tx);
+        if ((old?.revision ?? 0) !== input.revision)
+          throw new AppError(
+            409,
+            'STALE_DOCUMENT',
+            'This document changed. Reload it before saving.',
+          );
+        const revision = (old?.revision ?? 0) + 1;
+        writeAttempted = true;
+        const { rows } = await tx.query<PartnerDocument>(
+          `INSERT INTO partner_documents (id,kind,title,html,revision,published_title,published_html,
+            published_version,published_at,updated_at)
+          VALUES ($1,$2,$3,$4,$5,CASE WHEN $6::boolean THEN $3 END,CASE WHEN $6 THEN $4 END,
+            CASE WHEN $6 THEN $5 ELSE 0 END,CASE WHEN $6 THEN clock_timestamp() END,clock_timestamp())
+          ON CONFLICT (kind) DO UPDATE SET title=EXCLUDED.title,html=EXCLUDED.html,revision=EXCLUDED.revision,
+            published_title=CASE WHEN $6 THEN EXCLUDED.published_title ELSE partner_documents.published_title END,
+            published_html=CASE WHEN $6 THEN EXCLUDED.published_html ELSE partner_documents.published_html END,
+            published_version=CASE WHEN $6 THEN EXCLUDED.published_version ELSE partner_documents.published_version END,
+            published_at=CASE WHEN $6 THEN EXCLUDED.published_at ELSE partner_documents.published_at END,
+            updated_at=clock_timestamp() RETURNING *`,
+          [
+            old?.id ?? nextEntityId(),
+            kind,
+            input.title,
             html,
             revision,
-            ...(input.publish
-              ? {
-                  published_title: input.title,
-                  published_html: html,
-                  published_version: revision,
-                  published_at: new Date(),
-                }
-              : {}),
-          };
-          const doc = await tx.partnerDocument.upsert({
-            where: { kind },
-            create: { kind, ...data },
-            update: data,
-          });
-          await create_user_log(tx, {
-            actor_id,
-            entity_type: 'PartnerDocument',
-            entity_id: doc.id,
-            action: input.publish
-              ? 'PUBLISH_PARTNER_DOCUMENT'
-              : 'SAVE_PARTNER_DOCUMENT',
-            after_data: { kind, revision } as Prisma.InputJsonObject,
-          });
-          return doc;
-        },
-        { maxWait: 10000, timeout: 15000 },
-      );
+            input.publish,
+          ],
+        );
+        const doc = rows[0]!;
+        await insertUserLog(tx, {
+          actor_id,
+          entity_type: 'PartnerDocument',
+          entity_id: doc.id,
+          action: input.publish
+            ? 'PUBLISH_PARTNER_DOCUMENT'
+            : 'SAVE_PARTNER_DOCUMENT',
+          after_data: { kind, revision },
+        });
+        return doc;
+      });
     } catch (error) {
-      await Promise.all(uploaded.map((id) => this.media.discard_image(id)));
+      if (
+        !writeAttempted ||
+        (error instanceof AppError && error.status_code < 500)
+      )
+        await Promise.all(uploaded.map((id) => this.media.discard_image(id)));
       throw error;
     }
   }

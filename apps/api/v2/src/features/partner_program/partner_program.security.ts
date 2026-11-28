@@ -7,13 +7,9 @@ import {
   scryptSync,
   timingSafeEqual,
 } from 'node:crypto';
-import type { TransactionClient } from '../../infra/database/client.js';
 import { config } from '../../core/config.js';
 import { AppError } from '../../core/error.js';
 
-export const partner_lock = async (tx: TransactionClient, user_id: string) => {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(720061, hashtext(${user_id}))`;
-};
 const encryption_key = () =>
   createHash('sha256')
     .update(`partner-activation:${config.JWT_SECRET}`)

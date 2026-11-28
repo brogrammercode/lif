@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   HttpCode,
   Req,
@@ -7,6 +8,9 @@ import {
   Get,
   UseGuards,
 } from '@nestjs/common';
+import { CurrentUserId } from '../../common/decorators/current-user-id.decorator.js';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
+import type { z } from 'zod';
 import { AdminAuthService } from './admin_auth.service.js';
 import {
   AdminOriginGuard,
@@ -14,18 +18,17 @@ import {
   AuthGuard,
   AdminGuard,
 } from '../../core/guards.js';
-import { ADMIN_AUTH_ROUTES } from './admin_auth.route.js';
 import type { CookieOptions, Request, Response } from 'express';
 import { config } from '../../core/config.js';
 import { AppError } from '../../core/error.js';
 import { send_success } from '../../core/response.js';
-import { admin_login_schema } from './admin_auth.type.js';
+import { admin_login_schema } from './dto/admin-auth.dto.js';
 import {
   ADMIN_AUTH_MESSAGES,
   ADMIN_COOKIE,
   ADMIN_COOKIE_PATH,
 } from './admin_auth.constant.js';
-@Controller()
+@Controller('admin/auth')
 export class AdminAuthController {
   constructor(private readonly adminAuthService: AdminAuthService) {}
   readonly cookie_options: CookieOptions = {
@@ -65,14 +68,15 @@ export class AdminAuthController {
     );
   };
 
-  @Post(ADMIN_AUTH_ROUTES.GOOGLE)
+  @Post('google')
   @HttpCode(200)
   @UseGuards(AdminOriginGuard, AdminSignInGuard)
   async google(
+    @Body(new ZodValidationPipe(admin_login_schema))
+    input: z.output<typeof admin_login_schema>,
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const input = admin_login_schema.parse(request.body);
     const session = await this.adminAuthService.login_admin(input.id_token, {
       ...this.request_data(request),
       browser_location: input.browser_location,
@@ -85,7 +89,7 @@ export class AdminAuthController {
     );
   }
 
-  @Post(ADMIN_AUTH_ROUTES.REFRESH)
+  @Post('refresh')
   @HttpCode(200)
   @UseGuards(AdminOriginGuard)
   async refresh(
@@ -113,7 +117,7 @@ export class AdminAuthController {
     }
   }
 
-  @Post(ADMIN_AUTH_ROUTES.LOGOUT)
+  @Post('logout')
   @HttpCode(200)
   @UseGuards(AdminOriginGuard)
   async logout(
@@ -129,17 +133,17 @@ export class AdminAuthController {
     return send_success(response, null, ADMIN_AUTH_MESSAGES.SIGNED_OUT);
   }
 
-  @Get(ADMIN_AUTH_ROUTES.ME)
+  @Get('me')
   @HttpCode(200)
   @UseGuards(AuthGuard, AdminGuard)
   async me(
-    @Req() request: Request,
+    @CurrentUserId() user: string,
     @Res({ passthrough: true }) response: Response,
   ) {
     response.setHeader('Cache-Control', 'no-store');
     return send_success(
       response,
-      await this.adminAuthService.current_admin(request.auth!.user_id),
+      await this.adminAuthService.current_admin(user),
       ADMIN_AUTH_MESSAGES.PROFILE,
     );
   }

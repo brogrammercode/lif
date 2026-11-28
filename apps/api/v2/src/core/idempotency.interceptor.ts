@@ -5,7 +5,6 @@ import {
   type CallHandler,
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { Prisma } from '@prisma/client';
 import {
   Observable,
   of,
@@ -16,7 +15,7 @@ import {
   throwError,
 } from 'rxjs';
 import type { Request, Response } from 'express';
-import { PrismaService } from '../infra/database/prisma.service.js';
+import { IdempotencyRepository } from '../database/idempotency.repository.js';
 import { AppError } from './error.js';
 import {
   IDEMPOTENCY_CONFLICT_MESSAGE,
@@ -30,7 +29,7 @@ import {
 import { HTTP_CONFIG } from './http.constant.js';
 @Injectable()
 export class IdempotencyInterceptor implements NestInterceptor {
-  constructor(private readonly database: PrismaService) {}
+  constructor(private readonly store: IdempotencyRepository) {}
   async intercept(
     context: ExecutionContext,
     next: CallHandler,
@@ -63,17 +62,8 @@ export class IdempotencyInterceptor implements NestInterceptor {
     const hash = createHash('sha256')
       .update(JSON.stringify(request.body ?? null))
       .digest('hex');
-    const store = this.database.client.idempotencyKey;
     const now = new Date();
-    let record = await store.findUnique({
-      where: { scope_key: { scope, key } },
-    });
-    if (record && record.expires_at <= now) {
-      await store.deleteMany({
-        where: { id: record.id, expires_at: { lte: now } },
-      });
-      record = null;
-    }
+    const record = await this.store.find(scope, key);
     const replay = (existing: NonNullable<typeof record>) => {
       if (existing.request_hash !== hash)
         throw new AppError(
@@ -90,42 +80,30 @@ export class IdempotencyInterceptor implements NestInterceptor {
       response.status(existing.status_code);
       return of(existing.response_json);
     };
-    if (record) return replay(record);
-    try {
-      record = await store.create({
-        data: {
-          user_id: request.auth.user_id,
-          scope,
-          key,
-          request_hash: hash,
-          expires_at: new Date(
-            now.getTime() + IDEMPOTENCY_TTL_HOURS * 60 * 60 * 1000,
-          ),
-        },
-      });
-    } catch (error) {
-      if (
-        !(error instanceof Prisma.PrismaClientKnownRequestError) ||
-        error.code !== 'P2002'
-      )
-        throw error;
-      record = await store.findUnique({ where: { scope_key: { scope, key } } });
-      if (!record) throw error;
-      return replay(record);
+    if (record && record.expires_at > now) return replay(record);
+    const claimed = await this.store.claim(
+      request.auth.user_id,
+      scope,
+      key,
+      hash,
+      new Date(now.getTime() + IDEMPOTENCY_TTL_HOURS * 60 * 60 * 1000),
+      now,
+    );
+    if (!claimed) {
+      const existing = await this.store.find(scope, key);
+      if (!existing)
+        throw new AppError(
+          409,
+          'IDEMPOTENCY_IN_PROGRESS',
+          IDEMPOTENCY_IN_PROGRESS_MESSAGE,
+        );
+      return replay(existing);
     }
-    const record_id = record.id;
+    const record_id = claimed.id;
     return next.handle().pipe(
       concatMap(async (body: unknown) => {
         try {
-          await store.update({
-            where: { id: record_id },
-            data: {
-              response_json: JSON.parse(
-                JSON.stringify(body),
-              ) as Prisma.InputJsonValue,
-              status_code: response.statusCode,
-            },
-          });
+          await this.store.complete(record_id, body, response.statusCode);
         } catch (error) {
           console.error({ request_id: request.request_id, error });
         }
@@ -133,13 +111,8 @@ export class IdempotencyInterceptor implements NestInterceptor {
       }),
       catchError((error: unknown) =>
         from(
-          store
-            .deleteMany({
-              where: {
-                id: record_id,
-                response_json: { equals: Prisma.DbNull },
-              },
-            })
+          this.store
+            .removePending(record_id)
             .catch((cause) =>
               console.error({ request_id: request.request_id, error: cause }),
             ),

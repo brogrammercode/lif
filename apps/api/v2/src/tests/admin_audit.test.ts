@@ -1,3 +1,9 @@
+import type { AdminAuditRepository } from '../database/admin-audit.repository.js';
+import type { PostgresService } from '../database/postgres.service.js';
+import {
+  AdminActivityReader,
+  activityFilter,
+} from '../features/admin_access/admin-activity.reader.js';
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { readFileSync } from 'node:fs';
@@ -11,48 +17,28 @@ import {
   admin_action_label,
   legacy_action_aliases,
 } from '../core/admin_audit.action.js';
-import { AdminActivityController } from '../features/admin_access/admin_activity.controller.js';
-import { PrismaService } from '../infra/database/prisma.service.js';
 
 function fixture() {
   const rows = new Map<string, Record<string, unknown>>();
   let writes = 0,
     starts = 0,
     failUpdate = false;
-  const database = new PrismaService();
-  Object.defineProperty(database, 'client', {
-    value: {
-      adminActivity: {
-        upsert: async ({
-          where,
-          create,
-        }: {
-          where: { request_id: string };
-          create: Record<string, unknown>;
-        }) => {
-          starts++;
-          if (!rows.has(where.request_id))
-            rows.set(where.request_id, { id: where.request_id, ...create });
-          return rows.get(where.request_id)!;
-        },
-        update: async ({
-          where,
-          data,
-        }: {
-          where: { id: string };
-          data: Record<string, unknown>;
-        }) => {
-          if (failUpdate) {
-            failUpdate = false;
-            throw new Error('Temporary audit connection failure');
-          }
-          writes++;
-          Object.assign(rows.get(where.id)!, data);
-          return rows.get(where.id)!;
-        },
-      },
+  const repository = {
+    start: async (data: Record<string, unknown> & { request_id: string }) => {
+      starts++;
+      if (!rows.has(data.request_id))
+        rows.set(data.request_id, { id: data.request_id, ...data });
+      return data.request_id;
     },
-  });
+    complete: async (id: string, data: Record<string, unknown>) => {
+      if (failUpdate) {
+        failUpdate = false;
+        throw new Error('Temporary audit connection failure');
+      }
+      writes++;
+      Object.assign(rows.get(id)!, data);
+    },
+  } as unknown as AdminAuditRepository;
   const req = {
     method: 'POST',
     path: '/admin/partner-program/applications/application/approve',
@@ -64,7 +50,7 @@ function fixture() {
   } as unknown as Request;
   const res = { statusCode: 200 } as Response;
   return {
-    audit: new AdminAuditService(database),
+    audit: new AdminAuditService(repository),
     req,
     res,
     rows,
@@ -192,47 +178,44 @@ it('keeps serialization failures rather than a provisional handler success', asy
 });
 
 it('finds historical approval labels, separates read traffic and limits retention to seven days', async () => {
-  const database = new PrismaService();
-  let where: Record<string, unknown> = {};
-  const tx = {
-    adminActivity: {
-      count: async (input: { where: Record<string, unknown> }) => {
-        where = input.where;
-        return 1;
-      },
-      findMany: async () => [
-        {
-          id: 'old',
-          method: 'POST',
-          path: '/api/v2/admin/partner-program/applications/123/approve',
-          action: 'POST /api/v2/admin/partner-program/applications/:id/approve',
-        },
-      ],
+  let values: unknown[] = [];
+  const database = {
+    query: async (_sql: string, params: unknown[]) => {
+      values = params;
+      return {
+        rows: [
+          {
+            total: 1,
+            page: 1,
+            activities: [
+              {
+                id: 'old',
+                method: 'POST',
+                path: '/api/v2/admin/partner-program/applications/123/approve',
+                action:
+                  'POST /api/v2/admin/partner-program/applications/:id/approve',
+                started_at: new Date().toISOString(),
+                completed_at: null,
+              },
+            ],
+          },
+        ],
+      };
     },
-  };
-  Object.defineProperty(database, 'client', {
-    value: {
-      $transaction: (action: (client: typeof tx) => Promise<unknown>) =>
-        action(tx),
-    },
-  });
-  const response = { status: () => {} } as unknown as Response;
-  const result = await new AdminActivityController(database).list(
-    {
-      query: { query: 'APPROVE_PARTNER_APPLICATION', activity: 'changes' },
-    } as unknown as Request,
-    response,
+  } as unknown as PostgresService;
+  const result = await new AdminActivityReader(database).list(
+    activityFilter.parse({
+      query: 'APPROVE_PARTNER_APPLICATION',
+      activity: 'changes',
+    }),
   );
-  assert.equal(
-    result.data.activities[0]!.action,
-    'Approve partner application',
-  );
-  assert.deepEqual(where.method, { notIn: ['GET', 'HEAD', 'OPTIONS'] });
+  assert.equal(result.activities[0]!.action, 'Approve partner application');
+  assert.equal(values[3], 'changes');
   assert.ok(
-    JSON.stringify(where).includes(
-      'POST /api/v2/admin/partner-program/applications/:id/approve',
+    (values[6] as string[]).includes(
+      'post /api/v2/admin/partner-program/applications/:id/approve',
     ),
   );
-  assert.equal(result.data.retention_days, 7);
-  assert.ok((where.started_at as { gt: unknown }).gt instanceof Date);
+  assert.equal(result.retention_days, 7);
+  assert.ok(values[0] instanceof Date);
 });

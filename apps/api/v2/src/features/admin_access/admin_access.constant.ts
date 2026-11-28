@@ -1,9 +1,5 @@
 export const ADMIN_ACCESS_LOCK = 720048;
 export const ADMIN_ACCESS_ROUTE = 'admin/access/1more-admin';
-export const ADMIN_ACCESS_TRANSACTION = {
-  maxWait: 10000,
-  timeout: 30000,
-} as const;
 export const ADMIN_ACCESS_MESSAGES = {
   LOADED: 'Administrator access retrieved',
   GRANTED: 'Administrator access updated',

@@ -1,17 +1,18 @@
 import {
+  Body,
   Controller,
-  Get,
-  Post,
-  Patch,
   Delete,
-  Req,
-  Res,
-  HttpCode,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
-import type { Request, Response } from 'express';
+import { CurrentUserId } from '../../common/decorators/current-user-id.decorator.js';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { AuthGuard, AdminGuard } from '../../core/guards.js';
-import { send_success } from '../../core/response.js';
+import { success } from '../../core/response.js';
 import { PartnerRequirementRepository } from './partner_requirement.repo.js';
 import {
   requirement_query,
@@ -21,138 +22,117 @@ import {
   requirement_input,
   requirement_update,
   requirement_delete,
+  type CategoryInput,
+  type RequirementInput,
+  type RequirementQuery,
 } from './partner_requirement.type.js';
+
 @Controller()
+@UseGuards(AuthGuard)
 export class PartnerRequirementController {
   constructor(private readonly repo: PartnerRequirementRepository) {}
+
   @Delete('admin/partner-program/requirement-categories/:id')
-  @UseGuards(AuthGuard, AdminGuard)
+  @UseGuards(AdminGuard)
   async delete_category(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+    @CurrentUserId() actor: string,
+    @Param('id', new ZodValidationPipe(requirement_id)) id: string,
+    @Body(new ZodValidationPipe(requirement_delete))
+    body: { expected_updated_at: string },
   ) {
-    return send_success(
-      res,
-      await this.repo.remove(
-        req.auth!.user_id,
-        requirement_id.parse(req.params.id),
-        requirement_delete.parse(req.body).expected_updated_at,
-        true,
-      ),
+    return success(
+      await this.repo.remove(actor, id, body.expected_updated_at, true),
       'Category and its fields deleted',
     );
   }
+
   @Delete('admin/partner-program/requirements/:id')
-  @UseGuards(AuthGuard, AdminGuard)
+  @UseGuards(AdminGuard)
   async delete_field(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+    @CurrentUserId() actor: string,
+    @Param('id', new ZodValidationPipe(requirement_id)) id: string,
+    @Body(new ZodValidationPipe(requirement_delete))
+    body: { expected_updated_at: string },
   ) {
-    return send_success(
-      res,
-      await this.repo.remove(
-        req.auth!.user_id,
-        requirement_id.parse(req.params.id),
-        requirement_delete.parse(req.body).expected_updated_at,
-      ),
+    return success(
+      await this.repo.remove(actor, id, body.expected_updated_at),
       'Requirement deleted',
     );
   }
+
   @Get('admin/partner-program/requirement-categories')
-  @UseGuards(AuthGuard, AdminGuard)
-  async categories(
-    @Req() _req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    return send_success(
-      res,
+  @UseGuards(AdminGuard)
+  async categories() {
+    return success(
       await this.repo.categories(),
       'Requirement categories retrieved',
     );
   }
+
   @Post('admin/partner-program/requirement-categories')
-  @HttpCode(201)
-  @UseGuards(AuthGuard, AdminGuard)
+  @UseGuards(AdminGuard)
   async create_category(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+    @CurrentUserId() actor: string,
+    @Body(new ZodValidationPipe(category_input)) input: CategoryInput,
   ) {
-    return send_success(
-      res,
-      await this.repo.save_category(
-        req.auth!.user_id,
-        category_input.parse(req.body),
-      ),
+    return success(
+      await this.repo.save_category(actor, input),
       'Requirement category created',
-      201,
     );
   }
+
   @Patch('admin/partner-program/requirement-categories/:id')
-  @UseGuards(AuthGuard, AdminGuard)
+  @UseGuards(AdminGuard)
   async update_category(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+    @CurrentUserId() actor: string,
+    @Param('id', new ZodValidationPipe(requirement_id)) id: string,
+    @Body(new ZodValidationPipe(category_update)) input: CategoryInput,
   ) {
-    return send_success(
-      res,
-      await this.repo.save_category(
-        req.auth!.user_id,
-        category_update.parse(req.body),
-        requirement_id.parse(req.params.id),
-      ),
+    return success(
+      await this.repo.save_category(actor, input, id),
       'Requirement category updated',
     );
   }
+
   @Get('admin/partner-program/requirements')
-  @UseGuards(AuthGuard, AdminGuard)
-  async fields(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    return send_success(
-      res,
-      await this.repo.list(requirement_query.parse(req.query)),
+  @UseGuards(AdminGuard)
+  async fields(
+    @Query(new ZodValidationPipe(requirement_query)) input: RequirementQuery,
+  ) {
+    return success(
+      await this.repo.list(input),
       'Partner requirements retrieved',
     );
   }
+
   @Post('admin/partner-program/requirements')
-  @HttpCode(201)
-  @UseGuards(AuthGuard, AdminGuard)
+  @UseGuards(AdminGuard)
   async create_field(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+    @CurrentUserId() actor: string,
+    @Body(new ZodValidationPipe(requirement_input)) input: RequirementInput,
   ) {
-    return send_success(
-      res,
-      await this.repo.save_field(
-        req.auth!.user_id,
-        requirement_input.parse(req.body),
-      ),
+    return success(
+      await this.repo.save_field(actor, input),
       'Partner requirement created',
-      201,
     );
   }
+
   @Patch('admin/partner-program/requirements/:id')
-  @UseGuards(AuthGuard, AdminGuard)
+  @UseGuards(AdminGuard)
   async update_field(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+    @CurrentUserId() actor: string,
+    @Param('id', new ZodValidationPipe(requirement_id)) id: string,
+    @Body(new ZodValidationPipe(requirement_update)) input: RequirementInput,
   ) {
-    return send_success(
-      res,
-      await this.repo.save_field(
-        req.auth!.user_id,
-        requirement_update.parse(req.body),
-        requirement_id.parse(req.params.id),
-      ),
+    return success(
+      await this.repo.save_field(actor, input, id),
       'Partner requirement updated',
     );
   }
+
   @Get('partner-program/requirements')
-  @UseGuards(AuthGuard)
-  async public_fields(
-    @Req() _req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    return send_success(
-      res,
+  async public_fields() {
+    return success(
       await this.repo.public_requirements(),
       'Partner program requirements retrieved',
     );

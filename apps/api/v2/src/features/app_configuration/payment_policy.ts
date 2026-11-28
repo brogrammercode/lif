@@ -1,13 +1,15 @@
-import type { PaymentMethodType, Prisma } from '@prisma/client';
 import { AppError } from '../../core/error.js';
+import type { PaymentMethodInput } from '../payment/payment.type.js';
 
-const object = (value: Prisma.JsonValue | undefined) =>
-  value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+const object = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 
 /** Read the selected quote, so later configuration edits never reprice a trip. */
 export const require_supported_ride_payment = (
-  snapshot: Prisma.JsonValue | undefined,
-  method: PaymentMethodType,
+  snapshot: unknown,
+  method: PaymentMethodInput['type'],
 ) => {
   const category = object(snapshot);
   const policy = object(category?.payment_policy);

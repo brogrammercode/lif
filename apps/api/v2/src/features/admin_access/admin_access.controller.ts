@@ -1,74 +1,68 @@
 import {
+  Body,
   Controller,
-  Get,
-  Post,
   Delete,
+  Get,
   HttpCode,
-  Req,
-  Res,
+  Param,
+  Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
-import type { Request, Response } from 'express';
 import { AuthGuard, AdminGuard } from '../../core/guards.js';
-import { send_success } from '../../core/response.js';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
+import { CurrentUserId } from '../../common/decorators/current-user-id.decorator.js';
+import { success } from '../../core/response.js';
 import { AdminAccessService } from './admin_access.service.js';
-import { ADMIN_ACCESS_ROUTES } from './admin_access.route.js';
-import { ADMIN_ACCESS_MESSAGES } from './admin_access.constant.js';
+import {
+  ADMIN_ACCESS_MESSAGES,
+  ADMIN_ACCESS_ROUTE,
+} from './admin_access.constant.js';
 import {
   access_list_schema,
   access_user_id_schema,
   grant_access_schema,
   revoke_access_schema,
+  type AccessListInput,
+  type GrantAccessInput,
+  type RevokeAccessInput,
 } from './admin_access.type.js';
 
-@Controller()
+@Controller(ADMIN_ACCESS_ROUTE)
+@UseGuards(AuthGuard, AdminGuard)
 export class AdminAccessController {
-  constructor(private readonly adminAccessService: AdminAccessService) {}
-  @Get(ADMIN_ACCESS_ROUTES.LIST)
-  @HttpCode(200)
-  @UseGuards(AuthGuard, AdminGuard)
+  constructor(private readonly service: AdminAccessService) {}
+
+  @Get()
   async list(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @Query(new ZodValidationPipe(access_list_schema)) input: AccessListInput,
   ) {
-    return send_success(
-      response,
-      await this.adminAccessService.list_access(
-        access_list_schema.parse(request.query),
-      ),
+    return success(
+      await this.service.list_access(input),
       ADMIN_ACCESS_MESSAGES.LOADED,
     );
   }
-  @Post(ADMIN_ACCESS_ROUTES.GRANT)
+
+  @Post()
   @HttpCode(200)
-  @UseGuards(AuthGuard, AdminGuard)
   async grant(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() actor: string,
+    @Body(new ZodValidationPipe(grant_access_schema)) input: GrantAccessInput,
   ) {
-    return send_success(
-      response,
-      await this.adminAccessService.grant_access(
-        request.auth!.user_id,
-        grant_access_schema.parse(request.body),
-      ),
+    return success(
+      await this.service.grant_access(actor, input),
       ADMIN_ACCESS_MESSAGES.GRANTED,
     );
   }
-  @Delete(ADMIN_ACCESS_ROUTES.REVOKE)
-  @HttpCode(200)
-  @UseGuards(AuthGuard, AdminGuard)
+
+  @Delete(':id')
   async revoke(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() actor: string,
+    @Param('id', new ZodValidationPipe(access_user_id_schema)) id: string,
+    @Body(new ZodValidationPipe(revoke_access_schema)) input: RevokeAccessInput,
   ) {
-    return send_success(
-      response,
-      await this.adminAccessService.revoke_access(
-        request.auth!.user_id,
-        access_user_id_schema.parse(request.params.id),
-        revoke_access_schema.parse(request.body),
-      ),
+    return success(
+      await this.service.revoke_access(actor, id, input),
       ADMIN_ACCESS_MESSAGES.REVOKED,
     );
   }

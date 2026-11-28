@@ -7,26 +7,30 @@ import type { AddressInfo } from 'node:net';
 import { randomUUID, createHmac } from 'node:crypto';
 import { create_application } from '../bootstrap.js';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { PrismaService } from '../infra/database/prisma.service.js';
 import { ADMIN_COOKIE } from '../features/admin_auth/admin_auth.constant.js';
-import { prisma } from '../infra/database/client.js';
+import { prisma } from '../../prisma/client.js';
 import { create_access_token } from '../infra/security/token.js';
 import {
   create_refresh_token,
   create_token_hash,
 } from '../infra/security/hash.js';
 import { RideRepository } from '../features/ride/ride.repo.js';
-const { create_quote, request_ride } = new RideRepository(new PrismaService());
 import { config } from '../core/config.js';
 import { AuthRepository } from '../features/auth/auth.repo.js';
 import { OAuth2Client } from 'google-auth-library';
-const { resolve_external_user } = new AuthRepository(new PrismaService());
 
 describe(
   'admin auth and vehicle catalog integration',
   { skip: process.env.LIF_RUN_DB_TESTS !== '1', timeout: 600_000 },
   () => {
     let app: NestExpressApplication;
+    const create_quote: RideRepository['create_quote'] = (...args) =>
+      app.get(RideRepository).create_quote(...args);
+    const request_ride: RideRepository['request_ride'] = (...args) =>
+      app.get(RideRepository).request_ride(...args);
+    const resolve_external_user: AuthRepository['resolve_external_user'] = (
+      ...args
+    ) => app.get(AuthRepository).resolve_external_user(...args);
     let base: string;
     let admin_id: string;
     let rider_id: string;
@@ -147,6 +151,9 @@ describe(
             });
             await tx.supportTicket.deleteMany({
               where: { user_id: { in: user_ids } },
+            });
+            await tx.rideSettlementReview.deleteMany({
+              where: { ride_id: { in: ride_ids } },
             });
             await tx.ride.deleteMany({ where: { id: { in: ride_ids } } });
             await tx.vehicle.deleteMany({
@@ -293,7 +300,8 @@ describe(
       assert.equal(current.ratings_count, 2);
       assert.equal(current.rating_average.toNumber(), 3);
       assert.equal((await review(rides[2]!.id, 5)).response.status, 201);
-      assert.equal((await review(rides[0]!.id, 2)).response.status, 409);
+      assert.equal((await review(rides[0]!.id, 2)).response.status, 201);
+      assert.equal((await review(rides[0]!.id, 3)).response.status, 409);
       const updated = await prisma.driverProfile.findUniqueOrThrow({
         where: { user_id: user.id },
       });
@@ -325,6 +333,18 @@ describe(
         });
         extra_user_ids.push(user.id);
         const token = create_access_token({ user_id: user.id, role });
+        assert.equal(
+          (
+            await request('/driver/profile', token, 'POST', {
+              license_number: `${prefix}-${role}`,
+            })
+          ).body.error_code,
+          'PARTNER_ACTIVATION_REQUIRED',
+        );
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { partner_activated_at: new Date() },
+        });
         const result = await request('/driver/profile', token, 'POST', {
           license_number: `${prefix}-${role}`,
         });
@@ -368,6 +388,26 @@ describe(
       });
       extra_user_ids.push(user.id);
       const profile = user.driver_profile!;
+      const eligibleCategory = await prisma.vehicleCategory.create({
+        data: {
+          ...input,
+          name: `${prefix}-transition`,
+          code: `${prefix}-transition`,
+        },
+      });
+      category_ids.push(eligibleCategory.id);
+      const eligibleVehicle = await prisma.vehicle.create({
+        data: {
+          driver_id: profile.id,
+          status: 'ACTIVE',
+          type: 'SEDAN',
+          capacity: 4,
+          make: 'Fixture',
+          model: 'Fixture',
+          plate_number: `${prefix}-transition`,
+          vehicle_category_id: eligibleCategory.id,
+        },
+      });
       const token = create_access_token({ user_id: user.id, role: 'DRIVER' });
       const verificationPath = `/admin/drivers/${profile.id}/verification`;
       const rejected = await request(verificationPath, admin_token, 'PATCH', {
@@ -387,6 +427,7 @@ describe(
           data: {
             verification_status: 'VERIFIED',
             availability: mode === 'cancel-concurrent' ? 'EN_ROUTE' : 'ON_TRIP',
+            active_vehicle_id: eligibleVehicle.id,
           },
         });
         const ride = await prisma.ride.create({
@@ -395,6 +436,10 @@ describe(
             driver_id: profile.id,
             status:
               mode === 'cancel-concurrent' ? 'DRIVER_ASSIGNED' : 'IN_PROGRESS',
+            started_at:
+              mode === 'cancel-concurrent'
+                ? null
+                : new Date(Date.now() - 120000),
             pickup_address: prefix,
             pickup_latitude: 12.9,
             pickup_longitude: 77.5,
@@ -449,7 +494,7 @@ describe(
         );
         if (mode !== 'cancel-concurrent')
           assert.equal(stored.final_fare?.toNumber(), 104);
-        assert.equal((await finish()).response.status, 409);
+        assert.equal((await finish()).response.status, 200);
       }
       assert.equal(
         (
@@ -617,9 +662,9 @@ describe(
       const mobileLogin = await resolve_external_user('GOOGLE', identity);
       assert.equal(mobileLogin.first_name, personal.first_name);
       assert.equal(mobileLogin.avatar_url, null);
-      const webLogin = await new AdminAuthRepository(
-        new PrismaService(),
-      ).create_admin_session(identity, {});
+      const webLogin = await app
+        .get(AdminAuthRepository)
+        .create_admin_session(identity, {});
       assert.equal(webLogin.user.first_name, personal.first_name);
       assert.equal(webLogin.user.last_name, null);
       assert.equal(webLogin.user.avatar_url, null);
@@ -1139,6 +1184,12 @@ describe(
           body: (await response.json()) as { data: { status: string } },
         };
       };
+      assert.equal((await webhook('PENDING')).response.status, 409);
+      // Exercise the generic gateway independently of driver-collected cash.
+      await prisma.payment.update({
+        where: { ride_id: ride.id },
+        data: { collection_method: null },
+      });
       assert.equal((await webhook('PENDING')).response.status, 200);
       const pending = await prisma.payment.findUniqueOrThrow({
         where: { ride_id: ride.id },
@@ -1420,7 +1471,7 @@ describe(
         (quote.quotes[0]!.category_snapshot as { name: string }).name,
         'Original name',
       );
-      assert.equal(quote.quotes[0]!.total_fare.toNumber(), 104);
+      assert.equal(Number(quote.quotes[0]!.total_fare), 104);
       assert.equal(
         (
           await request(
@@ -1580,8 +1631,16 @@ describe(
         offer_payload,
       );
       assert.equal(offer.response.status, 201);
+      const otherRider = await prisma.user.create({
+        data: { email: `${prefix}-second-rider@example.test` },
+      });
+      extra_user_ids.push(otherRider.id);
+      const otherRiderToken = create_access_token({
+        user_id: otherRider.id,
+        role: 'RIDER',
+      });
       const other_draft = await create_quote(
-        rider_id,
+        otherRider.id,
         {
           pickup: { address: 'Other pickup', latitude: 12.9, longitude: 77.5 },
           dropoff: {
@@ -1613,7 +1672,7 @@ describe(
       ride_ids.push(other_draft.id);
       assert.equal(
         (
-          await request_ride(rider_id, {
+          await request_ride(otherRider.id, {
             draft_ride_id: other_draft.id,
             quote_id: other_draft.quotes[0]!.id,
           })
@@ -1627,6 +1686,15 @@ describe(
         offer_payload,
       );
       assert.equal(other_offer.response.status, 201);
+      await prisma.driverProfile.update({
+        where: { id: profile.id },
+        data: {
+          current_latitude: 12.9,
+          current_longitude: 77.5,
+          last_location_at: new Date(),
+          last_location_accuracy_m: 10,
+        },
+      });
       const accepted = await Promise.all([
         request(
           `/driver/offers/${offer.body.data.id}/accept`,
@@ -1691,7 +1759,7 @@ describe(
       );
       const cancelled = await request(
         `/rides/${assigned_ride}/cancel`,
-        rider_token,
+        assigned_ride === quote.id ? rider_token : otherRiderToken,
         'POST',
         { cancel_reason: 'Integration cleanup' },
         { 'Idempotency-Key': randomUUID() },

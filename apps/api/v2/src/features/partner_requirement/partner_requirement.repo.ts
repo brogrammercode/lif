@@ -1,8 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../infra/database/prisma.service.js';
-import { create_user_log } from '../../infra/database/user_log.js';
-import { require_active_admin } from '../../infra/database/account_lifecycle.js';
+import {
+  PostgresService,
+  type SqlClient,
+} from '../../database/postgres.service.js';
+import { requireActiveAdmin } from '../../database/account-locks.js';
+import { insertUserLog } from '../../database/user-log.js';
+import { nextEntityId } from '../../database/entity-id.js';
 import { AppError } from '../../core/error.js';
 import { input_kind } from '../partner_program/partner_field.rules.js';
 import {
@@ -13,72 +16,92 @@ import {
   type RequirementInput,
   type RequirementQuery,
 } from './partner_requirement.type.js';
-const options = { maxWait: 10000, timeout: 30000 };
+import {
+  insertCategory,
+  updateCategory,
+  insertRequirement,
+  updateRequirement,
+  requirementFilters,
+  touchCategories,
+} from './sql/requirements.sql.js';
+
+type Category = Omit<CategoryInput, 'expected_updated_at'> & {
+  id: string;
+  normalized_name: string;
+  created_at: Date;
+  updated_at: Date;
+};
+
+type Requirement = Omit<RequirementInput, 'expected_updated_at'> & {
+  id: string;
+  created_at: Date;
+  updated_at: Date;
+};
+
+const categoryById = 'SELECT * FROM requirement_categories WHERE id=$1';
+const requirementById = 'SELECT * FROM partner_requirements WHERE id=$1';
+
 @Injectable()
 export class PartnerRequirementRepository {
-  constructor(private readonly database: PrismaService) {}
-  categories() {
-    return this.database.client.requirementCategory.findMany({
-      orderBy: [{ sort_order: 'asc' }, { name: 'asc' }, { id: 'asc' }],
-      include: { _count: { select: { fields: true } } },
-    });
-  }
-  list(input: RequirementQuery) {
-    const where: Prisma.PartnerRequirementWhereInput = {
-      ...(input.category_id ? { category_id: input.category_id } : {}),
-      ...(input.section === 'details'
-        ? { field_type: { in: [...DETAIL_TYPES] } }
-        : input.section === 'documents'
-          ? { field_type: { in: [...DOCUMENT_TYPES] } }
-          : {}),
-      ...(input.status !== 'all'
-        ? { is_active: input.status === 'active' }
-        : {}),
-      ...(input.query
-        ? {
-            OR: [
-              { label: { contains: input.query, mode: 'insensitive' } },
-              { key: { contains: input.query, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
-    };
-    return this.database.client.$transaction(
-      async (tx) => {
-        const total = await tx.partnerRequirement.count({ where });
-        const page = Math.min(input.page, Math.max(1, Math.ceil(total / 20)));
-        const rows = await tx.partnerRequirement.findMany({
-          where,
-          include: { category: true },
-          orderBy: [
-            { category: { sort_order: 'asc' } },
-            { sort_order: 'asc' },
-            { label: 'asc' },
-            { id: 'asc' },
-          ],
-          skip: (page - 1) * 20,
-          take: 20,
-        });
-        return { rows, total, page, page_size: 20 };
-      },
-      {
-        ...options,
-        isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
-      },
+  constructor(private readonly database: PostgresService) {}
+
+  async categories() {
+    const result = await this.database.query<
+      Category & { _count: { fields: number } }
+    >(
+      `SELECT c.*, jsonb_build_object('fields',
+        (SELECT count(*) FROM partner_requirements WHERE category_id=c.id)) AS "_count"
+      FROM requirement_categories c ORDER BY sort_order,name,id`,
     );
+    return result.rows;
   }
+
+  list(input: RequirementQuery) {
+    const params = [
+      input.category_id,
+      input.section === 'details'
+        ? DETAIL_TYPES
+        : input.section === 'documents'
+          ? DOCUMENT_TYPES
+          : null,
+      input.status === 'all' ? null : input.status === 'active',
+      input.query,
+    ];
+    return this.database.transaction(async (tx) => {
+      const meta = await tx.query<{ total: number }>(
+        'SELECT count(*)::int AS total ' + requirementFilters,
+        params,
+      );
+      const total = meta.rows[0]!.total;
+      const page = Math.min(input.page, Math.max(1, Math.ceil(total / 20)));
+      const result = await tx.query<Requirement & { category: Category }>(
+        'SELECT r.*, to_jsonb(c) AS category ' +
+          requirementFilters +
+          ' ORDER BY c.sort_order,r.sort_order,r.label,r.id LIMIT 20 OFFSET $5',
+        [...params, (page - 1) * 20],
+      );
+      const rows = result.rows.map((row) => ({
+        ...row,
+        category: {
+          ...row.category,
+          created_at: new Date(row.category.created_at),
+          updated_at: new Date(row.category.updated_at),
+        },
+      }));
+      return { rows, total, page, page_size: 20 };
+    }, 'REPEATABLE READ');
+  }
+
   async public_requirements() {
-    const rows = await this.database.client.partnerRequirement.findMany({
-      where: { is_active: true, category: { is_active: true } },
-      include: {
-        category: { select: { id: true, name: true, description: true } },
-      },
-      orderBy: [
-        { category: { sort_order: 'asc' } },
-        { sort_order: 'asc' },
-        { label: 'asc' },
-      ],
-    });
+    const { rows } = await this.database.query<
+      Requirement & {
+        category: Pick<Category, 'id' | 'name' | 'description'>;
+      }
+    >(
+      `SELECT r.*, jsonb_build_object('id',c.id,'name',c.name,'description',c.description) AS category
+      FROM partner_requirements r JOIN requirement_categories c ON c.id=r.category_id
+      WHERE r.is_active AND c.is_active ORDER BY c.sort_order,r.sort_order,r.label`,
+    );
     const documents = rows.filter((row) =>
       DOCUMENT_TYPES.some((type) => type === row.field_type),
     );
@@ -93,12 +116,17 @@ export class PartnerRequirementRepository {
       ],
     };
   }
+
+  private async lock(tx: SqlClient, actor: string) {
+    await requireActiveAdmin(tx, actor);
+    await tx.query('SELECT pg_advisory_xact_lock(720051)');
+  }
+
   save_category(actor_id: string, input: CategoryInput, id?: string) {
-    return this.database.client.$transaction(async (tx) => {
-      await require_active_admin(tx, actor_id);
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(720051)`;
+    return this.database.transaction(async (tx) => {
+      await this.lock(tx, actor_id);
       const before = id
-        ? await tx.requirementCategory.findUnique({ where: { id } })
+        ? ((await tx.query<Category>(categoryById, [id])).rows[0] ?? null)
         : null;
       if (id && !before)
         throw new AppError(
@@ -115,31 +143,34 @@ export class PartnerRequirementRepository {
           'REQUIREMENT_CONFLICT',
           'This category changed. Reload it before saving.',
         );
-      const data = {
-        name: input.name.trim().replace(/\s+/g, ' '),
-        normalized_name: input.name.trim().replace(/\s+/g, ' ').toLowerCase(),
-        description: input.description,
-        sort_order: input.sort_order,
-        is_active: input.is_active,
-      };
+      const name = input.name.trim().replace(/\s+/g, ' ');
       if (before && !before.is_active && input.is_active) {
-        const active_fields = await tx.partnerRequirement.count({
-          where: {
-            is_active: true,
-            OR: [{ category: { is_active: true } }, { category_id: before.id }],
-          },
-        });
-        if (active_fields > MAX_PARTNER_FIELDS)
+        const result = await tx.query<{ total: number }>(
+          `SELECT count(*)::int AS total FROM partner_requirements r
+            JOIN requirement_categories c ON c.id=r.category_id
+            WHERE r.is_active AND (c.is_active OR c.id=$1)`,
+          [before.id],
+        );
+        if (result.rows[0]!.total > MAX_PARTNER_FIELDS)
           throw new AppError(
             422,
             'PARTNER_FIELD_LIMIT',
             'The partner form supports up to 200 active fields. Disable some fields before enabling this category.',
           );
       }
-      const row = before
-        ? await tx.requirementCategory.update({ where: { id }, data })
-        : await tx.requirementCategory.create({ data });
-      await create_user_log(tx, {
+      const result = await tx.query<Category>(
+        before ? updateCategory : insertCategory,
+        [
+          id ?? nextEntityId(),
+          name,
+          name.toLowerCase(),
+          input.description,
+          input.sort_order,
+          input.is_active,
+        ],
+      );
+      const row = result.rows[0]!;
+      await insertUserLog(tx, {
         actor_id,
         entity_type: 'RequirementCategory',
         entity_id: row.id,
@@ -150,14 +181,13 @@ export class PartnerRequirementRepository {
         after_data: row,
       });
       return row;
-    }, options);
+    });
   }
   save_field(actor_id: string, input: RequirementInput, id?: string) {
-    return this.database.client.$transaction(async (tx) => {
-      await require_active_admin(tx, actor_id);
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(720051)`;
+    return this.database.transaction(async (tx) => {
+      await this.lock(tx, actor_id);
       const before = id
-        ? await tx.partnerRequirement.findUnique({ where: { id } })
+        ? ((await tx.query<Requirement>(requirementById, [id])).rows[0] ?? null)
         : null;
       if (id && !before)
         throw new AppError(
@@ -188,19 +218,21 @@ export class PartnerRequirementRepository {
           'FIELD_KEY_INVALID',
           'Use a label that generates a valid field key, or provide a key of 2–64 lowercase letters, numbers and underscores.',
         );
-      const duplicate = await tx.partnerRequirement.findUnique({
-        where: { key },
-        select: { id: true },
-      });
+      const duplicate = (
+        await tx.query<{ id: string }>(
+          'SELECT id FROM partner_requirements WHERE key=$1',
+          [key],
+        )
+      ).rows[0];
       if (duplicate && duplicate.id !== id)
         throw new AppError(
           409,
           'FIELD_KEY_EXISTS',
           'Another requirement already uses this field key. Choose a distinct label or key.',
         );
-      const category = await tx.requirementCategory.findUnique({
-        where: { id: input.category_id },
-      });
+      const category = (
+        await tx.query<Category>(categoryById, [input.category_id])
+      ).rows[0];
       if (
         !category ||
         (!category.is_active && before?.category_id !== category.id)
@@ -247,13 +279,11 @@ export class PartnerRequirementRepository {
         category.is_active &&
         (!before?.is_active || before.category_id !== category.id)
       ) {
-        const other_fields = await tx.partnerRequirement.count({
-          where: {
-            is_active: true,
-            category: { is_active: true },
-            ...(id ? { id: { not: id } } : {}),
-          },
-        });
+        const count = await tx.query<{ total: number }>(
+          'SELECT count(*)::int AS total FROM partner_requirements r JOIN requirement_categories c ON c.id=r.category_id WHERE r.is_active AND c.is_active AND ($1::text IS NULL OR r.id<>$1)',
+          [id],
+        );
+        const other_fields = count.rows[0]!.total;
         if (other_fields >= MAX_PARTNER_FIELDS)
           throw new AppError(
             422,
@@ -288,32 +318,33 @@ export class PartnerRequirementRepository {
                 : [],
         allow_multiple: document && input.allow_multiple,
       };
-      const row = before
-        ? await tx.partnerRequirement.update({
-            where: { id },
-            data,
-            include: { category: true },
-          })
-        : await tx.partnerRequirement.create({
-            data,
-            include: { category: true },
-          });
-      // A section revision includes its field collection, so a stale category
-      // delete cannot silently remove another administrator's new/edited field.
-      await tx.requirementCategory.updateMany({
-        where: {
-          id: {
-            in: [
-              ...new Set([
-                input.category_id,
-                ...(before ? [before.category_id] : []),
-              ]),
-            ],
-          },
-        },
-        data: { updated_at: new Date() },
-      });
-      await create_user_log(tx, {
+      const result = await tx.query<Requirement>(
+        before ? updateRequirement : insertRequirement,
+        [
+          id ?? nextEntityId(),
+          data.category_id,
+          data.key,
+          data.label,
+          data.field_type,
+          data.description,
+          data.placeholder,
+          data.is_required,
+          data.is_active,
+          data.sort_order,
+          data.min_value,
+          data.max_value,
+          data.max_length,
+          data.max_file_size_mb,
+          data.allowed_extensions,
+          data.allow_multiple,
+        ],
+      );
+      const row = { ...result.rows[0]!, category };
+      // A section revision includes changes to the fields it contains.
+      await tx.query(touchCategories, [
+        [input.category_id, before?.category_id ?? input.category_id],
+      ]);
+      await insertUserLog(tx, {
         actor_id,
         entity_type: 'PartnerRequirement',
         entity_id: row.id,
@@ -324,7 +355,7 @@ export class PartnerRequirementRepository {
         after_data: row,
       });
       return row;
-    }, options);
+    });
   }
   remove(
     actor_id: string,
@@ -332,15 +363,11 @@ export class PartnerRequirementRepository {
     expected_updated_at: string,
     category = false,
   ) {
-    return this.database.client.$transaction(async (tx) => {
-      await require_active_admin(tx, actor_id);
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(720051)`;
+    return this.database.transaction(async (tx) => {
+      await this.lock(tx, actor_id);
       const before = category
-        ? await tx.requirementCategory.findUnique({
-            where: { id },
-            include: { fields: true },
-          })
-        : await tx.partnerRequirement.findUnique({ where: { id } });
+        ? (await tx.query<Category>(categoryById, [id])).rows[0]
+        : (await tx.query<Requirement>(requirementById, [id])).rows[0];
       if (!before)
         throw new AppError(
           404,
@@ -353,29 +380,31 @@ export class PartnerRequirementRepository {
           'REQUIREMENT_CONFLICT',
           'This section or field changed. Refresh before deleting.',
         );
-      // Submitted applications contain immutable definition snapshots, not foreign
-      // keys to the editable configuration. Keep their answers and assets intact.
-      if (category) {
-        await tx.partnerRequirement.deleteMany({ where: { category_id: id } });
-        await tx.requirementCategory.delete({ where: { id } });
+      let snapshot:
+        Category | Requirement | (Category & { fields: Requirement[] }) =
+        before;
+      // Submitted applications retain their own immutable definition snapshots.
+      if ('category_id' in before) {
+        await tx.query('DELETE FROM partner_requirements WHERE id=$1', [id]);
+        await tx.query(touchCategories, [[before.category_id]]);
       } else {
-        await tx.partnerRequirement.delete({ where: { id } });
-        if ('category_id' in before)
-          await tx.requirementCategory.update({
-            where: { id: before.category_id },
-            data: { updated_at: new Date() },
-          });
+        const fields = await tx.query<Requirement>(
+          'DELETE FROM partner_requirements WHERE category_id=$1 RETURNING *',
+          [id],
+        );
+        snapshot = { ...before, fields: fields.rows };
+        await tx.query('DELETE FROM requirement_categories WHERE id=$1', [id]);
       }
-      await create_user_log(tx, {
+      await insertUserLog(tx, {
         actor_id,
         entity_type: category ? 'RequirementCategory' : 'PartnerRequirement',
         entity_id: id,
         action: category
           ? 'DELETE_REQUIREMENT_CATEGORY'
           : 'DELETE_PARTNER_REQUIREMENT',
-        before_data: before,
+        before_data: snapshot,
       });
       return { deleted: true, id };
-    }, options);
+    });
   }
 }

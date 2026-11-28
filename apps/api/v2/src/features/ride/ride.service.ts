@@ -99,10 +99,8 @@ export class RideService {
             commission_percent: rate.commission_percent ?? 0,
             free_cancellation_minutes: fare_policy.free_cancellation_minutes,
             free_pickup_wait_minutes: fare_policy.free_pickup_wait_minutes,
-            cancellation_fee_percent:
-              fare_policy.cancellation_fee_percent.toNumber(),
-            maximum_cancellation_fee:
-              fare_policy.maximum_cancellation_fee.toNumber(),
+            cancellation_fee_percent: fare_policy.cancellation_fee_percent,
+            maximum_cancellation_fee: fare_policy.maximum_cancellation_fee,
           },
         },
         distance_m,

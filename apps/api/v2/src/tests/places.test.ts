@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
-import { PrismaService } from '../infra/database/prisma.service.js';
+import type { PostgresService } from '../database/postgres.service.js';
 import { CloudinaryService } from '../infra/media/cloudinary.js';
 import { PlacesRepository } from '../features/places/places.repo.js';
 import { PlacesService } from '../features/places/places.service.js';
@@ -10,6 +10,7 @@ import {
   place_list,
   place_review,
 } from '../features/places/places.type.js';
+import { placeRows, placeWhere } from '../features/places/sql/places.sql.js';
 
 const input = place_input.parse({
   name: 'River Cafe',
@@ -18,61 +19,45 @@ const input = place_input.parse({
   longitude: 86.95,
 });
 function fixture() {
-  const calls: [string, any][] = [];
-  const record = (name: string, value: unknown) => {
-    calls.push([name, value]);
+  const calls: { sql: string; args: unknown[] }[] = [];
+  const state = {
+    status: 'ACTIVE',
+    updated: true,
+    photo: null as object | null,
   };
-  const tx: any = {
-    $executeRaw: async () => {},
-    user: {
-      findUnique: async () => ({
-        status: 'ACTIVE',
-        deleted_at: null,
-        role: 'RIDER',
-      }),
-    },
-    userLog: { create: async (a: any) => record('audit', a) },
-    communityPlace: {
-      findUnique: async () => ({ id: 'place' }),
-      findUniqueOrThrow: async () => ({ ...input, id: 'place' }),
-      upsert: async (a: any) => {
-        record('place', a);
-        return { ...input, id: 'place' };
-      },
-      updateMany: async (a: any) => {
-        record('update', a);
-        return { count: 1 };
-      },
-    },
-    savedPlace: {
-      upsert: async (a: any) => record('save', a),
-      deleteMany: async (a: any) => record('unsave', a),
-      updateMany: async () => {},
-    },
-    placeVisit: {
-      upsert: async (a: any) => record('visit', a),
-      deleteMany: async (a: any) => record('unvisit', a),
-    },
-    placeReview: {
-      upsert: async (a: any) => {
-        record('review', a);
-        return { id: 'review' };
-      },
-      deleteMany: async (a: any) => record('unreview', a),
-    },
-    placePhoto: {
-      findUnique: async () => null,
-      count: async () => 0,
-      create: async (a: any) => ({ id: 'photo', ...a.data }),
-      findFirst: async () => null,
-    },
+  const query = async (sql: string, args: unknown[] = []) => {
+    calls.push({ sql, args });
+    if (sql.includes('FROM users WHERE'))
+      return { rows: [{ status: state.status, deleted_at: null }] };
+    if (sql.startsWith('INSERT INTO community_places'))
+      return { rows: [{ id: 'place' }] };
+    if (
+      sql.startsWith('SELECT id FROM community_places') &&
+      sql.includes('archived_at')
+    )
+      return { rowCount: 1 };
+    if (sql.startsWith('UPDATE community_places'))
+      return { rowCount: state.updated ? 1 : 0 };
+    if (sql.startsWith('INSERT INTO place_reviews'))
+      return { rows: [{ id: 'review' }] };
+    if (sql.startsWith('SELECT * FROM place_photos'))
+      return { rows: state.photo ? [state.photo] : [] };
+    if (sql.includes(placeWhere) && sql.startsWith('SELECT count(*)'))
+      return { rows: [{ total: 51 }] };
+    if (sql === placeRows)
+      return {
+        rows: [{ id: 'place', saved: true, visitor_count: 8, rating: 4.25 }],
+      };
+    return { rows: [], rowCount: 0 };
   };
-  const db = new PrismaService();
-  Object.defineProperty(db, 'client', {
-    value: { ...tx, $transaction: async (run: any) => run(tx) },
-  });
-  return { repo: new PlacesRepository(db), calls, tx, db };
+  const db = {
+    query,
+    transaction: (work: (tx: { query: typeof query }) => unknown) =>
+      work({ query }),
+  } as unknown as PostgresService;
+  return { repo: new PlacesRepository(db), calls, state };
 }
+
 it('shared place input validates coordinates, public URLs and bounded filters without accepting an actor override', () => {
   for (const invalid of [
     { ...input, created_by_id: 'other' },
@@ -100,89 +85,92 @@ it('shared place input validates coordinates, public URLs and bounded filters wi
     place_dedupe_key({ ...input, latitude: 25.24 }),
   );
 });
-it('a shared place save deduplicates the place and creates only the current account bookmark with an atomic audit', async () => {
+it('a shared place save uses the dedupe lock and creates only the current account bookmark with an atomic audit', async () => {
   const f = fixture();
   await f.repo.create('owner', input);
-  const create = f.calls.find(([name]) => name === 'place')![1];
-  const bookmark = f.calls.find(([name]) => name === 'save')![1];
-  assert.equal(create.create.created_by_id, 'owner');
-  assert.deepEqual(create.update, {});
-  assert.deepEqual(bookmark.where, {
-    user_id_community_place_id: {
-      user_id: 'owner',
-      community_place_id: 'place',
-    },
-  });
-  assert.equal(f.calls.at(-1)![1].data.action, 'SAVE_SHARED_PLACE');
+  const lock = f.calls.find((call) => call.sql.includes('720061'))!;
+  assert.deepEqual(lock.args, [place_dedupe_key(input)]);
+  const create = f.calls.find((call) =>
+    call.sql.startsWith('INSERT INTO community_places'),
+  )!;
+  assert.equal(create.args[1], 'owner');
+  const save = f.calls.find((call) =>
+    call.sql.startsWith('INSERT INTO saved_places'),
+  )!;
+  assert.deepEqual(save.args.slice(1), ['owner', 'place']);
+  assert.match(
+    save.sql,
+    /ON CONFLICT \(user_id,community_place_id\) DO NOTHING/,
+  );
+  assert.equal(f.calls.at(-1)!.args[4], 'SAVE_SHARED_PLACE');
 });
-it('visits, unsaves and review changes never mutate another account or delete shared place content', async () => {
+it('visits, unsaves and review changes stay scoped to the acting account', async () => {
   const f = fixture();
   await f.repo.visit('owner', 'place', true);
   await f.repo.visit('owner', 'place', false);
   await f.repo.bookmark('owner', 'place', false);
   await f.repo.review('owner', 'place', { score: 4, comment: 'Quiet spot' });
   await f.repo.review('owner', 'place', null);
-  assert.deepEqual(f.calls.find(([name]) => name === 'visit')![1].update, {});
-  for (const key of ['unvisit', 'unreview'])
-    assert.deepEqual(f.calls.find(([name]) => name === key)![1].where, {
-      place_id: 'place',
-      user_id: 'owner',
-    });
-  assert.deepEqual(f.calls.find(([name]) => name === 'unsave')![1].where, {
-    user_id: 'owner',
-    community_place_id: 'place',
-  });
-  assert.equal(f.calls.filter(([name]) => name === 'audit').length, 5);
+  for (const table of ['place_visits', 'place_reviews']) {
+    const call = f.calls.find((item) =>
+      item.sql.startsWith('DELETE FROM ' + table),
+    )!;
+    assert.deepEqual(call.args, ['place', 'owner']);
+    assert.match(call.sql, /WHERE place_id=\$1 AND user_id=\$2/);
+  }
+  assert.deepEqual(
+    f.calls.find((call) => call.sql.startsWith('DELETE FROM saved_places'))!
+      .args,
+    ['owner', 'place'],
+  );
+  assert.equal(
+    f.calls.filter((call) => call.sql.includes('INSERT INTO user_logs')).length,
+    5,
+  );
 });
-it('place edits require both the contributor and the exact revision; inactive accounts cannot write', async () => {
+it('place edits require the contributor and exact revision; inactive accounts cannot write', async () => {
   const f = fixture();
   await f.repo.update('owner', 'place', { ...input, version: 3 });
-  assert.deepEqual(f.calls.find(([name]) => name === 'update')![1].where, {
-    id: 'place',
-    created_by_id: 'owner',
-    version: 3,
+  const edit = f.calls.find((call) =>
+    call.sql.startsWith('UPDATE community_places'),
+  )!;
+  assert.deepEqual(edit.args.slice(0, 3), ['place', 'owner', 3]);
+  assert.match(
+    edit.sql,
+    /WHERE id=\$1 AND created_by_id=\$2 AND version=\$3 AND archived_at IS NULL/,
+  );
+  f.state.updated = false;
+  await assert.rejects(
+    f.repo.update('other', 'place', { ...input, version: 3 }),
+    { error_code: 'PLACE_CHANGED' },
+  );
+  f.state.status = 'SUSPENDED';
+  await assert.rejects(f.repo.visit('owner', 'place', true), {
+    error_code: 'USER_INACTIVE',
   });
-  f.tx.communityPlace.updateMany = async () => ({ count: 0 });
-  await assert.rejects(
-    () => f.repo.update('other', 'place', { ...input, version: 3 }),
-    (e: any) => e.error_code === 'PLACE_CHANGED',
-  );
-  f.tx.user.findUnique = async () => ({ status: 'SUSPENDED' });
-  await assert.rejects(
-    () => f.repo.visit('owner', 'place', true),
-    (e: any) => e.error_code === 'USER_INACTIVE',
-  );
 });
 it('photo replay keeps the original attachment and rejects changed payloads and foreign removal', async () => {
   const f = fixture();
-  const photo = {
+  f.state.photo = {
     id: 'photo',
     place_id: 'place',
     content_hash: 'hash',
     url: 'https://image.test/photo.webp',
   };
-  f.tx.placePhoto.findUnique = async () => photo;
-  const result = await f.repo.photo('owner', 'place', {
+  const input = {
     request_key: 'request-key',
     content_hash: 'hash',
     url: 'new',
     public_id: 'new',
+  };
+  assert.equal((await f.repo.photo('owner', 'place', input)).reused, true);
+  await assert.rejects(
+    f.repo.photo('owner', 'place', { ...input, content_hash: 'different' }),
+    { error_code: 'PHOTO_REQUEST_CONFLICT' },
+  );
+  await assert.rejects(f.repo.remove_photo('other', 'place', 'photo'), {
+    error_code: 'PLACE_PHOTO_NOT_FOUND',
   });
-  assert.equal(result.reused, true);
-  await assert.rejects(
-    () =>
-      f.repo.photo('owner', 'place', {
-        request_key: 'request-key',
-        content_hash: 'different',
-        url: 'new',
-        public_id: 'new',
-      }),
-    (e: any) => e.error_code === 'PHOTO_REQUEST_CONFLICT',
-  );
-  await assert.rejects(
-    () => f.repo.remove_photo('other', 'place', 'photo'),
-    (e: any) => e.error_code === 'PLACE_PHOTO_NOT_FOUND',
-  );
 });
 it('a previously committed place photo is returned without another cloud upload', async () => {
   const { createHash } = await import('node:crypto');
@@ -191,17 +179,14 @@ it('a previously committed place photo is returned without another cloud upload'
     file_name: 'photo.png',
     data_url: 'data:image/png;base64,example',
   };
-  const content_hash = createHash('sha256')
-    .update(image_upload.data_url)
-    .digest('hex');
-  Object.defineProperty(f.repo, 'photo_by_key', {
-    value: async () => ({
-      id: 'photo',
-      place_id: 'place',
-      content_hash,
-      url: 'https://image.test/photo.webp',
-    }),
-  });
+  f.state.photo = {
+    id: 'photo',
+    place_id: 'place',
+    content_hash: createHash('sha256')
+      .update(image_upload.data_url)
+      .digest('hex'),
+    url: 'https://image.test/photo.webp',
+  };
   const images = new CloudinaryService();
   Object.defineProperty(images, 'upload_image', {
     value: async () => {
@@ -215,56 +200,28 @@ it('a previously committed place photo is returned without another cloud upload'
   );
   assert.equal(result.id, 'photo');
 });
-it('shared lists keep bookmarks account-scoped and return bounded public identities and database ratings', async () => {
+it('shared lists scope bookmarks to the viewer and use bounded public projections and database ratings', async () => {
   const f = fixture();
-  let query: any;
-  f.tx.communityPlace.findMany = async (args: any) => {
-    query = args;
-    return [
-      {
-        ...input,
-        id: 'place',
-        dedupe_key: 'internal',
-        photos: [],
-        saved_places: [{ id: 'save' }],
-        _count: { visits: 8, reviews: 4 },
-        visits: [
-          {
-            user: {
-              id: 'visitor',
-              first_name: 'Alex',
-              last_name: 'Morgan',
-              status: 'ACTIVE',
-            },
-            visited_at: new Date(),
-          },
-        ],
-      },
-    ];
-  };
-  f.tx.communityPlace.count = async () => 51;
-  f.tx.placeReview.groupBy = async () => [
-    { place_id: 'place', _avg: { score: 4.25 } },
-  ];
-  f.tx.placeVisit.findMany = async (args: any) => {
-    assert.equal(args.where.user_id, 'viewer');
-    return [];
-  };
   const result = await f.repo.list(
     'viewer',
     place_list.parse({ scope: 'saved', query: 'cafe', page: 2 }),
   );
-  assert.deepEqual(query.where.saved_places, { some: { user_id: 'viewer' } });
-  assert.equal(query.where.OR[0].name.mode, 'insensitive');
-  assert.equal(query.skip, 20);
-  assert.equal(query.take, 20);
-  assert.equal(query.include.photos.take, 1);
-  assert.equal(query.include.visits.take, 3);
-  assert.equal(query.include.visits.select.user.select.phone_e164, undefined);
+  const { sql, args } = f.calls.find((call) => call.sql === placeRows)!;
+  assert.deepEqual(args, [
+    'viewer',
+    'saved',
+    undefined,
+    'cafe',
+    null,
+    1,
+    20,
+    20,
+  ]);
+  assert.match(sql, /s.user_id=\$1/);
+  assert.match(sql, /LIMIT 3/);
+  assert.doesNotMatch(sql, /phone_e164|dedupe_key/);
   assert.equal(result.total, 51);
   assert.equal(result.rows[0]!.rating, 4.25);
   assert.equal(result.rows[0]!.visitor_count, 8);
   assert.equal(result.rows[0]!.saved, true);
-  assert.equal('dedupe_key' in result.rows[0]!, false);
-  assert.equal('status' in result.rows[0]!.visitors[0]!.user, false);
 });

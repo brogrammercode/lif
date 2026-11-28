@@ -1,57 +1,42 @@
-import {
-  Controller,
-  Get,
-  Query,
-  Req,
-  Res,
-  Param,
-  UseGuards,
-} from '@nestjs/common';
-import type { Request, Response } from 'express';
+﻿import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
+import { CurrentUserId } from '../../common/decorators/current-user-id.decorator.js';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { AuthGuard } from '../../core/guards.js';
-import { send_success } from '../../core/response.js';
+import { success } from '../../core/response.js';
 import { ride_list_schema } from '../ride/ride.type.js';
+import {
+  rider_history_schema,
+  type RiderHistoryInput,
+} from './dto/ride-history.dto.js';
 import { TravelContextService } from './travel_context.service.js';
-import { rider_history_schema } from './travel_context.type.js';
 
 @Controller()
 @UseGuards(AuthGuard)
 export class TravelContextController {
   constructor(private readonly service: TravelContextService) {}
   @Get('me/travel-context')
-  async context(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
-  ) {
-    return send_success(
-      response,
-      await this.service.context(request.auth!.user_id),
-      'Travel context loaded',
-    );
+  async context(@CurrentUserId() userId: string) {
+    return success(await this.service.context(userId), 'Travel context loaded');
   }
+
   @Get('driver/rides/current')
-  async current(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
-  ) {
-    return send_success(
-      response,
-      await this.service.current(request.auth!.user_id),
+  async current(@CurrentUserId() userId: string) {
+    return success(
+      await this.service.current(userId),
       'Current driver ride loaded',
     );
   }
+
   @Get('me/rides')
   async rider_history(
-    @Req() req: Request,
-    @Query() query: unknown,
-    @Res({ passthrough: true }) res: Response,
+    @CurrentUserId() userId: string,
+    @Query(new ZodValidationPipe(rider_history_schema))
+    input: RiderHistoryInput,
   ) {
-    const input = rider_history_schema.parse(query);
-    return send_success(
-      res,
+    return success(
       await this.service.rider_history(
-        req.auth!.user_id,
+        userId,
         input.page,
         input.page_size,
         input.section,
@@ -60,36 +45,24 @@ export class TravelContextController {
       'Rider history loaded',
     );
   }
+
   @Get('driver/rides')
   async list(
-    @Req() request: Request,
-    @Query() query: unknown,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() userId: string,
+    @Query(new ZodValidationPipe(ride_list_schema))
+    pagination: z.infer<typeof ride_list_schema>,
   ) {
-    const pagination = ride_list_schema.parse(query);
-    return send_success(
-      response,
-      await this.service.list(
-        request.auth!.user_id,
-        pagination.page,
-        pagination.page_size,
-      ),
+    return success(
+      await this.service.list(userId, pagination.page, pagination.page_size),
       'Driver rides loaded',
     );
   }
+
   @Get('driver/rides/:id')
   async detail(
-    @Req() request: Request,
-    @Param('id') id: string,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() userId: string,
+    @Param('id', new ZodValidationPipe(z.string().min(1).max(100))) id: string,
   ) {
-    return send_success(
-      response,
-      await this.service.detail(
-        request.auth!.user_id,
-        z.string().min(1).max(100).parse(id),
-      ),
-      'Driver ride loaded',
-    );
+    return success(await this.service.detail(userId, id), 'Driver ride loaded');
   }
 }

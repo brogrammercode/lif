@@ -1,14 +1,19 @@
+import type { output as ZodOutput } from 'zod';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
+import { CurrentUserId } from '../../common/decorators/current-user-id.decorator.js';
 import {
   Controller,
   Get,
   Post,
   Patch,
   Delete,
-  Req,
   Res,
   UseGuards,
+  Body,
+  Param,
+  Query,
 } from '@nestjs/common';
-import type { Request, Response } from 'express';
+import type { Response } from 'express';
 import { AuthGuard, AdminGuard, DriverAccessGuard } from '../../core/guards.js';
 import { send_success } from '../../core/response.js';
 import { VehicleVerificationService } from './vehicle_verification.service.js';
@@ -21,168 +26,187 @@ import {
 import { catalog_query } from '../vehicle_catalog/vehicle_catalog.type.js';
 import { z } from 'zod';
 import { vehicle_document_keys } from './vehicle_verification.type.js';
+
+const renewal_body_schema = z
+  .object({
+    expected_version: z.number().int().positive(),
+    field_key: z.enum(vehicle_document_keys),
+    asset_id: vehicle_id,
+  })
+  .strict();
+
 @Controller()
 export class VehicleVerificationController {
   constructor(private readonly service: VehicleVerificationService) {}
   @Post('driver/vehicle-verification/:id/renewal')
   @UseGuards(AuthGuard, DriverAccessGuard)
   async renewal(
-    @Req() req: Request,
+    @Body(new ZodValidationPipe(renewal_body_schema))
+    validatedInput: ZodOutput<typeof renewal_body_schema>,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(vehicle_id))
+    routeId: ZodOutput<typeof vehicle_id>,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const input = z
-      .object({
-        expected_version: z.number().int().positive(),
-        field_key: z.enum(vehicle_document_keys),
-        asset_id: vehicle_id,
-      })
-      .strict()
-      .parse(req.body);
+    const input = validatedInput;
     return send_success(
       res,
-      await this.service.renew(
-        req.auth!.user_id,
-        vehicle_id.parse(req.params.id),
-        input,
-      ),
+      await this.service.renew(actorId, routeId, input),
       'Document replacement submitted for review',
     );
   }
   @Get('driver/vehicle-documents')
   @UseGuards(AuthGuard)
   async documents(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.list(req.auth!.user_id),
+      await this.service.list(actorId),
       'Your vehicle documents loaded',
     );
   }
   @Get('driver/vehicle-verification')
   @UseGuards(AuthGuard, DriverAccessGuard)
-  async mine(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async mine(
+    @CurrentUserId() actorId: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     return send_success(
       res,
-      await this.service.mine(req.auth!.user_id),
+      await this.service.mine(actorId),
       'Vehicles loaded',
     );
   }
   @Get('driver/vehicle-verification/catalog')
   @UseGuards(AuthGuard, DriverAccessGuard)
   async catalog(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Query(new ZodValidationPipe(catalog_query))
+    filters: ZodOutput<typeof catalog_query>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.catalog(
-        req.auth!.user_id,
-        catalog_query.parse(req.query),
-      ),
+      await this.service.catalog(actorId, filters),
       'Vehicle choices loaded',
     );
   }
   @Post('driver/vehicle-verification/assets')
   @UseGuards(AuthGuard, DriverAccessGuard)
-  async upload(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async upload(
+    @CurrentUserId() actorId: string,
+    @Body(new ZodValidationPipe(vehicle_asset))
+    input: ZodOutput<typeof vehicle_asset>,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     return send_success(
       res,
-      await this.service.upload(
-        req.auth!.user_id,
-        vehicle_asset.parse(req.body),
-      ),
+      await this.service.upload(actorId, input),
       'Vehicle image saved',
     );
   }
   @Post('driver/vehicle-verification')
   @UseGuards(AuthGuard, DriverAccessGuard)
-  async submit(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async submit(
+    @CurrentUserId() actorId: string,
+    @Body(new ZodValidationPipe(vehicle_submission))
+    input: ZodOutput<typeof vehicle_submission>,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     return send_success(
       res,
-      await this.service.submit(
-        req.auth!.user_id,
-        vehicle_submission.parse(req.body),
-      ),
+      await this.service.submit(actorId, input),
       'Vehicle submitted for review',
     );
   }
   @Delete('driver/vehicle-verification/assets/:id')
   @UseGuards(AuthGuard, DriverAccessGuard)
   async discard(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(vehicle_id))
+    routeId: ZodOutput<typeof vehicle_id>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.discard_upload(
-        req.auth!.user_id,
-        vehicle_id.parse(req.params.id),
-      ),
+      await this.service.discard_upload(actorId, routeId),
       'Unused vehicle image discarded',
     );
   }
   @Patch('driver/vehicle-verification/:id')
   @UseGuards(AuthGuard, DriverAccessGuard)
   async correct(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Body(new ZodValidationPipe(vehicle_submission))
+    input: ZodOutput<typeof vehicle_submission>,
+    @Param('id', new ZodValidationPipe(vehicle_id))
+    routeId: ZodOutput<typeof vehicle_id>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.submit(
-        req.auth!.user_id,
-        vehicle_submission.parse(req.body),
-        vehicle_id.parse(req.params.id),
-      ),
+      await this.service.submit(actorId, input, routeId),
       'Vehicle corrections submitted',
     );
   }
   @Delete('driver/vehicle-verification/:id')
   @UseGuards(AuthGuard, DriverAccessGuard)
-  async remove(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async remove(
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(vehicle_id))
+    routeId: ZodOutput<typeof vehicle_id>,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     return send_success(
       res,
-      await this.service.remove(
-        req.auth!.user_id,
-        vehicle_id.parse(req.params.id),
-      ),
+      await this.service.remove(actorId, routeId),
       'Vehicle removed from your available vehicles',
     );
   }
   @Get('vehicle-verification/assets/:id')
   @UseGuards(AuthGuard)
-  async asset(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async asset(
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(vehicle_id))
+    routeId: ZodOutput<typeof vehicle_id>,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     return send_success(
       res,
-      await this.service.asset(
-        req.auth!.user_id,
-        vehicle_id.parse(req.params.id),
-      ),
+      await this.service.asset(actorId, routeId),
       'Vehicle attachment loaded',
     );
   }
   @Get('admin/users/:id/vehicle-verification')
   @UseGuards(AuthGuard, AdminGuard)
-  async list(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async list(
+    @Param('id', new ZodValidationPipe(vehicle_id))
+    routeId: ZodOutput<typeof vehicle_id>,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     return send_success(
       res,
-      await this.service.list(vehicle_id.parse(req.params.id)),
+      await this.service.list(routeId),
       'User vehicles loaded',
     );
   }
   @Patch('admin/users/:id/vehicle-verification/:vehicle_id/review')
   @UseGuards(AuthGuard, AdminGuard)
-  async review(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async review(
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(vehicle_id))
+    routeId: ZodOutput<typeof vehicle_id>,
+    @Param('vehicle_id', new ZodValidationPipe(vehicle_id))
+    vehicleId: ZodOutput<typeof vehicle_id>,
+    @Body(new ZodValidationPipe(vehicle_review))
+    input: ZodOutput<typeof vehicle_review>,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     return send_success(
       res,
-      await this.service.review(
-        req.auth!.user_id,
-        vehicle_id.parse(req.params.id),
-        vehicle_id.parse(req.params.vehicle_id),
-        vehicle_review.parse(req.body),
-      ),
+      await this.service.review(actorId, routeId, vehicleId, input),
       'Vehicle field reviewed',
     );
   }

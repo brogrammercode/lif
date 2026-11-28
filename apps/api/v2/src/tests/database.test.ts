@@ -1,11 +1,17 @@
+import { EventEmitter } from 'node:events';
+import type { Pool } from 'pg';
+import {
+  PostgresService,
+  type SqlClient,
+} from '../database/postgres.service.js';
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { database_connection_url } from '../infra/database/connection_url.js';
-import { transaction_with_connection_retry } from '../infra/database/transaction_retry.js';
+import { transaction_with_connection_retry } from '../../prisma/transaction_retry.js';
 import type {
   AppPrismaClient,
   TransactionClient,
-} from '../infra/database/client.js';
+} from '../../prisma/client.js';
 
 it('allows time for a remote PostgreSQL connection while preserving connection settings', () => {
   const input =
@@ -132,4 +138,66 @@ it('does not expose a malformed connection string in startup errors', () => {
       !error.message.includes('fixture-private-invalid-connection') &&
       !('input' in error),
   );
+});
+
+it('rejects work through a transaction handle once the callback has finished', async () => {
+  const statements: { text: string; query_timeout: number }[] = [];
+  const releases: boolean[] = [];
+  const pool = Object.assign(new EventEmitter(), {
+    connect: async () => ({
+      query: async (sql: { text: string; query_timeout: number }) => {
+        statements.push(sql);
+        return {
+          command: sql.text === 'COMMIT' ? 'COMMIT' : 'SELECT',
+          rows: [],
+        };
+      },
+      release: (discard: boolean) => releases.push(discard),
+    }),
+  });
+  const database = new PostgresService(pool as unknown as Pool);
+  let retained: SqlClient | undefined;
+  await database.transaction(
+    async (tx) => {
+      retained = tx;
+      await tx.query('SELECT 1');
+    },
+    'READ COMMITTED',
+    { checkoutMs: 10000, statementMs: 30000 },
+  );
+  assert.ok(retained);
+  await assert.rejects(retained.query('SELECT 2'), /transaction is closed/);
+  assert.equal(statements.at(-1)?.text, 'COMMIT');
+  assert.ok(statements.every((statement) => statement.query_timeout === 35000));
+  assert.deepEqual(releases, [false]);
+});
+
+it('keeps healthy connections after SQL errors and discards broken connections', async () => {
+  const releases: boolean[] = [];
+  let failure: { code?: string; message?: string } = { code: '23505' };
+  const pool = Object.assign(new EventEmitter(), {
+    connect: async () => ({
+      query: async () => {
+        throw failure;
+      },
+      release: (discard: boolean) => releases.push(discard),
+    }),
+  });
+  const database = new PostgresService(pool as unknown as Pool);
+  await assert.rejects(database.query('INSERT'), {
+    error_code: 'RECORD_EXISTS',
+  });
+  failure = { code: '08006' };
+  await assert.rejects(database.query('SELECT 1'), {
+    error_code: 'DATABASE_UNAVAILABLE',
+  });
+  failure = { code: 'EPIPE' };
+  await assert.rejects(database.query('SELECT 1'), {
+    error_code: 'DATABASE_UNAVAILABLE',
+  });
+  failure = new Error('Connection terminated unexpectedly');
+  await assert.rejects(database.query('SELECT 1'), {
+    error_code: 'DATABASE_UNAVAILABLE',
+  });
+  assert.deepEqual(releases, [false, true, true, true]);
 });

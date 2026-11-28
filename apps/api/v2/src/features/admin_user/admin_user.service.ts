@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { AdminUserRepository } from './admin_user.repo.js';
 import { CloudinaryService } from '../../infra/media/cloudinary.js';
-import { Prisma } from '@prisma/client';
 import { AppError } from '../../core/error.js';
 import { ADMIN_USER_MESSAGES } from './admin_user.constant.js';
 import type { PersonalUpdateInput } from './admin_user.type.js';
@@ -17,8 +16,14 @@ export class AdminUserService {
     >,
   ) => ({
     ...user,
-    last_known_latitude: user.last_known_latitude?.toNumber() ?? null,
-    last_known_longitude: user.last_known_longitude?.toNumber() ?? null,
+    last_known_latitude:
+      user.last_known_latitude === null
+        ? null
+        : Number(user.last_known_latitude),
+    last_known_longitude:
+      user.last_known_longitude === null
+        ? null
+        : Number(user.last_known_longitude),
   });
 
   readonly get_personal_details = async (id: string) => {
@@ -46,10 +51,7 @@ export class AdminUserService {
           ),
       );
     } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      )
+      if (error instanceof AppError && error.error_code === 'RECORD_EXISTS')
         throw new AppError(
           409,
           'USER_PHONE_EXISTS',

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DriverRepository } from './driver.repo.js';
 import { DriverOperationsService } from '../driver_operations/driver_operations.service.js';
-import { trip_code_input } from '../driver_operations/driver_operations.type.js';
+import { trip_code_input } from '../driver_operations/dto/driver-operations.dto.js';
 import { AppError } from '../../core/error.js';
 import {
   DRIVER_NOT_VERIFIED_MESSAGE,
@@ -14,7 +14,7 @@ import type {
   DriverProfileInput,
   LocationInput,
   VehicleInput,
-} from './driver.type.js';
+} from './dto/driver.dto.js';
 @Injectable()
 export class DriverService {
   constructor(

@@ -4,13 +4,13 @@ import { OAuth2Client } from 'google-auth-library';
 import { verify_google_identity } from '../features/auth/auth.security.js';
 import { AppError } from '../core/error.js';
 import { AuthRepository } from '../features/auth/auth.repo.js';
-import type { PrismaService } from '../infra/database/prisma.service.js';
+import type { PostgresService } from '../database/postgres.service.js';
 
 afterEach(() => mock.restoreAll());
 
 for (const failure_stage of ['before_write', 'claim', 'commit'] as const) {
   it(`handles a refresh transaction expiry at ${failure_stage} without replaying writes`, async () => {
-    const failure = { code: 'P2028' };
+    const failure = new AppError(503, 'DATABASE_BUSY', 'fixture timeout');
     const current_session = {
       id: 'session',
       user_id: 'rider',
@@ -30,49 +30,53 @@ for (const failure_stage of ['before_write', 'claim', 'commit'] as const) {
     let audits = 0;
     let lookups = 0;
     const tx = {
-      $executeRaw: async () => {
-        if (failure_stage === 'before_write' && attempts === 1) throw failure;
-      },
-      user: { findUnique: async () => user },
-      session: {
-        updateMany: async ({ where }: { where: Record<string, unknown> }) => {
+      query: async (sql: string, args: unknown[] = []) => {
+        if (sql.includes('advisory_xact_lock')) {
+          if (failure_stage === 'before_write' && attempts === 1) throw failure;
+          return { rows: [] };
+        }
+        if (sql.includes('FROM users'))
+          return {
+            rows: [
+              {
+                ...user,
+                driver_profile: null,
+                partner_status: null,
+                exited_count: 0,
+              },
+            ],
+          };
+        if (sql.startsWith('UPDATE sessions')) {
           claims++;
-          assert.equal(where.id, current_session.id);
-          assert.equal(where.refresh_token_hash, 'old-hash');
-          assert.equal(where.revoked_at, null);
-          assert.equal(where.family_id, null);
+          assert.deepEqual(args, [current_session.id, 'old-hash']);
+          assert.match(sql, /family_id IS NULL AND revoked_at IS NULL/);
           if (failure_stage === 'claim') throw failure;
-          return { count: 1 };
-        },
-        create: async () => {
+          return { rowCount: 1 };
+        }
+        if (sql.startsWith('INSERT INTO sessions')) {
           rotations++;
-          return { id: 'next' };
-        },
+          return { rows: [{ id: 'next' }] };
+        }
+        if (sql.includes('INSERT INTO user_logs')) audits++;
+        return { rows: [] };
       },
-      userLog: { create: async () => ++audits },
     };
     const repo = new AuthRepository({
-      client: {
-        session: {
-          findUnique: async () => {
-            assert.equal(attempts, 0);
-            lookups++;
-            return current_session;
-          },
-        },
-        $transaction: async (
-          work: (client: typeof tx) => Promise<typeof user>,
-        ) => {
-          attempts++;
-          const result = await work(tx);
-          if (failure_stage === 'commit') throw failure;
-          return result;
-        },
+      query: async () => {
+        assert.equal(attempts, 0);
+        lookups++;
+        return { rows: [current_session] };
       },
-    } as unknown as PrismaService);
+      transaction: async (work: (client: typeof tx) => Promise<unknown>) => {
+        attempts++;
+        const result = await work(tx);
+        if (failure_stage === 'commit') throw failure;
+        return result;
+      },
+    } as unknown as PostgresService);
     const result = repo.rotate_mobile_session('old-hash', 'new-hash', {});
     if (failure_stage === 'before_write') {
-      assert.equal(await result, user);
+      assert.equal((await result)?.id, user.id);
       assert.equal(attempts, 2);
     } else {
       await assert.rejects(result, (error) => error === failure);

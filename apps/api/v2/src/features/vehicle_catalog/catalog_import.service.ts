@@ -1,7 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { z } from 'zod';
-import { PrismaService } from '../../infra/database/prisma.service.js';
 import { AppError } from '../../core/error.js';
 import { VehicleCatalogRepository } from './vehicle_catalog.repo.js';
 import { brand_input, model_input } from './vehicle_catalog.type.js';
@@ -30,17 +28,12 @@ export const catalog_import_input = z
         message: 'CSV source row numbers must be unique within each batch.',
       });
   });
-const normalize = (name: string) =>
-  name.trim().replace(/\s+/g, ' ').toLowerCase();
 const nullable = (value?: string) => value?.trim() || null;
 const number = (value?: string) => (value?.trim() ? Number(value) : null);
 
 @Injectable()
 export class CatalogImportService {
-  constructor(
-    private readonly database: PrismaService,
-    private readonly repo: VehicleCatalogRepository,
-  ) {}
+  constructor(private readonly repo: VehicleCatalogRepository) {}
   async import(actor_id: string, input: z.infer<typeof catalog_import_input>) {
     const results: {
       row: number;
@@ -102,12 +95,7 @@ export class CatalogImportService {
             country: nullable(v.country),
             website_url: nullable(v.website_url),
           });
-          if (
-            await this.database.client.vehicleBrand.findUnique({
-              where: { normalized_name: normalize(data.name) },
-              select: { id: true },
-            })
-          ) {
+          if (await this.repo.findBrandByName(data.name)) {
             results.push({
               row,
               name: data.name,
@@ -118,10 +106,7 @@ export class CatalogImportService {
           }
           await this.repo.save_brand(actor_id, data);
         } else {
-          const brand = await this.database.client.vehicleBrand.findUnique({
-            where: { normalized_name: normalize(v.brand_name ?? '') },
-            select: { id: true, status: true, is_active: true },
-          });
+          const brand = await this.repo.findBrandByName(v.brand_name ?? '');
           if (!brand || brand.status !== 'VERIFIED' || !brand.is_active)
             throw new AppError(
               422,
@@ -137,17 +122,7 @@ export class CatalogImportService {
             year_from: number(v.year_from),
             year_to: number(v.year_to),
           });
-          if (
-            await this.database.client.vehicleModel.findUnique({
-              where: {
-                brand_id_normalized_name: {
-                  brand_id: brand.id,
-                  normalized_name: normalize(data.name),
-                },
-              },
-              select: { id: true },
-            })
-          ) {
+          if (await this.repo.findModelByName(brand.id, data.name)) {
             results.push({
               row,
               name: data.name,
@@ -170,8 +145,7 @@ export class CatalogImportService {
         if (error instanceof AppError && [401, 403].includes(error.status_code))
           throw error;
         const duplicate =
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === 'P2002';
+          error instanceof AppError && error.error_code === 'RECORD_EXISTS';
         results.push({
           row,
           name: v.name ?? '',

@@ -6,9 +6,9 @@ import { convert_image_to_webp } from '../infra/media/image_transform.js';
 import { CloudinaryService } from '../infra/media/cloudinary.js';
 import { AppError } from '../core/error.js';
 import { config } from '../core/config.js';
-import { avatar_schema } from '../features/user/user.type.js';
+import { avatar_schema } from '../features/user/dto/user.dto.js';
 import { UserService } from '../features/user/user.service.js';
-import type { UserRepository } from '../features/user/user.repo.js';
+import type { UserRepository } from '../features/user/user.repository.js';
 import {
   MAX_IMAGE_BYTES,
   type ImageUpload,

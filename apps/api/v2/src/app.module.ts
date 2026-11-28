@@ -1,4 +1,4 @@
-import { PendingModule } from './features/admin_pending/pending.controller.js';
+import { PendingModule } from './features/admin_pending/pending.module.js';
 import { DriverOperationsModule } from './features/driver_operations/driver_operations.module.js';
 import { Module } from '@nestjs/common';
 import { PlacesModule } from './features/places/places.module.js';

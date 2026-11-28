@@ -1,25 +1,75 @@
-import { pending_application_page } from '../admin_pending/pending.list.js';
-import { queue_partner_email } from '../../infra/mail/partner_email.js';
-import { schedule_new_user_emails } from '../../infra/mail/new_user_email.js';
-import { LIVE_SELFIE, LIVE_SELFIE_ID } from './partner_selfie.constant.js';
-import { claimable_delivery } from './partner_delivery.constant.js';
-import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { createHash } from 'node:crypto';
-import { PrismaService } from '../../infra/database/prisma.service.js';
-import type { TransactionClient } from '../../infra/database/client.js';
 import {
-  require_active_account,
-  require_active_admin,
-} from '../../infra/database/account_lifecycle.js';
-import { create_user_log } from '../../infra/database/user_log.js';
+  changeApplicationStatus,
+  insertApplicationNotice,
+  listWorkflowAssets,
+  detachFormerApplication,
+  resubmitApplication,
+  insertApplication,
+  attachApplicationAssets,
+  insertApplicationFields,
+  replaceApplicationAnswer,
+  reviewApplicationAnswer,
+  requestApplicationSelfie,
+  approveApplication,
+  saveConfirmation,
+  findFinalAgreementPdf,
+  reviewConfirmation,
+  finishConfirmation,
+  initiateAgreementDeliveries,
+  findDuplicatePartnerAsset,
+  readPartnerAssetUsage,
+  insertPartnerAsset,
+  readAuthorizedPartnerAsset,
+  recordActivationShare,
+  queueActivationEmail,
+  resetActivationAttempts,
+  increaseActivationAttempts,
+  lockDriverActivation,
+  assignDriverRole,
+  verifyDriverProfile,
+  reinstateReturningDriver,
+  activateApplication,
+  findNotificationApplication,
+  retryPartnerNotifications,
+  findAgreementForDelivery,
+  recordAgreementShare,
+} from './sql/application-transitions.sql.js';
+import {
+  applicationListPage,
+  applicationDetails,
+  applicationAssetMetadata,
+  applicationEmailHistory,
+} from './sql/application-read.sql.js';
+import {
+  PARTNER_EMAIL_TITLE,
+  queue_partner_email,
+} from '../../infra/mail/partner_email.js';
+import { schedule_new_user_emails } from '../../infra/mail/new_user_email.js';
+import { PostgresService } from '../../database/postgres.service.js';
+import { LIVE_SELFIE, LIVE_SELFIE_ID } from './partner_selfie.constant.js';
+import { Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { nextEntityId } from '../../database/entity-id.js';
+import type { SqlClient } from '../../database/postgres.service.js';
+import {
+  requireActiveAccount,
+  requireActiveAdmin,
+} from '../../database/account-locks.js';
+import { insertUserLog } from '../../database/user-log.js';
+import {
+  type AssetMetadata,
+  readApplication,
+  readExitedApplication,
+  readPartnerDocument,
+  readActiveRequirements,
+  readAnswerAssets,
+} from './sql/application-workflow.sql.js';
 import { convert_image_to_webp } from '../../infra/media/image_transform.js';
 import { image_upload_schema } from '../../infra/media/image_upload.js';
 import { AppError } from '../../core/error.js';
 import { published_document } from './partner_document.service.js';
 import {
   matches_activation,
-  partner_lock,
   reveal_activation,
 } from './partner_program.security.js';
 import type {
@@ -28,7 +78,7 @@ import type {
   ConfirmationInput,
   ListInput,
   ReviewInput,
-} from './partner_program.type.js';
+} from './dto/partner-program.dto.js';
 import {
   input_kind,
   field_value_error,
@@ -37,38 +87,9 @@ import {
   with_field_rules,
 } from './partner_field.rules.js';
 
-const transaction_options = { maxWait: 10000, timeout: 30000 };
-const asset_select = {
-  id: true,
-  owner_id: true,
-  purpose: true,
-  field_id: true,
-  file_name: true,
-  mime_type: true,
-  size: true,
-  created_at: true,
-} as const;
-const application_include = {
-  fields: { orderBy: { created_at: 'asc' as const } },
-  confirmation: true,
-  exit_request: { select: { id: true, status: true, version: true } },
-  deliveries: true,
-  user: {
-    select: {
-      id: true,
-      first_name: true,
-      last_name: true,
-      email: true,
-      phone_e164: true,
-      role: true,
-      last_login_at: true,
-      partner_activated_at: true,
-    },
-  },
-} as const;
-type Application = Prisma.PartnerApplicationGetPayload<{
-  include: typeof application_include;
-}>;
+const transaction_options = { checkoutMs: 10000, statementMs: 30000 };
+const partnerLock = (tx: SqlClient, userId: string) =>
+  tx.query('SELECT pg_advisory_xact_lock(720061,hashtext($1))', [userId]);
 type Definition = {
   id: string;
   key?: string;
@@ -84,8 +105,6 @@ type Definition = {
   max_file_size_mb?: number | null;
   allowed_extensions?: string[];
 };
-const json = (value: unknown) =>
-  JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const definition_order = (left: Definition, right: Definition) =>
   (left.id === LIVE_SELFIE_ID ? 1 : 0) -
     (right.id === LIVE_SELFIE_ID ? 1 : 0) ||
@@ -108,151 +127,105 @@ const fail = (message: string) =>
   new AppError(422, 'PARTNER_VALIDATION_ERROR', message);
 const editable_application = (status: string) =>
   ['SUBMITTED', 'CHANGES_REQUESTED'].includes(status);
-const latest_exit = (user_id: string) => ({
-  where: { user_id, status: 'EXITED' as const },
-  orderBy: [{ created_at: 'desc' as const }, { id: 'desc' as const }],
-});
-const safe_application = (app: Application | null) => {
-  if (!app) return null;
-  const { activation_hash, activation_salt, activation_ciphertext, ...safe } =
-    app;
-  void activation_hash;
-  void activation_salt;
-  void activation_ciphertext;
-  return safe;
-};
-
 @Injectable()
 export class PartnerProgramService {
-  constructor(private readonly database: PrismaService) {}
+  constructor(private readonly postgres: PostgresService) {}
+  private async update_status(tx: SqlClient, id: string, status: string) {
+    const {
+      rows: [updated],
+    } = await tx.query<{ status: string; version: number }>(
+      changeApplicationStatus,
+      [id, status],
+    );
+    if (!updated) throw conflict();
+    return updated;
+  }
   private async audit(
-    tx: TransactionClient,
+    tx: SqlClient,
     actor_id: string,
     id: string,
     action: string,
     data: unknown = {},
   ) {
-    await create_user_log(tx, {
+    await insertUserLog(tx, {
       actor_id,
       entity_type: 'PartnerApplication',
       entity_id: id,
       action,
-      after_data: json(data) as Prisma.InputJsonObject,
+      after_data: data,
     });
   }
   private async mail_transaction<T>(
-    work: (tx: TransactionClient) => Promise<T>,
+    work: (tx: SqlClient) => Promise<T>,
     options = transaction_options,
   ): Promise<T> {
-    const result = await this.database.client.$transaction(work, options);
-    schedule_new_user_emails();
+    const result = await this.postgres.transaction(
+      work,
+      'READ COMMITTED',
+      options,
+    );
+    schedule_new_user_emails(this.postgres);
     return result;
   }
   private async notify(
-    tx: TransactionClient,
+    tx: SqlClient,
     user_id: string,
     title: string,
     body: string,
   ) {
-    const app = await tx.partnerApplication.findUnique({
-      where: { current_user_id: user_id },
-      select: {
-        id: true,
-        user_id: true,
-        contact_email: true,
-        version: true,
-        status: true,
-      },
-    });
-    await tx.notification.create({
-      data: {
-        user_id,
-        type: 'ACCOUNT',
-        channel: 'IN_APP',
-        title,
-        body,
-        data: {
-          route: '/partner-program',
-          ...(app ? { application_id: app.id } : {}),
-        },
-      },
-    });
+    const app = await readApplication(tx, user_id, true);
+    await tx.query(insertApplicationNotice, [
+      nextEntityId(),
+      user_id,
+      title,
+      body,
+      JSON.stringify({
+        route: '/partner-program',
+        ...(app ? { application_id: app.id } : {}),
+      }),
+    ]);
     if (app) await queue_partner_email(tx, app, 'STATUS_UPDATED', title, body);
   }
   private async locked(
-    tx: TransactionClient,
+    tx: SqlClient,
     actor_id: string,
     id: string,
     version: number,
     admin = true,
   ) {
-    if (admin) await require_active_admin(tx, actor_id);
-    else await require_active_account(tx, actor_id);
-    const initial = await tx.partnerApplication.findUnique({
-      where: { id },
-      select: { user_id: true },
-    });
+    if (admin) await requireActiveAdmin(tx, actor_id);
+    else await requireActiveAccount(tx, actor_id);
+    const initial = await readApplication(tx, id);
     if (!initial || (!admin && initial.user_id !== actor_id))
       throw new AppError(
         404,
         'APPLICATION_NOT_FOUND',
         'Application not found.',
       );
-    await require_active_account(tx, initial.user_id);
-    await partner_lock(tx, initial.user_id);
-    const app = await tx.partnerApplication.findUnique({
-      where: { id },
-      include: application_include,
-    });
+    await requireActiveAccount(tx, initial.user_id);
+    await partnerLock(tx, initial.user_id);
+    const app = await readApplication(tx, id);
     if (!app || app.version !== version) throw conflict();
     return app;
   }
   async workflow(user_id: string) {
-    return this.database.client.$transaction(
+    return this.postgres.transaction(
       async (tx) => {
         const [current, policy, confirmation, requirements] = await Promise.all(
           [
-            tx.partnerApplication.findUnique({
-              where: { current_user_id: user_id },
-              include: application_include,
-            }),
-            tx.partnerDocument.findUnique({
-              where: { kind: 'POLICY' },
-            }),
-            tx.partnerDocument.findUnique({
-              where: { kind: 'CONFIRMATION' },
-            }),
-            tx.partnerRequirement.findMany({
-              where: { is_active: true, category: { is_active: true } },
-              include: { category: true },
-              orderBy: [
-                { category: { sort_order: 'asc' } },
-                { sort_order: 'asc' },
-                { id: 'asc' },
-              ],
-            }),
+            readApplication(tx, user_id, true),
+            readPartnerDocument(tx, 'POLICY'),
+            readPartnerDocument(tx, 'CONFIRMATION'),
+            readActiveRequirements(tx),
           ],
         );
         const app = current?.status === 'EXITED' ? null : current;
-        const [assets, previous] = await Promise.all([
-          tx.partnerAsset.findMany({
-            where: {
-              owner_id: user_id,
-              application_id: app?.id ?? null,
-              purpose: {
-                in: ['APPLICATION_DOCUMENT', 'APPLICATION_SELFIE', 'FINAL_PDF'],
-              },
-            },
-            select: asset_select,
-            orderBy: { created_at: 'desc' },
-          }),
-          app
-            ? null
-            : (current ??
-              tx.partnerApplication.findFirst({
-                ...latest_exit(user_id),
-                include: { fields: true },
-              })),
+        const [{ rows: assets }, previous] = await Promise.all([
+          tx.query<AssetMetadata>(listWorkflowAssets, [
+            user_id,
+            app?.id ?? null,
+          ]),
+          app ? null : (current ?? readExitedApplication(tx, user_id)),
         ]);
         const prefill = new Map<string, unknown>();
         if (previous) {
@@ -347,119 +320,57 @@ export class PartnerProgramService {
           driver_active: app?.status === 'ACTIVATED',
         };
       },
-      {
-        ...transaction_options,
-        isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
-      },
+      'REPEATABLE READ',
+      transaction_options,
     );
   }
   async list(input: ListInput) {
-    schedule_new_user_emails();
-    const pending =
-      input.pending_only === 'true'
-        ? await pending_application_page(this.database.client, input)
-        : null;
-    const where: Prisma.PartnerApplicationWhereInput = {
-      ...(input.status === 'all' ? {} : { status: input.status }),
-      ...(input.section === 'confirmations' && input.pending_only !== 'true'
-        ? { confirmation: { isNot: null } }
-        : {}),
-      ...(input.query
-        ? {
-            OR: [
-              { id: { contains: input.query } },
-              { contact_email: { contains: input.query, mode: 'insensitive' } },
-              { whatsapp_phone: { contains: input.query } },
-              {
-                user: {
-                  first_name: { contains: input.query, mode: 'insensitive' },
-                },
-              },
-              {
-                user: {
-                  last_name: { contains: input.query, mode: 'insensitive' },
-                },
-              },
-            ],
-          }
-        : {}),
-    };
-    if (pending) Object.assign(where, { id: { in: pending.ids } });
-    const total =
-      pending?.total ??
-      (await this.database.client.partnerApplication.count({
-        where,
-      }));
-    const page = Math.min(input.page, Math.max(1, Math.ceil(total / 20)));
-    const rows = await this.database.client.partnerApplication.findMany({
-      where,
-      select: {
-        id: true,
-        user_id: true,
-        status: true,
-        version: true,
-        contact_email: true,
-        whatsapp_phone: true,
-        submitted_at: true,
-        completed_at: true,
-        activation_issued_at: true,
-        activation_attempts: true,
-        user: {
-          select: { first_name: true, last_name: true, avatar_url: true },
-        },
-        confirmation: { select: { status: true, accepted_at: true } },
-        deliveries: true,
-      },
-      orderBy: [{ submitted_at: 'desc' }, { id: 'desc' }],
-      skip: pending ? 0 : (page - 1) * 20,
-      take: 20,
-    });
-    return { rows, total, page, page_size: 20 };
+    schedule_new_user_emails(this.postgres);
+    return applicationListPage(this.postgres, input);
   }
+
   async detail(id: string) {
-    const app = await this.database.client.partnerApplication.findUnique({
-      where: { id },
-      include: application_include,
-    });
-    if (!app)
-      throw new AppError(
-        404,
-        'APPLICATION_NOT_FOUND',
-        'Application not found.',
-      );
-    const assets = await this.database.client.partnerAsset.findMany({
-      where: { owner_id: app.user_id, application_id: app.id },
-      select: asset_select,
-    });
-    const emails = await this.database.client.notification.findMany({
-      where: {
-        channel: 'EMAIL',
-        sent_at: undefined,
-        data: { path: ['application_id'], equals: id },
-      },
-      select: { id: true, data: true, created_at: true, sent_at: true },
-      orderBy: { created_at: 'desc' },
-      take: 50,
-    });
-    return {
-      application: safe_application(app),
-      assets,
-      emails: emails.map((row) => {
-        const data = row.data as Prisma.JsonObject;
-        return {
-          id: row.id,
+    return this.postgres.transaction(async (tx) => {
+      const {
+        rows: [application],
+      } = await tx.query<{ id: string; user_id: string }>(applicationDetails, [
+        id,
+      ]);
+      if (!application)
+        throw new AppError(
+          404,
+          'APPLICATION_NOT_FOUND',
+          'Application not found.',
+        );
+
+      const { rows: assets } = await tx.query(applicationAssetMetadata, [
+        id,
+        application.user_id,
+      ]);
+      const { rows } = await tx.query<{
+        id: string;
+        data: Record<string, unknown>;
+        created_at: Date;
+        sent_at: Date | null;
+      }>(applicationEmailHistory, [id]);
+      return {
+        application,
+        assets,
+        emails: rows.map(({ id: emailId, data, created_at, sent_at }) => ({
+          id: emailId,
           event: data.event,
           status: data.state,
           attempts: data.attempts,
           last_error: data.last_error ?? null,
-          created_at: row.created_at,
-          sent_at: row.sent_at,
-        };
-      }),
-    };
+          created_at,
+          sent_at,
+        })),
+      };
+    }, 'REPEATABLE READ');
   }
+
   private async validate_answer(
-    tx: TransactionClient,
+    tx: SqlClient,
     user_id: string,
     definition: Definition,
     value: unknown,
@@ -501,19 +412,14 @@ export class PartnerProgramService {
               asset.field_id === definition.id &&
               asset.purpose === purpose,
           )
-        : await tx.partnerAsset.findMany({
-            where: {
-              id: { in: value as string[] },
-              owner_id: user_id,
-              application_id,
-              purpose:
-                definition.id === LIVE_SELFIE_ID
-                  ? 'APPLICATION_SELFIE'
-                  : 'APPLICATION_DOCUMENT',
-              field_id: definition.id,
-            },
-            select: { id: true, mime_type: true, file_name: true, size: true },
-          });
+        : await readAnswerAssets(
+            tx,
+            user_id,
+            application_id ?? null,
+            value as string[],
+            definition.id,
+            purpose,
+          );
       if (
         assets.length !== new Set(value).size ||
         new Set(value).size !== value.length
@@ -599,9 +505,9 @@ export class PartnerProgramService {
   }
   async submit(user_id: string, input: ApplicationInput) {
     return this.mail_transaction(async (tx) => {
-      await require_active_account(tx, user_id);
-      await partner_lock(tx, user_id);
-      const user = await require_active_account(tx, user_id);
+      await requireActiveAccount(tx, user_id);
+      await partnerLock(tx, user_id);
+      const user = await requireActiveAccount(tx, user_id);
       // Staff use the same personal account in the rider app. Their staff role
       // must not prevent onboarding or be replaced by a driver role later.
       if (user.role === 'DRIVER')
@@ -610,16 +516,13 @@ export class PartnerProgramService {
           'PARTNER_NOT_ELIGIBLE',
           'This account is already a driver and cannot submit a new partner application.',
         );
-      const current = await tx.partnerApplication.findUnique({
-        where: { current_user_id: user_id },
-        include: application_include,
-      });
+      const current = await readApplication(tx, user_id, true);
       const previous = current?.status === 'EXITED' ? current : null;
       const old = previous ? null : current;
       if ((old?.version ?? 0) !== input.version) throw conflict();
       if (old && !editable_application(old.status)) throw conflict();
       const published = published_document(
-        await tx.partnerDocument.findUnique({ where: { kind: 'POLICY' } }),
+        await readPartnerDocument(tx, 'POLICY'),
       );
       const policy = (old?.policy_snapshot ?? published) as {
         version: number;
@@ -632,15 +535,7 @@ export class PartnerProgramService {
         );
       const definitions: Definition[] = old
         ? old.fields.map((f) => f.definition as unknown as Definition)
-        : await tx.partnerRequirement.findMany({
-            where: { is_active: true, category: { is_active: true } },
-            include: { category: true },
-            orderBy: [
-              { category: { sort_order: 'asc' } },
-              { sort_order: 'asc' },
-              { id: 'asc' },
-            ],
-          });
+        : await readActiveRequirements(tx);
       if (!definitions.some((d) => d.id === LIVE_SELFIE_ID))
         definitions.push({
           ...LIVE_SELFIE,
@@ -690,21 +585,7 @@ export class PartnerProgramService {
         ),
       ];
       const cached_assets = asset_ids.length
-        ? await tx.partnerAsset.findMany({
-            where: {
-              owner_id: user_id,
-              application_id: old?.id ?? null,
-              id: { in: asset_ids },
-            },
-            select: {
-              id: true,
-              field_id: true,
-              purpose: true,
-              mime_type: true,
-              file_name: true,
-              size: true,
-            },
-          })
+        ? await readAnswerAssets(tx, user_id, old?.id ?? null, asset_ids)
         : [];
       for (const definition of definitions) {
         const value = values.get(definition.id) ?? null;
@@ -740,54 +621,47 @@ export class PartnerProgramService {
         ),
       );
       if (address_error) throw fail(address_error);
-      if (previous) {
-        await tx.partnerApplication.update({
-          where: { id: previous.id },
-          data: { current_user_id: null },
-        });
-      }
-      const app = old
-        ? await tx.partnerApplication.update({
-            where: { id: old.id },
-            data: {
-              status: 'SUBMITTED',
-              contact_email: input.contact_email,
-              whatsapp_phone: input.whatsapp_phone,
-              version: { increment: 1 },
-              submitted_at: new Date(),
-            },
-          })
-        : await tx.partnerApplication.create({
-            data: {
-              user_id,
-              current_user_id: user_id,
-              contact_email: input.contact_email,
-              whatsapp_phone: input.whatsapp_phone,
-              policy_snapshot: json(policy),
-            },
-          });
+      if (previous) await tx.query(detachFormerApplication, [previous.id]);
+      const {
+        rows: [app],
+      } = old
+        ? await tx.query<{
+            id: string;
+            user_id: string;
+            contact_email: string;
+            version: number;
+            status: string;
+          }>(resubmitApplication, [
+            old.id,
+            input.contact_email,
+            input.whatsapp_phone,
+          ])
+        : await tx.query<{
+            id: string;
+            user_id: string;
+            contact_email: string;
+            version: number;
+            status: string;
+          }>(insertApplication, [
+            nextEntityId(),
+            user_id,
+            input.contact_email,
+            input.whatsapp_phone,
+            JSON.stringify(policy),
+          ]);
+      if (!app) throw conflict();
       if (!old) {
-        await tx.partnerAsset.updateMany({
-          where: {
-            owner_id: user_id,
-            application_id: null,
-            purpose: { in: ['APPLICATION_DOCUMENT', 'APPLICATION_SELFIE'] },
-          },
-          data: { application_id: app.id },
-        });
-      }
-      if (!old && definitions.length) {
-        await tx.partnerApplicationField.createMany({
-          data: definitions.map((definition) => {
-            const value = values.get(definition.id) ?? null;
-            return {
-              application_id: app.id,
-              requirement_id: definition.id,
-              definition: json(definition),
-              value: value === null ? Prisma.JsonNull : json(value),
-            };
-          }),
-        });
+        await tx.query(attachApplicationAssets, [user_id, app.id]);
+        const fields = definitions.map((definition) => ({
+          id: nextEntityId(),
+          requirement_id: definition.id,
+          definition,
+          value: values.get(definition.id) ?? null,
+        }));
+        await tx.query(insertApplicationFields, [
+          app.id,
+          JSON.stringify(fields),
+        ]);
       }
       for (const definition of old ? definitions : []) {
         const value = values.get(definition.id) ?? null;
@@ -800,27 +674,13 @@ export class PartnerProgramService {
             JSON.stringify(previous.value) === JSON.stringify(value))
         )
           continue;
-        await tx.partnerApplicationField.upsert({
-          where: {
-            application_id_requirement_id: {
-              application_id: app.id,
-              requirement_id: definition.id,
-            },
-          },
-          create: {
-            application_id: app.id,
-            requirement_id: definition.id,
-            definition: json(definition),
-            value: value === null ? Prisma.JsonNull : json(value),
-          },
-          update: {
-            value: value === null ? Prisma.JsonNull : json(value),
-            status: 'PENDING',
-            rejection_reason: null,
-            reviewed_at: null,
-            reviewed_by_id: null,
-          },
-        });
+        await tx.query(replaceApplicationAnswer, [
+          nextEntityId(),
+          app.id,
+          definition.id,
+          JSON.stringify(definition),
+          JSON.stringify(value),
+        ]);
       }
       await this.audit(
         tx,
@@ -876,26 +736,20 @@ export class PartnerProgramService {
           undefined,
           app.id,
         );
-      await tx.partnerApplicationField.update({
-        where: { id: field_id },
-        data: {
-          status: input.decision,
-          rejection_reason:
-            input.decision === 'REJECTED' ? input.rejection_reason! : null,
-          reviewed_at: new Date(),
-          reviewed_by_id: actor_id,
-        },
-      });
+      await tx.query(reviewApplicationAnswer, [
+        field_id,
+        input.decision,
+        input.decision === 'REJECTED' ? input.rejection_reason : null,
+        actor_id,
+      ]);
       const rejected =
         input.decision === 'REJECTED' ||
         app.fields.some((f) => f.id !== field_id && f.status === 'REJECTED');
-      const updated = await tx.partnerApplication.update({
-        where: { id },
-        data: {
-          status: rejected ? 'CHANGES_REQUESTED' : 'SUBMITTED',
-          version: { increment: 1 },
-        },
-      });
+      const updated = await this.update_status(
+        tx,
+        id,
+        rejected ? 'CHANGES_REQUESTED' : 'SUBMITTED',
+      );
       await this.audit(tx, actor_id, id, 'REVIEW_PARTNER_FIELD', {
         field_id,
         status: input.decision,
@@ -919,23 +773,15 @@ export class PartnerProgramService {
         app.fields.some((f) => f.requirement_id === LIVE_SELFIE_ID)
       )
         throw conflict();
-      await tx.partnerApplicationField.create({
-        data: {
-          application_id: id,
-          requirement_id: LIVE_SELFIE_ID,
-          definition: json(LIVE_SELFIE),
-          value: Prisma.JsonNull,
-          status: 'REJECTED',
-          rejection_reason:
-            'Take a fresh live selfie and resubmit your application.',
-          reviewed_by_id: actor_id,
-          reviewed_at: new Date(),
-        },
-      });
-      await tx.partnerApplication.update({
-        where: { id },
-        data: { status: 'CHANGES_REQUESTED', version: { increment: 1 } },
-      });
+      await tx.query(requestApplicationSelfie, [
+        nextEntityId(),
+        id,
+        LIVE_SELFIE_ID,
+        JSON.stringify(LIVE_SELFIE),
+        'Take a fresh live selfie and resubmit your application.',
+        actor_id,
+      ]);
+      await this.update_status(tx, id, 'CHANGES_REQUESTED');
       await this.audit(tx, actor_id, id, 'REQUEST_PARTNER_SELFIE');
       await this.notify(
         tx,
@@ -988,23 +834,18 @@ export class PartnerProgramService {
         app.id,
       );
       const confirmation = published_document(
-        await tx.partnerDocument.findUnique({
-          where: { kind: 'CONFIRMATION' },
-        }),
+        await readPartnerDocument(tx, 'CONFIRMATION'),
       );
       if (!confirmation)
         throw fail('Publish the confirmation document in Requirements first.');
       const approval_before = { status: app.status, version: app.version };
-      const updated = await tx.partnerApplication.update({
-        where: { id },
-        data: {
-          status: 'APPROVED',
-          confirmation_document: json(confirmation),
-          reviewed_by_id: actor_id,
-          reviewed_at: new Date(),
-          version: { increment: 1 },
-        },
-      });
+      const {
+        rows: [updated],
+      } = await tx.query<{ status: string; version: number }>(
+        approveApplication,
+        [id, JSON.stringify(confirmation), actor_id],
+      );
+      if (!updated) throw conflict();
       await this.audit(tx, actor_id, id, 'APPROVE_PARTNER_APPLICATION', {
         previous_status: approval_before.status,
         status: updated.status,
@@ -1022,10 +863,7 @@ export class PartnerProgramService {
   }
   async confirm(user_id: string, input: ConfirmationInput) {
     return this.mail_transaction(async (tx) => {
-      const found = await tx.partnerApplication.findUnique({
-        where: { current_user_id: user_id },
-        select: { id: true },
-      });
+      const found = await readApplication(tx, user_id, true);
       if (!found) throw fail('Submit an application first.');
       const app = await this.locked(
         tx,
@@ -1039,27 +877,17 @@ export class PartnerProgramService {
       const document = app.confirmation_document as { version?: number } | null;
       if (!document || document.version !== input.document_version)
         throw conflict();
-      await tx.partnerConfirmation.upsert({
-        where: { application_id: app.id },
-        create: {
-          application_id: app.id,
-          document_snapshot: json(document),
-          signature_name: input.signature_name,
-        },
-        update: {
-          document_snapshot: json(document),
-          signature_name: input.signature_name,
-          accepted_at: new Date(),
-          status: 'PENDING',
-          rejection_reason: null,
-          reviewed_at: null,
-          reviewed_by_id: null,
-        },
-      });
-      const updated = await tx.partnerApplication.update({
-        where: { id: app.id },
-        data: { status: 'CONFIRMATION_SUBMITTED', version: { increment: 1 } },
-      });
+      await tx.query(saveConfirmation, [
+        nextEntityId(),
+        app.id,
+        JSON.stringify(document),
+        input.signature_name,
+      ]);
+      const updated = await this.update_status(
+        tx,
+        app.id,
+        'CONFIRMATION_SUBMITTED',
+      );
       await queue_partner_email(
         tx,
         { ...app, version: updated.version, status: updated.status },
@@ -1081,52 +909,39 @@ export class PartnerProgramService {
       if (app.status !== 'CONFIRMATION_SUBMITTED' || !app.confirmation)
         throw conflict();
       if (input.decision === 'APPROVED') {
-        const pdf = input.final_pdf_id
-          ? await tx.partnerAsset.findFirst({
-              where: {
-                id: input.final_pdf_id,
-                owner_id: app.user_id,
-                application_id: app.id,
-                purpose: 'FINAL_PDF',
-                mime_type: 'application/pdf',
-              },
-              select: { id: true },
-            })
-          : null;
-        if (!pdf) throw fail('Upload and select the final approved PDF first.');
+        const { rowCount } = await tx.query(findFinalAgreementPdf, [
+          input.final_pdf_id,
+          app.user_id,
+          app.id,
+        ]);
+        if (!rowCount)
+          throw fail('Upload and select the final approved PDF first.');
       }
-      await tx.partnerConfirmation.update({
-        where: { id: app.confirmation.id },
-        data: {
-          status: input.decision,
-          rejection_reason:
-            input.decision === 'REJECTED' ? input.rejection_reason! : null,
-          reviewed_by_id: actor_id,
-          reviewed_at: new Date(),
-        },
-      });
       const approved = input.decision === 'APPROVED';
-      const updated = await tx.partnerApplication.update({
-        where: { id },
-        data: {
-          status: approved ? 'COMPLETED' : 'CONFIRMATION_CHANGES_REQUESTED',
-          ...(approved
-            ? { final_pdf_id: input.final_pdf_id!, completed_at: new Date() }
-            : {}),
-          version: { increment: 1 },
-        },
-      });
+      await tx.query(reviewConfirmation, [
+        app.confirmation.id,
+        input.decision,
+        approved ? null : input.rejection_reason,
+        actor_id,
+      ]);
+      const {
+        rows: [updated],
+      } = await tx.query<{ status: string; version: number }>(
+        finishConfirmation,
+        [
+          id,
+          approved ? 'COMPLETED' : 'CONFIRMATION_CHANGES_REQUESTED',
+          approved,
+          input.final_pdf_id,
+        ],
+      );
+      if (!updated) throw conflict();
       if (approved)
-        for (const channel of ['EMAIL', 'WHATSAPP'])
-          await tx.partnerDelivery.upsert({
-            where: { application_id_channel: { application_id: id, channel } },
-            create: {
-              application_id: id,
-              channel,
-              status: channel === 'EMAIL' ? 'PENDING' : 'MANUAL_PENDING',
-            },
-            update: {},
-          });
+        await tx.query(initiateAgreementDeliveries, [
+          nextEntityId(),
+          nextEntityId(),
+          id,
+        ]);
       await this.audit(tx, actor_id, id, 'REVIEW_PARTNER_CONFIRMATION', {
         decision: input.decision,
         final_pdf_id: input.final_pdf_id,
@@ -1151,10 +966,7 @@ export class PartnerProgramService {
         'Application uploads must identify a requirement, not another application.',
       );
     const app = input.application_id
-      ? await this.database.client.partnerApplication.findUnique({
-          where: { id: input.application_id },
-          select: { user_id: true, status: true },
-        })
+      ? await readApplication(this.postgres, input.application_id)
       : null;
     const owner_id = admin ? app?.user_id : actor_id;
     if (!owner_id)
@@ -1169,10 +981,7 @@ export class PartnerProgramService {
         input.capture_source !== 'CAMERA'
       )
         throw fail('Take your live selfie using the application camera.');
-      const current = await this.database.client.partnerApplication.findUnique({
-        where: { current_user_id: actor_id },
-        include: { fields: true },
-      });
+      const current = await readApplication(this.postgres, actor_id, true);
       expected_current_id = current?.id ?? null;
       const existing = current?.status === 'EXITED' ? null : current;
       if (existing && !editable_application(existing.status)) throw conflict();
@@ -1188,13 +997,8 @@ export class PartnerProgramService {
               ...LIVE_SELFIE,
               allowed_extensions: [...LIVE_SELFIE.allowed_extensions],
             }
-          : await this.database.client.partnerRequirement.findFirst({
-              where: {
-                id: input.field_id,
-                is_active: true,
-                category: { is_active: true },
-              },
-            });
+          : ((await readActiveRequirements(this.postgres, input.field_id))[0] ??
+            null);
       if (
         !definition ||
         !['FILE', 'IMAGE', 'PDF'].includes(definition.field_type)
@@ -1291,13 +1095,10 @@ export class PartnerProgramService {
         'The converted file exceeds the upload limit. Choose a smaller image.',
       );
     return this.mail_transaction(async (tx) => {
-      if (admin) await require_active_admin(tx, actor_id);
-      await require_active_account(tx, owner_id);
-      await partner_lock(tx, owner_id);
-      const latest = await tx.partnerApplication.findUnique({
-        where: { current_user_id: owner_id },
-        include: { fields: { select: { requirement_id: true, status: true } } },
-      });
+      if (admin) await requireActiveAdmin(tx, actor_id);
+      await requireActiveAccount(tx, owner_id);
+      await partnerLock(tx, owner_id);
+      const latest = await readApplication(tx, owner_id, true);
       const current = latest?.status === 'EXITED' ? null : latest;
       if (
         admin &&
@@ -1318,52 +1119,50 @@ export class PartnerProgramService {
       )
         throw conflict();
       const digest = createHash('sha256').update(bytes).digest('hex');
-      const duplicate = await tx.partnerAsset.findFirst({
-        where: {
-          owner_id,
-          application_id: current?.id ?? null,
-          purpose: admin
-            ? 'FINAL_PDF'
-            : input.field_id === LIVE_SELFIE_ID
-              ? 'APPLICATION_SELFIE'
-              : 'APPLICATION_DOCUMENT',
-          field_id: admin ? null : input.field_id,
-          sha256: digest,
-          file_name: name,
-        },
-        select: asset_select,
-      });
+      const purpose = admin
+        ? 'FINAL_PDF'
+        : input.field_id === LIVE_SELFIE_ID
+          ? 'APPLICATION_SELFIE'
+          : 'APPLICATION_DOCUMENT';
+      const {
+        rows: [duplicate],
+      } = await tx.query<AssetMetadata>(findDuplicatePartnerAsset, [
+        owner_id,
+        current?.id ?? null,
+        purpose,
+        admin ? null : input.field_id,
+        digest,
+        name,
+      ]);
       if (duplicate) return duplicate;
-      const quota = await tx.partnerAsset.aggregate({
-        where: { owner_id },
-        _sum: { size: true },
-        _count: true,
-      });
+      const {
+        rows: [quota],
+      } = await tx.query<{ size: string; count: number }>(
+        readPartnerAssetUsage,
+        [owner_id],
+      );
       if (
-        (quota._sum.size ?? 0) + bytes.length > 100_000_000 ||
-        quota._count >= 2000
+        Number(quota!.size) + bytes.length > 100_000_000 ||
+        quota!.count >= 2000
       )
         throw fail(
           'Upload allowance reached. Contact support before adding more files.',
         );
-      const asset = await tx.partnerAsset.create({
-        data: {
-          owner_id,
-          application_id: current?.id ?? null,
-          purpose: admin
-            ? 'FINAL_PDF'
-            : input.field_id === LIVE_SELFIE_ID
-              ? 'APPLICATION_SELFIE'
-              : 'APPLICATION_DOCUMENT',
-          field_id: admin ? null : input.field_id,
-          file_name: name,
-          mime_type: mime,
-          size: bytes.length,
-          sha256: digest,
-          content: Uint8Array.from(bytes),
-        },
-        select: asset_select,
-      });
+      const {
+        rows: [asset],
+      } = await tx.query<AssetMetadata>(insertPartnerAsset, [
+        nextEntityId(),
+        owner_id,
+        current?.id ?? null,
+        purpose,
+        admin ? null : input.field_id,
+        name,
+        mime,
+        bytes.length,
+        digest,
+        bytes,
+      ]);
+      if (!asset) throw conflict();
       await this.audit(
         tx,
         actor_id,
@@ -1375,61 +1174,28 @@ export class PartnerProgramService {
     }, transaction_options);
   }
   async asset(actor_id: string, id: string) {
-    const [actor, asset] = await Promise.all([
-      this.database.client.user.findUnique({
-        where: { id: actor_id },
-        select: { role: true, status: true, deleted_at: true },
-      }),
-      this.database.client.partnerAsset.findUnique({ where: { id } }),
-    ]);
-    if (
-      !actor ||
-      actor.status !== 'ACTIVE' ||
-      actor.deleted_at ||
-      !asset ||
-      (actor.role !== 'ADMIN' && asset.owner_id !== actor_id)
-    )
-      throw new AppError(404, 'FILE_NOT_FOUND', 'File not found.');
-    if (actor.role !== 'ADMIN' && asset.purpose === 'FINAL_PDF') {
-      const app = await this.database.client.partnerApplication.findFirst({
-        where: {
-          user_id: actor_id,
-          final_pdf_id: id,
-          status: { in: ['COMPLETED', 'ACTIVATED', 'EXITED'] },
-        },
-        select: { id: true },
-      });
-      if (!app) throw new AppError(404, 'FILE_NOT_FOUND', 'File not found.');
-    }
-    if (actor.role !== 'ADMIN' && asset.purpose === 'EXIT_PDF') {
-      const exit = await this.database.client.partnerExitRequest.findFirst({
-        where: {
-          settlement_pdf_id: id,
-          status: 'COMPLETED',
-          application: { user_id: actor_id },
-        },
-        select: { id: true },
-      });
-      if (!exit) throw new AppError(404, 'FILE_NOT_FOUND', 'File not found.');
-    }
+    const {
+      rows: [asset],
+    } = await this.postgres.query<AssetMetadata & { content: Buffer }>(
+      readAuthorizedPartnerAsset,
+      [actor_id, id],
+    );
+    if (!asset) throw new AppError(404, 'FILE_NOT_FOUND', 'File not found.');
     return asset;
   }
   async mark_activation_shared(actor_id: string, id: string) {
     return this.mail_transaction(async (tx) => {
-      await require_active_admin(tx, actor_id);
-      const initial = await tx.partnerApplication.findUnique({
-        where: { id },
-        select: { user_id: true },
-      });
+      await requireActiveAdmin(tx, actor_id);
+      const initial = await readApplication(tx, id);
       if (!initial)
         throw new AppError(
           404,
           'APPLICATION_NOT_FOUND',
           'Application not found.',
         );
-      await require_active_account(tx, initial.user_id);
-      await partner_lock(tx, initial.user_id);
-      const app = await tx.partnerApplication.findUnique({ where: { id } });
+      await requireActiveAccount(tx, initial.user_id);
+      await partnerLock(tx, initial.user_id);
+      const app = await readApplication(tx, id);
       if (
         !app ||
         !['COMPLETED', 'ACTIVATED'].includes(app.status) ||
@@ -1438,46 +1204,24 @@ export class PartnerProgramService {
         throw fail(
           'An activation code must be issued before recording its delivery.',
         );
-      await tx.partnerDelivery.upsert({
-        where: {
-          application_id_channel: {
-            application_id: id,
-            channel: 'ACTIVATION_WHATSAPP',
-          },
-        },
-        create: {
-          application_id: id,
-          channel: 'ACTIVATION_WHATSAPP',
-          status: 'MANUALLY_SHARED',
-          sent_at: new Date(),
-          attempts: 1,
-        },
-        update: {
-          status: 'MANUALLY_SHARED',
-          sent_at: new Date(),
-          attempts: { increment: 1 },
-        },
-      });
+      await tx.query(recordActivationShare, [nextEntityId(), id]);
       await this.audit(tx, actor_id, id, 'MANUALLY_SHARE_PARTNER_ACTIVATION');
       return { recorded: true };
     }, transaction_options);
   }
   async queue_activation_email(actor_id: string, id: string) {
     return this.mail_transaction(async (tx) => {
-      await require_active_admin(tx, actor_id);
-      const initial = await tx.partnerApplication.findUnique({
-        where: { id },
-        select: { user_id: true },
-      });
+      await requireActiveAdmin(tx, actor_id);
+      const initial = await readApplication(tx, id);
       if (!initial)
         throw new AppError(
           404,
           'APPLICATION_NOT_FOUND',
           'Application not found.',
         );
-      await require_active_account(tx, initial.user_id);
-      await partner_lock(tx, initial.user_id);
-      const app = await tx.partnerApplication.findUnique({ where: { id } });
+      await requireActiveAccount(tx, initial.user_id);
+      await partnerLock(tx, initial.user_id);
+      const app = await readApplication(tx, id);
       if (
         !app ||
         app.status !== 'COMPLETED' ||
@@ -1487,68 +1231,35 @@ export class PartnerProgramService {
         throw fail(
           'The applicant must sign in after final approval before their activation code can be sent.',
         );
-      const existing = await tx.partnerDelivery.findUnique({
-        where: {
-          application_id_channel: {
-            application_id: id,
-            channel: 'ACTIVATION_EMAIL',
-          },
-        },
-      });
-      if (existing) {
-        const queued = await tx.partnerDelivery.updateMany({
-          where: {
-            id: existing.id,
-            OR: [claimable_delivery(), { status: 'SENT' }],
-          },
-          data: {
-            status: 'PENDING',
-            last_error: null,
-            claimed_at: null,
-            sent_at: null,
-            provider_id: null,
-          },
-        });
-        if (!queued.count)
-          throw new AppError(
-            409,
-            'EMAIL_ALREADY_SENDING',
-            'Activation email is already being sent. Refresh its delivery status.',
-          );
-      } else {
-        await tx.partnerDelivery.create({
-          data: { application_id: id, channel: 'ACTIVATION_EMAIL' },
-        });
-      }
+      const result = await tx.query(queueActivationEmail, [nextEntityId(), id]);
+      if (!result.rowCount)
+        throw new AppError(
+          409,
+          'EMAIL_ALREADY_SENDING',
+          'Activation email is already being sent. Refresh its delivery status.',
+        );
       await this.audit(tx, actor_id, id, 'QUEUE_PARTNER_ACTIVATION_EMAIL');
       return { queued: true };
     }, transaction_options);
   }
   async activation_code(actor_id: string, id: string, reset = false) {
     return this.mail_transaction(async (tx) => {
-      await require_active_admin(tx, actor_id);
-      const initial = await tx.partnerApplication.findUnique({
-        where: { id },
-        select: { user_id: true },
-      });
+      await requireActiveAdmin(tx, actor_id);
+      const initial = await readApplication(tx, id);
       if (!initial)
         throw new AppError(
           404,
           'APPLICATION_NOT_FOUND',
           'Application not found.',
         );
-      await require_active_account(tx, initial.user_id);
-      await partner_lock(tx, initial.user_id);
-      const app = await tx.partnerApplication.findUnique({ where: { id } });
+      await requireActiveAccount(tx, initial.user_id);
+      await partnerLock(tx, initial.user_id);
+      const app = await readApplication(tx, id);
       if (!app || app.status !== 'COMPLETED' || !app.activation_ciphertext)
         throw fail(
           'The applicant must sign in again after final approval before the code is generated.',
         );
-      if (reset)
-        await tx.partnerApplication.update({
-          where: { id },
-          data: { activation_attempts: 0 },
-        });
+      if (reset) await tx.query(resetActivationAttempts, [id]);
       await this.audit(
         tx,
         actor_id,
@@ -1563,114 +1274,120 @@ export class PartnerProgramService {
     }, transaction_options);
   }
   async activate(user_id: string, code: string) {
-    const result = await this.database.client.$transaction(async (tx) => {
-      await require_active_account(tx, user_id);
-      await partner_lock(tx, user_id);
-      const user = await require_active_account(tx, user_id);
-      const app = await tx.partnerApplication.findUnique({
-        where: { current_user_id: user_id },
-      });
-      if (app?.status === 'ACTIVATED') return { status: 'ACTIVATED' };
-      if (
-        !app ||
-        app.status !== 'COMPLETED' ||
-        !app.activation_hash ||
-        !app.activation_salt
-      )
-        return {
-          error:
-            'Sign out and sign in again after final approval before entering your code.',
-        };
-      if (user.role === 'DRIVER')
-        return { error: 'This account cannot be activated as a driver.' };
-      if (app.activation_attempts >= 5)
-        return {
-          error:
-            'Too many incorrect codes. Ask your administrator to unlock activation.',
-        };
-      if (!matches_activation(code, app.activation_salt, app.activation_hash)) {
-        await tx.partnerApplication.update({
-          where: { id: app.id },
-          data: { activation_attempts: { increment: 1 } },
-        });
-        await this.audit(tx, user_id, app.id, 'PARTNER_ACTIVATION_FAILED', {
-          attempt: app.activation_attempts + 1,
-        });
-        return {
-          error:
-            'Incorrect activation code. Please check the code sent by your administrator.',
-        };
-      }
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(720043, hashtext(${user_id}))`;
-      const promoted = await tx.user.updateMany({
-        where: {
-          id: user_id,
-          role: user.role,
-          status: 'ACTIVE',
-          deleted_at: null,
-        },
-        data: {
-          ...(user.role === 'RIDER' ? { role: 'DRIVER' as const } : {}),
-          partner_activated_at: new Date(),
-        },
-      });
-      if (promoted.count !== 1)
-        return {
-          error: 'This account changed. Sign in again before continuing.',
-        };
-      const returning = await tx.partnerApplication.findFirst({
-        ...latest_exit(user_id),
-        select: { id: true },
-      });
-      await tx.driverProfile.upsert({
-        where: { user_id },
-        create: {
-          user_id,
-          verification_status: 'VERIFIED',
-          verified_at: new Date(),
-        },
-        update: { verification_status: 'VERIFIED', verified_at: new Date() },
-      });
-      if (returning) {
-        await tx.driverProfile.updateMany({
-          where: { user_id, availability: 'SUSPENDED' },
-          data: { availability: 'OFFLINE' },
-        });
-      }
-      await tx.partnerApplication.update({
-        where: { id: app.id },
-        data: {
-          status: 'ACTIVATED',
-          activated_at: new Date(),
-          activation_hash: null,
-          activation_salt: null,
-          activation_ciphertext: null,
-          version: { increment: 1 },
-        },
-      });
-      await this.audit(tx, user_id, app.id, 'ACTIVATE_PARTNER_DRIVER');
-      return { status: 'ACTIVATED' };
-    }, transaction_options);
+    const result = await this.postgres.transaction(
+      async (tx) => {
+        await requireActiveAccount(tx, user_id);
+        await partnerLock(tx, user_id);
+        const user = await requireActiveAccount(tx, user_id);
+        const app = await readApplication(tx, user_id, true);
+        if (app?.status === 'ACTIVATED') return { status: 'ACTIVATED' };
+        if (
+          !app ||
+          app.status !== 'COMPLETED' ||
+          !app.activation_hash ||
+          !app.activation_salt
+        )
+          return {
+            error:
+              'Sign out and sign in again after final approval before entering your code.',
+          };
+        if (user.role === 'DRIVER')
+          return { error: 'This account cannot be activated as a driver.' };
+        if (app.activation_attempts >= 5)
+          return {
+            error:
+              'Too many incorrect codes. Ask your administrator to unlock activation.',
+          };
+        if (
+          !matches_activation(code, app.activation_salt, app.activation_hash)
+        ) {
+          await tx.query(increaseActivationAttempts, [app.id]);
+          await this.audit(tx, user_id, app.id, 'PARTNER_ACTIVATION_FAILED', {
+            attempt: app.activation_attempts + 1,
+          });
+          return {
+            error:
+              'Incorrect activation code. Please check the code sent by your administrator.',
+          };
+        }
+        await tx.query(lockDriverActivation, [user_id]);
+        const promoted = await tx.query(assignDriverRole, [user_id, user.role]);
+        if (promoted.rowCount !== 1)
+          return {
+            error: 'This account changed. Sign in again before continuing.',
+          };
+        await tx.query(verifyDriverProfile, [nextEntityId(), user_id]);
+        await tx.query(reinstateReturningDriver, [user_id]);
+        await tx.query(activateApplication, [app.id]);
+        await this.audit(tx, user_id, app.id, 'ACTIVATE_PARTNER_DRIVER');
+        return { status: 'ACTIVATED' };
+      },
+      'READ COMMITTED',
+      transaction_options,
+    );
     if ('error' in result)
       throw new AppError(422, 'ACTIVATION_FAILED', result.error!);
     return result;
   }
+  async retry_notifications(actorId: string, id: string) {
+    const result = await this.postgres.transaction(async (tx) => {
+      await requireActiveAdmin(tx, actorId);
+      const { rowCount } = await tx.query(findNotificationApplication, [id]);
+      if (!rowCount)
+        throw new AppError(
+          404,
+          'APPLICATION_NOT_FOUND',
+          'Application not found.',
+        );
+      const updated = await tx.query(retryPartnerNotifications, [
+        id,
+        PARTNER_EMAIL_TITLE,
+      ]);
+      const queued = updated.rowCount ?? 0;
+      await this.audit(tx, actorId, id, 'RETRY_PARTNER_NOTIFICATIONS', {
+        queued,
+      });
+      return { queued };
+    });
+    schedule_new_user_emails(this.postgres);
+    return result;
+  }
+
+  async authorize_pdf_retry(actorId: string, id: string) {
+    await this.postgres.transaction(async (tx) => {
+      await requireActiveAdmin(tx, actorId);
+      const {
+        rows: [application],
+      } = await tx.query<{ status: string; final_pdf_id: string | null }>(
+        findAgreementForDelivery,
+        [id],
+      );
+      if (!application)
+        throw new AppError(
+          404,
+          'APPLICATION_NOT_FOUND',
+          'Application not found.',
+        );
+      if (
+        !['COMPLETED', 'ACTIVATED'].includes(application.status) ||
+        !application.final_pdf_id
+      )
+        throw new AppError(
+          409,
+          'PARTNER_EMAIL_NOT_READY',
+          'Approve the final PDF before retrying email delivery.',
+        );
+      await this.audit(tx, actorId, id, 'RETRY_PARTNER_EMAIL');
+    });
+  }
   async mark_shared(actor_id: string, id: string) {
     return this.mail_transaction(async (tx) => {
-      await require_active_admin(tx, actor_id);
-      const app = await tx.partnerApplication.findUnique({ where: { id } });
+      await requireActiveAdmin(tx, actor_id);
+      const app = await readApplication(tx, id);
       if (!app || !['COMPLETED', 'ACTIVATED'].includes(app.status))
         throw conflict();
-      await tx.partnerDelivery.update({
-        where: {
-          application_id_channel: { application_id: id, channel: 'WHATSAPP' },
-        },
-        data: {
-          status: 'MANUALLY_SHARED',
-          sent_at: new Date(),
-          attempts: { increment: 1 },
-        },
-      });
+      const result = await tx.query(recordAgreementShare, [id]);
+      if (!result.rowCount) throw conflict();
       await this.audit(tx, actor_id, id, 'SHARE_PARTNER_PDF_MANUALLY');
       return { status: 'MANUALLY_SHARED' };
     }, transaction_options);

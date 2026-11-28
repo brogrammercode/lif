@@ -5,7 +5,7 @@ import { GeocodeService } from '../features/geocode/geocode.service.js';
 import {
   reverse_schema,
   route_schema,
-} from '../features/geocode/geocode.type.js';
+} from '../features/geocode/dto/geocode.dto.js';
 const { driving_route, reverse_geocode, search_places } = new GeocodeService();
 
 const input = {

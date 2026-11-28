@@ -1,3 +1,4 @@
+import { nextEntityId } from '../../database/entity-id.js';
 import { Injectable } from '@nestjs/common';
 import {
   createCipheriv,
@@ -8,15 +9,18 @@ import {
   randomBytes,
 } from 'node:crypto';
 import { z } from 'zod';
-import type { DriverPayoutMethod } from '@prisma/client';
+import type { DriverPayoutMethod } from './wallet.rows.js';
 import { config } from '../../core/config.js';
 import { AppError } from '../../core/error.js';
-import { require_driver_wallet_access } from '../../infra/database/account_lifecycle.js';
-import { PrismaService } from '../../infra/database/prisma.service.js';
+import { requireDriverWalletAccess } from '../../database/account-locks.js';
+import {
+  PostgresService,
+  type SqlClient,
+} from '../../database/postgres.service.js';
 import {
   payout_schedule_lock,
   razorpay_x_credentials_ready,
-  read_wallet_controls,
+  readWalletControls,
 } from './wallet-controls.js';
 
 const name = z.string().trim().min(3).max(50);
@@ -182,22 +186,34 @@ const unavailable = () =>
     'Payout verification is unavailable.',
   );
 
+async function lockPayoutDestination(tx: SqlClient, driverId: string) {
+  await requireDriverWalletAccess(tx, driverId);
+  await tx.query('SELECT pg_advisory_xact_lock_shared($1::int)', [
+    payout_schedule_lock,
+  ]);
+  await tx.query('SELECT pg_advisory_xact_lock(720068,hashtext($1))', [
+    driverId,
+  ]);
+}
+
 @Injectable()
 export class PayoutMethods {
-  constructor(private readonly db: PrismaService) {}
+  constructor(private readonly db: PostgresService) {}
 
   get credentials_ready() {
     return razorpay_x_credentials_ready();
   }
 
   async list(driver_id: string) {
-    await this.db.client.$transaction((tx) =>
-      require_driver_wallet_access(tx, driver_id),
-    );
-    const rows = await this.db.client.driverPayoutMethod.findMany({
-      where: { driver_id, status: { not: 'DISABLED' } },
-      orderBy: [{ is_default: 'desc' }, { created_at: 'desc' }],
-      take: 10,
+    const rows = await this.db.transaction(async (tx) => {
+      await requireDriverWalletAccess(tx, driver_id);
+      return (
+        await tx.query<DriverPayoutMethod>(
+          `SELECT * FROM driver_payout_methods WHERE driver_id=$1 AND status<>'DISABLED'
+          ORDER BY is_default DESC,created_at DESC,id DESC LIMIT 10`,
+          [driver_id],
+        )
+      ).rows;
     });
     return {
       upi_enabled: true,
@@ -213,108 +229,107 @@ export class PayoutMethods {
       input.kind === 'UPI'
         ? mask_vpa(input.vpa)
         : `Bank account •••• ${input.account_number.slice(-4)}${input.kind === 'DEBIT_CARD' ? ` · Card •••• ${input.card_last_four}` : ''}`;
-    return this.db.client.$transaction(async (tx) => {
-      await require_driver_wallet_access(tx, driver_id);
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${payout_schedule_lock}::int)`;
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(720068, hashtext(${driver_id}))`;
-      const existing = await tx.driverPayoutMethod.findFirst({
-        where: {
-          driver_id,
-          status: { not: 'DISABLED' },
-          destination_hash:
-            input.kind === 'UPI'
-              ? { in: [destination_hash, vpa_hash(input.vpa)] }
-              : destination_hash,
-        },
-        orderBy: [{ is_default: 'desc' }, { created_at: 'desc' }],
-      });
-      const already_linked =
-        existing?.status === 'VERIFIED' && existing.provider_fund_account_id;
-      const data = {
-        kind: input.kind,
-        masked_label,
-        destination_hash,
-        is_default: true,
-        ...(!already_linked
-          ? {
-              status: 'PENDING' as const,
-              pending_details: encrypt(input, driver_id),
-              link_attempted_at: null,
-            }
-          : {}),
-      };
-      await tx.driverPayoutMethod.updateMany({
-        where: {
-          driver_id,
-          is_default: true,
-          ...(existing ? { id: { not: existing.id } } : {}),
-        },
-        data: { is_default: false },
-      });
-      return present(
-        existing
-          ? await tx.driverPayoutMethod.update({
-              where: { id: existing.id },
-              data,
-            })
-          : await tx.driverPayoutMethod.create({
-              data: { ...data, driver_id },
-            }),
+    return this.db.transaction(async (tx) => {
+      await lockPayoutDestination(tx, driver_id);
+      const hashes =
+        input.kind === 'UPI'
+          ? [destination_hash, vpa_hash(input.vpa)]
+          : [destination_hash];
+      const {
+        rows: [existing],
+      } = await tx.query<DriverPayoutMethod>(
+        `SELECT * FROM driver_payout_methods WHERE driver_id=$1 AND status<>'DISABLED'
+          AND destination_hash=ANY($2::text[]) ORDER BY is_default DESC,created_at DESC,id DESC LIMIT 1`,
+        [driver_id, hashes],
       );
+      const linked = Boolean(
+        existing?.status === 'VERIFIED' && existing.provider_fund_account_id,
+      );
+      const encrypted = linked ? null : encrypt(input, driver_id);
+      await tx.query(
+        `UPDATE driver_payout_methods SET is_default=false,updated_at=clock_timestamp()
+          WHERE driver_id=$1 AND is_default AND ($2::text IS NULL OR id<>$2)`,
+        [driver_id, existing?.id ?? null],
+      );
+      const {
+        rows: [row],
+      } = existing
+        ? await tx.query<DriverPayoutMethod>(
+            `UPDATE driver_payout_methods SET kind=$2,masked_label=$3,destination_hash=$4,is_default=true,
+            status=CASE WHEN $5::boolean THEN status ELSE 'PENDING' END,
+            pending_details=CASE WHEN $5 THEN pending_details ELSE $6 END,
+            link_attempted_at=CASE WHEN $5 THEN link_attempted_at ELSE NULL END,
+            updated_at=clock_timestamp() WHERE id=$1 RETURNING *`,
+            [
+              existing.id,
+              input.kind,
+              masked_label,
+              destination_hash,
+              linked,
+              encrypted,
+            ],
+          )
+        : await tx.query<DriverPayoutMethod>(
+            `INSERT INTO driver_payout_methods (id,driver_id,kind,masked_label,destination_hash,is_default,pending_details,updated_at)
+            VALUES ($1,$2,$3,$4,$5,true,$6,clock_timestamp()) RETURNING *`,
+            [
+              nextEntityId(),
+              driver_id,
+              input.kind,
+              masked_label,
+              destination_hash,
+              encrypted,
+            ],
+          );
+      if (!row) throw unavailable();
+      return present(row);
     });
   }
 
   async set_default(driver_id: string, id: string) {
-    return this.db.client.$transaction(async (tx) => {
-      await require_driver_wallet_access(tx, driver_id);
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${payout_schedule_lock}::int)`;
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(720068, hashtext(${driver_id}))`;
-      const method = await tx.driverPayoutMethod.findFirst({
-        where: {
-          id,
-          driver_id,
-          OR: [
-            { status: 'VERIFIED', provider_fund_account_id: { not: null } },
-            { status: 'PENDING', pending_details: { not: null } },
-          ],
-        },
-      });
+    return this.db.transaction(async (tx) => {
+      await lockPayoutDestination(tx, driver_id);
+      const {
+        rows: [method],
+      } = await tx.query<{ id: string }>(
+        `SELECT id FROM driver_payout_methods WHERE id=$1 AND driver_id=$2 AND
+          ((status='VERIFIED' AND provider_fund_account_id IS NOT NULL) OR
+          (status='PENDING' AND pending_details IS NOT NULL))`,
+        [id, driver_id],
+      );
       if (!method)
         throw new AppError(
           404,
           'PAYOUT_METHOD_NOT_FOUND',
           'Save this payout account again.',
         );
-      await tx.driverPayoutMethod.updateMany({
-        where: { driver_id, is_default: true, id: { not: id } },
-        data: { is_default: false },
-      });
-      return present(
-        await tx.driverPayoutMethod.update({
-          where: { id },
-          data: { is_default: true, link_attempted_at: null },
-        }),
+      await tx.query(
+        `UPDATE driver_payout_methods SET is_default=false,updated_at=clock_timestamp()
+          WHERE driver_id=$1 AND is_default AND id<>$2`,
+        [driver_id, id],
       );
+      const {
+        rows: [updated],
+      } = await tx.query<DriverPayoutMethod>(
+        `UPDATE driver_payout_methods SET is_default=true,link_attempted_at=NULL,updated_at=clock_timestamp()
+          WHERE id=$1 RETURNING *`,
+        [id],
+      );
+      if (!updated) throw unavailable();
+      return present(updated);
     });
   }
 
   async provision(row: DriverPayoutMethod) {
     if (!row.pending_details || !this.credentials_ready) return present(row);
     const can_retry = new Date(Date.now() - 5 * 60_000);
-    const claim = await this.db.client.driverPayoutMethod.updateMany({
-      where: {
-        id: row.id,
-        status: 'PENDING',
-        is_default: true,
-        pending_details: row.pending_details,
-        OR: [
-          { link_attempted_at: null },
-          { link_attempted_at: { lt: can_retry } },
-        ],
-      },
-      data: { link_attempted_at: new Date() },
-    });
-    if (!claim.count) return present(row);
+    const claim = await this.db.query(
+      `UPDATE driver_payout_methods SET link_attempted_at=statement_timestamp(),updated_at=clock_timestamp()
+        WHERE id=$1 AND status='PENDING' AND is_default AND pending_details=$2
+          AND (link_attempted_at IS NULL OR link_attempted_at<$3)`,
+      [row.id, row.pending_details, can_retry],
+    );
+    if (!claim.rowCount) return present(row);
     let input: Destination;
     try {
       input = decrypt(row.pending_details, row.driver_id);
@@ -360,34 +375,31 @@ export class PayoutMethods {
           fund.bank_account.account_number === input.account_number)
     )
       throw unavailable();
-    await this.db.client.driverPayoutMethod.updateMany({
-      where: {
-        id: row.id,
-        pending_details: row.pending_details,
-        status: 'PENDING',
-        is_default: true,
-      },
-      data: {
-        status: 'VERIFIED',
-        provider_fund_account_id: fund.id,
-        provider_contact_id: contact,
-        pending_details: null,
-        link_attempted_at: null,
-      },
-    });
-    return present(
-      await this.db.client.driverPayoutMethod.findUniqueOrThrow({
-        where: { id: row.id },
-      }),
+    await this.db.query(
+      `UPDATE driver_payout_methods SET status='VERIFIED',provider_fund_account_id=$3,provider_contact_id=$4,
+        pending_details=NULL,link_attempted_at=NULL,updated_at=clock_timestamp()
+        WHERE id=$1 AND pending_details=$2 AND status='PENDING' AND is_default`,
+      [row.id, row.pending_details, fund.id, contact],
     );
+    const {
+      rows: [updated],
+    } = await this.db.query<DriverPayoutMethod>(
+      'SELECT * FROM driver_payout_methods WHERE id=$1',
+      [row.id],
+    );
+    if (!updated) throw unavailable();
+    return present(updated);
   }
 
   async check(driver_id: string, id: string) {
-    await this.db.client.$transaction((tx) =>
-      require_driver_wallet_access(tx, driver_id),
-    );
-    const row = await this.db.client.driverPayoutMethod.findFirst({
-      where: { id, driver_id },
+    const row = await this.db.transaction(async (tx) => {
+      await requireDriverWalletAccess(tx, driver_id);
+      return (
+        await tx.query<DriverPayoutMethod>(
+          'SELECT * FROM driver_payout_methods WHERE id=$1 AND driver_id=$2',
+          [id, driver_id],
+        )
+      ).rows[0];
     });
     if (!row)
       throw new AppError(
@@ -399,7 +411,7 @@ export class PayoutMethods {
     if (row.pending_details) return this.provision(row);
     if (
       !this.credentials_ready ||
-      !(await read_wallet_controls(this.db.client)).razorpay_x_upi_setup_enabled
+      !(await readWalletControls(this.db)).razorpay_x_upi_setup_enabled
     )
       throw unavailable();
     const validation = row.provider_validation_id
@@ -457,12 +469,18 @@ export class PayoutMethods {
     row: DriverPayoutMethod,
     validation: z.infer<typeof validation_schema>,
   ) {
-    return this.db.client.$transaction(async (tx) => {
-      await require_driver_wallet_access(tx, row.driver_id);
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(720068, hashtext(${row.driver_id}))`;
-      const current = await tx.driverPayoutMethod.findUniqueOrThrow({
-        where: { id: row.id },
-      });
+    return this.db.transaction(async (tx) => {
+      await requireDriverWalletAccess(tx, row.driver_id);
+      await tx.query('SELECT pg_advisory_xact_lock(720068,hashtext($1))', [
+        row.driver_id,
+      ]);
+      const {
+        rows: [current],
+      } = await tx.query<DriverPayoutMethod>(
+        'SELECT * FROM driver_payout_methods WHERE id=$1 AND driver_id=$2',
+        [row.id, row.driver_id],
+      );
+      if (!current) throw unavailable();
       if (current.status !== 'PENDING' || current.pending_details)
         return present(current);
       const fund = validation.fund_account;
@@ -473,71 +491,73 @@ export class PayoutMethods {
         validation.validation_results?.account_status === 'active' &&
         Boolean(name && name_hash(name) === current.beneficiary_name_hash);
       const duplicate =
-        verified &&
-        fund &&
-        (await tx.driverPayoutMethod.findUnique({
-          where: { provider_fund_account_id: fund.id },
-        }));
+        verified && fund
+          ? (
+              await tx.query<DriverPayoutMethod>(
+                'SELECT * FROM driver_payout_methods WHERE provider_fund_account_id=$1',
+                [fund.id],
+              )
+            ).rows[0]
+          : null;
       if (duplicate && duplicate.id !== row.id) {
         if (
           duplicate.driver_id === row.driver_id &&
           duplicate.status !== 'VERIFIED' &&
           duplicate.kind === 'UPI'
         )
-          await tx.driverPayoutMethod.update({
-            where: { id: duplicate.id },
-            data: { provider_fund_account_id: null },
-          });
-        else {
-          const archived = await tx.driverPayoutMethod.update({
-            where: { id: row.id },
-            data: {
-              status:
-                duplicate.driver_id === row.driver_id ? 'DISABLED' : 'FAILED',
-              provider_validation_id: validation.id,
-            },
-          });
-          return present(
-            duplicate.driver_id === row.driver_id ? duplicate : archived,
+          await tx.query(
+            'UPDATE driver_payout_methods SET provider_fund_account_id=NULL,updated_at=clock_timestamp() WHERE id=$1',
+            [duplicate.id],
           );
+        else {
+          const sameDriver = duplicate.driver_id === row.driver_id;
+          const {
+            rows: [archived],
+          } = await tx.query<DriverPayoutMethod>(
+            `UPDATE driver_payout_methods SET status=$2,provider_validation_id=$3,updated_at=clock_timestamp()
+              WHERE id=$1 RETURNING *`,
+            [row.id, sameDriver ? 'DISABLED' : 'FAILED', validation.id],
+          );
+          if (!archived) throw unavailable();
+          return present(sameDriver ? duplicate : archived);
         }
       }
       const newer =
         verified &&
-        (await tx.driverPayoutMethod.findFirst({
-          where: {
-            driver_id: row.driver_id,
-            is_default: true,
-            OR: [
-              { created_at: { gt: current.created_at } },
-              { pending_details: { not: null } },
-            ],
-          },
-          select: { id: true },
-        }));
-      const make_default = Boolean(verified && !newer);
-      if (make_default)
-        await tx.driverPayoutMethod.updateMany({
-          where: { driver_id: row.driver_id, is_default: true },
-          data: { is_default: false },
-        });
-      return present(
-        await tx.driverPayoutMethod.update({
-          where: { id: row.id },
-          data: {
-            provider_validation_id: validation.id,
-            provider_fund_account_id: verified ? fund.id : null,
-            provider_contact_id:
-              fund?.contact?.id ?? fund?.contact_id ?? undefined,
-            status: verified
-              ? 'VERIFIED'
-              : validation.status === 'created'
-                ? 'PENDING'
-                : 'FAILED',
-            is_default: make_default,
-          },
-        }),
+        (
+          await tx.query(
+            `SELECT id FROM driver_payout_methods WHERE driver_id=$1 AND is_default
+          AND (created_at>$2 OR pending_details IS NOT NULL) LIMIT 1`,
+            [row.driver_id, current.created_at],
+          )
+        ).rowCount;
+      const makeDefault = Boolean(verified && !newer);
+      if (makeDefault)
+        await tx.query(
+          'UPDATE driver_payout_methods SET is_default=false,updated_at=clock_timestamp() WHERE driver_id=$1 AND is_default',
+          [row.driver_id],
+        );
+      const {
+        rows: [updated],
+      } = await tx.query<DriverPayoutMethod>(
+        `UPDATE driver_payout_methods SET provider_validation_id=$2,provider_fund_account_id=$3,
+          provider_contact_id=COALESCE($4,provider_contact_id),status=$5,is_default=$6,updated_at=clock_timestamp()
+          WHERE id=$1 RETURNING *`,
+        [
+          row.id,
+          validation.id,
+          verified ? fund.id : null,
+          fund?.contact?.id ?? fund?.contact_id ?? null,
+          verified
+            ? 'VERIFIED'
+            : validation.status === 'created'
+              ? 'PENDING'
+              : 'FAILED',
+          makeDefault,
+        ],
       );
+      if (!updated) throw unavailable();
+      return present(updated);
     });
   }
 

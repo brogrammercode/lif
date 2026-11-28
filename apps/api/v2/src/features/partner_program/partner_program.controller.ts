@@ -1,6 +1,6 @@
-import { schedule_new_user_emails } from '../../infra/mail/new_user_email.js';
-import { PARTNER_EMAIL_TITLE } from '../../infra/mail/partner_email.js';
-import type { Prisma } from '@prisma/client';
+import type { output as ZodOutput } from 'zod';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
+import { CurrentUserId } from '../../common/decorators/current-user-id.decorator.js';
 import { z } from 'zod';
 import {
   PartnerApplicationDeletionService,
@@ -12,18 +12,17 @@ import {
   Post,
   Patch,
   Delete,
-  Req,
   Res,
   UseGuards,
+  Query,
+  Body,
+  Param,
 } from '@nestjs/common';
-import type { Request, Response } from 'express';
+import type { Response } from 'express';
 import { background_mail } from '../../infra/mail/background.js';
 import { AuthGuard, AdminGuard } from '../../core/guards.js';
 import { send_success } from '../../core/response.js';
 import { AppError } from '../../core/error.js';
-import { require_active_admin } from '../../infra/database/account_lifecycle.js';
-import { create_user_log } from '../../infra/database/user_log.js';
-import { PrismaService } from '../../infra/database/prisma.service.js';
 import { PartnerProgramService } from './partner_program.service.js';
 import { PartnerDocumentService } from './partner_document.service.js';
 import { PartnerDeliveryService } from './partner_delivery.service.js';
@@ -37,27 +36,31 @@ import {
   id_input,
   list_input,
   review_input,
-} from './partner_program.type.js';
+} from './dto/partner-program.dto.js';
 import { postal_directory } from './postal-directory.data.js';
+
+const geography_query_schema = z.object({
+  state: z.string().trim().max(120).optional(),
+  city: z.string().trim().max(120).optional(),
+  pincode: z
+    .string()
+    .regex(/^[1-9]\d{5}$/)
+    .optional(),
+});
+const request_selfie_body_schema = z
+  .object({ version: z.number().int().positive() })
+  .strict();
 
 @Controller('partner-program')
 @UseGuards(AuthGuard)
 export class PartnerProgramController {
   constructor(private readonly service: PartnerProgramService) {}
   @Get('geography') async geography(
-    @Req() req: Request,
+    @Query(new ZodValidationPipe(geography_query_schema))
+    filters: ZodOutput<typeof geography_query_schema>,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const input = z
-      .object({
-        state: z.string().trim().max(120).optional(),
-        city: z.string().trim().max(120).optional(),
-        pincode: z
-          .string()
-          .regex(/^[1-9]\d{5}$/)
-          .optional(),
-      })
-      .parse(req.query);
+    const input = filters;
     const matches = Object.entries(postal_directory).flatMap(
       ([state, cities]) =>
         input.state && input.state !== state
@@ -105,63 +108,59 @@ export class PartnerProgramController {
     );
   }
   @Get('me') async me(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
     @Res({ passthrough: true }) res: Response,
   ) {
     res.setHeader('Cache-Control', 'no-store');
     return send_success(
       res,
-      await this.service.workflow(req.auth!.user_id),
+      await this.service.workflow(actorId),
       'Partner program loaded',
     );
   }
   @Post('applications') async submit(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Body(new ZodValidationPipe(application_input))
+    input: ZodOutput<typeof application_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.submit(
-        req.auth!.user_id,
-        application_input.parse(req.body),
-      ),
+      await this.service.submit(actorId, input),
       'Application submitted',
     );
   }
   @Post('confirmations') async confirm(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Body(new ZodValidationPipe(confirmation_input))
+    input: ZodOutput<typeof confirmation_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.confirm(
-        req.auth!.user_id,
-        confirmation_input.parse(req.body),
-      ),
+      await this.service.confirm(actorId, input),
       'Confirmation submitted',
     );
   }
   @Post('assets') async upload(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Body(new ZodValidationPipe(asset_input))
+    input: ZodOutput<typeof asset_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.store_asset(
-        req.auth!.user_id,
-        asset_input.parse(req.body),
-      ),
+      await this.service.store_asset(actorId, input),
       'File saved',
     );
   }
   @Get('assets/:id') async asset(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(id_input))
+    routeId: ZodOutput<typeof id_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const asset = await this.service.asset(
-      req.auth!.user_id,
-      id_input.parse(req.params.id),
-    );
+    const asset = await this.service.asset(actorId, routeId);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     return send_success(
@@ -176,15 +175,14 @@ export class PartnerProgramController {
     );
   }
   @Post('activate') async activate(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Body(new ZodValidationPipe(activation_input))
+    input: ZodOutput<typeof activation_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.activate(
-        req.auth!.user_id,
-        activation_input.parse(req.body).code,
-      ),
+      await this.service.activate(actorId, input.code),
       'Driver activated',
     );
   }
@@ -197,34 +195,32 @@ export class AdminPartnerProgramController {
     private readonly service: PartnerProgramService,
     private readonly documents: PartnerDocumentService,
     private readonly delivery: PartnerDeliveryService,
-    private readonly database: PrismaService,
     private readonly deletion: PartnerApplicationDeletionService,
   ) {}
   @Get('applications/:id/deletion-preview') async deletion_preview(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(id_input))
+    routeId: ZodOutput<typeof id_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     res.setHeader('Cache-Control', 'no-store');
     return send_success(
       res,
-      await this.deletion.preview(
-        req.auth!.user_id,
-        id_input.parse(req.params.id),
-      ),
+      await this.deletion.preview(actorId, routeId),
       'Application deletion preview loaded',
     );
   }
   @Delete('applications/:id') async delete_application(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(id_input))
+    routeId: ZodOutput<typeof id_input>,
+    @Body(new ZodValidationPipe(application_delete_input))
+    input: ZodOutput<typeof application_delete_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.deletion.remove(
-        req.auth!.user_id,
-        id_input.parse(req.params.id),
-        application_delete_input.parse(req.body),
-      ),
+      await this.deletion.remove(actorId, routeId, input),
       'Application and related data deleted',
     );
   }
@@ -236,265 +232,177 @@ export class AdminPartnerProgramController {
     );
   }
   @Post('applications/:id/notifications/retry') async retry_notifications(
-    @Req() req: Request,
+    @Param('id', new ZodValidationPipe(id_input))
+    routeId: ZodOutput<typeof id_input>,
+    @CurrentUserId() actorId: string,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const id = id_input.parse(req.params.id);
-    const result = await this.database.client.$transaction(async (tx) => {
-      await require_active_admin(tx, req.auth!.user_id);
-      const app = await tx.partnerApplication.findUnique({
-        where: { id },
-        select: { id: true },
-      });
-      if (!app)
-        throw new AppError(
-          404,
-          'APPLICATION_NOT_FOUND',
-          'Application not found.',
-        );
-      const rows = await tx.notification.findMany({
-        where: {
-          channel: 'EMAIL',
-          type: 'SYSTEM',
-          title: PARTNER_EMAIL_TITLE,
-          sent_at: null,
-          AND: [
-            { data: { path: ['kind'], equals: 'PARTNER_LIFECYCLE_EMAIL' } },
-            { data: { path: ['application_id'], equals: id } },
-            {
-              OR: [
-                { data: { path: ['state'], equals: 'FAILED' } },
-                { data: { path: ['state'], equals: 'PENDING' } },
-                { updated_at: { lt: new Date(Date.now() - 300000) } },
-              ],
-            },
-          ],
-        },
-        take: 50,
-      });
-      let queued = 0;
-      for (const row of rows) {
-        const data = row.data as Record<string, unknown>;
-        const update = await tx.notification.updateMany({
-          where: {
-            id: row.id,
-            updated_at: row.updated_at,
-            sent_at: null,
-            data: { equals: row.data as Prisma.InputJsonValue },
-          },
-          data: {
-            data: {
-              ...data,
-              state: 'PENDING',
-              last_error: null,
-            } as Prisma.InputJsonObject,
-          },
-        });
-        queued += update.count;
-      }
-      await create_user_log(tx, {
-        actor_id: req.auth!.user_id,
-        entity_type: 'PartnerApplication',
-        entity_id: id,
-        action: 'RETRY_PARTNER_NOTIFICATIONS',
-        after_data: { queued },
-      });
-      return { queued };
-    });
-    schedule_new_user_emails();
+    const id = routeId;
+    const result = await this.service.retry_notifications(actorId, id);
     return send_success(res, result, 'Queued email delivery will be retried');
   }
   @Get('documents/:kind') async document(
-    @Req() req: Request,
+    @Param('kind', new ZodValidationPipe(document_kind))
+    routeKind: ZodOutput<typeof document_kind>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.documents.get(document_kind.parse(req.params.kind)),
+      await this.documents.get(routeKind),
       'Document loaded',
     );
   }
   @Patch('documents/:kind') async save_document(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Param('kind', new ZodValidationPipe(document_kind))
+    routeKind: ZodOutput<typeof document_kind>,
+    @Body(new ZodValidationPipe(document_input))
+    input: ZodOutput<typeof document_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.documents.save(
-        req.auth!.user_id,
-        document_kind.parse(req.params.kind),
-        document_input.parse(req.body),
-      ),
+      await this.documents.save(actorId, routeKind, input),
       'Document saved',
     );
   }
   @Get('applications') async list(
-    @Req() req: Request,
+    @Query(new ZodValidationPipe(list_input))
+    filters: ZodOutput<typeof list_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.list(list_input.parse(req.query)),
+      await this.service.list(filters),
       'Applications retrieved',
     );
   }
   @Get('applications/:id') async detail(
-    @Req() req: Request,
+    @Param('id', new ZodValidationPipe(id_input))
+    routeId: ZodOutput<typeof id_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     res.setHeader('Cache-Control', 'no-store');
     return send_success(
       res,
-      await this.service.detail(id_input.parse(req.params.id)),
+      await this.service.detail(routeId),
       'Application loaded',
     );
   }
   @Patch('applications/:id/fields/:fieldId') async field(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(id_input))
+    routeId: ZodOutput<typeof id_input>,
+    @Param('fieldId', new ZodValidationPipe(id_input))
+    routeFieldId: ZodOutput<typeof id_input>,
+    @Body(new ZodValidationPipe(review_input))
+    input: ZodOutput<typeof review_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.review_field(
-        req.auth!.user_id,
-        id_input.parse(req.params.id),
-        id_input.parse(req.params.fieldId),
-        review_input.parse(req.body),
-      ),
+      await this.service.review_field(actorId, routeId, routeFieldId, input),
       'Field reviewed',
     );
   }
   @Post('applications/:id/request-selfie') async request_selfie(
-    @Req() req: Request,
+    @Body(new ZodValidationPipe(request_selfie_body_schema))
+    validatedInput: ZodOutput<typeof request_selfie_body_schema>,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(id_input))
+    routeId: ZodOutput<typeof id_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const input = z
-      .object({ version: z.number().int().positive() })
-      .strict()
-      .parse(req.body);
+    const input = validatedInput;
     return send_success(
       res,
-      await this.service.request_selfie(
-        req.auth!.user_id,
-        id_input.parse(req.params.id),
-        input.version,
-      ),
+      await this.service.request_selfie(actorId, routeId, input.version),
       'Live selfie requested',
     );
   }
   @Post('applications/:id/approve') async approve(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(id_input))
+    routeId: ZodOutput<typeof id_input>,
+    @Body(new ZodValidationPipe(review_input))
+    input: ZodOutput<typeof review_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.approve_application(
-        req.auth!.user_id,
-        id_input.parse(req.params.id),
-        review_input.parse(req.body),
-      ),
+      await this.service.approve_application(actorId, routeId, input),
       'Application approved',
     );
   }
   @Post('applications/:id/confirmation-review') async confirmation_review(
-    @Req() req: Request,
+    @Param('id', new ZodValidationPipe(id_input))
+    routeId: ZodOutput<typeof id_input>,
+    @CurrentUserId() actorId: string,
+    @Body(new ZodValidationPipe(review_input))
+    input: ZodOutput<typeof review_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const id = id_input.parse(req.params.id);
-    const result = await this.service.review_confirmation(
-      req.auth!.user_id,
-      id,
-      review_input.parse(req.body),
-    );
+    const id = routeId;
+    const result = await this.service.review_confirmation(actorId, id, input);
     if (result.status === 'COMPLETED') this.queue_email(id);
     return send_success(res, result, 'Confirmation reviewed');
   }
   @Post('assets') async upload(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Body(new ZodValidationPipe(asset_input))
+    input: ZodOutput<typeof asset_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.store_asset(
-        req.auth!.user_id,
-        asset_input.parse(req.body),
-        true,
-      ),
+      await this.service.store_asset(actorId, input, true),
       'Final PDF saved',
     );
   }
   @Post('applications/:id/email-retry') async retry(
-    @Req() req: Request,
+    @Param('id', new ZodValidationPipe(id_input))
+    routeId: ZodOutput<typeof id_input>,
+    @CurrentUserId() actorId: string,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const id = id_input.parse(req.params.id);
-    await this.database.client.$transaction(async (tx) => {
-      await require_active_admin(tx, req.auth!.user_id);
-      const application = await tx.partnerApplication.findUnique({
-        where: { id },
-        select: { status: true, final_pdf_id: true },
-      });
-      if (!application)
-        throw new AppError(
-          404,
-          'APPLICATION_NOT_FOUND',
-          'Application not found.',
-        );
-      if (
-        !['COMPLETED', 'ACTIVATED'].includes(application.status) ||
-        !application.final_pdf_id
-      )
-        throw new AppError(
-          409,
-          'PARTNER_EMAIL_NOT_READY',
-          'Approve the final PDF before retrying email delivery.',
-        );
-      await create_user_log(tx, {
-        actor_id: req.auth!.user_id,
-        entity_type: 'PartnerApplication',
-        entity_id: id,
-        action: 'RETRY_PARTNER_EMAIL',
-      });
-    });
+    const id = routeId;
+    await this.service.authorize_pdf_retry(actorId, id);
     this.queue_email(id);
     return send_success(res, { queued: true }, 'Email retry queued');
   }
   @Post('applications/:id/shared') async shared(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(id_input))
+    routeId: ZodOutput<typeof id_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.mark_shared(
-        req.auth!.user_id,
-        id_input.parse(req.params.id),
-      ),
+      await this.service.mark_shared(actorId, routeId),
       'Manual sharing recorded',
     );
   }
   @Post('applications/:id/activation-code') async code(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(id_input))
+    routeId: ZodOutput<typeof id_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     res.setHeader('Cache-Control', 'no-store');
     return send_success(
       res,
-      await this.service.activation_code(
-        req.auth!.user_id,
-        id_input.parse(req.params.id),
-      ),
+      await this.service.activation_code(actorId, routeId),
       'Activation code retrieved',
     );
   }
   @Post('applications/:id/activation-email') async activation_email(
-    @Req() req: Request,
+    @Param('id', new ZodValidationPipe(id_input))
+    routeId: ZodOutput<typeof id_input>,
+    @CurrentUserId() actorId: string,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const id = id_input.parse(req.params.id);
-    const result = await this.service.queue_activation_email(
-      req.auth!.user_id,
-      id,
-    );
+    const id = routeId;
+    const result = await this.service.queue_activation_email(actorId, id);
     background_mail(
       this.delivery.send_activation_email(id),
       'PARTNER_ACTIVATION_EMAIL_JOB_FAILED',
@@ -503,30 +411,27 @@ export class AdminPartnerProgramController {
     return send_success(res, result, 'Activation email queued');
   }
   @Post('applications/:id/activation-shared') async activation_shared(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(id_input))
+    routeId: ZodOutput<typeof id_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     return send_success(
       res,
-      await this.service.mark_activation_shared(
-        req.auth!.user_id,
-        id_input.parse(req.params.id),
-      ),
+      await this.service.mark_activation_shared(actorId, routeId),
       'Manual activation sharing recorded',
     );
   }
   @Post('applications/:id/activation-unlock') async unlock(
-    @Req() req: Request,
+    @CurrentUserId() actorId: string,
+    @Param('id', new ZodValidationPipe(id_input))
+    routeId: ZodOutput<typeof id_input>,
     @Res({ passthrough: true }) res: Response,
   ) {
     res.setHeader('Cache-Control', 'no-store');
     return send_success(
       res,
-      await this.service.activation_code(
-        req.auth!.user_id,
-        id_input.parse(req.params.id),
-        true,
-      ),
+      await this.service.activation_code(actorId, routeId, true),
       'Activation unlocked',
     );
   }

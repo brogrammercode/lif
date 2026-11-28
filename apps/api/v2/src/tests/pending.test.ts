@@ -2,16 +2,18 @@ import { AdminUserRepository } from '../features/admin_user/admin_user.repo.js';
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { PendingService } from '../features/admin_pending/pending.service.js';
+import { PendingRepository } from '../features/admin_pending/pending.repository.js';
+import type { PostgresService } from '../database/postgres.service.js';
 import {
   pending_query,
   changes_pending,
   is_pending_poll,
 } from '../features/admin_pending/pending.rules.js';
-import type { PrismaService } from '../infra/database/prisma.service.js';
+import { account_is_driver } from '../features/admin_user/admin_user.rides.js';
 import {
-  account_is_driver,
-  admin_ride_select,
-} from '../features/admin_user/admin_user.rides.js';
+  adminRideRows,
+  rideFilters,
+} from '../features/admin_user/sql/admin-users.sql.js';
 
 it('bounds visible IDs across both entity types and rejects unrecognized filters', () => {
   assert.equal(pending_query.parse({ user_ids: 'a,a,b' }).user_ids.length, 2);
@@ -65,27 +67,24 @@ it('reuses a shared fresh snapshot and rebuilds once without serializing records
     activation_locked: 1,
   };
   const tx = {
-    $queryRaw: async (strings: TemplateStringsArray) => {
-      const sql = strings.join('');
-      if (sql.includes('admin_pending_snapshots'))
-        return snapshot ? [{ payload: snapshot, valid }] : [];
-      scans++;
-      return [numbers];
-    },
-    $executeRaw: async (strings: TemplateStringsArray) => {
-      if (strings.join('').includes('INSERT INTO')) {
+    query: async (sql: string) => {
+      if (sql.includes('INSERT INTO')) {
         snapshot = numbers;
         valid = true;
         writes++;
+        return { rows: [] };
       }
-      return 1;
+      if (sql.includes('admin_pending_snapshots'))
+        return { rows: snapshot ? [{ payload: snapshot, valid }] : [] };
+      if (sql.includes('pg_advisory_xact_lock')) return { rows: [] };
+      scans++;
+      return { rows: [numbers] };
     },
   };
-  const service = new PendingService({
-    client: {
-      $transaction: async (work: (t: typeof tx) => unknown) => work(tx),
-    },
-  } as unknown as PrismaService);
+  const db = {
+    transaction: async (work: (t: typeof tx) => unknown) => work(tx),
+  } as unknown as PostgresService;
+  const service = new PendingService(new PendingRepository(db));
   const first = await service.counts(pending_query.parse({}));
   const second = await service.counts(pending_query.parse({}));
   assert.deepEqual(second, first);
@@ -108,14 +107,13 @@ it('treats activated staff as driver accounts and keeps trip secrets outside the
     account_is_driver({ role: 'RIDER', partner_activated_at: null }),
     false,
   );
-  const keys = Object.keys(admin_ride_select);
   for (const key of [
     'access_code',
     'start_verification',
     'locations',
     'messages',
   ])
-    assert.ok(!keys.includes(key));
+    assert.ok(!adminRideRows.includes(key));
 });
 
 it('user ride history scopes every query to the selected rider or driver and clamps shrinking pages', async () => {
@@ -124,49 +122,29 @@ it('user ride history scopes every query to the selected rider or driver and cla
     ['DRIVER', null, true],
     ['ADMIN', new Date(), true],
   ] as const) {
-    const queries: Record<string, unknown>[] = [];
+    const filters: unknown[][] = [];
     const tx = {
-      user: {
-        findFirst: async () => ({
-          id: 'selected',
-          role,
-          partner_activated_at: activated,
-        }),
-      },
-      ride: {
-        count: async ({ where }: { where: Record<string, unknown> }) => {
-          queries.push(where);
-          return 21;
-        },
-        findMany: async (args: {
-          where: Record<string, unknown>;
-          skip: number;
-          take: number;
-          select: unknown;
-        }) => {
-          queries.push(args.where);
-          assert.equal(args.skip, 20);
-          assert.equal(args.take, 20);
-          assert.deepEqual(args.select, admin_ride_select);
-          return [];
-        },
+      query: async (sql: string, params: unknown[]) => {
+        if (sql.includes('FROM users WHERE'))
+          return {
+            rows: [{ id: 'selected', role, partner_activated_at: activated }],
+          };
+        assert.ok(sql.includes(rideFilters));
+        filters.push(params);
+        if (sql.includes('count(*)')) return { rows: [{ total: 21 }] };
+        assert.equal(sql, adminRideRows);
+        return { rows: [] };
       },
     };
     const repo = new AdminUserRepository({
-      client: {
-        $transaction: async (work: (client: typeof tx) => unknown) => work(tx),
-      },
-    } as unknown as PrismaService);
+      transaction: async (work: (client: typeof tx) => unknown) => work(tx),
+    } as unknown as PostgresService);
     const result = await repo.rides('selected', { status: 'all', page: 999 });
     assert.equal(result.page, 2);
     assert.equal(result.role, driver ? 'driver' : 'rider');
-    assert.deepEqual(queries[0], queries[1]);
-    if (driver) {
-      assert.deepEqual(queries[0]!.driver, { user_id: 'selected' });
-      assert.equal(queries[0]!.rider_id, undefined);
-    } else {
-      assert.equal(queries[0]!.rider_id, 'selected');
-      assert.equal(queries[0]!.driver, undefined);
-    }
+    assert.deepEqual(filters, [
+      ['selected', driver, 'all'],
+      ['selected', driver, 'all', 20],
+    ]);
   }
 });

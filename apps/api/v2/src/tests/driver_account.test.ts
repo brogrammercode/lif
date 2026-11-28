@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
-import { Prisma } from '@prisma/client';
-import { PrismaService } from '../infra/database/prisma.service.js';
+import type { PostgresService } from '../database/postgres.service.js';
 import { DriverAccountService } from '../features/driver_account/driver_account.service.js';
 import {
   finance_query,
@@ -15,8 +14,8 @@ import {
   mask_payout,
 } from '../features/driver_account/payout_security.js';
 import {
-  approved_driver_upi,
-  approved_driver_upis,
+  findApprovedDriverUpi,
+  findApprovedDriverUpis,
 } from '../features/driver_operations/driver_payout.js';
 import { VehicleCatalogRepository } from '../features/vehicle_catalog/vehicle_catalog.repo.js';
 import { brand_input } from '../features/vehicle_catalog/vehicle_catalog.type.js';
@@ -40,73 +39,83 @@ function fixture() {
         deleted_at: null,
       }),
     },
-    driverProfile: {
-      findUnique: async () => ({
-        id: 'profile',
-        availability: 'SUSPENDED',
-        verification_status: 'VERIFIED',
-      }),
-    },
-    partnerApplication: {
-      findUnique: async () => ({ status: exited ? 'EXITED' : 'ACTIVATED' }),
-    },
-    driverPayoutChange: {
-      findMany: async () => rows,
-      findUnique: async ({ where }: { where: Record<string, any> }) =>
-        rows.find((v) =>
-          where.id
-            ? v.id === where.id
-            : v.user_id === where.user_id_request_key.user_id &&
-              v.request_key === where.user_id_request_key.request_key,
-        ) ?? null,
-      findFirst: async ({ where }: { where: Record<string, any> }) =>
-        rows.find(
-          (v) => v.user_id === where.user_id && v.status === where.status,
-        ) ?? null,
-      create: async ({ data }: { data: Record<string, any> }) => {
-        const row = { ...data, id: 'change', status: 'PENDING', version: 1 };
-        rows.push(row);
-        return row;
-      },
-      updateMany: async ({
-        where,
-        data,
-      }: {
-        where: Record<string, any>;
-        data: Record<string, any>;
-      }) => {
-        const row = rows.find(
-          (v) =>
-            v.id === where.id &&
-            v.status === where.status &&
-            v.version === where.version,
-        );
-        if (!row) return { count: 0 };
-        Object.assign(row, { ...data, version: row.version + 1 });
-        return { count: 1 };
-      },
-      findUniqueOrThrow: async () => rows[0],
-    },
-    userLog: {
-      create: async ({ data }: { data: unknown }) => {
-        audits.push(data);
-        return {};
-      },
-    },
-    notification: { create: async () => ({}) },
   };
-  const db = new PrismaService();
-  Object.defineProperty(db, 'client', {
-    value: {
-      ...tx,
-      $transaction: async (action: (v: typeof tx) => Promise<unknown>) =>
-        action(tx),
-    },
-  });
+  const query = async (sql: string, args: unknown[] = []) => {
+    if (sql.includes('FROM users'))
+      return {
+        rows: [await tx.user.findUnique({ where: { id: String(args[0]) } })],
+      };
+    if (sql.includes('FROM driver_profiles'))
+      return {
+        rows: [
+          {
+            id: 'profile',
+            availability: 'SUSPENDED',
+            verification_status: 'VERIFIED',
+          },
+        ],
+      };
+    if (sql.includes('FROM partner_applications'))
+      return { rows: [{ status: exited ? 'EXITED' : 'ACTIVATED' }] };
+    if (
+      sql.includes(
+        'FROM driver_payout_changes WHERE user_id=$1 AND request_key=$2',
+      )
+    )
+      return {
+        rows: rows.filter(
+          (row) => row.user_id === args[0] && row.request_key === args[1],
+        ),
+      };
+    if (
+      sql.includes(
+        "FROM driver_payout_changes WHERE user_id=$1 AND status='PENDING'",
+      )
+    )
+      return {
+        rowCount: rows.filter(
+          (row) => row.user_id === args[0] && row.status === 'PENDING',
+        ).length,
+      };
+    if (sql.includes('FROM driver_payout_changes WHERE id=$1'))
+      return { rows: rows.filter((row) => row.id === args[0]) };
+    if (sql.startsWith('INSERT INTO driver_payout_changes')) {
+      const row = {
+        id: 'change',
+        user_id: args[1],
+        request_key: args[2],
+        details_ciphertext: args[3],
+        summary: JSON.parse(String(args[4])),
+        status: 'PENDING',
+        version: 1,
+      };
+      rows.push(row);
+      return { rows: [row] };
+    }
+    if (sql.startsWith('UPDATE driver_payout_changes')) {
+      const row = rows.find(
+        (row) =>
+          row.id === args[0] &&
+          row.status === 'PENDING' &&
+          row.version === args[4],
+      );
+      if (!row) return { rows: [] };
+      Object.assign(row, {
+        status: args[1],
+        version: row.version + 1,
+        rejection_reason: args[3],
+      });
+      return { rows: [row] };
+    }
+    if (sql.includes('INSERT INTO user_logs')) audits.push(args);
+    return { rows: [] };
+  };
   return {
-    service: new DriverAccountService(db),
+    service: new DriverAccountService({
+      transaction: (work: (tx: { query: typeof query }) => unknown) =>
+        work({ query }),
+    } as unknown as PostgresService),
     tx,
-    db,
     rows,
     audits,
     exit: () => {
@@ -221,9 +230,22 @@ it('only an approved account change overrides the application UPI, including ban
       findMany: async () => [],
     },
   };
-  assert.equal(await approved_driver_upi(db as any, 'driver'), 'driver@upi');
   assert.equal(
-    (await approved_driver_upis(db as any, ['driver'])).get('driver'),
+    await findApprovedDriverUpi(
+      {
+        query: async () => ({
+          rows: [await db.driverPayoutChange.findFirst()],
+        }),
+      } as unknown as PostgresService,
+      'driver',
+    ),
+    'driver@upi',
+  );
+  const sql = {
+    query: async () => ({ rows: await db.driverPayoutChange.findMany() }),
+  } as unknown as PostgresService;
+  assert.equal(
+    (await findApprovedDriverUpis(sql, ['driver'])).get('driver'),
     'driver@upi',
   );
   db.driverPayoutChange.findFirst = async () => ({
@@ -233,85 +255,70 @@ it('only an approved account change overrides the application UPI, including ban
       ifsc: 'ABCD0123456',
     }),
   });
-  assert.equal(await approved_driver_upi(db as any, 'driver'), null);
+  assert.equal(
+    await findApprovedDriverUpi(
+      {
+        query: async () => ({
+          rows: [await db.driverPayoutChange.findFirst()],
+        }),
+      } as unknown as PostgresService,
+      'driver',
+    ),
+    null,
+  );
 });
 it('driver finance reads reconcile separate obligations with owner/date predicates in one snapshot', async () => {
-  const f = fixture();
-  const calls: Record<string, any>[] = [];
-  const decimal = (n: number) => new Prisma.Decimal(n);
-  const tx = {
-    ...f.tx,
-    ride: {
-      aggregate: async (args: Record<string, any>) => {
-        calls.push(args);
-        return {
-          _sum: { final_fare: decimal(args.where.payment ? 50 : 100) },
-          _count: { _all: 2, final_fare: 2 },
-        };
-      },
-      findMany: async (args: Record<string, any>) => {
-        calls.push(args);
-        return [];
-      },
-      count: async () => 2,
-    },
-    payment: {
-      groupBy: async (args: Record<string, any>) => {
-        calls.push(args);
-        return [
+  const calls: unknown[][] = [];
+  const query = async (sql: string, args: unknown[]) => {
+    if (sql.includes('FROM driver_profiles'))
+      return { rows: [{ id: 'profile' }] };
+    calls.push(args);
+    assert.match(
+      sql,
+      /r\.driver_id=\$1 AND r.status='COMPLETED' AND r.completed_at >= \$2 AND r.completed_at < \$3/,
+    );
+    if (sql.includes('gross_fares'))
+      return {
+        rows: [
           {
-            status: 'CAPTURED',
-            collection_method: 'CASH',
-            _sum: { amount: decimal(40) },
+            cash_received: '40',
+            collection_pending: '60',
+            provider_resolved: '20',
+            approved_charges_due: '10',
+            charges_under_review: '5',
+            receipt_unrecorded: '50',
+            completed_trips: 2,
           },
-          {
-            status: 'PENDING',
-            collection_method: 'UPI',
-            _sum: { amount: decimal(60) },
-          },
-          {
-            status: 'REQUIRES_ACTION',
-            collection_method: 'CARD',
-            _sum: { amount: decimal(20) },
-          },
-        ];
-      },
-    },
-    rideSettlementReview: {
-      groupBy: async (args: Record<string, any>) => {
-        calls.push(args);
-        return [
-          { status: 'APPROVED', _sum: { fee_amount: decimal(10) } },
-          { status: 'REQUESTED', _sum: { fee_amount: decimal(5) } },
-        ];
-      },
-    },
+        ],
+      };
+    return { rows: [] };
   };
-  const db = new PrismaService();
-  Object.defineProperty(db, 'client', {
-    value: {
-      $transaction: async (
-        action: (t: typeof tx) => Promise<unknown>,
-        options: { isolationLevel: string },
-      ) => {
-        assert.equal(options.isolationLevel, 'RepeatableRead');
-        return action(tx);
-      },
+  const db = {
+    transaction: (
+      work: (tx: { query: typeof query }) => unknown,
+      isolation: string,
+    ) => {
+      assert.equal(isolation, 'REPEATABLE READ');
+      return work({ query });
     },
-  });
+  } as unknown as PostgresService;
   const result = await new DriverAccountService(db).finance(
     'driver',
     finance_query.parse({ from: '2026-10-01', to: '2026-10-24', page: 2 }),
   );
-  assert.equal(result.summary.cash_received.toString(), '40');
-  assert.equal(result.summary.collection_pending.toString(), '60');
-  assert.equal(result.summary.provider_resolved.toString(), '20');
-  assert.equal(result.summary.approved_charges_due.toString(), '10');
-  assert.equal(result.summary.charges_under_review.toString(), '5');
+  assert.equal(result.summary.cash_received, '40');
+  assert.equal(result.summary.collection_pending, '60');
+  assert.equal(result.summary.provider_resolved, '20');
+  assert.equal(result.summary.approved_charges_due, '10');
+  assert.equal(result.summary.charges_under_review, '5');
   assert.equal(result.summary.platform_payout, '0.00');
-  assert.equal(result.summary.receipt_unrecorded.toString(), '50');
-  assert.ok(calls.every((v) => JSON.stringify(v).includes('profile')));
-  assert.equal(calls.find((v) => 'skip' in v)?.skip, 20);
+  assert.equal(result.summary.receipt_unrecorded, '50');
+  assert.deepEqual(calls[0], [
+    'profile',
+    new Date('2026-10-01'),
+    new Date('2026-10-25'),
+  ]);
+  assert.equal(calls[1]?.[3], 20);
 });
 it('statement dates are bounded, inclusive of the end day, and reject reversed ranges', () => {
   const range = finance_range(
@@ -334,24 +341,23 @@ it('catalog correction forbids editing another requester or a verified entry', a
     { requested_by_id: 'other', status: 'REJECTED' },
     { requested_by_id: 'driver', status: 'VERIFIED' },
   ]) {
-    const f = fixture();
     const tx = {
-      ...f.tx,
-      vehicleBrand: {
-        findUnique: async () => ({
-          id: 'brand',
-          ...row,
-          updated_at: new Date(),
-        }),
+      query: async (sql: string) => {
+        if (sql.includes('FROM users'))
+          return {
+            rows: [{ role: 'DRIVER', status: 'ACTIVE', deleted_at: null }],
+          };
+        if (sql.includes('FROM partner_applications'))
+          return { rows: [{ status: 'ACTIVATED' }] };
+        if (sql.includes('FROM driver_profiles')) return { rowCount: 1 };
+        if (sql.includes('FROM vehicle_brands'))
+          return { rows: [{ id: 'brand', ...row, updated_at: new Date() }] };
+        return { rows: [] };
       },
     };
-    const db = new PrismaService();
-    Object.defineProperty(db, 'client', {
-      value: {
-        $transaction: async (action: (v: typeof tx) => Promise<unknown>) =>
-          action(tx),
-      },
-    });
+    const db = {
+      transaction: (action: (v: typeof tx) => Promise<unknown>) => action(tx),
+    } as unknown as PostgresService;
     await assert.rejects(
       () =>
         new VehicleCatalogRepository(db).save_brand(
@@ -366,13 +372,14 @@ it('catalog correction forbids editing another requester or a verified entry', a
 });
 
 it('account read masks approved application bank details and exposes only file IDs for documents', async () => {
-  const f = fixture();
-  const tx = {
-    ...f.tx,
-    partnerApplication: {
-      findUnique: async () => ({
-        status: 'ACTIVATED',
-        fields: [
+  const query = async (sql: string) => {
+    if (sql.includes('FROM driver_profiles'))
+      return { rows: [{ id: 'profile' }] };
+    if (sql.includes('FROM partner_applications'))
+      return { rows: [{ id: 'app', status: 'ACTIVATED' }] };
+    if (sql.includes('FROM partner_application_fields'))
+      return {
+        rows: [
           {
             id: 'bank',
             status: 'APPROVED',
@@ -395,16 +402,13 @@ it('account read masks approved application bank details and exposes only file I
             value: 'private-asset',
           },
         ],
-      }),
-    },
+      };
+    return { rows: [] };
   };
-  const db = new PrismaService();
-  Object.defineProperty(db, 'client', {
-    value: {
-      $transaction: async (action: (v: typeof tx) => Promise<unknown>) =>
-        action(tx),
-    },
-  });
+  const db = {
+    transaction: (work: (tx: { query: typeof query }) => unknown) =>
+      work({ query }),
+  } as unknown as PostgresService;
   const result = await new DriverAccountService(db).account('driver');
   assert.ok(!JSON.stringify(result).includes('001234567890'));
   assert.ok(!JSON.stringify(result).includes('driver@upi'));
@@ -430,8 +434,21 @@ it('unreadable approved destinations disable only that driver UPI without revivi
       findMany: async () => [],
     },
   };
-  assert.equal(await approved_driver_upi(db as any, 'broken'), null);
-  const batch = await approved_driver_upis(db as any, ['broken', 'valid']);
+  assert.equal(
+    await findApprovedDriverUpi(
+      {
+        query: async () => ({
+          rows: [await db.driverPayoutChange.findFirst()],
+        }),
+      } as unknown as PostgresService,
+      'broken',
+    ),
+    null,
+  );
+  const sql = {
+    query: async () => ({ rows: await db.driverPayoutChange.findMany() }),
+  } as unknown as PostgresService;
+  const batch = await findApprovedDriverUpis(sql, ['broken', 'valid']);
   assert.equal(batch.has('broken'), false);
   assert.equal(batch.get('valid'), 'driver@upi');
 });

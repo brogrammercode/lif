@@ -1,20 +1,23 @@
 import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import type { z } from 'zod';
+import { CurrentUserId } from '../../common/decorators/current-user-id.decorator.js';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
+import { AuthGuard, AdminGuard, DriverAccessGuard } from '../../core/guards.js';
+import { success } from '../../core/response.js';
+import {
   CatalogImportService,
   catalog_import_input,
 } from './catalog_import.service.js';
-import {
-  Controller,
-  Get,
-  Post,
-  Patch,
-  Req,
-  Res,
-  HttpCode,
-  UseGuards,
-} from '@nestjs/common';
-import type { Request, Response } from 'express';
-import { AuthGuard, AdminGuard, DriverAccessGuard } from '../../core/guards.js';
-import { send_success } from '../../core/response.js';
 import { VehicleCatalogRepository } from './vehicle_catalog.repo.js';
 import { VehicleCatalogService } from './vehicle_catalog.service.js';
 import {
@@ -27,247 +30,225 @@ import {
   model_update,
   model_request,
 } from './vehicle_catalog.type.js';
+
+const requestDefaults = {
+  status: 'REQUESTED',
+  is_active: true,
+  rejection_reason: null,
+} as const;
+const brand_correction = brand_request.extend({
+  expected_updated_at: brand_update.shape.expected_updated_at,
+});
+const model_correction = model_request.extend({
+  expected_updated_at: model_update.shape.expected_updated_at,
+});
+
 @Controller()
+@UseGuards(AuthGuard)
 export class VehicleCatalogController {
   constructor(
     private readonly repo: VehicleCatalogRepository,
     private readonly service: VehicleCatalogService,
     private readonly importer: CatalogImportService,
   ) {}
+
   @Get('driver/catalog-requests')
-  @UseGuards(AuthGuard)
   async own_requests(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+    @CurrentUserId() user: string,
+    @Query(new ZodValidationPipe(catalog_query))
+    input: z.output<typeof catalog_query>,
   ) {
-    return send_success(
-      res,
-      await this.repo.own_requests(
-        req.auth!.user_id,
-        catalog_query.parse(req.query),
-      ),
+    return success(
+      await this.repo.own_requests(user, input),
       'Your catalog requests loaded',
     );
   }
+
   @Patch('driver/vehicle-brands/requests/:id')
-  @UseGuards(AuthGuard, DriverAccessGuard)
+  @UseGuards(DriverAccessGuard)
   async correct_brand(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+    @CurrentUserId() user: string,
+    @Param('id', new ZodValidationPipe(catalog_id)) id: string,
+    @Body(new ZodValidationPipe(brand_correction))
+    input: z.output<typeof brand_correction>,
   ) {
-    const input = brand_request
-      .extend({ expected_updated_at: brand_update.shape.expected_updated_at })
-      .parse(req.body);
-    return send_success(
-      res,
+    return success(
       await this.service.save_brand(
-        req.auth!.user_id,
-        {
-          ...input,
-          status: 'REQUESTED',
-          is_active: true,
-          rejection_reason: null,
-        },
-        catalog_id.parse(req.params.id),
+        user,
+        { ...input, ...requestDefaults },
+        id,
         true,
       ),
       'Brand correction submitted',
     );
   }
+
   @Patch('driver/vehicle-models/requests/:id')
-  @UseGuards(AuthGuard, DriverAccessGuard)
+  @UseGuards(DriverAccessGuard)
   async correct_model(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+    @CurrentUserId() user: string,
+    @Param('id', new ZodValidationPipe(catalog_id)) id: string,
+    @Body(new ZodValidationPipe(model_correction))
+    input: z.output<typeof model_correction>,
   ) {
-    const input = model_request
-      .extend({ expected_updated_at: model_update.shape.expected_updated_at })
-      .parse(req.body);
-    return send_success(
-      res,
+    return success(
       await this.service.save_model(
-        req.auth!.user_id,
-        {
-          ...input,
-          status: 'REQUESTED',
-          is_active: true,
-          rejection_reason: null,
-        },
-        catalog_id.parse(req.params.id),
+        user,
+        { ...input, ...requestDefaults },
+        id,
         true,
       ),
       'Model correction submitted',
     );
   }
+
   @Post('admin/vehicle-catalog/import')
-  @UseGuards(AuthGuard, AdminGuard)
+  @UseGuards(AdminGuard)
+  @HttpCode(200)
   async import_catalog(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+    @CurrentUserId() user: string,
+    @Body(new ZodValidationPipe(catalog_import_input))
+    input: z.output<typeof catalog_import_input>,
   ) {
-    return send_success(
-      res,
-      await this.importer.import(
-        req.auth!.user_id,
-        catalog_import_input.parse(req.body),
-      ),
+    return success(
+      await this.importer.import(user, input),
       'Import batch completed',
     );
   }
+
   @Get('admin/vehicle-brands')
-  @UseGuards(AuthGuard, AdminGuard)
-  async brands(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    return send_success(
-      res,
-      await this.repo.list_brands(catalog_query.parse(req.query)),
+  @UseGuards(AdminGuard)
+  async brands(
+    @Query(new ZodValidationPipe(catalog_query))
+    input: z.output<typeof catalog_query>,
+  ) {
+    return success(
+      await this.repo.list_brands(input),
       'Vehicle brands retrieved',
     );
   }
+
   @Get('admin/vehicle-models')
-  @UseGuards(AuthGuard, AdminGuard)
-  async models(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    return send_success(
-      res,
-      await this.repo.list_models(catalog_query.parse(req.query)),
+  @UseGuards(AdminGuard)
+  async models(
+    @Query(new ZodValidationPipe(catalog_query))
+    input: z.output<typeof catalog_query>,
+  ) {
+    return success(
+      await this.repo.list_models(input),
       'Vehicle models retrieved',
     );
   }
+
   @Post('admin/vehicle-brands')
-  @HttpCode(201)
-  @UseGuards(AuthGuard, AdminGuard)
+  @UseGuards(AdminGuard)
   async create_brand(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+    @CurrentUserId() user: string,
+    @Body(new ZodValidationPipe(brand_input))
+    input: z.output<typeof brand_input>,
   ) {
-    return send_success(
-      res,
-      await this.service.save_brand(
-        req.auth!.user_id,
-        brand_input.parse(req.body),
-      ),
+    return success(
+      await this.service.save_brand(user, input),
       'Vehicle brand created',
-      201,
     );
   }
+
   @Patch('admin/vehicle-brands/:id')
-  @UseGuards(AuthGuard, AdminGuard)
+  @UseGuards(AdminGuard)
   async update_brand(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+    @CurrentUserId() user: string,
+    @Param('id', new ZodValidationPipe(catalog_id)) id: string,
+    @Body(new ZodValidationPipe(brand_update))
+    input: z.output<typeof brand_update>,
   ) {
-    return send_success(
-      res,
-      await this.service.save_brand(
-        req.auth!.user_id,
-        brand_update.parse(req.body),
-        catalog_id.parse(req.params.id),
-      ),
+    return success(
+      await this.service.save_brand(user, input, id),
       'Vehicle brand updated',
     );
   }
+
   @Post('admin/vehicle-models')
-  @HttpCode(201)
-  @UseGuards(AuthGuard, AdminGuard)
+  @UseGuards(AdminGuard)
   async create_model(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+    @CurrentUserId() user: string,
+    @Body(new ZodValidationPipe(model_input))
+    input: z.output<typeof model_input>,
   ) {
-    return send_success(
-      res,
-      await this.service.save_model(
-        req.auth!.user_id,
-        model_input.parse(req.body),
-      ),
+    return success(
+      await this.service.save_model(user, input),
       'Vehicle model created',
-      201,
     );
   }
+
   @Patch('admin/vehicle-models/:id')
-  @UseGuards(AuthGuard, AdminGuard)
+  @UseGuards(AdminGuard)
   async update_model(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+    @CurrentUserId() user: string,
+    @Param('id', new ZodValidationPipe(catalog_id)) id: string,
+    @Body(new ZodValidationPipe(model_update))
+    input: z.output<typeof model_update>,
   ) {
-    return send_success(
-      res,
-      await this.service.save_model(
-        req.auth!.user_id,
-        model_update.parse(req.body),
-        catalog_id.parse(req.params.id),
-      ),
+    return success(
+      await this.service.save_model(user, input, id),
       'Vehicle model updated',
     );
   }
+
   @Get('vehicle-brands')
-  @UseGuards(AuthGuard)
   async brand_choices(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+    @Query(new ZodValidationPipe(catalog_query))
+    input: z.output<typeof catalog_query>,
   ) {
-    return send_success(
-      res,
-      await this.repo.list_brands(catalog_query.parse(req.query), true),
+    return success(
+      await this.repo.list_brands(input, true),
       'Verified vehicle brands retrieved',
     );
   }
+
   @Get('vehicle-models')
-  @UseGuards(AuthGuard)
   async model_choices(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+    @Query(new ZodValidationPipe(catalog_query))
+    input: z.output<typeof catalog_query>,
   ) {
-    return send_success(
-      res,
-      await this.repo.list_models(catalog_query.parse(req.query), true),
+    return success(
+      await this.repo.list_models(input, true),
       'Verified vehicle models retrieved',
     );
   }
+
   @Post('driver/vehicle-brands/requests')
-  @HttpCode(201)
-  @UseGuards(AuthGuard, DriverAccessGuard)
+  @UseGuards(DriverAccessGuard)
   async request_brand(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+    @CurrentUserId() user: string,
+    @Body(new ZodValidationPipe(brand_request))
+    input: z.output<typeof brand_request>,
   ) {
-    return send_success(
-      res,
+    return success(
       await this.service.save_brand(
-        req.auth!.user_id,
-        {
-          ...brand_request.parse(req.body),
-          status: 'REQUESTED',
-          is_active: true,
-          rejection_reason: null,
-        },
+        user,
+        { ...input, ...requestDefaults },
         undefined,
         true,
       ),
       'Brand request submitted',
-      201,
     );
   }
+
   @Post('driver/vehicle-models/requests')
-  @HttpCode(201)
-  @UseGuards(AuthGuard, DriverAccessGuard)
+  @UseGuards(DriverAccessGuard)
   async request_model(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+    @CurrentUserId() user: string,
+    @Body(new ZodValidationPipe(model_request))
+    input: z.output<typeof model_request>,
   ) {
-    return send_success(
-      res,
+    return success(
       await this.service.save_model(
-        req.auth!.user_id,
-        {
-          ...model_request.parse(req.body),
-          status: 'REQUESTED',
-          is_active: true,
-          rejection_reason: null,
-        },
+        user,
+        { ...input, ...requestDefaults },
         undefined,
         true,
       ),
       'Model request submitted',
-      201,
     );
   }
 }

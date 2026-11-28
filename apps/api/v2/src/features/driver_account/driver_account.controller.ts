@@ -1,17 +1,19 @@
 import {
+  Body,
   Controller,
   Get,
-  Post,
-  Patch,
-  UseGuards,
-  Req,
-  Res,
+  HttpCode,
   Param,
+  Patch,
+  Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
-import type { Request, Response } from 'express';
+import type { z } from 'zod';
+import { CurrentUserId } from '../../common/decorators/current-user-id.decorator.js';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { AuthGuard, AdminGuard } from '../../core/guards.js';
-import { send_success } from '../../core/response.js';
+import { success } from '../../core/response.js';
 import { DriverAccountService } from './driver_account.service.js';
 import {
   finance_query,
@@ -19,80 +21,86 @@ import {
   payout_review,
 } from './driver_account.type.js';
 import { catalog_id } from '../vehicle_catalog/vehicle_catalog.type.js';
+
 @Controller()
 @UseGuards(AuthGuard)
 export class DriverAccountController {
   constructor(private readonly service: DriverAccountService) {}
-  @Get('driver/account') account(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    return this.service
-      .account(req.auth!.user_id)
-      .then((v) => send_success(res, v, 'Driver account loaded'));
+
+  @Get('driver/account')
+  async account(@CurrentUserId() user: string) {
+    return success(await this.service.account(user), 'Driver account loaded');
   }
-  @Get('driver/finances') finance(
-    @Req() req: Request,
-    @Query() q: unknown,
-    @Res({ passthrough: true }) res: Response,
+
+  @Get('driver/finances')
+  async finance(
+    @CurrentUserId() user: string,
+    @Query(new ZodValidationPipe(finance_query))
+    input: z.output<typeof finance_query>,
   ) {
-    return this.service
-      .finance(req.auth!.user_id, finance_query.parse(q))
-      .then((v) => send_success(res, v, 'Driver statement loaded'));
+    return success(
+      await this.service.finance(user, input),
+      'Driver statement loaded',
+    );
   }
-  @Post('driver/payout-changes') request(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+
+  @Post('driver/payout-changes')
+  @HttpCode(200)
+  async request(
+    @CurrentUserId() user: string,
+    @Body(new ZodValidationPipe(payout_request))
+    input: z.output<typeof payout_request>,
   ) {
-    return this.service
-      .request(req.auth!.user_id, payout_request.parse(req.body))
-      .then((v) => send_success(res, v, 'Account change submitted'));
+    return success(
+      await this.service.request(user, input),
+      'Account change submitted',
+    );
   }
+
   @Get('admin/users/:id/driver-account')
   @UseGuards(AdminGuard)
-  admin_account(
-    @Param('id') id: string,
-    @Res({ passthrough: true }) res: Response,
+  async admin_account(
+    @Param('id', new ZodValidationPipe(catalog_id)) id: string,
   ) {
-    return this.service
-      .account(catalog_id.parse(id))
-      .then((v) => send_success(res, v, 'Driver account loaded'));
+    return success(await this.service.account(id), 'Driver account loaded');
   }
+
   @Get('admin/users/:id/driver-finances')
   @UseGuards(AdminGuard)
-  admin_finance(
-    @Param('id') id: string,
-    @Query() q: unknown,
-    @Res({ passthrough: true }) res: Response,
+  async admin_finance(
+    @Param('id', new ZodValidationPipe(catalog_id)) id: string,
+    @Query(new ZodValidationPipe(finance_query))
+    input: z.output<typeof finance_query>,
   ) {
-    return this.service
-      .finance(catalog_id.parse(id), finance_query.parse(q))
-      .then((v) => send_success(res, v, 'Driver statement loaded'));
+    return success(
+      await this.service.finance(id, input),
+      'Driver statement loaded',
+    );
   }
+
   @Get('admin/payout-changes/:id/private')
   @UseGuards(AdminGuard)
-  reveal(
-    @Req() req: Request,
-    @Param('id') id: string,
-    @Res({ passthrough: true }) res: Response,
+  async reveal(
+    @CurrentUserId() actor: string,
+    @Param('id', new ZodValidationPipe(catalog_id)) id: string,
   ) {
-    return this.service
-      .reveal(req.auth!.user_id, catalog_id.parse(id))
-      .then((v) => send_success(res, v, 'Private account details loaded'));
+    return success(
+      await this.service.reveal(actor, id),
+      'Private account details loaded',
+    );
   }
+
   @Patch('admin/payout-changes/:id')
   @UseGuards(AdminGuard)
-  review(
-    @Req() req: Request,
-    @Param('id') id: string,
-    @Res({ passthrough: true }) res: Response,
+  async review(
+    @CurrentUserId() actor: string,
+    @Param('id', new ZodValidationPipe(catalog_id)) id: string,
+    @Body(new ZodValidationPipe(payout_review))
+    input: z.output<typeof payout_review>,
   ) {
-    return this.service
-      .review(
-        req.auth!.user_id,
-        catalog_id.parse(id),
-        payout_review.parse(req.body),
-      )
-      .then((v) => send_success(res, v, 'Account change reviewed'));
+    return success(
+      await this.service.review(actor, id, input),
+      'Account change reviewed',
+    );
   }
 }

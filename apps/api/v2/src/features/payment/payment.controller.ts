@@ -1,21 +1,23 @@
+import { opaqueIdSchema } from '../../common/dto/opaque-id.dto.js';
+import { RouteBody } from '../../common/decorators/route-body.decorator.js';
 import {
+  Body,
   Controller,
   HttpCode,
-  Req,
-  Res,
+  Param,
   Get,
   Post,
   Delete,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import { CurrentUserId } from '../../common/decorators/current-user-id.decorator.js';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { PaymentService } from './payment.service.js';
 import { AuthGuard, PaymentWebhookGuard } from '../../core/guards.js';
 import { IdempotencyInterceptor } from '../../core/idempotency.interceptor.js';
 import { PAYMENT_ROUTES } from './payment.route.js';
-import type { Request, Response } from 'express';
-import { AppError } from '../../core/error.js';
-import { send_success } from '../../core/response.js';
+import { success } from '../../core/response.js';
 import {
   PAYMENT_CHECKOUT_CREATED_MESSAGE,
   PAYMENT_METHOD_CREATED_MESSAGE,
@@ -25,50 +27,38 @@ import {
   RECEIPT_LOADED_MESSAGE,
 } from './payment.constant.js';
 import {
-  checkout_schema,
+  checkout_request,
+  type CheckoutInput,
   payment_method_schema,
   webhook_schema,
+  type PaymentMethodInput,
+  type WebhookInput,
 } from './payment.type.js';
 @Controller()
 export class PaymentController {
   constructor(private readonly paymentService: PaymentService) {}
-  readonly current_user_id = (request: Request): string => {
-    if (!request.auth)
-      throw new AppError(401, 'UNAUTHORIZED', 'Authentication is required');
-    return request.auth.user_id;
-  };
 
   @Get(PAYMENT_ROUTES.LIST)
   @HttpCode(200)
   @UseGuards(AuthGuard)
-  async list(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
-  ) {
-    return send_success(
-      response,
-      await this.paymentService.get_payment_methods(
-        this.current_user_id(request),
-      ),
+  async list(@CurrentUserId() user: string) {
+    return success(
+      await this.paymentService.get_payment_methods(user),
       PAYMENT_METHODS_LOADED_MESSAGE,
     );
   }
 
   @Post(PAYMENT_ROUTES.CREATE)
-  @HttpCode(200)
+  @HttpCode(201)
   @UseGuards(AuthGuard)
   async create(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() user: string,
+    @Body(new ZodValidationPipe(payment_method_schema))
+    input: PaymentMethodInput,
   ) {
-    return send_success(
-      response,
-      await this.paymentService.add_payment_method(
-        this.current_user_id(request),
-        payment_method_schema.parse(request.body),
-      ),
+    return success(
+      await this.paymentService.add_payment_method(user, input),
       PAYMENT_METHOD_CREATED_MESSAGE,
-      201,
     );
   }
 
@@ -76,35 +66,25 @@ export class PaymentController {
   @HttpCode(200)
   @UseGuards(AuthGuard)
   async remove(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() user: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
   ) {
-    await this.paymentService.remove_payment_method(
-      this.current_user_id(request),
-      request.params.id as string,
-    );
-    return send_success(response, null, PAYMENT_METHOD_DELETED_MESSAGE);
+    await this.paymentService.remove_payment_method(user, id);
+    return success(null, PAYMENT_METHOD_DELETED_MESSAGE);
   }
 
   @Post(PAYMENT_ROUTES.CHECKOUT)
-  @HttpCode(200)
+  @HttpCode(201)
   @UseGuards(AuthGuard)
   @UseInterceptors(IdempotencyInterceptor)
   async checkout(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() user: string,
+    @RouteBody('id', new ZodValidationPipe(checkout_request))
+    input: CheckoutInput,
   ) {
-    return send_success(
-      response,
-      await this.paymentService.create_payment_checkout(
-        this.current_user_id(request),
-        checkout_schema.parse({
-          ...request.body,
-          ride_id: request.params.id ?? request.body?.ride_id,
-        }),
-      ),
+    return success(
+      await this.paymentService.create_payment_checkout(user, input),
       PAYMENT_CHECKOUT_CREATED_MESSAGE,
-      201,
     );
   }
 
@@ -112,15 +92,11 @@ export class PaymentController {
   @HttpCode(200)
   @UseGuards(PaymentWebhookGuard)
   async webhook(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @Param('provider') provider: string,
+    @Body(new ZodValidationPipe(webhook_schema)) input: WebhookInput,
   ) {
-    return send_success(
-      response,
-      await this.paymentService.process_payment_webhook(
-        request.params.provider as string,
-        webhook_schema.parse(request.body),
-      ),
+    return success(
+      await this.paymentService.process_payment_webhook(provider, input),
       PAYMENT_WEBHOOK_PROCESSED_MESSAGE,
     );
   }
@@ -129,15 +105,11 @@ export class PaymentController {
   @HttpCode(200)
   @UseGuards(AuthGuard)
   async receipt(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() user: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
   ) {
-    return send_success(
-      response,
-      await this.paymentService.load_receipt(
-        this.current_user_id(request),
-        request.params.id as string,
-      ),
+    return success(
+      await this.paymentService.load_receipt(user, id),
       RECEIPT_LOADED_MESSAGE,
     );
   }

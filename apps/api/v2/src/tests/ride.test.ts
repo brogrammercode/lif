@@ -1,3 +1,5 @@
+import type { ConfigurationRepository } from '../features/app_configuration/configuration.repository.js';
+import type { PostgresService } from '../database/postgres.service.js';
 import { DriverOperationsService } from '../features/driver_operations/driver_operations.service.js';
 import assert from 'node:assert/strict';
 import { it, mock } from 'node:test';
@@ -5,8 +7,6 @@ import {
   RideRepository,
   type FareCalculation,
 } from '../features/ride/ride.repo.js';
-import { PrismaService } from '../infra/database/prisma.service.js';
-import { Prisma } from '@prisma/client';
 import { AppConfigurationService } from '../features/app_configuration/app_configuration.service.js';
 import { RideService } from '../features/ride/ride.service.js';
 import { GeocodeService } from '../features/geocode/geocode.service.js';
@@ -51,7 +51,6 @@ it('validates passenger counts and bounds public availability inputs', () => {
 });
 
 it('availability rejects foreign/expired drafts and returns only bounded public preview data', async () => {
-  const db = new PrismaService();
   let owned = false;
   const vehicle = {
     id: 'vehicle',
@@ -79,58 +78,45 @@ it('availability rejects foreign/expired drafts and returns only bounded public 
     },
   };
   let queried = false;
-  Object.defineProperty(db, 'client', {
-    value: {
-      rideFarePolicy: { findUnique: async () => null },
-      ride: {
-        findFirst: async (args: {
-          where: { rider_id: string; status: string };
-        }) => {
-          assert.equal(args.where.rider_id, 'rider');
-          assert.equal(args.where.status, 'DRAFT');
-          return owned
-            ? {
-                pickup_latitude: new Prisma.Decimal(25),
-                pickup_longitude: new Prisma.Decimal(86),
-                quotes: [
-                  {
-                    id: 'quote',
-                    vehicle_category_id: 'bike',
-                    vehicle_type: 'BIKE',
-                    category_snapshot: { capacity: 1 },
-                  },
-                ],
-              }
-            : null;
-        },
-      },
-      driverProfile: {
-        findMany: async (args: {
-          take: number;
-          where: { availability: string };
-        }) => {
-          queried = true;
-          assert.equal(args.take, 100);
-          assert.equal(args.where.availability, 'AVAILABLE');
-          return Array.from({ length: 12 }, () => ({
-            id: 'driver',
-            user_id: 'driver-user',
-            current_latitude: new Prisma.Decimal(25.001),
-            current_longitude: new Prisma.Decimal(86.001),
-            user: {
-              first_name: 'Driver',
-              avatar_url: null,
-              phone_e164: 'PRIVATE-PHONE',
-            },
-            rating_average: 4.5,
-            ratings_count: 2,
-            active_vehicle: vehicle,
-          }));
-        },
-      },
-    },
+  const postgres = sqlDb(async (sql, params) => {
+    if (sql.includes('FROM ride_fare_policies')) return { rows: [] };
+    if (sql.includes('JOIN fare_quotes')) {
+      assert.deepEqual(params, ['draft', 'rider', 'quote']);
+      assert.match(sql, /r.status='DRAFT'/);
+      assert.match(sql, /q.expires_at>statement_timestamp/);
+      return {
+        rows: owned
+          ? [
+              {
+                pickup_latitude: '25',
+                pickup_longitude: '86',
+                vehicle_category_id: 'bike',
+                vehicle_type: 'BIKE',
+                category_snapshot: { capacity: 1 },
+              },
+            ]
+          : [],
+      };
+    }
+    queried = true;
+    assert.match(sql, /LIMIT 100/);
+    assert.match(sql, /p.availability='AVAILABLE'/);
+    return {
+      rows: Array.from({ length: 12 }, () => ({
+        id: 'driver',
+        user_id: 'driver-user',
+        current_latitude: '25.001',
+        current_longitude: '86.001',
+        first_name: 'Driver',
+        avatar_url: null,
+        phone_e164: 'PRIVATE-PHONE',
+        rating_average: '4.5',
+        ratings_count: 2,
+        active_vehicle: vehicle,
+      })),
+    };
   });
-  const service = new DriverOperationsService(db, new GeocodeService());
+  const service = new DriverOperationsService(new GeocodeService(), postgres);
   const input = {
     draft_ride_id: 'draft',
     quote_id: 'quote',
@@ -161,33 +147,26 @@ it('availability rejects foreign/expired drafts and returns only bounded public 
     assert.equal(json.includes(value), false);
 });
 
+function sqlDb(query: (sql: string, params: unknown[]) => Promise<unknown>) {
+  return {
+    query,
+    transaction: (work: (tx: { query: typeof query }) => unknown) =>
+      work({ query }),
+  } as unknown as PostgresService;
+}
+
 it('live location reads retain the newest bounded tail in chronological order and reject unrelated riders', async () => {
-  let take = 0;
-  const db = new PrismaService();
-  Object.defineProperty(db, 'client', {
-    value: {
-      ride: {
-        findFirst: async ({ where }: { where: { rider_id: string } }) =>
-          where.rider_id === 'rider' ? { id: 'ride' } : null,
-      },
-      rideLocation: {
-        findMany: async (args: { take: number; orderBy: unknown }) => {
-          take = args.take;
-          assert.deepEqual(args.orderBy, [
-            { recorded_at: 'desc' },
-            { id: 'desc' },
-          ]);
-          return Array.from({ length: 1200 }, (_, i) => ({
-            id: String(1200 - i),
-            recorded_at: new Date((1200 - i) * 1000),
-          })).slice(0, args.take);
-        },
-      },
-    },
-  });
-  const repo = new RideRepository(db);
+  const query = async (sql: string, args: unknown[]) => {
+    if (sql.includes('FROM rides WHERE'))
+      return { rowCount: args[1] === 'rider' ? 1 : 0 };
+    assert.match(sql, /ORDER BY recorded_at DESC,id DESC LIMIT 500/);
+    assert.match(sql, /ORDER BY recorded_at,id/);
+    return {
+      rows: Array.from({ length: 500 }, (_, i) => ({ id: String(i + 701) })),
+    };
+  };
+  const repo = new RideRepository(sqlDb(query));
   const points = await repo.list_ride_locations('rider', 'ride');
-  assert.equal(take, 500);
   assert.equal(points?.length, 500);
   assert.equal(points?.at(-1)?.id, '1200');
   assert.equal(points?.at(0)?.id, '701');
@@ -195,11 +174,10 @@ it('live location reads retain the newest bounded tail in chronological order an
 });
 
 it('advances matching and reloads the rider status even without a mounted action panel', async () => {
-  const database = new PrismaService();
-  const rides = new RideRepository(database);
+  const rides = new RideRepository({} as PostgresService);
   const operations = new DriverOperationsService(
-    database,
     new GeocodeService(),
+    sqlDb(async () => ({ rows: [] })),
   );
   let status = 'SEARCHING';
   const read = mock.method(
@@ -214,10 +192,10 @@ it('advances matching and reloads the rider status even without a mounted action
     status = 'NO_DRIVER_FOUND';
   });
   const service = new RideService(
-    new VehicleCategoryRepository(database),
+    new VehicleCategoryRepository({} as PostgresService),
     new GeocodeService(),
     rides,
-    new AppConfigurationService(database),
+    new AppConfigurationService({} as ConfigurationRepository),
     operations,
   );
   assert.equal(
@@ -231,11 +209,12 @@ it('advances matching and reloads the rider status even without a mounted action
 });
 
 it('rounds the distance-only fare using saved profit and normal rates', async () => {
-  const database = new PrismaService();
-  const categories = new VehicleCategoryRepository(database);
+  const categories = new VehicleCategoryRepository({} as PostgresService);
   const geocode = new GeocodeService();
-  const rides = new RideRepository(database);
-  const configuration = new AppConfigurationService(database);
+  const rides = new RideRepository({} as PostgresService);
+  const configuration = new AppConfigurationService(
+    {} as ConfigurationRepository,
+  );
   mock.method(
     configuration,
     'fare_snapshot',
@@ -257,11 +236,11 @@ it('rounds the distance-only fare using saved profit and normal rates', async ()
         cash_enabled: true,
         direct_upi_enabled: true,
         online_payment_enabled: false,
-        commission_percent: new Prisma.Decimal(0),
+        commission_percent: 0,
         free_cancellation_minutes: 2,
         free_pickup_wait_minutes: 5,
-        cancellation_fee_percent: new Prisma.Decimal(10),
-        maximum_cancellation_fee: new Prisma.Decimal(100),
+        cancellation_fee_percent: 10,
+        maximum_cancellation_fee: 100,
       }) as Awaited<ReturnType<AppConfigurationService['fare_snapshot']>>,
   );
   const category = {
@@ -273,13 +252,13 @@ it('rounds the distance-only fare using saved profit and normal rates', async ()
     parent_id: null,
     vehicle_type: 'SEDAN' as const,
     capacity: 4,
-    base_fare: new Prisma.Decimal(0),
-    per_kilometer: new Prisma.Decimal('2.01'),
-    per_minute: new Prisma.Decimal('2.01'),
-    max_profit_km: new Prisma.Decimal(3),
-    profit_fare_per_km: new Prisma.Decimal('2.01'),
-    normal_fare_per_km: new Prisma.Decimal('2.01'),
-    commission_percent: new Prisma.Decimal('12.50'),
+    base_fare: String(0),
+    per_kilometer: String('2.01'),
+    per_minute: String('2.01'),
+    max_profit_km: String(3),
+    profit_fare_per_km: String('2.01'),
+    normal_fare_per_km: String('2.01'),
+    commission_percent: String('12.50'),
     is_active: true,
     sort_order: 0,
     created_at: new Date(),
@@ -292,8 +271,8 @@ it('rounds the distance-only fare using saved profit and normal rates', async ()
       ...category,
       id: 'premium',
       name: 'Premium Sedan',
-      profit_fare_per_km: new Prisma.Decimal(20),
-      commission_percent: new Prisma.Decimal(5),
+      profit_fare_per_km: String(20),
+      commission_percent: String(5),
     },
     {
       ...category,
@@ -301,7 +280,7 @@ it('rounds the distance-only fare using saved profit and normal rates', async ()
       name: 'Airport',
       parent_id: 'parent',
       parent: { ...category, id: 'parent' },
-      profit_fare_per_km: new Prisma.Decimal(30),
+      profit_fare_per_km: String(30),
     },
     {
       ...category,
@@ -336,7 +315,10 @@ it('rounds the distance-only fare using saved profit and normal rates', async ()
         geocode,
         rides,
         configuration,
-        new DriverOperationsService(database, geocode),
+        new DriverOperationsService(
+          geocode,
+          sqlDb(async () => ({ rows: [] })),
+        ),
       ).build_quote('rider', {
         pickup: { address: 'Pickup', latitude: 0, longitude: 0 },
         dropoff: { address: 'Dropoff', latitude: 1, longitude: 1 },
@@ -375,38 +357,21 @@ it('rounds the distance-only fare using saved profit and normal rates', async ()
 });
 
 it('a configured category can persist quotes with default shared settings, but a concurrent settings change invalidates construction', async () => {
-  const db = new PrismaService();
   const updated = new Date('2026-10-25T00:00:00Z');
   let policy: { version: number } | null = null;
   let writes = 0;
-  const tx = {
-    $executeRaw: async () => 1,
-    user: {
-      findUnique: async () => ({
-        status: 'ACTIVE',
-        role: 'RIDER',
-        deleted_at: null,
-      }),
-    },
-    rideFarePolicy: { findUnique: async () => policy },
-    vehicleCategory: {
-      findMany: async () => [
-        { id: 'category', vehicle_type: 'SEDAN', updated_at: updated },
-      ],
-    },
-    ride: {
-      create: async () => {
-        writes++;
-        return { id: 'draft' };
-      },
-    },
-    userLog: { create: async () => ({}) },
-  };
-  Object.defineProperty(db, 'client', {
-    value: {
-      $transaction: (action: (client: typeof tx) => Promise<unknown>) =>
-        action(tx),
-    },
+  const db = sqlDb(async (sql) => {
+    if (sql.includes('FROM users'))
+      return { rows: [{ status: 'ACTIVE', role: 'RIDER', deleted_at: null }] };
+    if (sql.includes('FROM ride_fare_policies'))
+      return { rows: policy ? [policy] : [] };
+    if (sql.includes('FROM vehicle_categories c'))
+      return {
+        rows: [{ id: 'category', vehicle_type: 'SEDAN', updated_at: updated }],
+      };
+    if (sql.startsWith('INSERT INTO rides')) writes++;
+    if (sql.includes('FROM rides r WHERE')) return { rows: [{ id: 'draft' }] };
+    return { rows: [] };
   });
   const calculation: FareCalculation = {
     vehicle_category_id: 'category',
@@ -454,40 +419,23 @@ it('a configured category can persist quotes with default shared settings, but a
 });
 
 it('a deleted category cannot turn an unbooked quote into a family-wide booking', async () => {
-  const db = new PrismaService();
-  const tx = {
-    $executeRaw: async () => 1,
-    user: {
-      findUnique: async () => ({
-        status: 'ACTIVE',
-        deleted_at: null,
-        role: 'RIDER',
-      }),
-    },
-    driverProfile: { findUnique: async () => null },
-    ride: {
-      findFirst: async ({ where }: { where: { id?: string } }) =>
-        where.id === 'draft'
-          ? {
-              id: 'draft',
-              status: 'DRAFT',
-              quotes: [
-                {
-                  id: 'quote',
-                  expires_at: new Date(Date.now() + 60000),
-                  vehicle_category_id: null,
-                  category_snapshot: null,
-                },
-              ],
-            }
-          : null,
-    },
-  };
-  Object.defineProperty(db, 'client', {
-    value: {
-      $transaction: (action: (client: typeof tx) => Promise<unknown>) =>
-        action(tx),
-    },
+  const db = sqlDb(async (sql) => {
+    if (sql.includes('FROM users'))
+      return { rows: [{ status: 'ACTIVE', role: 'RIDER', deleted_at: null }] };
+    if (sql.startsWith('SELECT id,status,rider_note'))
+      return { rows: [{ id: 'draft', status: 'DRAFT' }] };
+    if (sql.includes('FROM fare_quotes'))
+      return {
+        rows: [
+          {
+            id: 'quote',
+            expires_at: new Date(Date.now() + 60000),
+            vehicle_category_id: null,
+            category_snapshot: null,
+          },
+        ],
+      };
+    return { rows: [], rowCount: 0 };
   });
   assert.deepEqual(
     await new RideRepository(db).request_ride('rider', {
@@ -500,90 +448,40 @@ it('a deleted category cannot turn an unbooked quote into a family-wide booking'
 
 it('serializes driver reviews and updates rating statistics in the review transaction', async () => {
   const steps: string[] = [];
-  const transaction = {
-    $executeRaw: async () => {
-      steps.push('lock');
-      return 1;
-    },
-    ride: {
-      findFirst: async () => ({
-        status: 'COMPLETED',
-        driver: { user_id: 'driver-user' },
-      }),
-    },
-    review: {
-      findUnique: async () => null,
-      create: async () => {
-        steps.push('review');
-        return { id: 'review', score: 5 };
-      },
-      aggregate: async () => {
-        steps.push('aggregate');
-        return { _avg: { score: 4.335 }, _count: { _all: 200 } };
-      },
-    },
-    driverProfile: {
-      update: async ({
-        data,
-      }: {
-        data: { rating_average: number; ratings_count: number };
-      }) => {
-        assert.deepEqual(data, { rating_average: 4.34, ratings_count: 200 });
-        steps.push('rating');
-        return { rating_average: new Prisma.Decimal(4.34), ratings_count: 200 };
-      },
-    },
-    userLog: {
-      create: async () => {
-        steps.push('audit');
-        return {};
-      },
-    },
-  };
-  const database = new PrismaService();
-  Object.defineProperty(database, 'client', {
-    value: {
-      $transaction: async (
-        action: (tx: typeof transaction) => Promise<unknown>,
-      ) => action(transaction),
-    },
+  const db = sqlDb(async (sql, args) => {
+    if (sql.includes('pg_advisory')) steps.push('lock');
+    if (sql.includes('FROM rides r'))
+      return { rows: [{ status: 'COMPLETED', driver_user: 'driver-user' }] };
+    if (sql.startsWith('INSERT INTO reviews')) {
+      steps.push('review');
+      return { rows: [{ id: 'review', score: 5 }] };
+    }
+    if (sql.startsWith('UPDATE driver_profiles')) {
+      assert.match(sql, /round\(avg\(score\),2\)/);
+      assert.deepEqual(args, ['driver-user']);
+      steps.push('rating');
+      return { rows: [{ rating_average: '4.34', ratings_count: 200 }] };
+    }
+    if (sql.startsWith('INSERT INTO user_logs')) steps.push('audit');
+    return { rows: [] };
   });
-  const result = await new RideRepository(database).create_review(
-    'rider',
-    'ride',
-    { reviewee_id: 'driver-user', score: 5 },
-  );
+  const result = await new RideRepository(db).create_review('rider', 'ride', {
+    reviewee_id: 'driver-user',
+    score: 5,
+  });
   assert.equal(result.kind, 'success');
-  assert.deepEqual(steps, [
-    'lock',
-    'lock',
-    'review',
-    'aggregate',
-    'rating',
-    'audit',
-  ]);
+  assert.deepEqual(steps, ['lock', 'lock', 'review', 'rating', 'audit']);
 });
 
 it('a rating retry returns the original review and rejects an altered score without changing aggregates', async () => {
   const saved = { id: 'review', score: 5, comment: 'Good ride' };
-  const tx = {
-    $executeRaw: async () => 1,
-    ride: {
-      findFirst: async () => ({
-        status: 'COMPLETED',
-        driver: { user_id: 'driver' },
-      }),
-    },
-    review: { findUnique: async () => saved },
-  };
-  const database = new PrismaService();
-  Object.defineProperty(database, 'client', {
-    value: {
-      $transaction: async (action: (client: typeof tx) => Promise<unknown>) =>
-        action(tx),
-    },
+  const db = sqlDb(async (sql) => {
+    if (sql.includes('FROM rides r'))
+      return { rows: [{ status: 'COMPLETED', driver_user: 'driver' }] };
+    if (sql.includes('FROM reviews')) return { rows: [saved] };
+    return { rows: [] };
   });
-  const repo = new RideRepository(database);
+  const repo = new RideRepository(db);
   const result = await repo.create_review('rider', 'ride', {
     reviewee_id: 'driver',
     score: 5,

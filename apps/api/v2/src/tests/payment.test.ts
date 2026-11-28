@@ -1,8 +1,9 @@
+import { WalletRideRepository } from '../features/wallet/wallet-ride.repository.js';
+import type { PostgresService } from '../database/postgres.service.js';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { it } from 'node:test';
 import { Prisma, type DriverPayoutMethod } from '@prisma/client';
-import { PrismaService } from '../infra/database/prisma.service.js';
 import { config } from '../core/config.js';
 import { PaymentRepository } from '../features/payment/payment.repo.js';
 import { WalletRepository } from '../features/wallet/wallet.repo.js';
@@ -20,7 +21,7 @@ import {
 import {
   active_topup_mode,
   default_wallet_controls,
-  payout_submission_state,
+  payoutSubmissionState,
 } from '../features/wallet/wallet-controls.js';
 import { WalletTopUps } from '../features/wallet/wallet-topups.js';
 import { RideUpi } from '../features/wallet/ride-upi.js';
@@ -56,32 +57,47 @@ it('saves a bank-linked debit card before credentials are available and links it
     false,
   );
   let saved: DriverPayoutMethod;
-  const tx = {
-    $executeRaw: async () => 1,
-    user: {
-      findUnique: async () => ({ status: 'ACTIVE', deleted_at: null }),
-      findUniqueOrThrow: async () => ({
-        role: 'DRIVER',
-        partner_application: null,
-      }),
-    },
-    driverPayoutMethod: {
-      findFirst: async () => null,
-      create: async ({ data }: { data: DriverPayoutMethod }) =>
-        (saved = { ...data, id: 'method-one' }),
-      updateMany: async ({ data }: { data: Partial<DriverPayoutMethod> }) => {
-        if (saved) Object.assign(saved, data);
-        return { count: 1 };
-      },
-      findUniqueOrThrow: async () => saved,
-    },
+  const query = async (sql: string, params: unknown[] = []) => {
+    if (sql.includes('FROM users'))
+      return { rows: [{ role: 'DRIVER', status: 'ACTIVE', deleted_at: null }] };
+    if (sql.includes('destination_hash=ANY')) return { rows: [] };
+    if (sql.startsWith('INSERT INTO driver_payout_methods')) {
+      saved = {
+        id: String(params[0]),
+        driver_id: String(params[1]),
+        kind: params[2],
+        masked_label: params[3],
+        destination_hash: params[4],
+        pending_details: params[5],
+        is_default: true,
+        status: 'PENDING',
+        created_at: new Date(),
+        updated_at: new Date(),
+      } as DriverPayoutMethod;
+      return { rows: [saved], rowCount: 1 };
+    }
+    if (sql.includes('link_attempted_at=statement_timestamp()'))
+      return { rows: [], rowCount: 1 };
+    if (sql.includes("SET status='VERIFIED'")) {
+      Object.assign(saved, {
+        status: 'VERIFIED',
+        provider_fund_account_id: params[2],
+        provider_contact_id: params[3],
+        pending_details: null,
+        link_attempted_at: null,
+      });
+      return { rows: [], rowCount: 1 };
+    }
+    if (sql.startsWith('SELECT * FROM driver_payout_methods WHERE id='))
+      return { rows: [saved] };
+    return { rows: [] };
   };
-  const methods = new PayoutMethods(
-    database({
-      ...tx,
-      $transaction: async (run: (value: typeof tx) => unknown) => run(tx),
-    }),
-  );
+  const postgres = {
+    query,
+    transaction: (work: (tx: { query: typeof query }) => unknown) =>
+      work({ query }),
+  } as unknown as PostgresService;
+  const methods = new PayoutMethods(postgres);
   let provider_ready = false;
   t.mock.getter(methods, 'credentials_ready', () => provider_ready);
   let requests = 0;
@@ -117,7 +133,7 @@ it('saves a bank-linked debit card before credentials are available and links it
   assert.equal(result.is_default, true);
   assert.equal(result.selectable, true);
   assert.ok(!JSON.stringify(result).includes(input.account_number));
-  const stored = await tx.driverPayoutMethod.findUniqueOrThrow();
+  const stored = saved!;
   assert.ok(
     stored.pending_details &&
       !stored.pending_details.includes(input.account_number),
@@ -151,45 +167,69 @@ it('reuses a ride UPI order and credits the driver once after matching capture',
     payment: null as Record<string, unknown> | null,
   };
   const credits: bigint[] = [];
-  const tx = {
-    $executeRaw: async () => 1,
-    user: { findUnique: async () => ({ status: 'ACTIVE', deleted_at: null }) },
-    ride: { findFirst: async () => ride },
-    payoutSchedule: {
-      findUnique: async () => ({ razorpay_ride_upi_enabled: true }),
-    },
-    payment: {
-      upsert: async ({ create }: { create: Record<string, unknown> }) => {
-        ride.payment = { ...create, id: 'payment', provider_order_id: null };
-        return ride.payment;
-      },
-      update: async ({ data }: { data: Record<string, unknown> }) =>
-        Object.assign(ride.payment!, data),
-      findFirst: async () => ride.payment,
-      findUnique: async ({
-        where,
-      }: {
-        where: { provider_order_id: string };
-      }) =>
-        ride.payment?.provider_order_id === where.provider_order_id
-          ? ride.payment
-          : null,
-      findUniqueOrThrow: async () => ({ ...ride.payment, ride }),
-    },
-    wallet: {
-      upsert: async () => ({
-        id: 'wallet',
-        available_paise: 4500n,
-        held_paise: 0n,
-      }),
-    },
-    walletEntry: {
-      create: async ({ data }: { data: { available_delta_paise: bigint } }) =>
-        credits.push(data.available_delta_paise),
-    },
-    rideEvent: { create: async () => ({}) },
-    userLog: { create: async () => ({}) },
+  const query = async (sql: string, params: unknown[] = []) => {
+    if (sql.includes('FROM users'))
+      return { rows: [{ status: 'ACTIVE', deleted_at: null }] };
+    if (sql.includes('FROM payout_schedules'))
+      return { rows: [{ razorpay_ride_upi_enabled: true }] };
+    if (sql.includes('AS under_review'))
+      return {
+        rows: [
+          {
+            ...ride,
+            category_snapshot: ride.quotes[0]?.category_snapshot,
+            under_review: false,
+          },
+        ],
+      };
+    if (sql.includes('AS ride_status'))
+      return {
+        rows: [
+          {
+            ...ride.payment,
+            rider_id: ride.rider_id,
+            ride_status: ride.status,
+            driver_user_id: ride.driver.user_id,
+            category_snapshot: ride.quotes[0]?.category_snapshot,
+          },
+        ],
+      };
+    if (
+      sql.startsWith('SELECT p.* FROM payments') ||
+      sql.includes('FROM payments WHERE provider_order_id')
+    )
+      return { rows: ride.payment ? [ride.payment] : [] };
+    if (sql.startsWith('INSERT INTO payments'))
+      ride.payment = {
+        id: 'payment',
+        ride_id: params[1],
+        amount: params[2],
+        currency: params[3],
+        provider: params[4],
+        provider_order_claimed: true,
+        provider_order_id: null,
+        status: 'PENDING',
+      };
+    if (sql.startsWith('UPDATE payments SET provider_order_id'))
+      Object.assign(ride.payment!, { provider_order_id: params[1] });
+    if (sql.includes("UPDATE payments SET status='CAPTURED'"))
+      Object.assign(ride.payment!, {
+        status: 'CAPTURED',
+        provider_payment_id: params[1],
+      });
+    if (sql.startsWith('INSERT INTO wallets'))
+      return {
+        rows: [{ id: 'wallet', available_paise: '4500', held_paise: '0' }],
+      };
+    if (sql.startsWith('INSERT INTO wallet_entries'))
+      credits.push(BigInt(String(params[5])));
+    return { rows: ride.payment ? [ride.payment] : [] };
   };
+  const postgres = {
+    query,
+    transaction: (work: (tx: { query: typeof query }) => unknown) =>
+      work({ query }),
+  } as unknown as PostgresService;
   const provider = new RazorpayWallet();
   t.mock.getter(provider, 'credential_mode', () => 'live');
   let receipt = '';
@@ -224,13 +264,7 @@ it('reuses a ride UPI order and credits the driver once after matching capture',
         }
       : null,
   );
-  const service = new RideUpi(
-    database({
-      ...tx,
-      $transaction: async (run: (client: typeof tx) => unknown) => run(tx),
-    }),
-    provider,
-  );
+  const service = new RideUpi(postgres, provider);
   const first = await service.checkout('rider', ride.id);
   const second = await service.checkout('rider', ride.id);
   assert.equal(first.sdk_checkout?.order_id, 'order_fixture');
@@ -268,54 +302,56 @@ it('debits the rider and credits driver net earnings once for a Wallet ride paym
     available_paise: 1000n,
     held_paise: 0n,
   };
-  const tx = {
-    $executeRaw: async () => 1,
-    $queryRaw: async () => [],
-    user: { findUnique: async () => ({ status: 'ACTIVE', deleted_at: null }) },
-    ride: { findFirst: async () => ride },
-    payoutSchedule: {
-      findUnique: async () => ({ wallet_ride_collection_enabled: true }),
-    },
-    walletTopUp: { findFirst: async () => null },
-    wallet: {
-      findUnique: async () => rider,
-      findUniqueOrThrow: async () => rider,
-      updateMany: async ({
-        data,
-      }: {
-        data: { available_paise: { decrement: bigint } };
-      }) => {
-        rider.available_paise -= data.available_paise.decrement;
-        return { count: 1 };
-      },
-      upsert: async ({
-        update,
-      }: {
-        update: { available_paise: { increment: bigint } };
-      }) => {
-        driver.available_paise += update.available_paise.increment;
-        return driver;
-      },
-    },
-    payment: {
-      upsert: async ({ create }: { create: Record<string, unknown> }) =>
-        (ride.payment = { ...create, id: 'wallet-payment' }),
-    },
-    walletEntry: {
-      createMany: async ({
-        data,
-      }: {
-        data: Prisma.WalletEntryCreateManyInput[];
-      }) => entries.push(...data),
-    },
-    rideEvent: { create: async () => ({}) },
-    userLog: { create: async () => ({}) },
+  const query = async (sql: string, params: unknown[] = []) => {
+    if (sql.includes('FROM users'))
+      return { rows: [{ status: 'ACTIVE', deleted_at: null }] };
+    if (sql.includes('AS under_review'))
+      return {
+        rows: [
+          {
+            ...ride,
+            driver_user_id: ride.driver.user_id,
+            under_review: false,
+            category_snapshot: ride.quotes[0]?.category_snapshot,
+          },
+        ],
+      };
+    if (sql.includes('FROM payout_schedules'))
+      return { rows: [{ wallet_ride_collection_enabled: true }] };
+    if (sql.includes('SELECT id FROM wallets WHERE user_id'))
+      return { rows: [params[1] === 'RIDER' ? rider : driver] };
+    if (sql.startsWith('UPDATE wallets')) {
+      const wallet = params[0] === rider.id ? rider : driver;
+      wallet.available_paise += BigInt(String(params[1]));
+      return { rows: [wallet] };
+    }
+    if (sql.startsWith('INSERT INTO payments')) {
+      ride.payment = {
+        id: 'wallet-payment',
+        collection_method: 'WALLET',
+        status: 'CAPTURED',
+      };
+      return { rows: [ride.payment] };
+    }
+    if (sql.startsWith('INSERT INTO wallet_entries'))
+      entries.push({
+        wallet_id: String(params[1]),
+        kind: params[2] as 'RIDE_DEBIT' | 'RIDE_EARNING',
+        payment_id: String(params[4]),
+        operation_key: String(params[5]),
+        available_delta_paise: BigInt(String(params[6])),
+        held_delta_paise: 0n,
+        available_after_paise: BigInt(String(params[7])),
+        held_after_paise: BigInt(String(params[8])),
+        commission_paise:
+          params[10] == null ? undefined : BigInt(String(params[10])),
+      });
+    return { rows: [], rowCount: 0 };
   };
-  const repo = new WalletRepository(
-    database({
-      $transaction: async (run: (client: typeof tx) => unknown) => run(tx),
-    }),
-  );
+  const repo = new WalletRideRepository({
+    transaction: (work: (tx: { query: typeof query }) => unknown) =>
+      work({ query }),
+  } as unknown as PostgresService);
   assert.equal((await repo.pay_ride('rider', 'ride')).status, 'CAPTURED');
   assert.equal((await repo.pay_ride('rider', 'ride')).status, 'CAPTURED');
   assert.equal(rider.available_paise, 2000n);
@@ -339,51 +375,54 @@ it('debits the rider and credits driver net earnings once for a Wallet ride paym
 it('continues checking submitted payouts when admin disables transfers', async (t) => {
   let checked = false;
   let review_status: string | undefined;
+  const query = async (sql: string, values: unknown[] = []) => {
+    if (sql.includes('FROM payout_schedules'))
+      return {
+        rows: [
+          {
+            enabled: true,
+            razorpay_x_transfers_enabled: false,
+            minimum_paise: '0',
+          },
+        ],
+      };
+    if (sql.includes('SELECT id FROM driver_payout_attempts')) {
+      assert.match(
+        sql,
+        /provider_payout_id IS NOT NULL OR first_submitted_at <=/,
+      );
+      assert.equal(values[1], false);
+      checked = true;
+      return { rows: [{ id: 'unknown' }] };
+    }
+    if (sql.includes('FROM driver_payout_attempts a'))
+      return {
+        rows: [
+          {
+            id: 'unknown',
+            status: 'PROCESSING',
+            provider_payout_id: null,
+            first_submitted_at: new Date(Date.now() - 61 * 60_000),
+            payout_id: 'payout',
+            cycle_id: 'cycle',
+          },
+        ],
+      };
+    if (sql.includes('UPDATE driver_payout_attempts')) {
+      assert.match(sql, /SUBMISSION_UNCONFIRMED/);
+      review_status = 'REVIEW_REQUIRED';
+    }
+    if (sql.includes('SELECT DISTINCT status'))
+      return { rows: [{ status: 'REVIEW_REQUIRED' }] };
+    return { rows: [] };
+  };
   const worker = new PayoutTransfer(
-    database({
-      $transaction: async (run: (tx: unknown) => unknown) =>
-        run({
-          $executeRaw: async () => 1,
-          payoutSchedule: {
-            findUnique: async () => ({
-              enabled: true,
-              razorpay_x_transfers_enabled: false,
-            }),
-          },
-          driverPayoutAttempt: {
-            findUnique: async () => ({
-              id: 'unknown',
-              status: 'PROCESSING',
-              provider_payout_id: null,
-              first_submitted_at: new Date(Date.now() - 61 * 60_000),
-              payout_id: 'payout',
-              payout: { cycle_id: 'cycle' },
-            }),
-            update: async ({ data }: { data: { status: string } }) => {
-              review_status = data.status;
-            },
-          },
-          driverPayout: {
-            update: async () => ({}),
-            groupBy: async () => [{ status: 'REVIEW_REQUIRED' }],
-          },
-          payoutCycle: { update: async () => ({}) },
-        }),
-      driverPayoutAttempt: {
-        findMany: async ({
-          where,
-        }: {
-          where: { AND: { OR: Record<string, unknown>[] }[] };
-        }) => {
-          assert.deepEqual(where.AND[0]?.OR[0]?.provider_payout_id, {
-            not: null,
-          });
-          assert.ok(where.AND[0]?.OR[1]?.first_submitted_at);
-          checked = true;
-          return [{ id: 'unknown' }];
-        },
-      },
-    }),
+    {
+      query,
+      transaction: (work: (tx: { query: typeof query }) => unknown) =>
+        work({ query }),
+    } as unknown as PostgresService,
+    {} as PayoutMethods,
   );
   t.mock.getter(worker, 'credentials_ready', () => true);
   await worker.tick();
@@ -402,35 +441,39 @@ it('reuses an existing checkout request while paused and rejects new checkout re
     provider_mode: 'live',
     provider_link_id: null,
   };
-  const tx = {
-    $executeRaw: async () => 1,
-    user: { findUnique: async () => ({ status: 'ACTIVE' }) },
-    payoutSchedule: { findUnique: async () => default_wallet_controls },
-    wallet: { findUnique: async () => ({ id: 'wallet' }) },
-    walletTopUp: {
-      findUnique: async ({
-        where,
-      }: {
-        where: { wallet_id_request_key: { request_key: string } };
-      }) =>
-        where.wallet_id_request_key.request_key === checkout.request_key
-          ? checkout
-          : null,
-    },
+  const query = async (sql: string, params: unknown[] = []) => {
+    if (sql.includes('FROM users'))
+      return { rows: [{ status: 'ACTIVE', deleted_at: null }] };
+    if (sql.includes('FROM payout_schedules'))
+      return { rows: [default_wallet_controls] };
+    if (sql.includes('FROM wallets')) return { rows: [{ id: 'wallet' }] };
+    if (sql.includes('request_key=$2'))
+      return {
+        rows:
+          params[1] === checkout.request_key
+            ? [
+                {
+                  ...checkout,
+                  credited_net_of_refund_paise: '0',
+                  reviewed_chargeback_paise: '0',
+                },
+              ]
+            : [],
+      };
+    return { rows: [] };
   };
+  const postgres = {
+    query,
+    transaction: (work: (tx: { query: typeof query }) => unknown) =>
+      work({ query }),
+  } as unknown as PostgresService;
   const gateway = new RazorpayWallet();
   t.mock.getter(gateway, 'credential_mode', () => 'live');
   t.mock.method(gateway, 'find', async () => undefined);
   const create = t.mock.method(gateway, 'create', async () => {
     throw new Error('unexpected provider submission');
   });
-  const service = new WalletTopUps(
-    database({
-      ...tx,
-      $transaction: async (call: (value: typeof tx) => unknown) => call(tx),
-    }),
-    gateway,
-  );
+  const service = new WalletTopUps(postgres, gateway);
   const existing = await service.start('rider', {
     amount_paise: 1500,
     request_key: checkout.request_key,
@@ -460,28 +503,46 @@ it('wallet top-up cancellation releases the attempt and a signed late capture cr
   let captured = false;
   let credits = 0;
   let event: { processed_at: Date } | null = null;
-  const tx = {
-    $executeRaw: async () => 1,
-    walletTopUp: {
-      findFirst: async () => row,
-      findUnique: async ({ where }: { where: { id: string } }) =>
-        where.id === reference ? row : null,
-      findUniqueOrThrow: async () => row,
-      updateMany: async ({ data }: { data: Partial<typeof row> }) => {
-        row = { ...row, ...data };
-        return { count: 1 };
-      },
-      update: async ({ data }: { data: Partial<typeof row> }) =>
-        (row = { ...row, ...data }),
-    },
-    walletProviderEvent: {
-      findUnique: async () => event,
-      findFirst: async () => null,
-      upsert: async () => (event = { processed_at: new Date() }),
-    },
-    wallet: { update: async () => ({ available_paise: 100n, held_paise: 0n }) },
-    walletEntry: { create: async () => credits++ },
+  const query = async (sql: string, params: unknown[] = []) => {
+    if (sql.includes('SELECT processed_at FROM wallet_provider_events'))
+      return { rows: event ? [event] : [] };
+    if (sql.includes('FROM wallet_provider_events'))
+      return { rows: [], rowCount: 0 };
+    if (sql.startsWith('INSERT INTO wallet_provider_events')) {
+      event = { processed_at: new Date() };
+      return { rows: [], rowCount: 1 };
+    }
+    if (sql.startsWith('UPDATE wallets'))
+      return { rows: [{ available_paise: '100', held_paise: '0' }] };
+    if (sql.startsWith('INSERT INTO wallet_entries')) {
+      credits++;
+      return { rows: [], rowCount: 1 };
+    }
+    if (sql.includes("SET status='CANCELLED'"))
+      row = { ...row, status: 'CANCELLED' };
+    if (sql.includes('provider_link_id=COALESCE'))
+      row = { ...row, status: String(params[6]) };
+    if (
+      sql.includes('SELECT t.*') ||
+      sql.includes('FROM wallet_topups') ||
+      sql.includes('RETURNING *')
+    )
+      return {
+        rows: [
+          {
+            ...row,
+            credited_net_of_refund_paise: '0',
+            reviewed_chargeback_paise: '0',
+          },
+        ],
+      };
+    return { rows: [] };
   };
+  const postgres = {
+    query,
+    transaction: (work: (tx: { query: typeof query }) => unknown) =>
+      work({ query }),
+  } as unknown as PostgresService;
   const provider = new RazorpayWallet();
   t.mock.getter(provider, 'credential_mode', () => 'live');
   t.mock.method(provider, 'order', async () => ({
@@ -495,13 +556,7 @@ it('wallet top-up cancellation releases the attempt and a signed late capture cr
   t.mock.method(provider, 'settled_order_payment', async () =>
     captured ? { id: 'pay_1', status: 'captured', amount_refunded: 0 } : null,
   );
-  const service = new WalletTopUps(
-    database({
-      ...tx,
-      $transaction: async (run: (value: typeof tx) => unknown) => run(tx),
-    }),
-    provider,
-  );
+  const service = new WalletTopUps(postgres, provider);
   assert.equal(
     (await service.check('rider', reference, true)).status,
     'CANCELLED',
@@ -529,23 +584,21 @@ it('wallet top-up cancellation releases the attempt and a signed late capture cr
 
 it('reports the same transfer blockers that the worker enforces', async () => {
   let funded = true;
-  const db = database({
-    walletTopUp: {
-      findFirst: async () => (funded ? { id: 'test-topup' } : null),
-    },
-  }).client;
+  const db = {
+    query: async () => ({ rowCount: funded ? 1 : 0 }),
+  } as unknown as PostgresService;
   const policy = { enabled: true, razorpay_x_transfers_enabled: true };
   assert.equal(
-    await payout_submission_state(db, policy, false),
+    await payoutSubmissionState(db, policy, false),
     'credentials_unavailable',
   );
-  assert.equal(await payout_submission_state(db, policy, true), 'test_funding');
+  assert.equal(await payoutSubmissionState(db, policy, true), 'test_funding');
   assert.equal(
-    await payout_submission_state(db, { ...policy, enabled: false }, true),
+    await payoutSubmissionState(db, { ...policy, enabled: false }, true),
     'schedule_paused',
   );
   funded = false;
-  assert.equal(await payout_submission_state(db, policy, true), 'ready');
+  assert.equal(await payoutSubmissionState(db, policy, true), 'ready');
 });
 
 it('requires admin-selected top-up mode, matching provider credentials and live approval', () => {
@@ -608,32 +661,33 @@ it('anchors payout cadence to the latest cycle at 5 AM IST and accepts a new dat
 it('does not recreate the last payout cycle when the stored next date is stale', async () => {
   const last = new Date('2026-11-26T23:30:00.000Z');
   let next_date: Date | undefined;
-  const tx = {
-    $executeRaw: async () => 1,
-    payoutSchedule: {
-      findUnique: async () => ({
-        id: 'payout-schedule',
-        enabled: true,
-        frequency: 'WEEKLY',
-        weekday_ist: 5,
-        minute_of_day_ist: 300,
-        next_run_at: last,
-      }),
-      update: async ({ data }: { data: { next_run_at: Date } }) => {
-        next_date = data.next_run_at;
-      },
-    },
-    payoutCycle: {
-      findFirst: async () => ({ cutoff_at: last }),
-      upsert: async () =>
-        assert.fail('The last cycle must not be drafted again.'),
-    },
+  const query = async (sql: string, params: unknown[] = []) => {
+    if (sql.includes('FROM payout_schedules'))
+      return {
+        rows: [
+          {
+            id: 'payout-schedule',
+            enabled: true,
+            frequency: 'WEEKLY',
+            weekday_ist: 5,
+            minute_of_day_ist: 300,
+            next_run_at: last,
+            minimum_paise: '0',
+          },
+        ],
+      };
+    if (sql.includes('FROM payout_cycles'))
+      return { rows: [{ cutoff_at: last }] };
+    if (sql.startsWith('UPDATE payout_schedules'))
+      next_date = params[1] as Date;
+    if (sql.startsWith('INSERT INTO payout_cycles'))
+      assert.fail('The last cycle must not be drafted again.');
+    return { rows: [] };
   };
-  const repo = new WalletRepository(
-    database({
-      $transaction: async (run: (client: typeof tx) => unknown) => run(tx),
-    }),
-  );
+  const repo = new WalletRepository({
+    transaction: (work: (tx: { query: typeof query }) => unknown) =>
+      work({ query }),
+  } as unknown as PostgresService);
   assert.deepEqual(
     await repo.prepare_due_cycle(new Date('2026-11-27T02:00:00.000Z')),
     { prepared: false },
@@ -685,45 +739,43 @@ it('binds a provider reference on the initial pending callback and processes ref
   let updates = 0;
   let events = 0;
   const transaction = {
-    $executeRaw: async () => 1,
-    payment: {
-      findFirst: async ({
-        where,
-      }: {
-        where: { OR: { provider_payment_id?: string; ride_id?: string }[] };
-      }) =>
-        where.OR.some(
-          (item) =>
-            item.ride_id === payment.ride_id ||
-            (item.provider_payment_id !== undefined &&
-              item.provider_payment_id === payment.provider_payment_id),
-        )
-          ? payment
-          : null,
-      findUniqueOrThrow: async () => payment,
-      update: async ({ data }: { data: Partial<typeof payment> }) => {
+    query: async (sql: string, args: unknown[] = []) => {
+      if (sql.startsWith('SELECT id,ride_id FROM payments')) {
+        const matches =
+          args[1] === payment.ride_id ||
+          args[0] === payment.provider_payment_id;
+        return { rows: matches ? [payment] : [] };
+      }
+      if (sql.includes('amount_matches'))
+        return {
+          rows: [
+            {
+              ...payment,
+              amount_matches: Number(args[1]) === Number(payment.amount),
+            },
+          ],
+        };
+      if (sql.startsWith('UPDATE payments')) {
         updates++;
-        payment = { ...payment, ...data };
-        return payment;
-      },
+        payment = {
+          ...payment,
+          provider: args[1] as string,
+          provider_payment_id: args[2] as string,
+          status: args[3] as string,
+          paid_at: args[4] as Date | null,
+          failed_at: args[5] as Date | null,
+          refunded_at: args[6] as Date | null,
+        };
+        return { rows: [payment] };
+      }
+      if (sql.startsWith('INSERT INTO ride_events')) events++;
+      return { rows: [] };
     },
-    rideEvent: {
-      create: async () => {
-        events++;
-        return {};
-      },
-    },
-    userLog: { create: async () => ({}) },
   };
-  const database = new PrismaService();
-  Object.defineProperty(database, 'client', {
-    value: {
-      $transaction: async (
-        action: (tx: typeof transaction) => Promise<unknown>,
-      ) => action(transaction),
-    },
-  });
-  const repository = new PaymentRepository(database);
+  const repository = new PaymentRepository({
+    transaction: (work: (tx: typeof transaction) => Promise<unknown>) =>
+      work(transaction),
+  } as unknown as PostgresService);
   await repository.process_webhook('gateway', {
     ride_id: 'ride',
     provider_payment_id: 'reference',
@@ -776,12 +828,6 @@ it('binds a provider reference on the initial pending callback and processes ref
   assert.equal(events, 3);
 });
 
-function database(client: unknown) {
-  const db = new PrismaService();
-  Object.defineProperty(db, 'client', { value: client });
-  return db;
-}
-
 it('legacy cash checkout clears direct UPI metadata without changing an unpaid report', async () => {
   const payment = {
     id: 'payment',
@@ -792,36 +838,45 @@ it('legacy cash checkout clears direct UPI metadata without changing an unpaid r
     amount: new Prisma.Decimal(50),
   };
   const tx = {
-    $executeRaw: async () => 1,
-    ride: {
-      findFirst: async () => ({
-        id: 'ride',
-        status: 'COMPLETED',
-        final_fare: new Prisma.Decimal(50),
-        currency: 'INR',
-        quotes: [
-          {
-            category_snapshot: {
-              payment_policy: { cash_enabled: true, direct_upi_enabled: true },
+    query: async (sql: string) => {
+      if (sql.includes('FROM rides r'))
+        return {
+          rows: [
+            {
+              id: 'ride',
+              status: 'COMPLETED',
+              final_fare: '50',
+              currency: 'INR',
+              snapshot: {
+                payment_policy: {
+                  cash_enabled: true,
+                  direct_upi_enabled: true,
+                },
+              },
             },
-          },
-        ],
-      }),
+          ],
+        };
+      if (sql.includes('FROM payments WHERE')) return { rows: [payment] };
+      if (sql.includes('FROM payment_methods WHERE'))
+        return { rows: [{ id: 'cash', type: 'CASH' }] };
+      if (sql.startsWith('INSERT INTO payments')) {
+        assert.match(
+          sql,
+          /collection_method='CASH',recipient_upi=NULL,status='PENDING'/,
+        );
+        Object.assign(payment, {
+          collection_method: 'CASH',
+          recipient_upi: null,
+          status: 'PENDING',
+        });
+        return { rows: [payment] };
+      }
+      return { rows: [] };
     },
-    payment: {
-      findUnique: async () => payment,
-      upsert: async ({ update }: { update: Partial<typeof payment> }) =>
-        Object.assign(payment, update),
-    },
-    paymentMethod: { findFirst: async () => ({ id: 'cash', type: 'CASH' }) },
-    userLog: { create: async () => ({}) },
   };
-  const repo = new PaymentRepository(
-    database({
-      $transaction: async (action: (t: typeof tx) => Promise<unknown>) =>
-        action(tx),
-    }),
-  );
+  const repo = new PaymentRepository({
+    transaction: (work: (t: typeof tx) => Promise<unknown>) => work(tx),
+  } as unknown as PostgresService);
   await repo.create_checkout('rider', {
     ride_id: 'ride',
     payment_method_id: 'cash',
@@ -841,18 +896,13 @@ it('a signed provider callback cannot capture a direct cash or UPI collection', 
       collection_method,
     };
     const tx = {
-      $executeRaw: async () => 1,
-      payment: {
-        findFirst: async () => payment,
-        findUniqueOrThrow: async () => payment,
-      },
-    };
-    const repo = new PaymentRepository(
-      database({
-        $transaction: async (action: (t: typeof tx) => Promise<unknown>) =>
-          action(tx),
+      query: async (sql: string) => ({
+        rows: sql.includes('FROM payments') ? [payment] : [],
       }),
-    );
+    };
+    const repo = new PaymentRepository({
+      transaction: (work: (t: typeof tx) => Promise<unknown>) => work(tx),
+    } as unknown as PostgresService);
     await assert.rejects(
       repo.process_webhook('gateway', {
         ride_id: 'ride',
@@ -867,40 +917,19 @@ it('a signed provider callback cannot capture a direct cash or UPI collection', 
 });
 
 it('receipt queries expose public driver and vehicle details without private profile data', async () => {
-  let query: {
-    where?: unknown;
-    include?: {
-      driver: { select: Record<string, unknown> };
-      vehicle: { select: Record<string, unknown> };
-    };
-  } = {};
-  const repo = new PaymentRepository(
-    database({
-      ride: {
-        findFirst: async (args: typeof query) => {
-          query = args;
-          return null;
-        },
-      },
-    }),
-  );
-  await repo.get_receipt('rider', 'ride');
-  assert.deepEqual(query.where, { id: 'ride', rider_id: 'rider' });
-  const driver = query.include!.driver.select;
-  assert.equal('current_latitude' in driver, false);
-  assert.equal('last_location_at' in driver, false);
-  assert.equal('documents' in driver, false);
-  const user = (driver.user as { select: Record<string, unknown> }).select;
-  assert.equal(user.first_name, true);
-  for (const key of [
-    'phone_e164',
-    'email',
-    'google_sub',
-    'partner_activated_at',
-  ])
-    assert.equal(key in user, false);
-  assert.equal('verification_fields' in query.include!.vehicle.select, false);
-  assert.equal('rc_image_url' in query.include!.vehicle.select, false);
+  const repo = new PaymentRepository({
+    query: async (sql: string, values: unknown[]) => {
+      assert.match(sql, /WHERE r.id=\$1 AND r.rider_id=\$2/);
+      assert.deepEqual(values, ['ride', 'rider']);
+      assert.match(sql, /first_name/);
+      assert.doesNotMatch(
+        sql,
+        /current_latitude|last_location_at|phone_e164|email|google_sub|partner_activated_at|verification_fields|rc_image_url/,
+      );
+      return { rows: [] };
+    },
+  } as unknown as PostgresService);
+  assert.equal(await repo.get_receipt('rider', 'ride'), null);
 });
 it('wallet top-ups require one captured payment matching the complete INR checkout', async (t) => {
   const razorpay = new RazorpayWallet();
@@ -982,62 +1011,59 @@ it('refunds a wallet ride once and preserves an already paid driver unless the p
   ]);
   let entries: { reverses_entry_id: string; available_delta_paise: bigint }[] =
     [];
-  const tx = {
-    $executeRaw: async () => 1,
-    user: { findUnique: async () => ({ status: 'ACTIVE', role: 'ADMIN' }) },
-    payment: {
-      findFirst: async () => payment,
-      update: async ({ data }: { data: typeof payment }) =>
-        (payment = { ...payment, ...data }),
-    },
-    driverPayoutLine: {
-      findFirst: async ({
-        where,
-      }: {
-        where: { payout: { status: unknown } };
-      }) =>
-        where.payout.status === 'PAID'
-          ? paid
-            ? { payout_id: 'settled' }
-            : null
-          : locked
-            ? { id: 'locked' }
-            : null,
-    },
-    wallet: {
-      update: async ({ where }: { where: { id: string } }) => {
-        const row = wallet.get(where.id)!;
-        row.available_paise += 1000n;
-        return row;
-      },
-      updateMany: async ({ where }: { where: { id: string } }) => {
-        wallet.get(where.id)!.available_paise -= 900n;
-        return { count: 1 };
-      },
-      findUniqueOrThrow: async ({ where }: { where: { id: string } }) =>
-        wallet.get(where.id),
-    },
-    walletEntry: {
-      findUniqueOrThrow: async ({
-        where,
-      }: {
-        where: { operation_key: string };
-      }) =>
-        where.operation_key.endsWith('RIDE_DEBIT')
-          ? { id: 'debit', wallet_id: 'rider', available_delta_paise: -1000n }
-          : { id: 'earning', wallet_id: 'driver', available_delta_paise: 900n },
-      createMany: async ({ data }: { data: typeof entries }) => {
-        entries.push(...data);
-      },
-    },
-    userLog: { create: async () => ({}) },
-    rideEvent: { create: async () => ({}) },
+  const query = async (sql: string, params: unknown[] = []) => {
+    if (sql.includes('FROM users'))
+      return { rows: [{ status: 'ACTIVE', role: 'ADMIN', deleted_at: null }] };
+    if (sql.startsWith('SELECT p.id,p.status')) return { rows: [payment] };
+    if (sql.includes('FROM wallet_entries')) {
+      assert.match(sql, /ride_id=\$1 AND payment_id=\$2/);
+      assert.deepEqual(params, [
+        'ride',
+        'payment',
+        'ride:ride:RIDE_DEBIT',
+        'ride:ride:RIDE_EARNING',
+      ]);
+      return {
+        rows: [
+          {
+            id: 'earning',
+            wallet_id: 'driver',
+            kind: 'RIDE_EARNING',
+            available_delta_paise: '900',
+          },
+          {
+            id: 'debit',
+            wallet_id: 'rider',
+            kind: 'RIDE_DEBIT',
+            available_delta_paise: '-1000',
+          },
+        ],
+      };
+    }
+    if (sql.includes('FROM driver_payout_lines'))
+      return {
+        rows: [
+          ...(locked ? [{ payout_id: 'locked', status: 'DRAFT' }] : []),
+          ...(paid ? [{ payout_id: 'settled', status: 'PAID' }] : []),
+        ],
+      };
+    if (sql.startsWith('UPDATE wallets')) {
+      const account = wallet.get(String(params[0]))!;
+      account.available_paise += BigInt(String(params[1]));
+      return { rows: [account] };
+    }
+    if (sql.startsWith('INSERT INTO wallet_entries'))
+      entries.push({
+        reverses_entry_id: String(params[9]),
+        available_delta_paise: BigInt(String(params[6])),
+      });
+    if (sql.startsWith('UPDATE payments')) payment.status = 'REFUNDED';
+    return { rows: [], rowCount: 0 };
   };
-  const repo = new WalletRepository(
-    database({
-      $transaction: async (action: (value: typeof tx) => unknown) => action(tx),
-    }),
-  );
+  const repo = new WalletRideRepository({
+    transaction: (work: (tx: { query: typeof query }) => unknown) =>
+      work({ query }),
+  } as unknown as PostgresService);
   const refund = (platform = false) =>
     repo.refund_ride('admin', 'rider', 'ride', 'Approved refund', platform);
   await assert.rejects(refund(), { error_code: 'WALLET_REFUND_PAYOUT_LOCKED' });
@@ -1091,42 +1117,34 @@ it('reconciles an ambiguous bank payout only from a matching RazorpayX transfer 
     },
   };
   let holdRemoved = 0;
-  const tx = {
-    $executeRaw: async () => 1,
-    user: { findUnique: async () => ({ status: 'ACTIVE', role: 'ADMIN' }) },
-    driverPayoutAttempt: {
-      findUniqueOrThrow: async () => attempt,
-      update: async ({ data }: { data: { status: string } }) => {
-        attempt.status = data.status;
-      },
-    },
-    wallet: {
-      updateMany: async () => {
-        holdRemoved++;
-        return { count: 1 };
-      },
-      findUniqueOrThrow: async () => ({
-        id: 'driver',
-        available_paise: 0n,
-        held_paise: 0n,
-      }),
-    },
-    walletEntry: { create: async () => ({}) },
-    driverPayout: {
-      update: async () => ({}),
-      groupBy: async () => [{ status: 'PAID' }],
-    },
-    payoutCycle: { update: async () => ({}) },
-    userLog: { create: async () => ({}) },
+  const query = async (sql: string, values: unknown[] = []) => {
+    if (sql.includes('FROM users'))
+      return { rows: [{ status: 'ACTIVE', role: 'ADMIN' }] };
+    if (sql.includes('FROM driver_payout_attempts a'))
+      return {
+        rows: [
+          { ...attempt, ...attempt.payout, id: 'attempt', payout_id: 'payout' },
+        ],
+      };
+    if (sql.includes('SELECT id,idempotency_key FROM driver_payout_attempts'))
+      return { rows: attempt.status === 'REVIEW_REQUIRED' ? [attempt] : [] };
+    if (sql.includes('UPDATE wallets')) {
+      holdRemoved++;
+      return { rows: [{ available_paise: '0', held_paise: '0' }] };
+    }
+    if (sql.includes('UPDATE driver_payout_attempts'))
+      attempt.status = String(values[1]);
+    if (sql.includes('SELECT DISTINCT status'))
+      return { rows: [{ status: 'PAID' }] };
+    return { rows: [] };
   };
   const worker = new PayoutTransfer(
-    database({
-      driverPayoutAttempt: {
-        findFirst: async () =>
-          attempt.status === 'REVIEW_REQUIRED' ? attempt : null,
-      },
-      $transaction: async (call: (value: typeof tx) => unknown) => call(tx),
-    }),
+    {
+      query,
+      transaction: (work: (tx: { query: typeof query }) => unknown) =>
+        work({ query }),
+    } as unknown as PostgresService,
+    {} as PayoutMethods,
   );
   t.mock.getter(worker, 'credentials_ready', () => true);
   let reference = 'other';

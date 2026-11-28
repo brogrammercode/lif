@@ -8,7 +8,11 @@ import {
   ROUTE_NOT_FOUND_ERROR,
   ROUTE_PROVIDER_ERROR,
 } from './geocode.constant.js';
-import type { ReverseInput, RouteInput, SearchInput } from './geocode.type.js';
+import type {
+  ReverseInput,
+  RouteInput,
+  SearchInput,
+} from './dto/geocode.dto.js';
 import {
   provider_place_schema,
   provider_route_schema,

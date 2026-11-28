@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Decimal } from 'decimal.js';
 import { z } from 'zod';
 import { AppError } from '../../core/error.js';
 
@@ -22,17 +22,21 @@ export const category_fare_input = z
   })
   .strict();
 export type CategoryFare = z.infer<typeof category_fare_input>;
+type FareValue = Decimal | string | null | undefined;
+const fareNumber = (value: FareValue) =>
+  value == null ? undefined : Number(value);
+
 export function category_fare_values(category: {
-  max_profit_km?: Prisma.Decimal | null;
-  normal_fare_per_km?: Prisma.Decimal | null;
-  profit_fare_per_km?: Prisma.Decimal | null;
-  commission_percent?: Prisma.Decimal | null;
+  max_profit_km?: FareValue;
+  normal_fare_per_km?: FareValue;
+  profit_fare_per_km?: FareValue;
+  commission_percent?: FareValue;
 }): CategoryFare | null {
   const parsed = category_fare_input.safeParse({
-    max_profit_km: category.max_profit_km?.toNumber(),
-    normal_fare_per_km: category.normal_fare_per_km?.toNumber(),
-    profit_fare_per_km: category.profit_fare_per_km?.toNumber(),
-    commission_percent: category.commission_percent?.toNumber() ?? 0,
+    max_profit_km: fareNumber(category.max_profit_km),
+    normal_fare_per_km: fareNumber(category.normal_fare_per_km),
+    profit_fare_per_km: fareNumber(category.profit_fare_per_km),
+    commission_percent: fareNumber(category.commission_percent) ?? 0,
   });
   return parsed.success ? parsed.data : null;
 }
@@ -49,9 +53,9 @@ export const category_fare_data = (fare: CategoryFare | null) => ({
 export function calculate_distance_fare(
   distance_m: number,
   rate: {
-    max_profit_km: Prisma.Decimal | number;
-    normal_fare_per_km: Prisma.Decimal | number;
-    profit_fare_per_km: Prisma.Decimal | number;
+    max_profit_km: Decimal | number;
+    normal_fare_per_km: Decimal | number;
+    profit_fare_per_km: Decimal | number;
   },
 ) {
   if (!Number.isFinite(distance_m) || distance_m < 0)
@@ -60,11 +64,11 @@ export function calculate_distance_fare(
       'ROUTE_DISTANCE_INVALID',
       'A valid route distance is required before calculating the fare.',
     );
-  const distance = new Prisma.Decimal(distance_m).div(1000);
-  const profit_km = Prisma.Decimal.min(distance, rate.max_profit_km);
-  const normal_km = Prisma.Decimal.max(distance.minus(rate.max_profit_km), 0);
+  const distance = new Decimal(distance_m).div(1000);
+  const profit_km = Decimal.min(distance, rate.max_profit_km);
+  const normal_km = Decimal.max(distance.minus(rate.max_profit_km), 0);
   return profit_km
     .mul(rate.profit_fare_per_km)
     .plus(normal_km.mul(rate.normal_fare_per_km))
-    .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+    .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 }

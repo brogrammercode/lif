@@ -1,13 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { schedule_new_user_emails } from '../../infra/mail/new_user_email.js';
+import { PostgresService } from '../../database/postgres.service.js';
 import { AdminAuthRepository } from './admin_auth.repo.js';
 import { config } from '../../core/config.js';
 import { verify_google_identity } from '../auth/auth.security.js';
-import type { SessionRequest } from './admin_auth.type.js';
+import type { SessionRequest } from './dto/admin-auth.dto.js';
 import { resolve_login_location } from '../../infra/security/login_location.js';
 @Injectable()
 export class AdminAuthService {
-  constructor(private readonly adminAuthRepository: AdminAuthRepository) {}
+  constructor(
+    private readonly adminAuthRepository: AdminAuthRepository,
+    private readonly db: PostgresService,
+  ) {}
   readonly login_admin = async (
     id_token: string,
     request_data: SessionRequest,
@@ -27,7 +31,7 @@ export class AdminAuthService {
         login_location,
       },
     );
-    schedule_new_user_emails();
+    schedule_new_user_emails(this.db);
     return session;
   };
 

@@ -1,6 +1,6 @@
 # 1More API v2 — NestJS
 
-Standalone NestJS 12 implementation: 21 feature modules, 163 method/path combinations, injected services/repositories, and Prisma/PostgreSQL persistence. See [route-manifest.json](./route-manifest.json) for every route and its guards/idempotency policy.
+The NestJS 12 API uses a shared node-postgres pool and parameterized SQL for all runtime persistence. The [route manifest](./route-manifest.json) lists paths, guards and idempotency policy. [Migration tracker](../../../context/API_V2_RAW_POSTGRES_NESTJS_MIGRATION_PLAN.md)
 
 Partner onboarding adds published rich documents, private assets, dynamic application reviews, confirmation/final PDF approval, SMTP delivery and first-login driver activation. See [PARTNER_ONBOARDING_IMPLEMENTATION.md](../../../context/PARTNER_ONBOARDING_IMPLEMENTATION.md) for routes, operator setup and delivery behavior.
 
@@ -8,7 +8,7 @@ Driver vehicle verification adds private WebP document uploads, requested catalo
 
 ## Start
 
-For Vercel, use this folder as the API project's root. See [VERCEL_DEPLOYMENT.md](../../../context/VERCEL_DEPLOYMENT.md) for deployment and migrations. `npm run build` generates Prisma Client and compiles Nest. Apply schema changes separately with `npm run prisma:deploy`.
+For Vercel, use this folder as the API project's root. See [VERCEL_DEPLOYMENT.md](../../../context/VERCEL_DEPLOYMENT.md) for deployment and migrations. `npm run build` checks the PostgreSQL-only runtime and compiles Nest. Apply schema changes separately with `npm run prisma:deploy`.
 
 Requires Node.js 24 or newer. Run from `apps/api/v2`:
 
@@ -20,7 +20,7 @@ npm run dev
 
 The local `.env` contains the existing API configuration with `PORT=4001`. The normal base URL is **http://localhost:4001/api/v2**. Every route also accepts `/api/v1` on this server, so clients can migrate their server address before their URL version. Both prefixes invoke the same Nest controllers.
 
-`npm run dev` checks that the configured port is free, then regenerates Prisma Client and starts the watcher. Use one local watcher at a time. After changing the Prisma schema, stop the watcher, apply the migration and restart. The running API can hold the Prisma engine file open on Windows.
+The development command checks the configured port and starts the Nest watcher. Prisma Client generation is only needed for CLI seeds and test fixtures.
 
 Build and run compiled code:
 
@@ -33,9 +33,9 @@ npm run start
 
 ### Database connection waits
 
-Runtime PostgreSQL URLs default to `connect_timeout=15` and `pool_timeout=30` seconds. On Vercel, `connection_limit=5` bounds each function instance's pool; a local persistent server retains Prisma's normal pool sizing. Explicit parameters in `DB_STRING` are respected, including provider/SSL settings. Hosted application traffic should use the database provider's pooled endpoint. These runtime defaults require no edit to a private `.env` file and do not change Prisma migration configuration.
+The API uses one shared pool per instance. It defaults to five connections and a 30-second checkout budget. Positive connection_limit and pool_timeout parameters in DB_STRING override those defaults. Use the pooled URL for API traffic and the direct URL for migrations. [node-postgres pool configuration](https://node-postgres.com/apis/pool)
 
-Mobile and admin authentication transactions wait up to 30 seconds for acquisition. A `P2024` pool timeout or pre-start `P2028` is retried at most once with a short delay, only if Prisma has not entered the transaction callback. Entered transaction errors, commit failures, identity conflicts and revoked/expired sessions are never replayed. Transaction execution time limits and authorization/locking rules remain unchanged. Persistent database unavailability still returns the existing `503 DATABASE_BUSY` response with `Retry-After`.
+PostgreSQL timeouts, connection failures and constraint errors map to the existing API codes. An entered write transaction or an unconfirmed commit is never automatically replayed. Temporary database errors return a retry header.
 
 After changing runtime connection defaults, restart the API process or redeploy API V2. See [the connection-pool investigation](../../../context/DATABASE_POOL_AUTH_FIX.md) for verification and limitations.
 
@@ -58,14 +58,17 @@ src/
     <feature>.module.ts           Providers, controllers and cross-feature imports
     <feature>.controller.ts       Nest route decorators and validated inputs
     <feature>.service.ts          Injectable business logic
-    <feature>.repo.ts             Injectable Prisma queries and audited mutations
-    <feature>.type.ts             Existing Zod schemas and TypeScript types
+    <feature>.repo.ts             Injectable PostgreSQL repositories and audited mutations
+    dto/                         Zod schemas and typed inputs
+    sql/                         Parameterized statements and projections
     <feature>.route.ts            Route path constants, including aliases
     <feature>.constant.ts         Feature constants and messages
-  infra/database/
-    client.ts                     Extended Prisma client and timestamp IDs
-    entity_id.ts                  ID generation for direct and nested writes
-    prisma.service.ts             Injected client and shutdown lifecycle
+  common/                         Current-user decorator and validation pipe
+  database/
+    database.module.ts           Shared pool provider
+    postgres.service.ts          Checkout, transactions and shutdown
+    postgres-error.ts            SQLSTATE mapping to API errors
+    entity-id.ts                 Opaque numeric identifiers
   infra/media/
     cloudinary.ts                 Injected upload service and failure cleanup
     image_transform.ts            WebP conversion before provider upload
@@ -108,11 +111,11 @@ Fare components use decimal arithmetic and round half-up to two decimal places. 
 - `PaymentWebhookGuard` verifies HMAC against the exact received JSON bytes; the parser retains the raw buffer before JSON decoding. Image form endpoints allow 8 MB JSON bodies; other routes keep their 1 MB limit.
 - `IdempotencyInterceptor` enforces the same keys/body hash and database uniqueness. Scopes use the matched route and decoded parameters, so URL casing, trailing slashes, and equivalent parameter encoding cannot repeat a mutation. Parameter casing is preserved. V2 paths normalize to V1's key scope so a retry across prefixes shares the stored result. Concurrent claims return the existing in-progress/conflict responses. Successful envelopes are cached with their HTTP status; failed handlers release unsaved claims so errors can be retried.
 - The global exception filter retains `{ status, message, error_code, request_id, details }`, including malformed JSON, oversized bodies, Zod validation, unique-record conflicts, and unknown Nest routes. Missing database records return 404; reference and transaction conflicts return safe 409 responses. Internal errors return generic copy.
-- Nest shutdown hooks close the HTTP listener and disconnect Prisma.
+- Nest shutdown hooks close the HTTP listener and close the PostgreSQL pool.
 
 ## Database and configuration
 
-API V2 is the canonical backend and migration owner. Its eleven migrations include partner onboarding, vehicle verification, Phase A fare/support configuration and Phase B driver operations. API V1 is not updated. Both API URL prefixes served by V2 invoke the same Nest controllers. For another environment, apply pending migrations with `npm run prisma:deploy` before starting the updated API.
+API V2 is the canonical backend and migration owner. The migration history includes partner onboarding, vehicle verification, Phase A fare/support configuration and Phase B driver operations. API V1 is not updated. Both API URL prefixes served by V2 invoke the same Nest controllers. For another environment, apply pending migrations with `npm run prisma:deploy` before starting the updated API.
 
 For an empty database, configure `DB_STRING` and apply the committed migrations using `npm run prisma:deploy`. For a hosted database, set `DB_DIRECT_STRING` for the migration command and keep the pooled URL in `DB_STRING` for runtime. `npm run prisma:seed` is optional development data. Docker Compose retains project name `api` to reuse the existing local PostgreSQL volume.
 
@@ -144,6 +147,7 @@ For Flutter Android emulators, set `API_BASE_URL=http://10.0.2.2:4001/api/v2` in
 npm run type-check
 npm run format:check
 npm run prisma:validate
+npm run prisma:generate
 npm run build
 npm run test:unit
 ```
@@ -165,7 +169,7 @@ See [API_V2_REVIEW.md](../../../context/API_V2_REVIEW.md) for review findings, r
 
 See [API_V2_PARITY_REVIEW.md](../../../context/API_V2_PARITY_REVIEW.md) for the subsequent V1 comparison, development proxy correction, database availability handling, final checks and the observed intermittent permission-test limitation.
 
-V2 supplies a 15-second PostgreSQL connection timeout when `DB_STRING` does not specify `connect_timeout`. Explicit connection settings are preserved. Known connection and pool/transaction availability failures return safe HTTP 503 responses with `DATABASE_UNAVAILABLE`/`DATABASE_BUSY` and a short Retry-After header; no write is retried automatically. Unexpected permission denials include actor ID/current role in server diagnostics, without credentials or bodies.
+Known connection and pool/transaction availability failures return safe HTTP 503 responses with `DATABASE_UNAVAILABLE`/`DATABASE_BUSY` and a short Retry-After header; no write is retried automatically. Unexpected permission denials include actor ID/current role in server diagnostics, without credentials or bodies.
 
 ## Admin workspace expansion
 

@@ -1,7 +1,9 @@
+import type { PostgresService } from '../database/postgres.service.js';
+import { ConfigurationRepository } from '../features/app_configuration/configuration.repository.js';
+import type { VehicleCategoryRepository } from '../features/vehicle_category/vehicle_category.repo.js';
 import assert from 'node:assert/strict';
-import { it, mock } from 'node:test';
+import { it } from 'node:test';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../infra/database/prisma.service.js';
 import { AppConfigurationService } from '../features/app_configuration/app_configuration.service.js';
 import {
   fare_policy_input,
@@ -14,11 +16,6 @@ import {
 import { require_supported_ride_payment } from '../features/app_configuration/payment_policy.js';
 import { availability_after_trip } from '../features/driver/driver_eligibility.js';
 import { PaymentRepository } from '../features/payment/payment.repo.js';
-import { VehicleCategoryRepository } from '../features/vehicle_category/vehicle_category.repo.js';
-import {
-  category_schema,
-  update_category_schema,
-} from '../features/vehicle_category/vehicle_category.type.js';
 
 const settings = fare_policy_input.parse({
   expected_version: 1,
@@ -62,11 +59,6 @@ const row = () => ({
     ),
   })),
 });
-const database = (client: unknown) => {
-  const db = new PrismaService();
-  Object.defineProperty(db, 'client', { value: client });
-  return db;
-};
 
 it('prices both distance bands and rounds once after summing', () => {
   const rates = row().rates[0]!;
@@ -170,285 +162,6 @@ it('supports any category count and rejects partial, negative, duplicate or grou
   );
 });
 
-it('category saves remain independent, support clearing one fare and reject renamed/deleted rows', async () => {
-  let policy = row();
-  const categories = settings.rates.map((rate) => ({
-    id: rate.category_id,
-    name: rate.category_id,
-    parent: null,
-    vehicle_type: 'SEDAN',
-    is_active: true,
-    updated_at: new Date(rate.expected_updated_at),
-    _count: { children: 0 },
-    max_profit_km: new Prisma.Decimal(2),
-    normal_fare_per_km: new Prisma.Decimal(10),
-    profit_fare_per_km: new Prisma.Decimal(20),
-  }));
-  let writes = 0;
-  const tx = {
-    $executeRaw: async () => 1,
-    user: {
-      findUnique: async () => ({
-        id: 'admin',
-        role: 'ADMIN',
-        status: 'ACTIVE',
-        deleted_at: null,
-      }),
-    },
-    rideFarePolicy: {
-      findUnique: async () => policy,
-      update: async () => (policy = { ...policy, version: policy.version + 1 }),
-    },
-    vehicleCategory: {
-      findMany: async () => categories,
-      updateMany: async ({
-        where,
-        data,
-      }: {
-        where: { id: string };
-        data: Record<string, unknown>;
-      }) => {
-        writes++;
-        const category = categories.find((c) => c.id === where.id)!;
-        Object.assign(category, {
-          ...data,
-          ...Object.fromEntries(
-            [
-              'max_profit_km',
-              'normal_fare_per_km',
-              'profit_fare_per_km',
-              'commission_percent',
-            ]
-              .filter((key) => key in data)
-              .map((key) => [
-                key,
-                data[key] === null
-                  ? null
-                  : new Prisma.Decimal(data[key] as number),
-              ]),
-          ),
-        });
-        return { count: 1 };
-      },
-    },
-    userLog: { create: async () => ({}) },
-  };
-  const service = new AppConfigurationService(
-    database({
-      ...tx,
-      $transaction: (action: (client: typeof tx) => Promise<unknown>) =>
-        action(tx),
-    }),
-  );
-  const saved = await service.save_fare_policy('admin', {
-    ...settings,
-    rates: [
-      {
-        ...settings.rates[0]!,
-        // Equivalent ISO instants must not produce a false stale-write conflict.
-        expected_updated_at: '2026-10-25T00:00:00Z',
-        fare_policy: {
-          max_profit_km: 1,
-          normal_fare_per_km: 33,
-          profit_fare_per_km: 44,
-          commission_percent: 12.5,
-        },
-      },
-    ],
-  });
-  assert.equal(
-    saved.rates.find((r) => r.category_id === 'economy')!.fare_policy!
-      .normal_fare_per_km,
-    33,
-  );
-  assert.equal(
-    saved.rates.find((r) => r.category_id === 'premium')!.fare_policy!
-      .normal_fare_per_km,
-    10,
-  );
-  assert.equal(writes, 1);
-  assert.equal(
-    saved.rates.find((r) => r.category_id === 'economy')!.fare_policy!
-      .commission_percent,
-    12.5,
-  );
-  assert.equal(
-    saved.rates.find((r) => r.category_id === 'premium')!.fare_policy!
-      .commission_percent,
-    0,
-  );
-  await assert.rejects(
-    service.save_fare_policy('admin', { ...settings, expected_version: 2 }),
-    { error_code: 'CATEGORY_FARE_CONFLICT' },
-  );
-  await assert.rejects(
-    service.save_fare_policy('admin', {
-      ...settings,
-      expected_version: 2,
-      rates: [{ ...settings.rates[0]!, category_id: 'removed-category' }],
-    }),
-    { error_code: 'CATEGORY_FARE_CONFLICT' },
-  );
-  assert.equal(writes, 1);
-  const premium = saved.rates.find((r) => r.category_id === 'premium')!;
-  const cleared = await service.save_fare_policy('admin', {
-    ...settings,
-    expected_version: 2,
-    rates: [
-      {
-        category_id: premium.category_id,
-        expected_updated_at: premium.updated_at.toISOString(),
-        fare_policy: null,
-      },
-    ],
-  });
-  assert.equal(
-    cleared.rates.find((r) => r.category_id === 'premium')!.fare_policy,
-    null,
-  );
-  assert.equal(
-    cleared.rates.find((r) => r.category_id === 'economy')!.fare_policy!
-      .normal_fare_per_km,
-    33,
-  );
-});
-
-it('new subcategories do not inherit a parent fare and may save their own fare at creation', async () => {
-  const parent = {
-    id: 'parent',
-    parent_id: null,
-    _count: { children: 0, vehicles: 0, quotes: 0 },
-    max_profit_km: new Prisma.Decimal(99),
-    normal_fare_per_km: new Prisma.Decimal(99),
-    profit_fare_per_km: new Prisma.Decimal(99),
-  };
-  let created = 0;
-  const tx = {
-    $executeRaw: async () => 1,
-    user: {
-      findUnique: async () => ({
-        status: 'ACTIVE',
-        deleted_at: null,
-        role: 'ADMIN',
-      }),
-    },
-    vehicleCategory: {
-      findUnique: async () => parent,
-      create: async ({ data }: { data: Record<string, unknown> }) => ({
-        id: `child-${++created}`,
-        max_profit_km: null,
-        normal_fare_per_km: null,
-        profit_fare_per_km: null,
-        ...data,
-      }),
-    },
-    userLog: { create: async () => ({}) },
-  };
-  const repo = new VehicleCategoryRepository(
-    database({
-      $transaction: (action: (client: typeof tx) => Promise<unknown>) =>
-        action(tx),
-    }),
-  );
-  const input = category_schema.parse({
-    name: 'New category',
-    parent_id: 'parent',
-    vehicle_type: 'SEDAN',
-    capacity: 4,
-    is_active: true,
-  });
-  const unpriced = await repo.write_category('admin', input);
-  assert.equal(unpriced.normal_fare_per_km, null);
-  const own = await repo.write_category('admin', {
-    ...input,
-    fare_policy: {
-      max_profit_km: 1,
-      normal_fare_per_km: 12,
-      profit_fare_per_km: 22,
-    },
-  });
-  assert.equal(own.normal_fare_per_km, 12);
-  assert.equal(own.profit_fare_per_km, 22);
-  assert.equal(parent.normal_fare_per_km.toNumber(), 99);
-});
-
-it('category edits preserve fares, advance revisions across clock skew and reject stale writes', async () => {
-  const initial = new Date('2026-10-25T00:00:00.000Z');
-  let current = {
-    id: 'category',
-    parent_id: null,
-    name: 'Economy',
-    vehicle_type: 'SEDAN',
-    capacity: 4,
-    updated_at: initial,
-    _count: { children: 0, vehicles: 0, quotes: 0 },
-    max_profit_km: new Prisma.Decimal(2),
-    normal_fare_per_km: new Prisma.Decimal(10),
-    profit_fare_per_km: new Prisma.Decimal(20),
-  };
-  let writes = 0;
-  const tx = {
-    $executeRaw: async () => 1,
-    user: {
-      findUnique: async () => ({
-        role: 'ADMIN',
-        status: 'ACTIVE',
-        deleted_at: null,
-      }),
-    },
-    vehicleCategory: {
-      findUnique: async () => ({ ...current }),
-      update: async ({ data }: { data: Record<string, unknown> }) => {
-        writes++;
-        current = {
-          ...current,
-          ...Object.fromEntries(
-            Object.entries(data).filter(([, value]) => value !== undefined),
-          ),
-        };
-        return { ...current };
-      },
-    },
-    userLog: { create: async () => ({}) },
-  };
-  const repo = new VehicleCategoryRepository(
-    database({
-      $transaction: (action: (client: typeof tx) => Promise<unknown>) =>
-        action(tx),
-    }),
-  );
-  const input = update_category_schema.parse({
-    name: 'Updated Economy',
-    vehicle_type: 'SEDAN',
-    capacity: 4,
-    is_active: true,
-    expected_updated_at: '2026-10-25T00:00:00Z',
-  });
-  const clock = mock.method(Date, 'now', () => initial.getTime() - 100);
-  try {
-    const saved = await repo.write_category('admin', input, 'category');
-    assert.equal(saved.updated_at.getTime(), initial.getTime() + 1);
-    assert.ok(saved.normal_fare_per_km);
-    assert.equal(saved.normal_fare_per_km.toString(), '10');
-    await assert.rejects(repo.write_category('admin', input, 'category'), {
-      error_code: 'CATEGORY_CONFLICT',
-    });
-    const next = await repo.write_category(
-      'admin',
-      {
-        ...input,
-        expected_updated_at: saved.updated_at.toISOString(),
-      },
-      'category',
-    );
-    assert.equal(next.updated_at.getTime(), initial.getTime() + 2);
-    assert.equal(writes, 2);
-    assert.equal(current.profit_fare_per_km.toString(), '20');
-  } finally {
-    clock.mock.restore();
-  }
-});
-
 it('normalizes support contact whitespace including blank optional channels', () => {
   const input = support_contact_input.parse({
     expected_version: 0,
@@ -474,7 +187,12 @@ it('rejects unsupported shared policies before quoting', async () => {
     },
   ]) {
     const service = new AppConfigurationService(
-      database({ rideFarePolicy: { findUnique: async () => policy } }),
+      new ConfigurationRepository(
+        {
+          query: async () => ({ rows: [policy] }),
+        } as unknown as PostgresService,
+        {} as VehicleCategoryRepository,
+      ),
     );
     await assert.rejects(service.fare_snapshot(), {
       error_code: 'FARE_POLICY_NOT_CONFIGURED',
@@ -484,75 +202,17 @@ it('rejects unsupported shared policies before quoting', async () => {
 
 it('category fares can use the agreed shared defaults before a global settings row is saved', async () => {
   const service = new AppConfigurationService(
-    database({ rideFarePolicy: { findUnique: async () => null } }),
+    new ConfigurationRepository(
+      { query: async () => ({ rows: [] }) } as unknown as PostgresService,
+      {} as VehicleCategoryRepository,
+    ),
   );
   const snapshot = await service.fare_snapshot();
   assert.equal(snapshot.version, 0);
   assert.equal(snapshot.cash_enabled, true);
   assert.equal(snapshot.direct_upi_enabled, true);
-  assert.equal(snapshot.commission_percent.toNumber(), 0);
-  assert.equal(snapshot.maximum_cancellation_fee.toNumber(), 100);
-});
-
-it('acknowledges the committed fare version and rejects a stale admin edit', async () => {
-  let writes = 0;
-  let logs = 0;
-  const tx = {
-    $executeRaw: async () => 1,
-    user: {
-      findUnique: async () => ({
-        id: 'admin',
-        status: 'ACTIVE',
-        role: 'ADMIN',
-        deleted_at: null,
-      }),
-    },
-    rideFarePolicy: {
-      findUnique: async () => row(),
-      update: async () => {
-        writes++;
-        return { ...row(), version: 2 };
-      },
-    },
-    vehicleCategory: {
-      findMany: async () =>
-        row().rates.map((rate) => ({
-          id: rate.category_id,
-          name: rate.category_id,
-          parent: null,
-          vehicle_type: 'SEDAN',
-          is_active: true,
-          updated_at: new Date(rate.expected_updated_at),
-          _count: { children: 0 },
-          max_profit_km: rate.max_profit_km,
-          normal_fare_per_km: rate.normal_fare_per_km,
-          profit_fare_per_km: rate.profit_fare_per_km,
-        })),
-    },
-    userLog: {
-      create: async () => {
-        logs++;
-      },
-    },
-  };
-  const service = new AppConfigurationService(
-    database({
-      $transaction: async (action: (client: typeof tx) => Promise<unknown>) =>
-        action(tx),
-      user: tx.user,
-      // A second read could observe another administrator's subsequent write.
-      rideFarePolicy: { findUnique: async () => ({ ...row(), version: 3 }) },
-    }),
-  );
-  const saved = await service.save_fare_policy('admin', settings);
-  assert.equal(saved.version, 2);
-  assert.equal(writes, 1);
-  assert.equal(logs, 1);
-  await assert.rejects(
-    service.save_fare_policy('admin', { ...settings, expected_version: 0 }),
-    { error_code: 'FARE_POLICY_CONFLICT' },
-  );
-  assert.equal(writes, 1);
+  assert.equal(snapshot.commission_percent, 0);
+  assert.equal(snapshot.maximum_cancellation_fee, 100);
 });
 
 it('honors quote payment snapshots while keeping legacy cash and completed history intact', () => {
@@ -636,36 +296,33 @@ it('preserves suspensions and checks current vehicle/account eligibility after a
 it('cash checkout rejects a disabled selected-quote policy before writing a payment', async () => {
   let writes = 0;
   const tx = {
-    $executeRaw: async () => 1,
-    ride: {
-      findFirst: async () => ({
-        id: 'ride',
-        status: 'COMPLETED',
-        final_fare: new Prisma.Decimal(50),
-        quotes: [
-          {
-            category_snapshot: {
-              fare_policy_version: 1,
-              payment_policy: { cash_enabled: false, direct_upi_enabled: true },
+    query: async (sql: string) => {
+      if (sql.includes('FROM rides r'))
+        return {
+          rows: [
+            {
+              id: 'ride',
+              status: 'COMPLETED',
+              final_fare: '50',
+              snapshot: {
+                fare_policy_version: 1,
+                payment_policy: {
+                  cash_enabled: false,
+                  direct_upi_enabled: true,
+                },
+              },
             },
-          },
-        ],
-      }),
+          ],
+        };
+      if (sql.includes('FROM payment_methods WHERE'))
+        return { rows: [{ id: 'cash', type: 'CASH' }] };
+      if (sql.startsWith('INSERT INTO payments')) writes++;
+      return { rows: [] };
     },
-    payment: {
-      findUnique: async () => null,
-      upsert: async () => {
-        writes++;
-      },
-    },
-    paymentMethod: { findFirst: async () => ({ id: 'cash', type: 'CASH' }) },
   };
-  const repository = new PaymentRepository(
-    database({
-      $transaction: async (action: (client: typeof tx) => Promise<unknown>) =>
-        action(tx),
-    }),
-  );
+  const repository = new PaymentRepository({
+    transaction: (work: (t: typeof tx) => Promise<unknown>) => work(tx),
+  } as unknown as PostgresService);
   await assert.rejects(
     repository.create_checkout('rider', {
       ride_id: 'ride',

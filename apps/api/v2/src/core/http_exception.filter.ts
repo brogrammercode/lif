@@ -4,7 +4,6 @@ import {
   type ArgumentsHost,
   type ExceptionFilter,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
 import type { Request, Response } from 'express';
 import { is_app_error } from './error.js';
@@ -15,11 +14,7 @@ import {
   MALFORMED_JSON_MESSAGE,
   BODY_TOO_LARGE_MESSAGE,
 } from './constants.js';
-import {
-  HTTP_DATABASE_ERRORS,
-  HTTP_ERROR_CODES,
-  HTTP_MESSAGES,
-} from './http.constant.js';
+import { HTTP_ERROR_CODES, HTTP_MESSAGES } from './http.constant.js';
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   constructor(private readonly audit: AdminAuditService) {}
@@ -36,18 +31,6 @@ export class HttpExceptionFilter implements ExceptionFilter {
       typeof error === 'object' &&
       'type' in error &&
       error.type === 'entity.too.large';
-    const database_code =
-      error instanceof Prisma.PrismaClientKnownRequestError
-        ? error.code
-        : error instanceof Prisma.PrismaClientInitializationError
-          ? error.errorCode
-          : undefined;
-    const database_error =
-      database_code && Object.hasOwn(HTTP_DATABASE_ERRORS, database_code)
-        ? HTTP_DATABASE_ERRORS[
-            database_code as keyof typeof HTTP_DATABASE_ERRORS
-          ]
-        : undefined;
     const unsupported_encoding =
       error !== null &&
       typeof error === 'object' &&
@@ -65,11 +48,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
             ? 413
             : unsupported_encoding
               ? 415
-              : database_error
-                ? database_error.status_code
-                : error instanceof HttpException
-                  ? error.getStatus()
-                  : 500;
+              : error instanceof HttpException
+                ? error.getStatus()
+                : 500;
     const error_code = is_app_error(error)
       ? error.error_code
       : validation
@@ -80,11 +61,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
             ? 'BODY_TOO_LARGE'
             : unsupported_encoding
               ? 'UNSUPPORTED_MEDIA_TYPE'
-              : database_error
-                ? database_error.error_code
-                : (HTTP_ERROR_CODES[
-                    status_code as keyof typeof HTTP_ERROR_CODES
-                  ] ?? 'INTERNAL_ERROR');
+              : (HTTP_ERROR_CODES[
+                  status_code as keyof typeof HTTP_ERROR_CODES
+                ] ?? 'INTERNAL_ERROR');
     const message = is_app_error(error)
       ? error.message
       : validation
@@ -95,13 +74,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
             ? BODY_TOO_LARGE_MESSAGE
             : unsupported_encoding
               ? HTTP_MESSAGES.UNSUPPORTED_ENCODING
-              : database_error
-                ? database_error.message
-                : status_code === 404
-                  ? HTTP_MESSAGES.NOT_FOUND
-                  : error instanceof HttpException && status_code < 500
-                    ? error.message
-                    : UNKNOWN_ERROR_MESSAGE;
+              : status_code === 404
+                ? HTTP_MESSAGES.NOT_FOUND
+                : error instanceof HttpException && status_code < 500
+                  ? error.message
+                  : UNKNOWN_ERROR_MESSAGE;
     if (status_code < 500)
       console.warn({
         request_id: request.request_id,

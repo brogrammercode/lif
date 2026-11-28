@@ -1,90 +1,76 @@
+import { opaqueIdSchema } from '../../common/dto/opaque-id.dto.js';
 import {
+  Body,
   Controller,
-  HttpCode,
-  Req,
-  Res,
   Get,
-  Post,
+  Header,
+  Param,
   Patch,
+  Post,
   UseGuards,
 } from '@nestjs/common';
-import { VehicleCategoryService } from './vehicle_category.service.js';
+import { CurrentUserId } from '../../common/decorators/current-user-id.decorator.js';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { AuthGuard, AdminGuard } from '../../core/guards.js';
-import { VEHICLE_CATEGORY_ROUTES } from './vehicle_category.route.js';
-import type { Request, Response } from 'express';
-import { send_success } from '../../core/response.js';
+import { success } from '../../core/response.js';
 import { CATEGORY_MESSAGES } from './vehicle_category.constant.js';
+import { VehicleCategoryService } from './vehicle_category.service.js';
 import {
   category_schema,
   update_category_schema,
+  type CategoryInput,
+  type CategoryUpdateInput,
 } from './vehicle_category.type.js';
-@Controller()
+
+@Controller('vehicle-categories')
+@UseGuards(AuthGuard)
 export class VehicleCategoryController {
-  constructor(
-    private readonly vehicleCategoryService: VehicleCategoryService,
-  ) {}
-  @Get(VEHICLE_CATEGORY_ROUTES.CATALOG)
-  @HttpCode(200)
-  @UseGuards(AuthGuard)
-  async catalog(
-    @Req() _request: Request,
-    @Res({ passthrough: true }) response: Response,
-  ) {
-    response.setHeader('Cache-Control', 'no-store');
-    return send_success(
-      response,
-      await this.vehicleCategoryService.get_category_catalog(true),
+  constructor(private readonly categories: VehicleCategoryService) {}
+
+  @Get()
+  @Header('Cache-Control', 'no-store')
+  async catalog() {
+    return success(
+      await this.categories.get_category_catalog(true),
+      CATEGORY_MESSAGES.LOADED,
+    );
+  }
+}
+
+@Controller('admin/vehicle-categories')
+@UseGuards(AuthGuard, AdminGuard)
+export class AdminVehicleCategoryController {
+  constructor(private readonly categories: VehicleCategoryService) {}
+
+  @Get()
+  @Header('Cache-Control', 'no-store')
+  async catalog() {
+    return success(
+      await this.categories.get_category_catalog(),
       CATEGORY_MESSAGES.LOADED,
     );
   }
 
-  @Get(VEHICLE_CATEGORY_ROUTES.ADMIN_CATALOG)
-  @HttpCode(200)
-  @UseGuards(AuthGuard, AdminGuard)
-  async admin_catalog(
-    @Req() _request: Request,
-    @Res({ passthrough: true }) response: Response,
-  ) {
-    response.setHeader('Cache-Control', 'no-store');
-    return send_success(
-      response,
-      await this.vehicleCategoryService.get_category_catalog(),
-      CATEGORY_MESSAGES.LOADED,
-    );
-  }
-
-  @Post(VEHICLE_CATEGORY_ROUTES.CREATE)
-  @HttpCode(200)
-  @UseGuards(AuthGuard, AdminGuard)
+  @Post()
   async create(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() actor: string,
+    @Body(new ZodValidationPipe(category_schema)) input: CategoryInput,
   ) {
-    return send_success(
-      response,
-      await this.vehicleCategoryService.create_category(
-        request.auth!.user_id,
-        category_schema.parse(request.body),
-      ),
+    return success(
+      await this.categories.create_category(actor, input),
       CATEGORY_MESSAGES.CREATED,
-      201,
     );
   }
 
-  @Patch(VEHICLE_CATEGORY_ROUTES.UPDATE)
-  @HttpCode(200)
-  @UseGuards(AuthGuard, AdminGuard)
+  @Patch(':id')
   async update(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() actor: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
+    @Body(new ZodValidationPipe(update_category_schema))
+    input: CategoryUpdateInput,
   ) {
-    return send_success(
-      response,
-      await this.vehicleCategoryService.update_category(
-        request.auth!.user_id,
-        request.params.id as string,
-        update_category_schema.parse(request.body),
-      ),
+    return success(
+      await this.categories.update_category(actor, id, input),
       CATEGORY_MESSAGES.UPDATED,
     );
   }

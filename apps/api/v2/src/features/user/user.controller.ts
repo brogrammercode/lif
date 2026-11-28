@@ -1,20 +1,20 @@
+import { opaqueIdSchema } from '../../common/dto/opaque-id.dto.js';
 import {
+  Body,
   Controller,
+  Delete,
+  Get,
   HttpCode,
-  Req,
-  Res,
+  Param,
   Patch,
   Post,
-  Get,
-  Delete,
   UseGuards,
 } from '@nestjs/common';
-import { UserService } from './user.service.js';
+import { CurrentUserId } from '../../common/decorators/current-user-id.decorator.js';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { AuthGuard } from '../../core/guards.js';
-import { USER_ROUTES } from './user.route.js';
-import type { Request, Response } from 'express';
-import { AppError } from '../../core/error.js';
-import { send_success } from '../../core/response.js';
+import { success } from '../../core/response.js';
+import { UserService } from './user.service.js';
 import {
   AVATAR_UPDATED_MESSAGE,
   SAVED_PLACE_CREATED_MESSAGE,
@@ -29,159 +29,108 @@ import {
   location_update_schema,
   profile_update_schema,
   saved_place_schema,
-} from './user.type.js';
-@Controller()
+  type AvatarInput,
+  type LocationUpdateInput,
+  type ProfileUpdateInput,
+  type SavedPlaceInput,
+} from './dto/user.dto.js';
+
+@Controller('me')
+@UseGuards(AuthGuard)
 export class UserController {
   constructor(private readonly userService: UserService) {}
-  readonly user_id = (request: Request): string => {
-    if (!request.auth)
-      throw new AppError(401, 'UNAUTHORIZED', 'Authentication is required');
-    return request.auth.user_id;
-  };
 
-  @Patch(USER_ROUTES.UPDATE_ME)
-  @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @Patch()
   async update_me(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() userId: string,
+    @Body(new ZodValidationPipe(profile_update_schema))
+    input: ProfileUpdateInput,
   ) {
-    return send_success(
-      response,
-      await this.userService.update_user_profile(
-        this.user_id(request),
-        profile_update_schema.parse(request.body),
-      ),
+    return success(
+      await this.userService.update_user_profile(userId, input),
       PROFILE_UPDATED_MESSAGE,
     );
   }
 
-  @Post(USER_ROUTES.UPDATE_AVATAR)
+  @Post('avatar')
   @HttpCode(200)
-  @UseGuards(AuthGuard)
   async update_avatar(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() userId: string,
+    @Body(new ZodValidationPipe(avatar_schema)) input: AvatarInput,
   ) {
-    return send_success(
-      response,
-      await this.userService.update_user_avatar(
-        this.user_id(request),
-        avatar_schema.parse(request.body),
-      ),
+    return success(
+      await this.userService.update_user_avatar(userId, input),
       AVATAR_UPDATED_MESSAGE,
     );
   }
 
-  @Patch(USER_ROUTES.UPDATE_LOCATION)
-  @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @Patch('location')
   async update_location(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() userId: string,
+    @Body(new ZodValidationPipe(location_update_schema))
+    input: LocationUpdateInput,
   ) {
-    await this.userService.save_user_last_known_location(
-      this.user_id(request),
-      location_update_schema.parse(request.body),
-    );
-    return send_success(
-      response,
-      { updated: true },
-      USER_LOCATION_UPDATED_MESSAGE,
-    );
+    await this.userService.save_user_last_known_location(userId, input);
+    return success({ updated: true }, USER_LOCATION_UPDATED_MESSAGE);
   }
 
-  @Get(USER_ROUTES.GET_PLACES)
-  @HttpCode(200)
-  @UseGuards(AuthGuard)
-  async get_places(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
-  ) {
-    return send_success(
-      response,
-      await this.userService.get_saved_places(this.user_id(request)),
+  @Get('saved-places')
+  async get_places(@CurrentUserId() userId: string) {
+    return success(
+      await this.userService.get_saved_places(userId),
       'Saved places loaded',
     );
   }
 
-  @Post(USER_ROUTES.POST_PLACE)
-  @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @Post('saved-places')
+  @HttpCode(201)
   async post_place(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() userId: string,
+    @Body(new ZodValidationPipe(saved_place_schema)) input: SavedPlaceInput,
   ) {
-    return send_success(
-      response,
-      await this.userService.add_saved_place(
-        this.user_id(request),
-        saved_place_schema.parse(request.body),
-      ),
+    return success(
+      await this.userService.add_saved_place(userId, input),
       SAVED_PLACE_CREATED_MESSAGE,
-      201,
     );
   }
 
-  @Patch(USER_ROUTES.PATCH_PLACE)
-  @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @Patch('saved-places/:id')
   async patch_place(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() userId: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
+    @Body(new ZodValidationPipe(saved_place_schema)) input: SavedPlaceInput,
   ) {
-    return send_success(
-      response,
-      await this.userService.edit_saved_place(
-        this.user_id(request),
-        request.params.id as string,
-        saved_place_schema.parse(request.body),
-      ),
+    return success(
+      await this.userService.edit_saved_place(userId, id, input),
       SAVED_PLACE_UPDATED_MESSAGE,
     );
   }
 
-  @Delete(USER_ROUTES.DELETE_PLACE)
-  @HttpCode(200)
-  @UseGuards(AuthGuard)
+  @Delete('saved-places/:id')
   async delete_place(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() userId: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
   ) {
-    await this.userService.remove_saved_place(
-      this.user_id(request),
-      request.params.id as string,
-    );
-    return send_success(response, null, SAVED_PLACE_DELETED_MESSAGE);
+    await this.userService.remove_saved_place(userId, id);
+    return success(null, SAVED_PLACE_DELETED_MESSAGE);
   }
 
-  @Get(USER_ROUTES.GET_USER_NOTIFICATIONS)
-  @HttpCode(200)
-  @UseGuards(AuthGuard)
-  async get_user_notifications(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
-  ) {
-    return send_success(
-      response,
-      await this.userService.get_notifications(this.user_id(request)),
+  @Get('notifications')
+  async get_user_notifications(@CurrentUserId() userId: string) {
+    return success(
+      await this.userService.get_notifications(userId),
       'Notifications loaded',
     );
   }
 
-  @Post(USER_ROUTES.PATCH_NOTIFICATION)
+  @Post('notifications/:id/read')
   @HttpCode(200)
-  @UseGuards(AuthGuard)
   async patch_notification(
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() userId: string,
+    @Param('id', new ZodValidationPipe(opaqueIdSchema)) id: string,
   ) {
-    return send_success(
-      response,
-      await this.userService.read_notification(
-        this.user_id(request),
-        request.params.id as string,
-      ),
+    return success(
+      await this.userService.read_notification(userId, id),
       NOTIFICATION_READ_MESSAGE,
     );
   }
